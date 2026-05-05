@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+build/
+dist/
+
+# Dictionary payloads and generated extraction output.
+*.DIC
+*.IDX
+*.idx
+*.db
+*.dbc
+*.sql
+*.uni
+*.UNI
+GA16*
+GAI16*
+Gaiji*.plist
+logovista-raw-extract/
+logovista-raw-titles/
+*.jsonl
+
