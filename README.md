@@ -12,7 +12,8 @@ Current status: alpha, useful for research and bulk extraction. It can already
 decompress SSED data, compose EPWING-like book images, extract readable
 `HONMON.DIC` body entries for many dictionaries, extract raw title/headword
 streams from `*TITLE.DIC`, and follow raw HONMON numeric ID records into
-LogoVista `DictFULLDB` body payloads for products such as KOJIEN7.
+LogoVista `DictFULLDB` body payloads for products such as KOJIEN7 and other
+dense-HONMON dictionaries.
 
 No dictionary data is included in this repository.
 
@@ -278,7 +279,7 @@ Known working layers:
 - Plist gaiji mapping when `Gaiji.plist` or `GaijiS.plist` is present.
 - Placeholder preservation for unresolved gaiji, for example `<hA126>`.
 - Full-width ASCII normalization to half-width ASCII.
-- Dense placeholder HONMON detection.
+- Dense HONMON ID-table detection.
 - Raw HONMON numeric ID decoding for `DictFULLDB` extraction.
 
 Known limitations:
@@ -288,8 +289,8 @@ Known limitations:
 - `.uni`, `GA16HALF`, `GA16FULL`, and bitmap gaiji are only partially handled.
 - Output is JSONL, not a final Yomitan/MDict exporter.
 - Some control opcodes are recognized only enough to avoid corrupt text.
-- `OXFPEU4.dbc` appears to be a separate non-SSED, non-SQLite payload and is
-  not decoded.
+- `DictFtsDB` `.dbc` payloads such as `OXFPEU4.dbc` are opaque; the observed
+  file has no recoverable SSED, SQLite, HTML, or fixed-XOR structure.
 
 ## Format Deep Dive
 
@@ -503,15 +504,14 @@ body stream. Instead it is a dense run of 32-byte records that look like:
 1f09 0001 1f41 .... 1f04 [blank JIS cells] 1f05 1f61 1f0a
 ```
 
-The first pass treated these as pure placeholders. That was too strong. In
-KOJIEN7, most slots are blank, but populated slots contain an 8-digit decimal
-ID in the head span:
+Blank slots contain repeated JIS blank cells (`2121`). Populated slots contain
+body IDs in the same span:
 
 ```text
 1f0a 1f09 0001 1f41 0160 1f04 3330 3330 ... 1f05 1f61
 ```
 
-Decoded as text, the head span can be:
+Decoded as text, the ID span can be:
 
 ```text
 00000755
@@ -527,23 +527,23 @@ Those IDs correspond to `DictFULLDB` body rows such as:
 00851665 -> にほん 【日本】
 ```
 
-So the correct model is:
+The model for these dictionaries is:
 
 - direct HONMON slicing does not recover definitions;
 - HONMON is still meaningful as a raw numeric ID/address table;
 - `DictList.plist` can name a sibling `DictFULLDB` payload;
 - the full body is recovered by following raw HONMON IDs into that payload.
 
-Observed placeholder-HONMON dictionaries include:
+Observed dense-HONMON dictionaries include:
 
-```text
-HABGESPA
-HAFRAN
-IWKOKUG8
-KENROWA
-KOJIEN7
-NANMED20
-```
+| Dictionary | Raw HONMON ID slots observed | Lookup/title text available without `DictFULLDB` |
+| --- | ---: | --- |
+| `HABGESPA` | 109,753 | No title components; Spanish keys are visible in `FHINDEX.DIC` / `BHINDEX.DIC`. |
+| `HAFRAN` | 7,892 | No title components; French keys are visible in `FHINDEX.DIC` / `BHINDEX.DIC`. |
+| `IWKOKUG8` | 65,480 | `*TITLE.DIC` streams expose Japanese lookup titles such as `ああ【嗚呼】`. |
+| `KENROWA` | 160,616 | `*TITLE.DIC` streams expose Russian/Japanese lookup titles. |
+| `KOJIEN7` | 300,000 | `*TITLE.DIC` streams expose Japanese lookup titles; HONMON IDs resolve to `DictFULLDB`. |
+| `NANMED20` | 38,976 | `*TITLE.DIC` streams expose alias triples such as `見出し|読み|表示見出し`. |
 
 For these, the `entries` command skips body extraction by default and reports a
 warning in `summary.json`. Try `fulldb` when `DictList.plist` declares
@@ -591,6 +591,13 @@ Parsing these directly is the next major milestone. It is required for:
 - pairing title lines with body addresses;
 - reconstructing aliases and subentries;
 - resolving dense-HONMON ID dictionaries cleanly where possible.
+
+Raw-only probes confirm that indexes can expose useful lookup strings even
+when no `*TITLE.DIC` component is present. For example, `HABGESPA` exposes
+Spanish keys in `FHINDEX.DIC` / `BHINDEX.DIC`, and `HAFRAN` exposes French
+keys in the same forward/backward index components. Those decoded strings are
+not full body entries; they are evidence that the remaining direct raw work is
+index-structure parsing.
 
 ### Gaiji
 
@@ -642,9 +649,18 @@ does, but only after decoding body IDs from raw HONMON records.
 
 ### Outliers
 
-`OXFPEU4` is currently not handled beyond catalog inspection. Its SSED side is
-only a tiny stub, and the large `OXFPEU4.dbc` file is neither `SSEDDATA` nor
-SQLite by signature. That file needs separate reverse engineering.
+`OXFPEU4` declares `DictFtsDB` rather than `DictFULLDB`. Its SSED side contains
+only tiny stub data, and `OXFPEU4.dbc` is an opaque 2048-byte-block payload.
+Observed properties:
+
+- size is exactly `7782 * 2048` bytes;
+- entropy is effectively maximum at `7.999987` bits per byte;
+- no SQLite, SSED, ZIP, gzip, zlib, HTML, or EPWING marker is present;
+- no repeated 16-byte blocks were observed;
+- fixed XOR and short-period mask probes did not reveal plaintext.
+
+Treat this class as encrypted or otherwise cryptographically packed until a
+reader implementation or documented key schedule is available.
 
 ## Roadmap
 
