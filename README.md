@@ -276,7 +276,10 @@ Known working layers:
 - JIS X 0208 text decoding.
 - Common `0x1f` stream controls for line breaks, headword spans, links,
   emphasis-ish spans, superscript/subscript, and media/link wrappers.
-- Plist gaiji mapping when `Gaiji.plist` or `GaijiS.plist` is present.
+- Dictionary-specific `.uni` gaiji mapping using primary Unicode sequences.
+- Plist gaiji fallback mapping when `Gaiji.plist` or `GaijiS.plist` is
+  present.
+- `GA16HALF` / `GA16FULL` bitmap resource header parsing and glyph slicing.
 - Placeholder preservation for unresolved gaiji, for example `<hA126>`.
 - Full-width ASCII normalization to half-width ASCII.
 - Dense HONMON ID-table detection.
@@ -286,7 +289,8 @@ Known limitations:
 
 - Not all dictionaries store definitions in `HONMON.DIC`.
 - `*INDEX.DIC` binary search structures are not fully parsed yet.
-- `.uni`, `GA16HALF`, `GA16FULL`, and bitmap gaiji are only partially handled.
+- Bitmap-only gaiji can be identified and sliced from `GA16HALF` / `GA16FULL`,
+  but are not rendered or exported as image assets yet.
 - Output is JSONL, not a final Yomitan/MDict exporter.
 - Some control opcodes are recognized only enough to avoid corrupt text.
 - `DictFtsDB` `.dbc` payloads such as `OXFPEU4.dbc` are opaque; the observed
@@ -312,7 +316,9 @@ BKTITLE.DIC
 BKINDEX.DIC
 GA16HALF
 GA16FULL
+DICT.uni
 Gaiji.plist
+GaijiS.plist
 DICT.db or DICT.sql
 ```
 
@@ -601,8 +607,19 @@ index-structure parsing.
 
 ### Gaiji
 
-Gaiji are dictionary-specific characters and formatting markers. Observed
-resources include:
+Gaiji are dictionary-specific characters and formatting markers. A gaiji code
+is not globally meaningful. The same code can map to different Unicode text in
+different dictionaries:
+
+| Code | `HAESPJPN` | `GENIUSEB` | `KOJIEN7` | `HAFRAN` |
+| --- | --- | --- | --- | --- |
+| `A126` | `é` | `ɑ̃` | `Ö` | `é` |
+| `A138` | `ñ` | `ō` | `ñ` | `⑥` |
+
+The extractor therefore builds a gaiji profile per dictionary. Do not use a
+global replacement table such as `A126 = é`.
+
+Observed resources include:
 
 ```text
 Gaiji.plist
@@ -618,14 +635,69 @@ image/icon folders
 
 The current extractor:
 
-- loads string mappings from `Gaiji.plist` and `GaijiS.plist`;
+- loads primary Unicode mappings from dictionary-local `.uni` / `.UNI` files;
+- uses `Gaiji.plist` and `GaijiS.plist` only as fallbacks for codes missing
+  from `.uni`;
+- parses `GA16HALF` and `GA16FULL` headers and can slice individual bitmap
+  glyph records;
 - emits unresolved half-width gaiji as `<hXXXX>` by default;
 - can emit all unresolved gaiji as placeholders with `--gaiji placeholder`;
 - can drop unresolved gaiji with `--gaiji drop`.
 
-For conversion work, keeping placeholders is usually better than dropping.
-It lets a later gaiji pass replace `<hA126>` with `é`, `<hA138>` with `ñ`, or
-with images if the character has no Unicode equivalent.
+For conversion work, keeping unresolved placeholders is usually better than
+dropping. It lets a later gaiji pass replace `<hXXXX>` / `<zXXXX>` with images
+if the character has no Unicode equivalent.
+
+#### `.uni` Files
+
+Observed `.uni` / `.UNI` files start with:
+
+```text
+offset  size  meaning
+0x00    6     ASCII magic: "Ver2  "
+0x06    4     half-width gaiji record count, big endian
+0x0a    ...   half-width records, 16 bytes each
+...     4     full-width gaiji record count, big endian
+...     ...   full-width records, 16 bytes each
+```
+
+Each 16-byte record is eight big-endian 16-bit fields:
+
+```text
+field  meaning
+0      gaiji code, for example A126 or B121
+1      glyph/style metadata, not fully classified
+2..3   primary Unicode sequence
+4..5   fallback/search sequence, not used for display today
+6..7   alternate/reference sequence, not used for display today
+```
+
+The toolkit currently uses fields `2..3`, ignoring zero code units and invalid
+surrogates. This handles single-codepoint gaiji such as `é` and multi-codepoint
+sequences such as `u` + combining inverted breve below.
+
+#### `GA16HALF` / `GA16FULL`
+
+`GA16HALF` and `GA16FULL` contain bitmap glyphs. The observed header is:
+
+```text
+offset  size  meaning
+0x08    1     glyph width
+0x09    1     glyph height
+0x0a    2     first gaiji code, big endian
+0x0c    2     glyph count, big endian
+0x800   ...   bitmap data
+```
+
+Typical values:
+
+```text
+GA16HALF  width=8   height=16  glyph bytes=16
+GA16FULL  width=16  height=16  glyph bytes=32
+```
+
+The parser can locate a glyph by code and return its raw bitmap bytes. Rendering
+those bytes to SVG/PNG is still future work.
 
 ### DictFULLDB Payloads
 
@@ -666,7 +738,8 @@ reader implementation or documented key schedule is available.
 
 Near-term:
 
-- Parse `.uni`, `GA16HALF`, and `GA16FULL` gaiji resources.
+- Render bitmap-only `GA16HALF` / `GA16FULL` gaiji to portable image assets.
+- Add SQL/`DictFULLDB`-assisted gaiji validation reports where available.
 - Preserve a richer structured AST instead of emitting only plain body text.
 - Parse common `*INDEX.DIC` search structures.
 - Link title streams to body IDs for dense-HONMON dictionaries.

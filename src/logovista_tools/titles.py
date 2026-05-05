@@ -14,7 +14,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .entries import decode_tokens, discover_dictionaries, load_plist_gaiji_map, tokens_to_text
+from .entries import decode_tokens, discover_dictionaries, tokens_to_text
+from .gaiji import load_gaiji_profile
 from .ssed import expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 
 
@@ -31,7 +32,7 @@ def extract_titles_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) -
     dict_out = out_dir / dict_id
     dict_out.mkdir(parents=True, exist_ok=True)
     titles_path = dict_out / "raw_titles.jsonl"
-    gaiji_map = load_plist_gaiji_map(idx)
+    gaiji_profile = load_gaiji_profile(idx)
 
     component_summaries: list[dict[str, Any]] = []
     total_lines = 0
@@ -43,7 +44,7 @@ def extract_titles_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) -
             if source is None:
                 continue
             expanded = expand_sseddata_file(source)
-            tokens, stats = decode_tokens(expanded, gaiji=args.gaiji, gaiji_map=gaiji_map)
+            tokens, stats = decode_tokens(expanded, gaiji=args.gaiji, gaiji_map=gaiji_profile.map)
             text = tokens_to_text(tokens)
             emitted = 0
             for line_index, line in enumerate(text.splitlines(), start=1):
@@ -79,7 +80,9 @@ def extract_titles_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) -
         "idx": str(idx),
         "title_components": component_summaries,
         "lines_emitted": total_lines,
-        "gaiji_map_entries": len(gaiji_map),
+        "gaiji_map_entries": len(gaiji_profile.map),
+        "gaiji_uni_entries": gaiji_profile.uni_entries,
+        "gaiji_plist_entries": gaiji_profile.plist_entries,
         "titles_path": str(titles_path),
     }
     write_json(dict_out / "titles_summary.json", summary)

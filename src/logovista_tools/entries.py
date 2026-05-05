@@ -2,21 +2,21 @@
 """Extract readable raw entries from LogoVista/SSED HONMON.DIC files.
 
 This deliberately uses the raw .IDX/.DIC layer. SQLite cache files are not read.
-Gaiji are ignored or emitted as placeholders; full gaiji resolution belongs in a
-separate pass.
+Gaiji are resolved through dictionary-specific .uni files first, then
+Gaiji.plist/GaijiS.plist fallback mappings, or emitted as placeholders.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import plistlib
 import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from .gaiji import load_gaiji_map, load_gaiji_profile
 from .ssed import BLOCK_SIZE, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 
 
@@ -65,6 +65,8 @@ class DictionarySource:
     honmon: Path
     honmon_start_block: int
     gaiji_map: dict[str, str]
+    gaiji_uni_entries: int = 0
+    gaiji_plist_entries: int = 0
 
 
 def decode_jis_pair(pair: bytes) -> str:
@@ -274,28 +276,9 @@ def iter_entry_slices(data: bytes) -> Iterable[tuple[int, int]]:
 
 
 def load_plist_gaiji_map(idx: Path) -> dict[str, str]:
-    gaiji_map: dict[str, str] = {}
-    candidates = [
-        idx.parent / "GaijiS.plist",
-        idx.parent / "Gaiji.plist",
-        idx.parent.parent / "GaijiS.plist",
-        idx.parent.parent / "Gaiji.plist",
-    ]
-    for path in candidates:
-        if not path.exists():
-            continue
-        try:
-            data = plistlib.load(path.open("rb"))
-        except Exception:
-            continue
-        if not isinstance(data, dict):
-            continue
-        for key, value in data.items():
-            if not isinstance(key, str) or not re.fullmatch(r"[A-Fa-f0-9]{4}", key):
-                continue
-            if isinstance(value, str):
-                gaiji_map.setdefault(key.lower(), value)
-    return gaiji_map
+    """Compatibility wrapper for callers that used the old plist-only name."""
+
+    return load_gaiji_map(idx)
 
 
 def discover_dictionaries(roots: list[Path]) -> list[DictionarySource]:
@@ -325,6 +308,7 @@ def discover_dictionaries(roots: list[Path]) -> list[DictionarySource]:
             if honmon is None:
                 continue
             dict_id = idx.parent.parent.name if idx.parent.name == idx.parent.parent.name else idx.stem
+            gaiji_profile = load_gaiji_profile(idx)
             found.append(
                 DictionarySource(
                     dict_id=dict_id,
@@ -332,7 +316,9 @@ def discover_dictionaries(roots: list[Path]) -> list[DictionarySource]:
                     title=title,
                     honmon=honmon,
                     honmon_start_block=honmon_element.start,
-                    gaiji_map=load_plist_gaiji_map(idx),
+                    gaiji_map=gaiji_profile.map,
+                    gaiji_uni_entries=gaiji_profile.uni_entries,
+                    gaiji_plist_entries=gaiji_profile.plist_entries,
                 )
             )
     return found
@@ -374,6 +360,8 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
             "stats": aggregate_stats,
             "warnings": warnings,
             "gaiji_map_entries": len(source.gaiji_map),
+            "gaiji_uni_entries": source.gaiji_uni_entries,
+            "gaiji_plist_entries": source.gaiji_plist_entries,
             "entries_path": str(entries_path),
         }
         write_json(dict_out / "summary.json", summary)
@@ -421,6 +409,8 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
         "stats": aggregate_stats,
         "warnings": warnings,
         "gaiji_map_entries": len(source.gaiji_map),
+        "gaiji_uni_entries": source.gaiji_uni_entries,
+        "gaiji_plist_entries": source.gaiji_plist_entries,
         "entries_path": str(entries_path),
     }
     write_json(dict_out / "summary.json", summary)

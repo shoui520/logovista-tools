@@ -72,6 +72,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
                 "honmon_start_block": source.honmon_start_block,
                 "components": len(elements),
                 "gaiji_map_entries": len(source.gaiji_map),
+                "gaiji_uni_entries": source.gaiji_uni_entries,
+                "gaiji_plist_entries": source.gaiji_plist_entries,
             }
         )
 
@@ -82,7 +84,9 @@ def cmd_scan(args: argparse.Namespace) -> int:
     for row in rows:
         print(
             f"{row['dict_id']:12s} components={row['components']:2d} "
-            f"gaiji={row['gaiji_map_entries']:4d} {row['title']}"
+            f"gaiji={row['gaiji_map_entries']:4d} "
+            f"uni={row['gaiji_uni_entries']:4d} plist={row['gaiji_plist_entries']:4d} "
+            f"{row['title']}"
         )
         print(f"  idx: {row['idx']}")
     return 0
