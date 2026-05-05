@@ -10,8 +10,9 @@ tools work from those raw files first.
 
 Current status: alpha, useful for research and bulk extraction. It can already
 decompress SSED data, compose EPWING-like book images, extract readable
-`HONMON.DIC` body entries for many dictionaries, and extract raw title/headword
-streams from `*TITLE.DIC`.
+`HONMON.DIC` body entries for many dictionaries, extract raw title/headword
+streams from `*TITLE.DIC`, and follow raw HONMON numeric ID records into
+LogoVista `DictFULLDB` body payloads for products such as KOJIEN7.
 
 No dictionary data is included in this repository.
 
@@ -73,6 +74,13 @@ Extract raw title/headword streams:
 
 ```bash
 logovista-tools titles /path/to/LogoVista --out-dir out/titles
+```
+
+Extract formatted bodies from products that use raw HONMON ID records plus
+`DictFULLDB`:
+
+```bash
+logovista-tools fulldb /path/to/LogoVista --dict KOJIEN7 --out-dir out/fulldb
 ```
 
 Smoke-test one dictionary:
@@ -208,6 +216,55 @@ Each JSONL row looks like:
 Title extraction is especially useful for dictionaries whose `HONMON.DIC` is a
 placeholder table rather than a body stream.
 
+### `fulldb`
+
+Extract formatted bodies from LogoVista products that declare a `DictFULLDB`
+payload in `DictList.plist`.
+
+```bash
+logovista-tools fulldb /path/to/LogoVista --dict KOJIEN7 --out-dir fulldb
+```
+
+This command still starts from the raw files:
+
+1. Find a dictionary with `SSEDINFO` / `SSEDDATA`.
+2. Expand `HONMON.DIC`.
+3. Decode the 32-byte HONMON slots that contain decimal body IDs.
+4. Resolve `DictFULLDB` from `DictList.plist`.
+5. Emit HTML/plain body rows whose IDs were present in raw HONMON.
+
+By default, this command only follows a `DictFULLDB` path declared by
+LogoVista metadata. It does not grab arbitrary neighboring database files.
+`--allow-db-fallback` is available for experiments, but it is intentionally
+opt-in.
+
+Output layout:
+
+```text
+fulldb/
+  summary.json
+  DICT_ID/
+    fulldb_summary.json
+    fulldb_entries.jsonl
+```
+
+Each JSONL row looks like:
+
+```json
+{
+  "dict_id": "KOJIEN7",
+  "dict_title": "広辞苑 第七版",
+  "data_id": 755,
+  "record_index": 754,
+  "block": 13,
+  "offset": 1602,
+  "type": 2,
+  "title": "アイ‐アイ 【aye-aye】",
+  "html": "<rn></rn><a name=\"000007550000\"></a><div class=\"midashi\">...",
+  "plain": "アイ‐アイ 【aye-aye】（啼なき声に由来。一説に..."
+}
+```
+
 ## What Works Today
 
 Known working layers:
@@ -222,13 +279,14 @@ Known working layers:
 - Placeholder preservation for unresolved gaiji, for example `<hA126>`.
 - Full-width ASCII normalization to half-width ASCII.
 - Dense placeholder HONMON detection.
+- Raw HONMON numeric ID decoding for `DictFULLDB` extraction.
 
 Known limitations:
 
 - Not all dictionaries store definitions in `HONMON.DIC`.
 - `*INDEX.DIC` binary search structures are not fully parsed yet.
 - `.uni`, `GA16HALF`, `GA16FULL`, and bitmap gaiji are only partially handled.
-- Output is plain JSONL text, not a final Yomitan/MDict exporter.
+- Output is JSONL, not a final Yomitan/MDict exporter.
 - Some control opcodes are recognized only enough to avoid corrupt text.
 - `OXFPEU4.dbc` appears to be a separate non-SSED, non-SQLite payload and is
   not decoded.
@@ -436,17 +494,45 @@ that wrapper start instead.
 This works well for dictionaries where `HONMON.DIC` really is a body stream,
 including dictionaries such as GENIUSEB and HAESPJPN.
 
-### Dense Placeholder HONMON
+### Dense HONMON ID Tables
 
-Some products have a large expanded `HONMON.DIC`, but it is not a body stream.
-Instead it is a dense run of 32-byte records that look like:
+Some products have a large expanded `HONMON.DIC`, but it is not a definition
+body stream. Instead it is a dense run of 32-byte records that look like:
 
 ```text
 1f09 0001 1f41 .... 1f04 [blank JIS cells] 1f05 1f61 1f0a
 ```
 
-These decode as empty head/title spans and newlines. The dictionary body is not
-recoverable by direct HONMON slicing because it is not present there.
+The first pass treated these as pure placeholders. That was too strong. In
+KOJIEN7, most slots are blank, but populated slots contain an 8-digit decimal
+ID in the head span:
+
+```text
+1f0a 1f09 0001 1f41 0160 1f04 3330 3330 ... 1f05 1f61
+```
+
+Decoded as text, the head span can be:
+
+```text
+00000755
+00197570
+00851665
+```
+
+Those IDs correspond to `DictFULLDB` body rows such as:
+
+```text
+00000755 -> アイ‐アイ 【aye-aye】
+00197570 -> か・ける 【掛ける・懸ける】
+00851665 -> にほん 【日本】
+```
+
+So the correct model is:
+
+- direct HONMON slicing does not recover definitions;
+- HONMON is still meaningful as a raw numeric ID/address table;
+- `DictList.plist` can name a sibling `DictFULLDB` payload;
+- the full body is recovered by following raw HONMON IDs into that payload.
 
 Observed placeholder-HONMON dictionaries include:
 
@@ -459,8 +545,9 @@ KOJIEN7
 NANMED20
 ```
 
-For these, the toolkit skips body extraction by default and reports a warning
-in `summary.json`.
+For these, the `entries` command skips body extraction by default and reports a
+warning in `summary.json`. Try `fulldb` when `DictList.plist` declares
+`DictFULLDB`.
 
 ### Title Components
 
@@ -477,7 +564,7 @@ KWTITLE.DIC
 ```
 
 These are not full definitions, but they are important for search/index
-reconstruction. In large dictionaries where HONMON is only placeholders,
+reconstruction. In large dictionaries where HONMON is an ID table,
 title streams can still contain hundreds of thousands or millions of raw
 headword/title lines.
 
@@ -503,7 +590,7 @@ Parsing these directly is the next major milestone. It is required for:
 - deriving all exact lookup keys without SQLite;
 - pairing title lines with body addresses;
 - reconstructing aliases and subentries;
-- resolving placeholder-HONMON dictionaries cleanly where possible.
+- resolving dense-HONMON ID dictionaries cleanly where possible.
 
 ### Gaiji
 
@@ -533,20 +620,25 @@ For conversion work, keeping placeholders is usually better than dropping.
 It lets a later gaiji pass replace `<hA126>` with `é`, `<hA138>` with `ñ`, or
 with images if the character has no Unicode equivalent.
 
-### SQLite Files
+### DictFULLDB Payloads
 
-Many LogoVista products include `.db` or `.sql` SQLite files. They are useful,
-but they should not be confused with the raw format.
+Many LogoVista products include `.db` or `.sql` files. Some are app search
+caches; some are explicitly declared by `DictList.plist` as `DictFULLDB`.
+KOJIEN7 is in the second category, and its declared body payload happens to be
+SQLite.
 
 Practical interpretation:
 
-- SQLite is often the app/mobile search cache.
-- It may contain complete body text for some products.
+- Database files may be app/mobile search caches.
+- `DictFULLDB` is the declared full body payload for some products.
 - It may flatten or normalize formatting.
-- It may omit raw control structure.
-- It is useful for validation, fallback, and pointer discovery.
+- It may also contain formatted HTML with `div`, `sub`, `object`, `img`, and
+  `lved.dataid:` links.
+- It is useful for validation, fallback, pointer discovery, and full-body
+  extraction when raw HONMON stores IDs instead of definitions.
 
-The toolkit intentionally does not read SQLite during raw extraction.
+The `entries` and `titles` commands do not read SQLite. The `fulldb` command
+does, but only after decoding body IDs from raw HONMON records.
 
 ### Outliers
 
@@ -561,8 +653,8 @@ Near-term:
 - Parse `.uni`, `GA16HALF`, and `GA16FULL` gaiji resources.
 - Preserve a richer structured AST instead of emitting only plain body text.
 - Parse common `*INDEX.DIC` search structures.
-- Link title streams to body addresses without SQLite.
-- Add optional SQLite-assisted validation reports.
+- Link title streams to body IDs for dense-HONMON dictionaries.
+- Add optional SQLite-assisted validation reports for non-`DictFULLDB` caches.
 
 Exporters:
 

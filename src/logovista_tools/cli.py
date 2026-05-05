@@ -10,6 +10,7 @@ from typing import Any
 
 from . import __version__
 from .entries import discover_dictionaries, extract_dictionary
+from .fulldb import extract_fulldb_dictionary
 from .ssed import (
     BLOCK_SIZE,
     expand_sseddata_file,
@@ -170,6 +171,28 @@ def cmd_titles(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_fulldb(args: argparse.Namespace) -> int:
+    sources = select_sources(args)
+    if not sources:
+        print("no dictionaries found", file=sys.stderr)
+        return 1
+
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    summaries = []
+    for source in sources:
+        print(f"extracting fulldb {source.dict_id}: {source.title}", file=sys.stderr)
+        summary = extract_fulldb_dictionary(source, args.out_dir, args)
+        summaries.append(summary)
+        print(
+            f"  entries={summary['entries_emitted']} "
+            f"ids={summary['honmon_ids_seen']} "
+            f"missing={summary['honmon_ids_missing_in_fulldb']}",
+            file=sys.stderr,
+        )
+    write_json(args.out_dir / "summary.json", summaries)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="logovista-tools",
@@ -223,6 +246,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_titles.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
     p_titles.set_defaults(func=cmd_titles)
 
+    p_fulldb = sub.add_parser(
+        "fulldb",
+        help="Extract DictFULLDB bodies by decoding raw HONMON numeric id records.",
+    )
+    p_fulldb.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_fulldb.add_argument("--out-dir", type=Path, default=Path("logovista-fulldb-extract"))
+    p_fulldb.add_argument("--limit", type=int, help="Limit emitted entries per dictionary.")
+    p_fulldb.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
+    p_fulldb.add_argument(
+        "--allow-db-fallback",
+        action="store_true",
+        help="If DictList.plist has no DictFULLDB, try a neighboring .db/.sql file.",
+    )
+    p_fulldb.set_defaults(func=cmd_fulldb)
+
     return parser
 
 
@@ -230,4 +268,3 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)
-
