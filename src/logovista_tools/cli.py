@@ -16,12 +16,14 @@ from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
 from .gaiji import UniRecord, parse_ga16_resource, parse_uni_resource, write_ga16_glyph_png
 from .indexes import extract_indexes_for_idx
+from .lvcrypto import decrypt_logofont_cipher_file
 from .menus import extract_menus_for_idx
 from .pcmdata import extract_pcmdata_for_sources
 from .resources import ImageResource, load_image_resource_profile
 from .ssed import (
     BLOCK_SIZE,
     expand_sseddata_file,
+    expand_sseddata_file_with_storage,
     find_case_insensitive,
     parse_sseddata_header,
     parse_ssedinfo,
@@ -54,7 +56,20 @@ def cmd_info(args: argparse.Namespace) -> int:
         header = parse_sseddata_header(args.path)
         print(
             f"chunks={header['n_chunk']} start={header['start_block']:#x} "
-            f"end={header['end_block']:#x} kind={header['kind']:#x}"
+            f"end={header['end_block']:#x} kind={header['kind']:#x} "
+            f"storage={header['storage']}"
+        )
+        return 0
+
+    try:
+        header = parse_sseddata_header(args.path)
+    except ValueError:
+        header = None
+    if header is not None:
+        print(
+            f"chunks={header['n_chunk']} start={header['start_block']:#x} "
+            f"end={header['end_block']:#x} kind={header['kind']:#x} "
+            f"storage={header['storage']}"
         )
         return 0
 
@@ -78,6 +93,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
                 "idx": str(source.idx),
                 "honmon": str(source.honmon),
                 "honmon_start_block": source.honmon_start_block,
+                "honmon_storage": source.honmon_storage,
                 "components": len(elements),
                 "gaiji_map_entries": len(source.gaiji_map),
                 "gaiji_uni_entries": source.gaiji_uni_entries,
@@ -95,6 +111,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
     for row in rows:
         print(
             f"{row['dict_id']:12s} components={row['components']:2d} "
+            f"honmon={row['honmon_storage']:15s} "
             f"gaiji={row['gaiji_map_entries']:4d} "
             f"uni={row['gaiji_uni_entries']:4d} plist={row['gaiji_plist_entries']:4d} "
             f"img={row['image_resource_entries']:4d} img-gaiji={row['image_gaiji_entries']:4d} "
@@ -106,10 +123,20 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 def cmd_expand(args: argparse.Namespace) -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    expanded = expand_sseddata_file(args.dic)
+    expanded, storage = expand_sseddata_file_with_storage(args.dic)
     args.out.write_bytes(expanded)
     print(f"expanded {args.dic} -> {args.out}")
+    print(f"storage: {storage}")
     print(f"bytes: {len(expanded)}")
+    return 0
+
+
+def cmd_decrypt(args: argparse.Namespace) -> int:
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    plaintext = decrypt_logofont_cipher_file(args.file)
+    args.out.write_bytes(plaintext)
+    print(f"decrypted {args.file} -> {args.out}")
+    print(f"bytes: {len(plaintext)}")
     return 0
 
 
@@ -591,6 +618,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_expand.add_argument("dic", type=Path)
     p_expand.add_argument("out", type=Path)
     p_expand.set_defaults(func=cmd_expand)
+
+    p_decrypt = sub.add_parser("decrypt", help="Decrypt a LogoFontCipher AES-CBC sidecar or encrypted .DIC.")
+    p_decrypt.add_argument("file", type=Path)
+    p_decrypt.add_argument("out", type=Path)
+    p_decrypt.set_defaults(func=cmd_decrypt)
 
     p_compose = sub.add_parser("compose", help="Compose an EPWING-like book image from one .IDX.")
     p_compose.add_argument("idx", type=Path)

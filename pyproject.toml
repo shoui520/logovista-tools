@@ -26,6 +26,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
+crypto = ["cryptography>=41"]
 dev = ["pytest>=8"]
 
 [project.scripts]

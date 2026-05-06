@@ -24,6 +24,7 @@ from .ssed import (
     BLOCK_SIZE,
     SsedInfoElement,
     expand_sseddata_file,
+    expand_sseddata_file_with_storage,
     find_case_insensitive,
     parse_ssedinfo,
 )
@@ -265,7 +266,7 @@ def audit_source(source: AuditSource, args: argparse.Namespace) -> dict[str, Any
         }
 
     gaiji_profile = load_gaiji_profile(source.idx)
-    expanded = expand_sseddata_file(honmon_path)
+    expanded, honmon_storage = expand_sseddata_file_with_storage(honmon_path)
     marker_count = expanded.count(ENTRY_MARKER)
     dense_marker_honmon = marker_count > 0 and marker_count * 64 > len(expanded)
     id_records, id_scanned, id_samples = count_honmon_id_records(
@@ -315,6 +316,7 @@ def audit_source(source: AuditSource, args: argparse.Namespace) -> dict[str, Any
         "honmon": str(honmon_path),
         "honmon_start_block": honmon.start,
         "honmon_end_block": honmon.end,
+        "honmon_storage": honmon_storage,
         "expanded_bytes": len(expanded),
         "entry_markers": marker_count,
         "dense_marker_honmon": dense_marker_honmon,

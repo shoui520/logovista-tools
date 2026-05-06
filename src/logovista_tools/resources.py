@@ -11,7 +11,7 @@ from typing import Hashable
 
 IMAGE_SUFFIX_RE = re.compile(r"^(?P<key>.+)_(?P<theme>n|w|1|3|1_1)$")
 GAIJI_IMAGE_KEY_RE = re.compile(r"[A-Fa-f][0-9A-Fa-f]{3}")
-IMAGE_EXTENSIONS = {".png", ".gif", ".jpg", ".jpeg", ".webp"}
+IMAGE_EXTENSIONS = {".png", ".gif", ".jpg", ".jpeg", ".webp", ".bmp"}
 
 
 @dataclass(frozen=True)
@@ -106,6 +106,8 @@ def image_key_and_theme(path: Path) -> tuple[str, str | None]:
 def candidate_image_dirs(root: Path) -> list[Path]:
     return [
         root / "img",
+        root / "Templates",
+        root / "OTHER" / "images",
         root / "resource" / "kmkimges",
         root / "appendix" / "img",
         root / "manual" / "contents" / "img",
@@ -125,10 +127,11 @@ def load_image_resource_profile(path: Path) -> ImageResourceProfile:
     """Discover PNG resources, resource copy plists, and gaiji icon plists.
 
     LogoVista packages commonly keep dictionary-specific icon PNGs in a sibling
-    ``img`` directory next to the dictionary directory. Android/Windows packages
-    can instead use ``resource/kmkimges`` and omit plist manifests. Files ending
-    in ``_n`` / ``_w`` and Android-style ``_1`` / ``_3`` are grouped as theme
-    variants of the same resource key.
+    ``img`` directory next to the dictionary directory. Windows packages can put
+    dictionary-template assets in ``Templates``; Android packages can use
+    ``resource/kmkimges`` and omit plist manifests. Files ending in ``_n`` /
+    ``_w`` and Android-style ``_1`` / ``_3`` are grouped as theme variants of
+    the same resource key.
     """
 
     roots = candidate_package_roots(path)

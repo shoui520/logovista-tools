@@ -11,10 +11,19 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
+from .lvcrypto import (
+    LogoVistaCryptoError,
+    LogoVistaCryptoUnavailable,
+    decrypt_logofont_cipher_bytes,
+    decrypt_logofont_cipher_prefix,
+)
+
 
 BLOCK_SIZE = 2048
 CHUNK_SIZE = 0x8000
 WINDOW_SIZE = 0xFF0
+SSEDDATA_MAGIC = b"SSEDDATA"
+SSEDINFO_MAGIC = b"SSEDINFO"
 
 
 @dataclass(frozen=True)
@@ -42,7 +51,7 @@ def be32(data: bytes, offset: int) -> int:
 
 def parse_ssedinfo(path: Path) -> tuple[str, list[SsedInfoElement]]:
     data = path.read_bytes()
-    if data[:8] != b"SSEDINFO":
+    if data[:8] != SSEDINFO_MAGIC:
         raise ValueError(f"not SSEDINFO: {path}")
 
     title_len = data[12]
@@ -68,12 +77,57 @@ def parse_ssedinfo(path: Path) -> tuple[str, list[SsedInfoElement]]:
     return title, elements
 
 
-def parse_sseddata_header(path: Path) -> dict[str, int | bytes]:
+def is_sseddata_bytes(data: bytes) -> bool:
+    return data[:8] == SSEDDATA_MAGIC
+
+
+def sseddata_storage_for_bytes(data: bytes) -> str:
+    if is_sseddata_bytes(data):
+        return "plain"
+    try:
+        if decrypt_logofont_cipher_prefix(data).startswith(SSEDDATA_MAGIC):
+            return "logofont_cipher"
+    except (LogoVistaCryptoError, LogoVistaCryptoUnavailable):
+        return "unknown"
+    return "unknown"
+
+
+def sseddata_storage_for_file(path: Path) -> str:
+    return sseddata_storage_for_bytes(path.read_bytes()[:BLOCK_SIZE])
+
+
+def load_sseddata_bytes(data: bytes) -> tuple[bytes, str]:
+    if is_sseddata_bytes(data):
+        return data, "plain"
+    try:
+        decrypted = decrypt_logofont_cipher_bytes(data)
+    except LogoVistaCryptoUnavailable as exc:
+        raise ValueError(f"not SSEDDATA and encrypted support is unavailable: {exc}") from exc
+    except LogoVistaCryptoError as exc:
+        raise ValueError(f"not SSEDDATA: {exc}") from exc
+    if is_sseddata_bytes(decrypted):
+        return decrypted, "logofont_cipher"
+    raise ValueError("not SSEDDATA")
+
+
+def load_sseddata_file(path: Path) -> tuple[bytes, str]:
+    try:
+        return load_sseddata_bytes(path.read_bytes())
+    except ValueError as exc:
+        raise ValueError(f"{exc}: {path}") from exc
+
+
+def parse_sseddata_header(path: Path) -> dict[str, int | bytes | str]:
     data = path.read_bytes()[:64]
-    if data[:8] != b"SSEDDATA":
-        raise ValueError(f"not SSEDDATA: {path}")
+    storage = "plain"
+    if not is_sseddata_bytes(data):
+        storage = sseddata_storage_for_bytes(data)
+        if storage != "logofont_cipher":
+            raise ValueError(f"not SSEDDATA: {path}")
+        data = decrypt_logofont_cipher_prefix(data, size=64)
     return {
         "magic": data[:8],
+        "storage": storage,
         "kind": data[0x0F],
         "n_chunk": be16(data, 0x16),
         "start_block": be32(data, 0x18),
@@ -131,8 +185,7 @@ def expand_sseddata_chunk(data: bytes, chunk_offset: int) -> bytes:
 
 
 def expand_sseddata_bytes(data: bytes) -> bytes:
-    if data[:8] != b"SSEDDATA":
-        raise ValueError("not SSEDDATA")
+    data, _storage = load_sseddata_bytes(data)
 
     offsets = ssed_chunk_offsets(data)
     out = bytearray()
@@ -144,7 +197,13 @@ def expand_sseddata_bytes(data: bytes) -> bytes:
 
 
 def expand_sseddata_file(path: Path) -> bytes:
-    return expand_sseddata_bytes(path.read_bytes())
+    data, _storage = load_sseddata_file(path)
+    return expand_sseddata_bytes(data)
+
+
+def expand_sseddata_file_with_storage(path: Path) -> tuple[bytes, str]:
+    data, storage = load_sseddata_file(path)
+    return expand_sseddata_bytes(data), storage
 
 
 class SsedRandomReader:
@@ -152,9 +211,7 @@ class SsedRandomReader:
 
     def __init__(self, path: Path):
         self.path = path
-        self.data = path.read_bytes()
-        if self.data[:8] != b"SSEDDATA":
-            raise ValueError(f"not SSEDDATA: {path}")
+        self.data, self.storage = load_sseddata_file(path)
         self.header = {
             "kind": self.data[0x0F],
             "n_chunk": be16(self.data, 0x16),

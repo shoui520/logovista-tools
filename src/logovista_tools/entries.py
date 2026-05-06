@@ -19,7 +19,13 @@ from typing import Any, Iterable
 
 from .gaiji import load_gaiji_map, load_gaiji_profile
 from .resources import load_image_resource_profile, relative_image_source
-from .ssed import BLOCK_SIZE, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
+from .ssed import (
+    BLOCK_SIZE,
+    expand_sseddata_file_with_storage,
+    find_case_insensitive,
+    parse_ssedinfo,
+    sseddata_storage_for_file,
+)
 
 
 ENTRY_MARKER = b"\x1f\x09\x00\x01"
@@ -85,6 +91,7 @@ class DictionarySource:
     honmon: Path
     honmon_start_block: int
     gaiji_map: dict[str, str]
+    honmon_storage: str = "unknown"
     gaiji_uni_entries: int = 0
     gaiji_plist_entries: int = 0
     image_resource_entries: int = 0
@@ -524,6 +531,7 @@ def discover_dictionaries(roots: list[Path]) -> list[DictionarySource]:
                     title=title,
                     honmon=honmon,
                     honmon_start_block=honmon_element.start,
+                    honmon_storage=sseddata_storage_for_file(honmon),
                     gaiji_map=gaiji_profile.map,
                     gaiji_uni_entries=gaiji_profile.uni_entries,
                     gaiji_plist_entries=gaiji_profile.plist_entries,
@@ -546,7 +554,7 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
     entries_path = dict_out / "raw_entries.jsonl"
     section_image_sources = resolve_section_image_sources(getattr(args, "section_image", None), source.image_sources)
 
-    expanded = expand_sseddata_file(source.honmon)
+    expanded, honmon_storage = expand_sseddata_file_with_storage(source.honmon)
     marker_count = expanded.count(ENTRY_MARKER)
     emitted = 0
     skipped_empty = 0
@@ -575,6 +583,7 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
             "idx": str(source.idx),
             "honmon": str(source.honmon),
             "honmon_start_block": source.honmon_start_block,
+            "honmon_storage": honmon_storage,
             "expanded_bytes": len(expanded),
             "entry_markers": marker_count,
             "entries_emitted": 0,
@@ -655,6 +664,7 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
         "idx": str(source.idx),
         "honmon": str(source.honmon),
         "honmon_start_block": source.honmon_start_block,
+        "honmon_storage": honmon_storage,
         "expanded_bytes": len(expanded),
         "entry_markers": marker_count,
         "index_entry_boundaries": len(index_boundary_offsets),

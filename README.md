@@ -10,20 +10,21 @@ tools work from those raw files first.
 
 Current status: alpha, useful for research and bulk extraction. It can already
 decompress SSED data, compose EPWING-like book images, extract readable
-`HONMON.DIC` body entries for many dictionaries, extract raw title/headword
-streams from `*TITLE.DIC`, and follow raw HONMON numeric ID records into
-LogoVista `DictFULLDB` body payloads for products such as KOJIEN7 and other
-dense-HONMON dictionaries. It also parses `MENU.DIC` menu trees, the common
-`*INDEX.DIC` search-tree formats, raw lookup keys with body/title pointers,
-and dictionary-specific image resources used for image-backed gaiji and inline
+`HONMON.DIC` body entries for many dictionaries, transparently decrypt observed
+Windows LogoFontCipher body streams, extract raw title/headword streams from
+`*TITLE.DIC`, and follow raw HONMON numeric ID records into LogoVista
+`DictFULLDB` body payloads for products such as KOJIEN7 and other dense-HONMON
+dictionaries. It also parses `MENU.DIC` menu trees, the common `*INDEX.DIC`
+search-tree formats, raw lookup keys with body/title pointers, and
+dictionary-specific image resources used for image-backed gaiji and inline
 badges. It can also decode `COLSCR.DIC` media pointers and extract referenced
-BMP/JPEG records used by inline figures and stroke-order panels. For
-body-stream dictionaries, it can also use raw index body pointers as additional
-entry boundaries, which is required for packages whose real entries do not all
-start with the common `1f09 0001` marker. The `audit-honmon` command is a
-raw-only corpus probe for checking whether a dictionary's `HONMON.DIC` is a
-readable body stream, a dense raw ID/token table, or an opaque/stub component;
-it does not read SQLite body text.
+BMP/JPEG records used by inline figures and stroke-order panels. For body-stream
+dictionaries, it can also use raw index body pointers as additional entry
+boundaries, which is required for packages whose real entries do not all start
+with the common `1f09 0001` marker. The `audit-honmon` command is a raw-only
+corpus probe for checking whether a dictionary's `HONMON.DIC` is a readable body
+stream, a dense raw ID/token table, or an opaque/stub component; it does not read
+SQLite body text.
 
 No dictionary data is included in this repository.
 
@@ -35,6 +36,12 @@ Use Python 3.10 or newer.
 git clone https://github.com/shoui520/logovista-tools.git
 cd logovista-tools
 python -m pip install -e .
+```
+
+Encrypted Windows body streams require AES support:
+
+```bash
+python -m pip install -e ".[crypto]"
 ```
 
 Verify the CLI:
@@ -67,6 +74,12 @@ Expand one compressed component:
 
 ```bash
 logovista-tools expand /path/to/DICT/HONMON.DIC expanded-honmon.bin
+```
+
+Decrypt a LogoFontCipher sidecar without expanding it:
+
+```bash
+logovista-tools decrypt /path/to/DICT/vlpljblF vlpljblF.sqlite
 ```
 
 Compose an EPWING-like book image from an `.IDX` and its sibling `.DIC` files:
@@ -193,18 +206,31 @@ logovista-tools info HONMON.DIC
 ```
 
 For `.IDX`, this lists component records, block ranges, component types, and
-filenames. For `.DIC`, this prints the SSED chunk count and declared logical
-block range.
+filenames. For `.DIC`, this prints the SSED chunk count, declared logical block
+range, and storage mode (`plain` or `logofont_cipher`).
 
 ### `expand`
 
-Decompress one `SSEDDATA` file:
+Decompress one plain or LogoFontCipher-encrypted `SSEDDATA` file:
 
 ```bash
 logovista-tools expand HONMON.DIC honmon.expanded
 ```
 
 The output is the expanded EPWING/JIS-style byte stream for that component.
+
+### `decrypt`
+
+Decrypt an observed Windows LogoFontCipher file without SSED expansion:
+
+```bash
+logovista-tools decrypt HONMON.DIC honmon.ssed
+logovista-tools decrypt vlpljblF vlpljblF.sqlite
+```
+
+Use this for sidecars that decrypt to another container such as SQLite. For
+encrypted `HONMON.DIC`, `info`, `expand`, `entries`, and `audit-honmon` already
+decrypt transparently when the optional crypto dependency is installed.
 
 ### `compose`
 
@@ -345,14 +371,15 @@ logovista-tools resources /path/to/LogoVista --dict HAESPJPN --json
 ```
 
 LogoVista packages often include a top-level `img` directory plus
-`resourcesCopy.plist` and `gaijiicon.plist`. Android/Windows-only packages may
-omit those plist manifests and put images in `resource/kmkimges`,
-`appendix/img`, or `manual/contents/img`. The resource scanner checks all of
-those locations, groups theme variants such as `b13d_n.png` / `b13d_w.png` and
-Android-style `b167_1.png` / `b167_3.png`, and reports code-like resources such
-as `b13d` or `b167` as image-backed gaiji. Named images such as `exam.png`,
-`esp.png`, or `jpn.png` are reported as package resources for format exporters
-to use when reconstructing dictionary-specific styling.
+`resourcesCopy.plist` and `gaijiicon.plist`. Windows packages can put HTML
+renderer assets in `Templates`; Android packages can omit plist manifests and
+put images in `resource/kmkimges`, `appendix/img`, or `manual/contents/img`. The
+resource scanner checks all of those locations, groups theme variants such as
+`b13d_n.png` / `b13d_w.png` and Android-style `b167_1.png` / `b167_3.png`, and
+reports code-like resources such as `b13d` or `b167` as image-backed gaiji.
+Named images such as `exam.png`, `esp.png`, or `jpn.png` are reported as package
+resources for format exporters to use when reconstructing dictionary-specific
+styling.
 
 ### `colscr`
 
@@ -769,6 +796,8 @@ Known working layers:
 
 - `SSEDINFO` `.IDX` parsing.
 - `SSEDDATA` `.DIC` expansion.
+- Observed Windows LogoFontCipher AES-CBC decryption for encrypted
+  `HONMON.DIC` and sidecars.
 - EPWING-like component composition.
 - JIS X 0208 text decoding.
 - Common `0x1f` stream controls for line breaks, headword spans, links,
@@ -780,9 +809,9 @@ Known working layers:
   present.
 - `GA16HALF` / `GA16FULL` bitmap resource header parsing, glyph slicing, and
   PNG rendering.
-- Package image discovery from top-level `img`, Android `resource/kmkimges`,
-  `appendix/img`, and `manual/contents/img`, including `_n` / `_w` and
-  `_1` / `_3` theme variants.
+- Package image discovery from top-level `img`, Windows `Templates`, Android
+  `resource/kmkimges`, `appendix/img`, and `manual/contents/img`, including
+  `_n` / `_w` and `_1` / `_3` theme variants.
 - Image-backed gaiji preservation as placeholders or inline HTML `<img>` tags.
 - `COLSCR.DIC` media pointer decoding and extraction of referenced BMP/JPEG
   image records from raw `HONMON.DIC` media controls.
@@ -819,6 +848,9 @@ Known limitations:
 - Some control opcodes are recognized only enough to avoid corrupt text.
 - `DictFtsDB` `.dbc` payloads such as `OXFPEU4.dbc` are opaque; the observed
   file has no recoverable SSED, SQLite, HTML, or fixed-XOR structure.
+- LogoFontCipher support covers the key schedule observed in EJJE200's Windows
+  decryptor. Treat unrelated encrypted-looking payloads separately until their
+  reader or key schedule is identified.
 
 ## Format Deep Dive
 
@@ -1145,12 +1177,12 @@ records, and short opaque base64-like tokens. Without that filter, dense tables
 can appear to contain entries such as `<section:0001>` or `K0NVOzjh`; those are
 not coherent dictionary bodies.
 
-### Android/Windows Body Streams
+### Non-iOS Body Streams
 
-OUKOKU11 is useful because it was not packaged for LogoVista's iOS pipeline.
-It has no `Gaiji.plist`, `GaijiS.plist`, `resourcesCopy.plist`, or
-`gaijiicon.plist`, but the raw `.IDX` / `.DIC` structure is still compatible
-with the toolkit.
+OUKOKU11 is useful because it is an Android-only package, not part of
+LogoVista's iOS pipeline. It has no `Gaiji.plist`, `GaijiS.plist`,
+`resourcesCopy.plist`, or `gaijiicon.plist`, but the raw `.IDX` / `.DIC`
+structure is still compatible with the toolkit.
 
 Observed OUKOKU11 layout:
 
@@ -1203,6 +1235,132 @@ image_resource_entries: 167
 image_gaiji_entries:    56
 unknown_controls:       0
 ```
+
+### Windows Packages
+
+Two Windows packages have now been checked directly: SINMEI7 Windows and
+EJJE200. They share the same SSED/EPWING-like core, but add Windows app sidecars
+around it.
+
+#### SINMEI7 Windows vs iOS
+
+SINMEI7 Windows and SINMEI7 iOS both use the same nine core `SSEDINFO`
+components:
+
+```text
+HONMON.DIC
+MENU.DIC
+FKINDEX.DIC / FHINDEX.DIC
+BKINDEX.DIC / BHINDEX.DIC
+PCMDATA.DIC
+GA16FULL / GA16HALF
+```
+
+Both `HONMON.DIC` files are plain `SSEDDATA`, and raw extraction works without
+SQLite. The Windows copy expands to 47,515,648 bytes, has 75,532 entry markers,
+and the raw index scan produces 75,529 body boundaries. `MENU.DIC` expands to
+8,988,672 bytes and resolves 75,939 menu/body destinations.
+
+Observed platform differences:
+
+- Windows keeps renderer assets in `Templates/`, `HTMLs/`, `HANREI.chm`, and a
+  product-specific `HC0135.dll`.
+- iOS keeps converted assets in top-level `img/`, `html/`, `OTHER/`, plist
+  manifests, app SQL, and `bin/` payloads.
+- Windows `EXINFO.INI` declares `HTML=1`, `HTMLDLL=HC0135.dll`, `PCMP3=1`,
+  `IDXCOUNT=1`, `IDXINFO0=00000135.idx`, and `IDXTITLE=付録`.
+- `00000135.idx` is not `SSEDINFO`; it is CP932 tab-separated appendix metadata.
+  Rows contain hex block, hex offset, optional empty/category fields, and a
+  display title. The block/offset values point to raw HONMON addresses and to
+  decimal-named files in `HTMLs/`, for example `00005a95 00000312` maps to
+  `HTMLs/23189-786.html`.
+- Windows `Templates/` resources are package images just like iOS `img/`
+  resources. The local SINMEI7 Windows copy exposes 203 image/BMP resources and
+  29 code-shaped gaiji-image keys after scanning `Templates/`.
+- The two `.uni` files have no conflicting values for shared codes. Windows has
+  351 usable mappings, iOS has 331. The Windows file contributes extra rare CJK
+  and compatibility mappings; the iOS file contributes three radical mappings
+  not present in Windows.
+- `GA16FULL` and `GA16HALF` are byte-identical across the two copies. `GA16FULL`
+  starts at `B221` and has 375 glyph slots; `GA16HALF` has zero glyphs.
+- `PCMDATA.DIC` remains parseable on Windows and contains MP3 records referenced
+  by raw HONMON controls.
+
+#### EJJE200 Windows Encryption
+
+EJJE200 is the first observed Windows package with encrypted primary body data.
+Its `EXINFO.INI` declares:
+
+```ini
+HTML=1
+HTMLDLL=HC014F.dll
+KWIT=1
+IDXINFO0=select.html
+ROSQLNAME=EJJE200.db
+ENCRYHON=1
+```
+
+`HONMON.DIC` does not start with `SSEDDATA` on disk. Static analysis of the
+shipped `vlpljbl.bin` shows it is a Crypto++ decryptor using AES-128-CBC
+(`Rijndael`, `CBC_Decryption`, `StreamTransformationFilter`). The passphrase is
+the obfuscated literal `LogoFontCipher`; each byte is stored XOR `0xff` in the
+program. The key schedule is:
+
+```text
+digest = SHA256("LogoFontCipher")
+AES-128-CBC key = digest[0:16]
+AES-CBC IV      = digest[16:32]
+key             = a3c48d86dabe8b0c91fb33d9fdf2941b
+iv              = 80f2f3736bcec2e51665d02b640edbb0
+```
+
+Decrypting `HONMON.DIC` with that key reveals normal `SSEDDATA`:
+
+```text
+chunks=4087 start=0x2 end=0xff63 kind=0x0 storage=logofont_cipher
+expanded_bytes=133,894,144
+entry_markers=1,864,040
+index_entry_boundaries=1,864,040
+```
+
+Raw entries are coherent without SQLite after decryption:
+
+```text
+(mobile)number portability
+番号ポータビリティ[情報]
+
+.NET
+.NET[情報]
+```
+
+`HC014F.dll` is the product HTML renderer. It imports the normal `SSDicLib.dll`
+entry/body/gaiji/picture APIs and contains strings for `epwing2HtmlBodydata` and
+`pluginFunction`. It also contains the sidecar names `vlpljbl.bin`, `DIC014F`,
+and `vlpljblF`, which matches the encrypted sidecar behavior.
+
+`vlpljblF` decrypts with the same LogoFontCipher key to a SQLite database. It is
+not the primary body stream. It contains 17 tables named `t_Search_1` through
+`t_Search_17`, matching the 17 category checkboxes in `Templates/select.html`
+for KWIT partial-match search (`情報`, `電気`, `物理`, ..., `環境`). The table
+schema is:
+
+```sql
+CREATE TABLE t_Search_N (
+  f_type TEXT,
+  f_midasi TEXT,
+  f_midasi_jis TEXT,
+  f_block TEXT,
+  f_offset TEXT
+);
+```
+
+`SPINDEX.DIC` is present in EJJE200 and SINMEI7 Windows, but it is not listed in
+either product's `SSEDINFO` component table. The observed file is byte-identical
+between those packages. It starts with `SSEDDATA ... SPDATA` and declares 116
+chunks from logical block `0xd9c8` to `0xe101`, but the physical file only
+contains the first two compressed chunks. Those chunks expand to a prefix of a
+reversed-key B-tree. Treat it as auxiliary/plugin metadata, not a standalone
+body component.
 
 ### Menu Components
 
@@ -1607,8 +1765,8 @@ resourcesCopy.plist  complete-ish list of PNG resources to copy into the app pac
 gaijiicon.plist      keys that the app treats as gaiji/icon resources
 ```
 
-OUKOKU11 is an Android/Windows-only layout with no plist manifests. Its image
-assets are still local and usable:
+OUKOKU11 is an Android-only layout with no plist manifests. Its image assets are
+still local and usable:
 
 ```text
 resource/kmkimges/b167_1.png
@@ -1622,6 +1780,12 @@ normal/dark-on-transparent asset and `_3` used as the white/light-on-transparent
 asset. Because no plist identifies gaiji icons, the toolkit classifies
 code-shaped filenames such as `b167` as image-backed gaiji and keeps named
 resources such as `rei` or `waka` as ordinary package images.
+
+Windows dictionaries can also keep renderer assets in `Templates/`. In SINMEI7
+Windows this directory contains named images such as `exam.png`, numbered
+appendix images, BMP panels, and code-shaped gaiji images such as `B222.png`.
+The resource scanner treats those as package resources and reports BMP files as
+well as PNG/GIF/JPEG files.
 
 Named images such as `exam.png` are not necessarily referenced by filename in
 `HONMON.DIC`. They may be style resources used by the app for semantic regions

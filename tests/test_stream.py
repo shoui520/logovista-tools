@@ -1,6 +1,8 @@
 import plistlib
 import sqlite3
 
+import pytest
+
 from logovista_tools.colscr import (
     decode_bcd_decimal,
     parse_colscr_image_header,
@@ -49,11 +51,36 @@ from logovista_tools.pcmdata import (
     portable_audio_bytes,
 )
 from logovista_tools.resources import load_image_resource_profile, relative_image_source
-from logovista_tools.ssed import SsedInfoElement
+from logovista_tools.lvcrypto import decrypt_logofont_cipher_bytes, logofont_cipher_key_iv
+from logovista_tools.ssed import SsedInfoElement, load_sseddata_bytes, sseddata_storage_for_bytes
 
 
 def test_normalize_fullwidth_ascii() -> None:
     assert normalize_fullwidth_ascii("ＡＢＣ１２３　ｘｙｚ") == "ABC123 xyz"
+
+
+def test_logofont_cipher_key_iv() -> None:
+    key, iv = logofont_cipher_key_iv()
+
+    assert key.hex() == "a3c48d86dabe8b0c91fb33d9fdf2941b"
+    assert iv.hex() == "80f2f3736bcec2e51665d02b640edbb0"
+
+
+def test_logofont_cipher_decrypts_pkcs7_payload() -> None:
+    pytest.importorskip("cryptography")
+    from cryptography.hazmat.primitives import padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    plaintext = b"SSEDDATA" + bytes(range(24))
+    key, iv = logofont_cipher_key_iv()
+    padder = padding.PKCS7(128).padder()
+    padded = padder.update(plaintext) + padder.finalize()
+    encryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).encryptor()
+    encrypted = encryptor.update(padded) + encryptor.finalize()
+
+    assert decrypt_logofont_cipher_bytes(encrypted) == plaintext
+    assert sseddata_storage_for_bytes(encrypted) == "logofont_cipher"
+    assert load_sseddata_bytes(encrypted) == (plaintext, "logofont_cipher")
 
 
 def test_decode_jis_pair_and_line_break() -> None:
@@ -664,6 +691,25 @@ def test_load_image_resource_profile_discovers_android_kmkimges(tmp_path) -> Non
     assert profile.resources["b167"].white == image_dir / "b167_3.png"
     assert profile.resources["gogen"].white == image_dir / "gogen_w.png"
     assert relative_image_source(image_dir / "b167_1.png", idx) == "resource/kmkimges/b167_1.png"
+
+
+def test_load_image_resource_profile_discovers_windows_templates(tmp_path) -> None:
+    package = tmp_path / "DICT"
+    templates = package / "Templates"
+    templates.mkdir(parents=True)
+    idx = package / "DICT.IDX"
+    idx.write_bytes(b"")
+    (templates / "exam.png").write_bytes(b"png")
+    (templates / "B222.png").write_bytes(b"png")
+    (templates / "1652-1.bmp").write_bytes(b"bmp")
+
+    profile = load_image_resource_profile(idx)
+
+    assert templates in profile.image_dirs
+    assert profile.resources["exam"].default == templates / "exam.png"
+    assert "b222" in profile.gaiji_image_keys
+    assert profile.resources["1652-1"].default == templates / "1652-1.bmp"
+    assert relative_image_source(templates / "exam.png", idx) == "Templates/exam.png"
 
 
 def test_parse_internal_index_page_uses_32bit_child() -> None:
