@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .colscr import extract_colscr_for_sources
 from .entries import discover_dictionaries, extract_dictionary
 from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
@@ -527,6 +528,13 @@ def cmd_gaiji_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_colscr(args: argparse.Namespace) -> int:
+    summaries = extract_colscr_for_sources(args)
+    if args.json:
+        print(json.dumps(summaries, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="logovista-tools",
@@ -608,6 +616,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_resources.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
     p_resources.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     p_resources.set_defaults(func=cmd_resources)
+
+    p_colscr = sub.add_parser("colscr", help="Inspect or extract COLSCR.DIC media image records.")
+    p_colscr.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_colscr.add_argument("--out-dir", type=Path, default=Path("logovista-colscr"))
+    p_colscr.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
+    p_colscr.add_argument("--limit", type=int, help="Limit media references per dictionary.")
+    p_colscr.add_argument(
+        "--write-media",
+        "--write-bmp",
+        dest="write_media",
+        action="store_true",
+        help="Write referenced image files next to the manifest.",
+    )
+    p_colscr.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    p_colscr.set_defaults(func=cmd_colscr)
 
     p_gaiji_report = sub.add_parser(
         "gaiji-report",

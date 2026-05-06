@@ -81,62 +81,123 @@ def parse_sseddata_header(path: Path) -> dict[str, int | bytes]:
     }
 
 
-def expand_sseddata_bytes(data: bytes) -> bytes:
-    if data[:8] != b"SSEDDATA":
-        raise ValueError("not SSEDDATA")
-
+def ssed_chunk_offsets(data: bytes) -> list[int]:
     n_chunk = be16(data, 0x16)
-    offsets = [be32(data, 64 + i * 4) for i in range(n_chunk)]
-    out = bytearray()
+    return [be32(data, 64 + i * 4) for i in range(n_chunk)]
 
-    for chunk_offset in offsets:
-        pos = chunk_offset + 2
-        n_data = be16(data, pos)
-        init = data[pos + 2]
+
+def expand_sseddata_chunk(data: bytes, chunk_offset: int) -> bytes:
+    pos = chunk_offset + 2
+    n_data = be16(data, pos)
+    init = data[pos + 2]
+    pos += 3
+
+    window = bytearray([init]) * WINDOW_SIZE
+    wintop = 0
+    chunk_out = bytearray()
+
+    for d_index in range(n_data):
+        if pos + 3 > len(data):
+            break
+        b0, b1, literal = data[pos], data[pos + 1], data[pos + 2]
         pos += 3
 
-        window = bytearray([init]) * WINDOW_SIZE
-        wintop = 0
-        chunk_out = bytearray()
+        wp = (b0 << 4) | (b1 >> 4)
+        length = b1 & 0x0F
 
-        for d_index in range(n_data):
-            if pos + 3 > len(data):
-                break
-            b0, b1, literal = data[pos], data[pos + 1], data[pos + 2]
-            pos += 3
-
-            wp = (b0 << 4) | (b1 >> 4)
-            length = b1 & 0x0F
-
-            for _ in range(length):
-                if len(chunk_out) >= CHUNK_SIZE or (
-                    d_index == n_data - 1 and len(chunk_out) % BLOCK_SIZE == 0
-                ):
-                    break
-                w = wp + wintop
-                if w >= WINDOW_SIZE:
-                    w -= WINDOW_SIZE
-                value = window[w]
-                window[wintop] = value
-                wintop = (wintop + 1) % WINDOW_SIZE
-                chunk_out.append(value)
-
+        for _ in range(length):
             if len(chunk_out) >= CHUNK_SIZE or (
                 d_index == n_data - 1 and len(chunk_out) % BLOCK_SIZE == 0
             ):
                 break
-
-            window[wintop] = literal
+            w = wp + wintop
+            if w >= WINDOW_SIZE:
+                w -= WINDOW_SIZE
+            value = window[w]
+            window[wintop] = value
             wintop = (wintop + 1) % WINDOW_SIZE
-            chunk_out.append(literal)
+            chunk_out.append(value)
 
-        out.extend(chunk_out)
+        if len(chunk_out) >= CHUNK_SIZE or (
+            d_index == n_data - 1 and len(chunk_out) % BLOCK_SIZE == 0
+        ):
+            break
+
+        window[wintop] = literal
+        wintop = (wintop + 1) % WINDOW_SIZE
+        chunk_out.append(literal)
+
+    return bytes(chunk_out)
+
+
+def expand_sseddata_bytes(data: bytes) -> bytes:
+    if data[:8] != b"SSEDDATA":
+        raise ValueError("not SSEDDATA")
+
+    offsets = ssed_chunk_offsets(data)
+    out = bytearray()
+
+    for chunk_offset in offsets:
+        out.extend(expand_sseddata_chunk(data, chunk_offset))
 
     return bytes(out)
 
 
 def expand_sseddata_file(path: Path) -> bytes:
     return expand_sseddata_bytes(path.read_bytes())
+
+
+class SsedRandomReader:
+    """Read slices from a SSED component without expanding the whole file."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.data = path.read_bytes()
+        if self.data[:8] != b"SSEDDATA":
+            raise ValueError(f"not SSEDDATA: {path}")
+        self.header = {
+            "kind": self.data[0x0F],
+            "n_chunk": be16(self.data, 0x16),
+            "start_block": be32(self.data, 0x18),
+            "end_block": be32(self.data, 0x1C),
+        }
+        self.offsets = ssed_chunk_offsets(self.data)
+        self._chunk_cache: dict[int, bytes] = {}
+
+    @property
+    def start_block(self) -> int:
+        return int(self.header["start_block"])
+
+    @property
+    def end_block(self) -> int:
+        return int(self.header["end_block"])
+
+    @property
+    def expanded_size(self) -> int:
+        return (self.end_block - self.start_block + 1) * BLOCK_SIZE
+
+    def _chunk(self, index: int) -> bytes:
+        if index < 0 or index >= len(self.offsets):
+            return b""
+        if index not in self._chunk_cache:
+            self._chunk_cache[index] = expand_sseddata_chunk(self.data, self.offsets[index])
+        return self._chunk_cache[index]
+
+    def read(self, offset: int, size: int) -> bytes:
+        if offset < 0 or size <= 0:
+            return b""
+        out = bytearray()
+        current = offset
+        while len(out) < size:
+            chunk_index = current // CHUNK_SIZE
+            chunk_offset = current % CHUNK_SIZE
+            chunk = self._chunk(chunk_index)
+            if not chunk or chunk_offset >= len(chunk):
+                break
+            take = min(size - len(out), len(chunk) - chunk_offset)
+            out.extend(chunk[chunk_offset : chunk_offset + take])
+            current += take
+        return bytes(out)
 
 
 def command_info(args: argparse.Namespace) -> None:

@@ -1,6 +1,12 @@
 import plistlib
 import sqlite3
 
+from logovista_tools.colscr import (
+    decode_bcd_decimal,
+    parse_colscr_image_header,
+    parse_media_pointer,
+    validate_bmp_header,
+)
 from logovista_tools.entries import (
     decode_tokens,
     iter_entry_slices_with_boundaries,
@@ -118,6 +124,72 @@ def test_link_start_uses_16_byte_payload_then_visible_text() -> None:
 
     assert tokens_to_text(tokens) == "あい"
     assert stats["links"] == 1
+
+
+def test_colscr_media_pointer_uses_packed_bcd_decimal() -> None:
+    payload = bytes.fromhex("000000000000000000000000002175530478")
+    pointer = parse_media_pointer(payload)
+
+    assert pointer is not None
+    assert pointer.block == 217553
+    assert pointer.offset == 478
+    assert decode_bcd_decimal(bytes.fromhex("00017649")) == 17649
+
+
+def test_colscr_validates_wrapped_bmp_header() -> None:
+    width = 131
+    height = 640
+    row_bytes = ((width * 3 + 3) // 4) * 4
+    size = 54 + row_bytes * height
+    bmp = bytearray(size)
+    bmp[0:2] = b"BM"
+    bmp[2:6] = size.to_bytes(4, "little")
+    bmp[10:14] = (54).to_bytes(4, "little")
+    bmp[14:18] = (40).to_bytes(4, "little")
+    bmp[18:22] = width.to_bytes(4, "little")
+    bmp[22:26] = height.to_bytes(4, "little")
+    bmp[26:28] = (1).to_bytes(2, "little")
+    bmp[28:30] = (24).to_bytes(2, "little")
+
+    assert validate_bmp_header(b"data" + size.to_bytes(4, "little") + bytes(bmp[:62])) == (
+        size,
+        width,
+        height,
+        24,
+        0,
+    )
+
+
+def test_colscr_accepts_palette_bmp_header() -> None:
+    width = 64
+    height = 175
+    row_bytes = ((width + 3) // 4) * 4
+    pixel_offset = 54 + 256 * 4
+    size = pixel_offset + row_bytes * height
+    bmp = bytearray(size)
+    bmp[0:2] = b"BM"
+    bmp[2:6] = size.to_bytes(4, "little")
+    bmp[10:14] = pixel_offset.to_bytes(4, "little")
+    bmp[14:18] = (40).to_bytes(4, "little")
+    bmp[18:22] = width.to_bytes(4, "little")
+    bmp[22:26] = height.to_bytes(4, "little")
+    bmp[26:28] = (1).to_bytes(2, "little")
+    bmp[28:30] = (8).to_bytes(2, "little")
+
+    assert validate_bmp_header(b"data" + size.to_bytes(4, "little") + bytes(bmp[:62])) == (
+        size,
+        width,
+        height,
+        8,
+        0,
+    )
+
+
+def test_colscr_detects_jpeg_record() -> None:
+    payload_size = 12
+    wrapped = b"data" + payload_size.to_bytes(4, "little") + bytes.fromhex("ffd8ffe000104a4649460001")
+
+    assert parse_colscr_image_header(wrapped) == (payload_size, "jpeg", "jpg", None, None, None, None)
 
 
 def test_index_boundaries_are_sorted_before_entry_slicing() -> None:

@@ -16,7 +16,9 @@ LogoVista `DictFULLDB` body payloads for products such as KOJIEN7 and other
 dense-HONMON dictionaries. It also parses the common `*INDEX.DIC` search-tree
 formats, emits raw lookup keys with body/title pointers, and discovers
 dictionary-specific image resources used for image-backed gaiji and inline
-badges. For body-stream dictionaries, it can also use raw index body pointers
+badges. It can also decode `COLSCR.DIC` media pointers and extract referenced
+BMP/JPEG records used by inline figures and stroke-order panels. For
+body-stream dictionaries, it can also use raw index body pointers
 as additional entry boundaries, which is required for packages whose real
 entries do not all start with the common `1f09 0001` marker.
 
@@ -112,6 +114,12 @@ Render bitmap-only `GA16HALF` / `GA16FULL` gaiji to PNG assets:
 
 ```bash
 logovista-tools ga16 /path/to/DICT /path/to/out/gaiji --variants
+```
+
+Extract images referenced by `HONMON.DIC` media controls from `COLSCR.DIC`:
+
+```bash
+logovista-tools colscr /path/to/DICT/DICT.IDX --out-dir out/colscr --write-media
 ```
 
 Extract raw title/headword streams:
@@ -274,6 +282,41 @@ Android-style `b167_1.png` / `b167_3.png`, and reports code-like resources such
 as `b13d` or `b167` as image-backed gaiji. Named images such as `exam.png`,
 `esp.png`, or `jpn.png` are reported as package resources for format exporters
 to use when reconstructing dictionary-specific styling.
+
+### `colscr`
+
+Inspect or extract images stored in `COLSCR.DIC` and referenced by raw
+`HONMON.DIC` media controls.
+
+```bash
+logovista-tools colscr /path/to/LogoVista --dict OUKOKU11 --out-dir colscr
+logovista-tools colscr /path/to/DICT/DICT.IDX --write-media --out-dir colscr
+```
+
+Output layout:
+
+```text
+colscr/
+  summary.json
+  DICT_ID/
+    colscr_summary.json
+    colscr_manifest.jsonl
+    media/
+      00001_0200_00017649_0030.bmp
+```
+
+Each manifest row records the HONMON media-control position, section code,
+raw 18-byte payload, decoded logical block/offset, image type, dimensions,
+bit depth, BMP compression mode when relevant, and optional output filename.
+
+Useful options:
+
+```bash
+--dict NAME                         inspect only matching dictionary ids
+--limit N                           stop after N media references per dictionary
+--write-media                       write referenced BMP/JPEG files
+--json                              emit a machine-readable summary
+```
 
 ### `gaiji-report`
 
@@ -543,6 +586,8 @@ Known working layers:
   `appendix/img`, and `manual/contents/img`, including `_n` / `_w` and
   `_1` / `_3` theme variants.
 - Image-backed gaiji preservation as placeholders or inline HTML `<img>` tags.
+- `COLSCR.DIC` media pointer decoding and extraction of referenced BMP/JPEG
+  image records from raw `HONMON.DIC` media controls.
 - SQL/`DictFULLDB`-assisted gaiji validation reports, including aligned
   `Block`/`Offset` checks where cache tables expose those columns.
 - Common `*INDEX.DIC` branch-page and leaf-row parsing, including type `0x80`
@@ -655,7 +700,7 @@ Component types observed so far:
 0x81  CRINDEX.DIC
 0x90  FKINDEX.DIC
 0x91  FHINDEX.DIC
-0xd2  COLSCR.DIC or large auxiliary resource stream
+0xd2  COLSCR.DIC media/image resource stream
 0xf1  GA16FULL resource
 0xf2  GA16HALF resource
 ```
@@ -1217,6 +1262,61 @@ dictionary-specific style layer decides when to insert them. The `entries`
 command supports explicit section-image rules such as `--section-image
 0011=exam`; this preserves the raw section marker and inserts the named image
 in `body_html`.
+
+#### `COLSCR.DIC` Media Resources
+
+`COLSCR.DIC` is a compressed SSED component, usually listed as component type
+`0xd2` in `SSEDINFO`. It stores larger inline media used by the body stream.
+The body does not name these images by filename. Instead, `HONMON.DIC` contains
+`1f 4d` media controls with an 18-byte binary payload.
+
+The useful pointer is encoded in the final six bytes of that payload:
+
+```text
+payload bytes 12..15  target logical block, packed BCD decimal
+payload bytes 16..17  target offset in block, packed BCD decimal
+```
+
+For example:
+
+```text
+000000000000000000000000000176490030
+```
+
+decodes to logical block `17649`, offset `30`. In OUKOKU11, that is exactly
+inside the `COLSCR.DIC` block range.
+
+The pointed record has a simple wrapper:
+
+```text
+offset  size  meaning
+0x00    4     ASCII magic: data
+0x04    4     image payload size, little endian
+0x08    n     image payload
+```
+
+The payload is not one fixed format. Verified examples include:
+
+| Dictionary | Media refs | Valid records | Payload formats |
+| --- | ---: | ---: | --- |
+| `GENIUSEB` | 1,081 | 1,081 | BMP, 8 bpp; includes RLE8-compressed BMPs |
+| `HAESPJPN` | 274 | 274 | BMP, 1 bpp |
+| `IBIO5` | 1,324 | 1,324 | JPEG/JFIF |
+| `IPHYCHE5` | 4,189 | 4,189 | BMP, 8 bpp |
+| `KANJIGN5` | 952 | 952 | BMP, 8 bpp |
+| `KenE7J5` | 96 | 96 | BMP, 8 bpp |
+| `NKGORIN2` | 28,841 | 28,841 | BMP, mixed 8/24/1 bpp |
+| `OUKOKU11` | 2,579 | 2,579 | BMP, 24 bpp |
+
+The local collection has `IBIO5`; `IBIOS5` was not found. If another package
+uses the `IBIOS5` id, it should be tested separately.
+
+For OUKOKU11 specifically, all raw media references resolve to strict
+`data`-wrapped BMP records. Section code `0200` corresponds to `:筆順`
+stroke-order images and section code `0201` corresponds to `:図版` figure
+images. A strict scan of expanded `COLSCR.DIC` finds the same 2,579 records as
+the `HONMON.DIC` media controls, with no unreferenced records under the current
+parser.
 
 #### `.uni` Files
 
