@@ -132,6 +132,14 @@ def test_link_start_uses_16_byte_payload_then_visible_text() -> None:
     assert stats["links"] == 1
 
 
+def test_menu_link_end_uses_6_byte_destination_payload() -> None:
+    payload = bytes.fromhex("000000020002")
+    tokens, stats = decode_tokens(b"\x1f\x43" + bytes.fromhex("2422") + b"\x1f\x63" + payload + bytes.fromhex("2424"))
+
+    assert tokens_to_text(tokens) == "あい"
+    assert stats["links"] == 1
+
+
 def test_colscr_media_pointer_uses_packed_bcd_decimal() -> None:
     payload = bytes.fromhex("000000000000000000000000002175530478")
     pointer = parse_media_pointer(payload)
@@ -658,20 +666,22 @@ def test_parse_cr_leaf_primary_row() -> None:
     assert rows[0].title == IndexPointer(3, 4)
 
 
-def test_parse_kw_leaf_page_group_and_body_targets() -> None:
+def test_parse_cr_leaf_group_and_body_targets() -> None:
     page = bytearray(2048)
     page[0:2] = bytes.fromhex("d000")
     page[2:4] = (3).to_bytes(2, "big")
     page[4:12] = bytes.fromhex("8002000000022422")
-    page[12:19] = bytes.fromhex("c0000000100020")
-    page[19:26] = bytes.fromhex("b0000000110030")
+    page[12:18] = bytes.fromhex("000000030004")
+    page[18:25] = bytes.fromhex("c0000000100020")
+    page[25:32] = bytes.fromhex("c0000000110030")
 
-    rows, current_key, hint, groups, unknown = parse_kw_leaf_page(
-        "KWINDEX.DIC",
+    rows, current_key, current_title, hint, groups, unknown = parse_cr_leaf_page(
+        "CRINDEX.DIC",
         bytes(page),
         1,
         100,
         current_key=None,
+        current_title=None,
         current_count_hint=None,
         gaiji_map={},
         gaiji="drop",
@@ -681,7 +691,69 @@ def test_parse_kw_leaf_page_group_and_body_targets() -> None:
     assert groups == 1
     assert hint == 2
     assert current_key == "あ"
+    assert current_title == IndexPointer(3, 4)
     assert [row.key for row in rows] == ["あ", "あ"]
     assert rows[0].body == IndexPointer(0x10, 0x20)
-    assert rows[0].title == rows[0].body
+    assert rows[0].title == IndexPointer(3, 4)
     assert rows[1].body == IndexPointer(0x11, 0x30)
+
+
+def test_parse_kw_leaf_page_group_and_body_targets() -> None:
+    page = bytearray(2048)
+    page[0:2] = bytes.fromhex("d000")
+    page[2:4] = (3).to_bytes(2, "big")
+    page[4:12] = bytes.fromhex("8002000000022422")
+    page[12:18] = bytes.fromhex("000000030004")
+    page[18:25] = bytes.fromhex("c0000000100020")
+    page[25:32] = bytes.fromhex("b0000000110030")
+
+    rows, current_key, current_title, hint, groups, unknown = parse_kw_leaf_page(
+        "KWINDEX.DIC",
+        bytes(page),
+        1,
+        100,
+        current_key=None,
+        current_title=None,
+        current_count_hint=None,
+        gaiji_map={},
+        gaiji="drop",
+    )
+
+    assert unknown == 0
+    assert groups == 1
+    assert hint == 2
+    assert current_key == "あ"
+    assert current_title == IndexPointer(3, 4)
+    assert [row.key for row in rows] == ["あ", "あ"]
+    assert rows[0].body == IndexPointer(0x10, 0x20)
+    assert rows[0].title == IndexPointer(3, 4)
+    assert rows[1].body == IndexPointer(0x11, 0x30)
+
+
+def test_parse_kw_leaf_page_direct_row() -> None:
+    page = bytearray(2048)
+    page[0:2] = bytes.fromhex("d000")
+    page[2:4] = (1).to_bytes(2, "big")
+    page[4:8] = bytes.fromhex("00022422")
+    page[8:20] = bytes.fromhex("000000010002000000030004")
+
+    rows, current_key, current_title, hint, groups, unknown = parse_kw_leaf_page(
+        "KWINDEX.DIC",
+        bytes(page),
+        1,
+        100,
+        current_key=None,
+        current_title=None,
+        current_count_hint=None,
+        gaiji_map={},
+        gaiji="drop",
+    )
+
+    assert unknown == 0
+    assert groups == 0
+    assert hint is None
+    assert current_key is None
+    assert current_title is None
+    assert rows[0].key == "あ"
+    assert rows[0].body == IndexPointer(1, 2)
+    assert rows[0].title == IndexPointer(3, 4)

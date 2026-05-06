@@ -19,7 +19,7 @@ from .gaiji import load_gaiji_profile
 from .ssed import expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 
 
-TITLE_TYPES = {0x04, 0x05, 0x06, 0x07, 0x0A}
+TITLE_TYPES = {0x03, 0x04, 0x05, 0x06, 0x07, 0x0A}
 
 
 def write_json(path: Path, data: Any) -> None:

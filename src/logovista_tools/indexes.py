@@ -297,6 +297,12 @@ def parse_cr_leaf_page(
     gaiji: str,
     gaiji_map: dict[str, str],
 ) -> tuple[list[LeafRow], str | None, IndexPointer | None, int | None, int, int]:
+    """Parse CRINDEX cross-reference leaf pages.
+
+    Type-0x81 pages use direct rows with explicit body/title pointer pairs and
+    grouped rows with a shared CRTITLE pointer followed by compact body targets.
+    """
+
     count = be16(page, 2)
     pos = 4
     rows: list[LeafRow] = []
@@ -352,16 +358,29 @@ def parse_cr_leaf_page(
             subrecord += 1
             continue
 
-        if first == 0xC0 and second == 0x00:
-            pos += 2
-            if pos + 6 > len(page):
+        if first == 0xC0:
+            if pos + 7 > len(page):
                 unknown += 1
                 break
-            # CRINDEX auxiliary target rows are not the same 6-byte body
-            # pointers used by the primary rows. They often exceed the book's
-            # logical block range if interpreted that way, so keep them out of
-            # JSONL until their payload is understood.
-            pos += 6
+            body = IndexPointer(block=be32(page, pos + 1), offset=be16(page, pos + 5))
+            key = current_key or ""
+            title = current_title or body
+            rows.append(
+                LeafRow(
+                    component=component,
+                    page_index=page_index,
+                    logical_block=logical_block,
+                    row_index=len(rows) + 1,
+                    key=key,
+                    target_key=key,
+                    body=body,
+                    title=title,
+                    tagged=True,
+                    target_count_hint=current_count_hint,
+                    continued_group=current_key is None,
+                )
+            )
+            pos += 7
             subrecord += 1
             continue
 
@@ -378,15 +397,18 @@ def parse_kw_leaf_page(
     logical_block: int,
     *,
     current_key: str | None,
+    current_title: IndexPointer | None,
     current_count_hint: int | None,
     gaiji: str,
     gaiji_map: dict[str, str],
-) -> tuple[list[LeafRow], str | None, int | None, int, int]:
+) -> tuple[list[LeafRow], str | None, IndexPointer | None, int | None, int, int]:
     """Parse KWINDEX keyword leaf pages.
 
-    Observed OUKOKU11 type-0x80 pages use 0x80 group records followed by
-    0xc0/0xb0 target rows. The target rows carry only a 6-byte body pointer,
-    not a separate title pointer.
+    Observed type-0x80 pages use two related row layouts:
+
+    - direct rows: 00 len, key bytes, 6-byte body pointer, 6-byte title pointer;
+    - grouped rows: 80 len, 4-byte target count, key bytes, 6-byte KWTITLE
+      pointer, then 0xc0/0xb0 target body pointers.
     """
 
     count = be16(page, 2)
@@ -398,20 +420,53 @@ def parse_kw_leaf_page(
 
     while subrecord < count and pos < len(page):
         tag = page[pos]
-        if tag == 0:
+        if tag == 0 and (pos + 1 >= len(page) or page[pos + 1] == 0):
             break
+
+        if tag == 0x00:
+            if pos + 2 > len(page):
+                unknown += 1
+                break
+            key_len = page[pos + 1]
+            if key_len == 0:
+                break
+            pos += 2
+            if pos + key_len + 12 > len(page):
+                unknown += 1
+                break
+            key = decode_index_key(page[pos : pos + key_len], gaiji=gaiji, gaiji_map=gaiji_map)
+            pos += key_len
+            body, title = read_pointer_pair(page, pos)
+            pos += 12
+            rows.append(
+                LeafRow(
+                    component=component,
+                    page_index=page_index,
+                    logical_block=logical_block,
+                    row_index=len(rows) + 1,
+                    key=key,
+                    target_key=key,
+                    body=body,
+                    title=title,
+                    tagged=False,
+                )
+            )
+            subrecord += 1
+            continue
 
         if tag == 0x80:
             if pos + 6 > len(page):
                 unknown += 1
                 break
             key_len = page[pos + 1]
-            if pos + 6 + key_len > len(page):
+            if pos + 6 + key_len + 6 > len(page):
                 unknown += 1
                 break
             current_count_hint = be32(page, pos + 2)
             current_key = decode_index_key(page[pos + 6 : pos + 6 + key_len], gaiji=gaiji, gaiji_map=gaiji_map)
             pos += 6 + key_len
+            current_title = IndexPointer(block=be32(page, pos), offset=be16(page, pos + 4))
+            pos += 6
             groups += 1
             subrecord += 1
             continue
@@ -422,6 +477,7 @@ def parse_kw_leaf_page(
                 break
             body = IndexPointer(block=be32(page, pos + 1), offset=be16(page, pos + 5))
             key = current_key or ""
+            title = current_title or body
             rows.append(
                 LeafRow(
                     component=component,
@@ -431,7 +487,7 @@ def parse_kw_leaf_page(
                     key=key,
                     target_key=key,
                     body=body,
-                    title=body,
+                    title=title,
                     tagged=True,
                     target_count_hint=current_count_hint,
                     continued_group=current_key is None,
@@ -444,7 +500,7 @@ def parse_kw_leaf_page(
         unknown += 1
         break
 
-    return rows, current_key, current_count_hint, groups, unknown
+    return rows, current_key, current_title, current_count_hint, groups, unknown
 
 
 def scan_index_component(
@@ -520,12 +576,13 @@ def scan_index_component(
             result.search_groups += groups
             result.unknown_leaf_bytes += unknown
         elif component_type in KW_LEAF_TYPES:
-            leaf_rows, current_key, current_count_hint, groups, unknown = parse_kw_leaf_page(
+            leaf_rows, current_key, current_title, current_count_hint, groups, unknown = parse_kw_leaf_page(
                 component_name,
                 page,
                 page_index,
                 logical_block,
                 current_key=current_key,
+                current_title=current_title,
                 current_count_hint=current_count_hint,
                 gaiji=gaiji,
                 gaiji_map=gaiji_map,

@@ -623,7 +623,8 @@ Known working layers:
 - EPWING-like component composition.
 - JIS X 0208 text decoding.
 - Common `0x1f` stream controls for line breaks, headword spans, links,
-  emphasis-ish spans, superscript/subscript, and media/link wrappers.
+  menu links, emphasis-ish spans, superscript/subscript, and media/link
+  wrappers.
 - Dictionary-specific `.uni` gaiji mapping using primary Unicode sequences,
   including UTF-16 surrogate-pair sequences and older 12-byte `.uni` files.
 - Plist gaiji fallback mapping when `Gaiji.plist` or `GaijiS.plist` is
@@ -640,8 +641,10 @@ Known working layers:
   unreferenced sequential-record discovery, and portable WAV/MP3 writing.
 - SQL/`DictFULLDB`-assisted gaiji validation reports, including aligned
   `Block`/`Offset` checks where cache tables expose those columns.
-- Common `*INDEX.DIC` branch-page and leaf-row parsing, including type `0x80`
-  keyword indexes observed in OUKOKU11.
+- Common `*TITLE.DIC` extraction, including `KWTITLE.DIC` keyword-title
+  streams and `CRTITLE.DIC` cross-reference-title streams.
+- Common `*INDEX.DIC` branch-page and leaf-row parsing, including forward,
+  backward, keyword, and cross-reference indexes.
 - Index-derived HONMON body boundaries for entries whose first section is not
   `0001`.
 - Placeholder preservation for unresolved gaiji, for example `<hA126>`.
@@ -652,10 +655,8 @@ Known working layers:
 Known limitations:
 
 - Not all dictionaries store definitions in `HONMON.DIC`.
-- `KWINDEX.DIC` type `0x80` leaf targets are parsed as body pointers, but the
-  higher-level keyword semantics are not fully classified yet.
-- `CRINDEX.DIC` primary rows are parsed, but auxiliary `0xc0` subrows are
-  skipped because their payload is not the same body/title pointer format.
+- `MENU.DIC` text and destination pointers are decoded enough to avoid corrupt
+  text, but menu trees are not yet emitted as a separate structured report.
 - Named UI/style images such as `exam.png` are discovered, but mapping them to
   semantic entry regions is still dictionary-specific.
 - Output is JSONL, not a final Yomitan/MDict exporter.
@@ -1007,6 +1008,30 @@ image_gaiji_entries:    56
 unknown_controls:       0
 ```
 
+### Menu Components
+
+`MENU.DIC` (`0x01`) is an EPWING-style menu/body stream, not an index page
+tree. Some products keep it as a one-block stub containing only `1f03` or
+`1f02 1f03`; KOJIEN7, OUKOKU11, KANJIGN5, HAFRAN, and KQCOLEXP show this
+minimal form in the local corpus.
+
+Other products store readable menu trees. GENIUSEB, HAIKSAIJ, IBIO5, and
+NKGORIN2 all contain menu headings, section markers, and destination links.
+The common menu link form is:
+
+```text
+1f43              menu-link start
+...               visible JIS/gaiji label text
+1f63              menu-link end
+00 00 00 02 0002  4-byte destination block + 2-byte destination offset
+```
+
+The destination is carried after the closing control, so a text decoder must
+consume those six bytes. If it does not, pointer bytes are mis-decoded as
+garbage characters appended to labels. Section markers use the normal
+`1f09 xxxx` form; preserving them gives menu levels such as `0001`, `0002`,
+and `0003`.
+
 ### Title Components
 
 `*TITLE.DIC` components frequently contain readable headword/title lines after
@@ -1021,10 +1046,22 @@ CRTITLE.DIC
 KWTITLE.DIC
 ```
 
+The paired title/index roles observed so far are:
+
+```text
+0x04 FKTITLE.DIC  title stream for FKINDEX forward tagged lookup rows
+0x05 FHTITLE.DIC  title stream for FHINDEX forward simple lookup rows
+0x06 BKTITLE.DIC  title stream for BKINDEX backward tagged lookup rows
+0x07 BHTITLE.DIC  title stream for BHINDEX backward simple lookup rows
+0x03 KWTITLE.DIC  title stream for KWINDEX keyword groups/direct rows
+0x0a CRTITLE.DIC  title stream for CRINDEX cross-reference groups/direct rows
+```
+
 These are not full definitions, but they are important for search/index
-reconstruction. In large dictionaries where HONMON is an ID table,
-title streams can still contain hundreds of thousands or millions of raw
-headword/title lines.
+reconstruction. `KWTITLE.DIC` is a normal readable stream; OUKOKU11 has keyword
+titles such as `いち【一】`, and NANMED20 has pipe-delimited keyword triples.
+In large dictionaries where HONMON is an ID table, title streams can still
+contain hundreds of thousands or millions of raw headword/title lines.
 
 ### Index Components
 
@@ -1055,8 +1092,24 @@ Component types observed in `SSEDINFO`:
 0x81  CRINDEX.DIC  cross-reference index
 ```
 
-The toolkit parses the common `FK/FH/BK/BH` page formats, the OUKOKU-style
-`KWINDEX` page format, and the primary `CRINDEX` rows.
+The toolkit parses the common `FK/FH/BK/BH` page formats, direct and grouped
+`KWINDEX` rows, and direct and grouped `CRINDEX` rows. The layouts below were
+validated against Japanese, English, Spanish, French, science, medical, and
+collocation dictionaries, including HAESPJPN, GENIUSEB, HAFRAN, NANMED20,
+OUKOKU11, IPHYCHE5, KENCOLLO, KQJCOLLO, and KOJIEN7.
+
+Representative parser coverage from the local corpus:
+
+```text
+HAESPJPN  FK/BK tagged + FH/BH simple indexes   unknown leaf subrecords: 0
+GENIUSEB  FH/BH simple indexes                  unknown leaf subrecords: 0
+NANMED20  FH/BH simple + KWINDEX grouped        unknown leaf subrecords: 0
+OUKOKU11  FK/FH/BK/BH + KWINDEX grouped         unknown leaf subrecords: 0
+IPHYCHE5  FK/FH/BK/BH + KWINDEX direct/grouped  unknown leaf subrecords: 0
+KENCOLLO  FH/BH + large mixed KWINDEX           unknown leaf subrecords: 0
+KQJCOLLO  FK/FH/BK/BH + CRINDEX grouped         unknown leaf subrecords: 0
+KOJIEN7   FK/FH/BK/BH + CRINDEX grouped         unknown leaf subrecords: 0
+```
 
 #### Index Page Header
 
@@ -1157,28 +1210,66 @@ leaf pages when a page begins with a `0xc0` target row.
 
 #### Cross-Reference Leaf Pages
 
-`CRINDEX.DIC` (`0x81`) uses a related but different format. Primary rows are:
+`CRINDEX.DIC` (`0x81`) is used with `CRTITLE.DIC` (`0x0a`). It has two leaf
+row forms.
+
+Direct rows:
 
 ```text
 offset  size  meaning
-0x00    2     key byte length, big endian
+0x00    1     tag 0x00
+0x01    1     key byte length
 0x02    n     JIS/gaiji key bytes
 ...     4     body logical block, big endian
 ...     2     body offset in block, big endian
-...     4     title logical block, big endian
-...     2     title offset in block, big endian
+...     4     CRTITLE logical block, big endian
+...     2     CRTITLE offset in block, big endian
 ```
 
-KOJIEN7 also has auxiliary `0x80` / `0xc0` CR subrecords. The `0x80` rows look
-like grouped keys, but the following `0xc0` payloads do not behave like normal
-6-byte body pointers and can exceed the book's logical block range if decoded
-that way. The current parser counts these groups and skips the auxiliary
-targets until their payload is understood.
+Grouped rows:
+
+```text
+offset  size  meaning
+0x00    1     tag 0x80
+0x01    1     key byte length
+0x02    4     target count hint, big endian
+0x06    n     JIS/gaiji cross-reference key bytes
+...     4     CRTITLE logical block, big endian
+...     2     CRTITLE offset in block, big endian
+```
+
+Following target rows are compact body pointers:
+
+```text
+offset  size  meaning
+0x00    1     tag 0xc0
+0x01    4     body logical block, big endian
+0x05    2     body offset in block, big endian
+```
+
+Page boundaries can occur inside a group, so the parser carries the current
+group key, count hint, and `CRTITLE` pointer across leaf pages. KOJIEN7 and
+KQJCOLLO both parse with no unknown leaf bytes under this model.
 
 #### Keyword Leaf Pages
 
-`KWINDEX.DIC` (`0x80`) is present in OUKOKU11 and uses a compact grouped leaf
-format. A group starts with:
+`KWINDEX.DIC` (`0x80`) is used with `KWTITLE.DIC` (`0x03`). It has direct rows,
+grouped rows, and continuation target pages.
+
+Direct rows:
+
+```text
+offset  size  meaning
+0x00    1     tag 0x00
+0x01    1     key byte length
+0x02    n     JIS/gaiji keyword bytes
+...     4     body logical block, big endian
+...     2     body offset in block, big endian
+...     4     KWTITLE logical block, big endian
+...     2     KWTITLE offset in block, big endian
+```
+
+Grouped rows:
 
 ```text
 offset  size  meaning
@@ -1186,6 +1277,8 @@ offset  size  meaning
 0x01    1     key byte length
 0x02    4     target count hint, big endian
 0x06    n     JIS/gaiji keyword bytes
+...     4     KWTITLE logical block, big endian
+...     2     KWTITLE offset in block, big endian
 ```
 
 Following target rows are seven bytes:
@@ -1197,11 +1290,10 @@ offset  size  meaning
 0x05    2     body offset in block, big endian
 ```
 
-Unlike `FKINDEX`/`FHINDEX`, these rows do not carry a separate title pointer.
-The toolkit emits the body pointer as both `body` and `title` in JSONL so the
-row shape stays compatible with other index output. OUKOKU11's `KWINDEX.DIC`
-has 405 pages, 57 keyword groups, and 2,211 target rows with no unknown leaf
-bytes under this parser.
+The grouped target rows do not carry their own title pointer; the surrounding
+group's `KWTITLE` pointer applies to each target. IPHYCHE5 uses many direct
+keyword rows, OUKOKU11 and NANMED20 use grouped keyword rows, and KENCOLLO uses
+a mix of both.
 
 Direct index parsing is useful for:
 
@@ -1690,7 +1782,7 @@ reader implementation or documented key schedule is available.
 Near-term:
 
 - Preserve a richer structured AST instead of emitting only plain body text.
-- Classify the skipped auxiliary `CRINDEX.DIC` subrecords.
+- Emit `MENU.DIC` menu trees and destination pointers as a structured report.
 - Add higher-level semantic labels for dictionary-specific section codes and
   named images.
 - Link title streams to body IDs for dense-HONMON dictionaries.
@@ -1705,7 +1797,6 @@ Longer-term:
 
 - Dictionary-specific compatibility profiles.
 - Better subentry handling for English dictionaries.
-- Image/media extraction.
 - Outlier payload research for `.dbc` products.
 
 ## Legal Notes
