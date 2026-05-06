@@ -15,6 +15,7 @@ from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
 from .gaiji import UniRecord, parse_ga16_resource, parse_uni_resource, write_ga16_glyph_png
 from .indexes import extract_indexes_for_idx
+from .menus import extract_menus_for_idx
 from .pcmdata import extract_pcmdata_for_sources
 from .resources import ImageResource, load_image_resource_profile
 from .ssed import (
@@ -489,6 +490,23 @@ def cmd_indexes(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_menus(args: argparse.Namespace) -> int:
+    sources = select_sources(args)
+    if not sources:
+        print("no dictionaries found", file=sys.stderr)
+        return 1
+
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    summaries = []
+    for source in sources:
+        print(f"extracting menus {source.dict_id}: {source.title}", file=sys.stderr)
+        summary = extract_menus_for_idx(source.idx, args.out_dir, args)
+        summaries.append(summary)
+        print(f"  menu_lines={summary['lines_emitted']}", file=sys.stderr)
+    write_json(args.out_dir / "summary.json", summaries)
+    return 0
+
+
 def cmd_fulldb(args: argparse.Namespace) -> int:
     sources = select_sources(args)
     if not sources:
@@ -759,6 +777,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Also emit binary-search tree internal rows, not only leaf search records.",
     )
     p_indexes.set_defaults(func=cmd_indexes)
+
+    p_menus = sub.add_parser("menus", help="Extract MENU.DIC menu trees and destination pointers.")
+    p_menus.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_menus.add_argument("--out-dir", type=Path, default=Path("logovista-raw-menus"))
+    p_menus.add_argument("--limit", type=int, help="Limit emitted menu lines per component.")
+    p_menus.add_argument("--gaiji", choices=("drop", "h-placeholder", "placeholder"), default="h-placeholder")
+    p_menus.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
+    p_menus.set_defaults(func=cmd_menus)
 
     p_fulldb = sub.add_parser(
         "fulldb",

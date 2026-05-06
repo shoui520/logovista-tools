@@ -13,14 +13,14 @@ decompress SSED data, compose EPWING-like book images, extract readable
 `HONMON.DIC` body entries for many dictionaries, extract raw title/headword
 streams from `*TITLE.DIC`, and follow raw HONMON numeric ID records into
 LogoVista `DictFULLDB` body payloads for products such as KOJIEN7 and other
-dense-HONMON dictionaries. It also parses the common `*INDEX.DIC` search-tree
-formats, emits raw lookup keys with body/title pointers, and discovers
-dictionary-specific image resources used for image-backed gaiji and inline
+dense-HONMON dictionaries. It also parses `MENU.DIC` menu trees, the common
+`*INDEX.DIC` search-tree formats, raw lookup keys with body/title pointers,
+and dictionary-specific image resources used for image-backed gaiji and inline
 badges. It can also decode `COLSCR.DIC` media pointers and extract referenced
 BMP/JPEG records used by inline figures and stroke-order panels. For
-body-stream dictionaries, it can also use raw index body pointers
-as additional entry boundaries, which is required for packages whose real
-entries do not all start with the common `1f09 0001` marker.
+body-stream dictionaries, it can also use raw index body pointers as additional
+entry boundaries, which is required for packages whose real entries do not all
+start with the common `1f09 0001` marker.
 
 No dictionary data is included in this repository.
 
@@ -132,6 +132,12 @@ Extract raw title/headword streams:
 
 ```bash
 logovista-tools titles /path/to/LogoVista --out-dir out/titles
+```
+
+Extract `MENU.DIC` menu trees and destination pointers:
+
+```bash
+logovista-tools menus /path/to/LogoVista --dict GENIUSEB --out-dir out/menus
 ```
 
 Extract raw search-index rows:
@@ -513,6 +519,66 @@ Each JSONL row looks like:
 Title extraction is especially useful for dictionaries whose `HONMON.DIC` is a
 placeholder table rather than a body stream.
 
+### `menus`
+
+Extract `MENU.DIC` menu lines, hierarchy, link labels, and destination
+pointers:
+
+```bash
+logovista-tools menus /path/to/LogoVista --out-dir menus
+logovista-tools menus /path/to/LogoVista --dict HAIKSAIJ --limit 50
+```
+
+Output layout:
+
+```text
+menus/
+  summary.json
+  DICT_ID/
+    menus_summary.json
+    raw_menus.jsonl
+    menu_tree.json
+```
+
+Each JSONL row looks like:
+
+```json
+{
+  "dict_id": "GENIUSEB",
+  "dict_title": "ジーニアス英和大辞典",
+  "component": "MENU.DIC",
+  "line_index": 1,
+  "section_code": null,
+  "depth": 1,
+  "path": ["はしがき"],
+  "text": "はしがき",
+  "links": [
+    {
+      "label": "はしがき",
+      "destination": {
+        "payload": "000256780002",
+        "encoding": "bcd",
+        "block": 25678,
+        "offset": 2,
+        "absolute_offset": 52586498
+      }
+    }
+  ],
+  "destination": {
+    "payload": "000256780002",
+    "encoding": "bcd",
+    "block": 25678,
+    "offset": 2,
+    "absolute_offset": 52586498
+  }
+}
+```
+
+`menu_tree.json` contains the same records nested by inferred section depth.
+Section depth is derived from the numeric ordering of section control codes in
+that menu component, so `0001`/`0002`/`0003`, `0022`/`0023`, and similar style
+families become practical tree levels.
+
 ### `indexes`
 
 Extract lookup keys and pointer rows from expanded `*INDEX.DIC` components:
@@ -641,6 +707,8 @@ Known working layers:
   unreferenced sequential-record discovery, and portable WAV/MP3 writing.
 - SQL/`DictFULLDB`-assisted gaiji validation reports, including aligned
   `Block`/`Offset` checks where cache tables expose those columns.
+- Structured `MENU.DIC` extraction with menu hierarchy, link labels, and
+  packed-BCD destination pointers.
 - Common `*TITLE.DIC` extraction, including `KWTITLE.DIC` keyword-title
   streams and `CRTITLE.DIC` cross-reference-title streams.
 - Common `*INDEX.DIC` branch-page and leaf-row parsing, including forward,
@@ -655,8 +723,8 @@ Known working layers:
 Known limitations:
 
 - Not all dictionaries store definitions in `HONMON.DIC`.
-- `MENU.DIC` text and destination pointers are decoded enough to avoid corrupt
-  text, but menu trees are not yet emitted as a separate structured report.
+- `MENU.DIC` destinations are emitted as raw logical block/offset pointers;
+  resolving every target into a named component/body slice is still separate.
 - Named UI/style images such as `exam.png` are discovered, but mapping them to
   semantic entry regions is still dictionary-specific.
 - Output is JSONL, not a final Yomitan/MDict exporter.
@@ -1023,7 +1091,7 @@ The common menu link form is:
 1f43              menu-link start
 ...               visible JIS/gaiji label text
 1f63              menu-link end
-00 00 00 02 0002  4-byte destination block + 2-byte destination offset
+00 00 00 02 0002  packed-BCD block 2, packed-BCD offset 2
 ```
 
 The destination is carried after the closing control, so a text decoder must
@@ -1031,6 +1099,25 @@ consume those six bytes. If it does not, pointer bytes are mis-decoded as
 garbage characters appended to labels. Section markers use the normal
 `1f09 xxxx` form; preserving them gives menu levels such as `0001`, `0002`,
 and `0003`.
+
+The destination payload is six bytes: four packed-BCD decimal bytes for the
+logical block and two packed-BCD decimal bytes for the offset. In GENIUSEB, the
+first menu item has payload `00 02 56 78 00 02`, which resolves to block
+`25678`, offset `2`; that matches the start of `HONMON.DIC` in the same
+catalog.
+
+Some menu streams use the older `1f42 ... 1f62` wrapper instead. In HAIKSAIJ,
+many of those labels include a no-op `1f00` immediately after `1f42`; the
+parser treats it as wrapper padding and still extracts the label and packed-BCD
+destination.
+
+The `menus` command writes:
+
+```text
+raw_menus.jsonl   flat menu records with path, links, and destinations
+menu_tree.json    nested menu records grouped by inferred section depth
+menus_summary.json component-level counts and parser statistics
+```
 
 ### Title Components
 
@@ -1782,7 +1869,7 @@ reader implementation or documented key schedule is available.
 Near-term:
 
 - Preserve a richer structured AST instead of emitting only plain body text.
-- Emit `MENU.DIC` menu trees and destination pointers as a structured report.
+- Resolve `MENU.DIC` destination pointers to named component/body targets.
 - Add higher-level semantic labels for dictionary-specific section codes and
   named images.
 - Link title streams to body IDs for dense-HONMON dictionaries.

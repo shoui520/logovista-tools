@@ -40,6 +40,7 @@ from logovista_tools.indexes import (
     parse_simple_leaf_page,
     parse_tagged_leaf_page,
 )
+from logovista_tools.menus import build_menu_tree, parse_menu_destination, parse_menu_stream
 from logovista_tools.pcmdata import (
     make_riff_wave,
     parse_pcm_pointer,
@@ -138,6 +139,58 @@ def test_menu_link_end_uses_6_byte_destination_payload() -> None:
 
     assert tokens_to_text(tokens) == "あい"
     assert stats["links"] == 1
+
+
+def test_menu_destination_uses_bcd_block_and_offset() -> None:
+    destination = parse_menu_destination(bytes.fromhex("000256780002"))
+
+    assert destination is not None
+    assert destination.encoding == "bcd"
+    assert destination.block == 25678
+    assert destination.offset == 2
+
+
+def test_parse_menu_stream_emits_tree_records_and_destinations() -> None:
+    data = bytes.fromhex(
+        "1f090001"
+        "1f4324221f63000000020002"
+        "1f0a"
+        "1f090002"
+        "1f4324241f63000000030004"
+        "1f0a"
+    )
+    parsed = parse_menu_stream(data, gaiji="drop")
+
+    assert parsed.stats["sections"] == 2
+    assert parsed.stats["links"] == 2
+    assert parsed.stats["destinations"] == 2
+    assert len(parsed.records) == 2
+    assert parsed.records[0].text == "あ"
+    assert parsed.records[0].section_code == "0001"
+    assert parsed.records[0].depth == 1
+    assert parsed.records[0].destination is not None
+    assert parsed.records[0].destination.block == 2
+    assert parsed.records[1].text == "い"
+    assert parsed.records[1].section_code == "0002"
+    assert parsed.records[1].depth == 2
+    assert parsed.records[1].path == ["あ", "い"]
+
+    tree = build_menu_tree(parsed.records)
+    assert tree[0]["text"] == "あ"
+    assert tree[0]["children"][0]["text"] == "い"
+
+
+def test_parse_menu_stream_supports_legacy_link_wrapper() -> None:
+    data = bytes.fromhex("1f0900021f421f0024221f62000000030004")
+    parsed = parse_menu_stream(data, gaiji="drop")
+
+    assert parsed.stats["unknown_controls"] == 0
+    assert parsed.stats["links"] == 1
+    assert parsed.records[0].text == "あ"
+    assert parsed.records[0].links[0].control == "1f42"
+    assert parsed.records[0].destination is not None
+    assert parsed.records[0].destination.block == 3
+    assert parsed.records[0].destination.offset == 4
 
 
 def test_colscr_media_pointer_uses_packed_bcd_decimal() -> None:
