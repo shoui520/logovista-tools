@@ -10,6 +10,7 @@ from logovista_tools.colscr import (
 from logovista_tools.entries import (
     decode_tokens,
     iter_entry_slices_with_boundaries,
+    is_useless_body,
     normalize_fullwidth_ascii,
     resolve_section_image_sources,
     tokens_to_html,
@@ -115,6 +116,13 @@ def test_tokens_to_html_can_insert_section_images() -> None:
 
 def test_resolve_section_image_sources_uses_discovered_image_key() -> None:
     assert resolve_section_image_sources(["0011=exam"], {"exam": "img/exam.png"}) == {"0011": "img/exam.png"}
+
+
+def test_section_only_and_section_numeric_bodies_are_useless() -> None:
+    assert is_useless_body("<section:0001>")
+    assert is_useless_body("<section:0001>00000001")
+    assert is_useless_body("<section:0001>K0NVOzjh")
+    assert not is_useless_body("<section:0001>あ")
 
 
 def test_media_control_uses_18_byte_payload() -> None:

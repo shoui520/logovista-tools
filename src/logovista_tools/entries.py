@@ -424,9 +424,19 @@ def is_useless_body(body: str) -> bool:
     compact = body.strip()
     if not compact:
         return True
+    content = re.sub(r"<section:[0-9A-Fa-f]{4}>", "", compact).strip()
+    content = re.sub(r"<media:[0-9A-Fa-f]+>", "", content).strip()
+    if not content:
+        return True
     if re.fullmatch(r"[0-9A-Fa-f]{8,16}", compact):
         return True
     if re.fullmatch(r"[0-9A-Fa-f]{6,16}(?:\n[0-9A-Fa-f]{6,16})+", compact):
+        return True
+    if re.fullmatch(r"[0-9A-Fa-f]{8,16}", content):
+        return True
+    if re.fullmatch(r"[0-9A-Fa-f]{6,16}(?:\n[0-9A-Fa-f]{6,16})+", content):
+        return True
+    if re.fullmatch(r"[A-Za-z0-9+/]{6,24}={0,2}", content):
         return True
     return False
 

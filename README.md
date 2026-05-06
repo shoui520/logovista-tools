@@ -20,7 +20,10 @@ badges. It can also decode `COLSCR.DIC` media pointers and extract referenced
 BMP/JPEG records used by inline figures and stroke-order panels. For
 body-stream dictionaries, it can also use raw index body pointers as additional
 entry boundaries, which is required for packages whose real entries do not all
-start with the common `1f09 0001` marker.
+start with the common `1f09 0001` marker. The `audit-honmon` command is a
+raw-only corpus probe for checking whether a dictionary's `HONMON.DIC` is a
+readable body stream, a dense raw ID/token table, or an opaque/stub component;
+it does not read SQLite body text.
 
 No dictionary data is included in this repository.
 
@@ -76,6 +79,13 @@ Extract readable `HONMON.DIC` bodies as JSONL:
 
 ```bash
 logovista-tools entries /path/to/LogoVista --out-dir out/bodies
+```
+
+Audit raw `HONMON.DIC` / `*INDEX.DIC` readability across a collection without
+using SQLite body text:
+
+```bash
+logovista-tools audit-honmon /path/to/LogoVista --out-dir out/honmon-audit
 ```
 
 Extract bodies while preserving PNG-backed gaiji as inline HTML:
@@ -275,6 +285,55 @@ archive layout differs.
 useful first-pass rule because `0011` marks Spanish example lines and
 `exam.png` is the dictionary's `用例` badge. Other dictionaries may use the
 same section code differently.
+
+### `audit-honmon`
+
+Audit whether raw `HONMON.DIC` plus raw `*INDEX.DIC` pointers can produce
+coherent body text.
+
+```bash
+logovista-tools audit-honmon /path/to/LogoVista --out-dir honmon-audit
+logovista-tools audit-honmon /path/to/LogoVista --dict KOJIEN7 --json
+```
+
+Output layout:
+
+```text
+honmon-audit/
+  honmon_audit.json
+```
+
+This command is intentionally raw-first. It expands `HONMON.DIC`, parses
+index-derived body boundaries, samples decoded body slices, probes 32-byte
+HONMON ID/token records, checks `*TITLE.DIC` availability, and records
+`DictList.plist` declarations. It does not read SQLite or `DictFULLDB` body
+text. The database metadata is included only to explain where dense raw IDs
+would be dereferenced by the separate `fulldb` command.
+
+Useful options:
+
+```bash
+--dict NAME                         audit only matching dictionary ids
+--sample-limit N                    keep at most N readable body samples
+--max-slices N                      inspect at most N candidate raw slices per dictionary
+--max-id-records N                  probe at most N 32-byte HONMON records; 0 = full scan
+--no-index-boundaries               sample marker-only slicing
+--no-skip-dbc                       include opaque .dbc products in the report
+--json                              also print the JSON report
+```
+
+Important status values:
+
+```text
+raw_honmon_body_stream              HONMON/IDX yields readable entries
+mixed_or_dense_but_raw_slices_readable
+                                    dense signals exist, but raw slices are readable
+dense_honmon_id_table_dictfulldb    HONMON stores raw numeric body IDs
+dense_honmon_token_table_dictfulldb HONMON stores opaque raw tokens/anchors
+idx_title_only_no_readable_honmon_body
+                                    indexes/titles exist, but sampled HONMON bodies do not
+skipped_dbc                         .dbc payload skipped by default
+```
 
 ### `resources`
 
@@ -739,6 +798,9 @@ Known working layers:
   backward, keyword, and cross-reference indexes.
 - Index-derived HONMON body boundaries for entries whose first section is not
   `0001`.
+- Raw HONMON/IDX corpus auditing that distinguishes readable body streams,
+  mixed readable streams, dense ID/token tables, and `.dbc` outliers without
+  reading SQLite body text.
 - Placeholder preservation for unresolved gaiji, for example `<hA126>`.
 - Full-width ASCII normalization to half-width ASCII.
 - Dense HONMON ID-table detection.
@@ -747,6 +809,8 @@ Known working layers:
 Known limitations:
 
 - Not all dictionaries store definitions in `HONMON.DIC`.
+- Not every product that declares `DictFULLDB` has an unreadable `HONMON.DIC`;
+  several still have readable raw body streams. Audit the raw layer first.
 - `MENU.DIC` destinations are resolved to components, but semantic target
   labels inside the target body/menu stream are still dictionary-specific.
 - Named UI/style images such as `exam.png` are discovered, but mapping them to
@@ -987,7 +1051,7 @@ debug comparison.
 This works well for dictionaries where `HONMON.DIC` really is a body stream,
 including dictionaries such as GENIUSEB, HAESPJPN, and OUKOKU11.
 
-### Dense HONMON ID Tables
+### Dense HONMON Tables
 
 Some products have a large expanded `HONMON.DIC`, but it is not a definition
 body stream. Instead it is a dense run of 32-byte records that look like:
@@ -1026,20 +1090,60 @@ The model for these dictionaries is:
 - `DictList.plist` can name a sibling `DictFULLDB` payload;
 - the full body is recovered by following raw HONMON IDs into that payload.
 
-Observed dense-HONMON dictionaries include:
+Other dense products use the same 32-byte HONMON structure but store opaque
+tokens rather than decimal body IDs. HOUGAKU5 is currently in this class: raw
+slices decode as short tokens such as `K0NVOzjh`, not readable legal dictionary
+definitions. Those records are still useful as raw linkage evidence, but they
+need a separate dereference model.
 
-| Dictionary | Raw HONMON ID slots observed | Lookup/title text available without `DictFULLDB` |
-| --- | ---: | --- |
-| `HABGESPA` | 109,753 | No title components; Spanish keys are visible in `FHINDEX.DIC` / `BHINDEX.DIC`. |
-| `HAFRAN` | 7,892 | No title components; French keys are visible in `FHINDEX.DIC` / `BHINDEX.DIC`. |
-| `IWKOKUG8` | 65,480 | `*TITLE.DIC` streams expose Japanese lookup titles such as `ああ【嗚呼】`. |
-| `KENROWA` | 160,616 | `*TITLE.DIC` streams expose Russian/Japanese lookup titles. |
-| `KOJIEN7` | 300,000 | `*TITLE.DIC` streams expose Japanese lookup titles; HONMON IDs resolve to `DictFULLDB`. |
-| `NANMED20` | 38,976 | `*TITLE.DIC` streams expose alias triples such as `見出し|読み|表示見出し`. |
+Observed non-body HONMON dictionaries in the local corpus include:
+
+| Dictionary | Dense raw payload | Lookup/title text available without body DB text |
+| --- | --- | --- |
+| `HABGESPA` | Numeric ID table | No title components; Spanish keys are visible in `FHINDEX.DIC` / `BHINDEX.DIC`. |
+| `HAFRAN` | Numeric ID table | No title components; French keys are visible in `FHINDEX.DIC` / `BHINDEX.DIC`. |
+| `HOUGAKU5` | Opaque token table | Index/title linkage exists, but sampled HONMON slices are not definitions. |
+| `IWKOKUG8` | Numeric ID table | `*TITLE.DIC` streams expose Japanese lookup titles such as `ああ【嗚呼】`. |
+| `JSSAURU2` | Numeric ID table | Index/title linkage exists; sampled HONMON slices are not definitions. |
+| `KENROWA` | Numeric ID table | `*TITLE.DIC` streams expose Russian/Japanese lookup titles. |
+| `KOJIEN7` | Numeric ID table | `*TITLE.DIC` streams expose Japanese lookup titles; HONMON IDs resolve to `DictFULLDB`. |
+| `NANMED20` | Numeric ID table | `*TITLE.DIC` streams expose alias triples such as `見出し|読み|表示見出し`. |
 
 For these, the `entries` command skips body extraction by default and reports a
 warning in `summary.json`. Try `fulldb` when `DictList.plist` declares
 `DictFULLDB`.
+
+This is why the toolkit keeps the dense raw layer in scope. Even when a
+database is required for final body text, raw `HONMON.DIC` and `*INDEX.DIC`
+still define the dictionary's body anchors, lookup pointers, title linkage, and
+the exact subset/order of IDs that belong to the packaged dictionary.
+
+### HONMON/IDX Corpus Audit
+
+The local `LOGOVISTA_ALL` corpus was audited with raw SSED expansion, raw
+index-derived body boundaries, body-slice sampling, 32-byte HONMON record
+probing, and title-component probing. SQLite and `DictFULLDB` body text were
+not used to decide whether raw HONMON/IDX produced readable body entries.
+
+Valid SSED dictionaries with `HONMON.DIC` fell into these practical groups:
+
+| Group | Dictionaries |
+| --- | --- |
+| Raw HONMON/IDX gives readable body entries | `Dconci98`, `GENIUS53`, `GENIUSEB`, `HAESPJPN`, `HAIKSAIJ`, `HKKIGAK6`, `IBIO5`, `IPHYCHE5`, `KANJIGN5`, `KENCOLLO`, `KQCOLEXP`, `KQEBHOU`, `KQJCOLLO`, `KQLATINO`, `KQNEWEJ6`, `KQNEWJE5`, `KenE7J5`, `LMEDEJ12`, `MEIKYOU2`, `NIHONSHI`, `NKGORIN2`, `OUKOKU11`, `RDRSP2`, `ROYALEGR`, `Readers3`, `SINMEI7`, `Saitoje`, `ZYAKUKOG` |
+| Raw HONMON/IDX exposes IDs, tokens, titles, or search keys, but sampled HONMON bodies are not definitions | `HABGESPA`, `HAFRAN`, `HOUGAKU5`, `IWKOKUG8`, `JSSAURU2`, `KENROWA`, `KOJIEN7`, `NANMED20` |
+| Opaque `.dbc` products skipped by default | `KQCMPROS`, `OXFPEU4` |
+
+Several products in the first group still declare SQL or `DictFULLDB` files.
+That declaration alone is not enough to classify a dictionary as database-body
+only. The raw audit must check the expanded HONMON stream and the raw indexes.
+Conversely, the second group proves that some dictionaries need a database or
+other payload dereference for final body text, but that does not make HONMON or
+IDX irrelevant: they still carry the raw anchor layer.
+
+The body sampler deliberately filters section-only spans, decimal/hex-only ID
+records, and short opaque base64-like tokens. Without that filter, dense tables
+can appear to contain entries such as `<section:0001>` or `K0NVOzjh`; those are
+not coherent dictionary bodies.
 
 ### Android/Windows Body Streams
 

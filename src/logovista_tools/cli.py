@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .audit import extract_audit_for_sources
 from .colscr import extract_colscr_for_sources
 from .entries import discover_dictionaries, extract_dictionary
 from .fulldb import extract_fulldb_dictionary
@@ -561,6 +562,13 @@ def cmd_pcmdata(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_audit(args: argparse.Namespace) -> int:
+    rows = extract_audit_for_sources(args)
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="logovista-tools",
@@ -676,6 +684,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_pcmdata.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
     p_pcmdata.set_defaults(include_unreferenced=True, func=cmd_pcmdata)
+
+    p_audit = sub.add_parser("audit-honmon", help="Audit raw HONMON/IDX readability without SQLite bodies.")
+    p_audit.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_audit.add_argument("--out-dir", type=Path, default=Path("logovista-honmon-audit"))
+    p_audit.add_argument("--dict", action="append", help="Only audit matching dictionary id(s).")
+    p_audit.add_argument("--sample-limit", type=int, default=5)
+    p_audit.add_argument("--max-slices", type=int, default=20000)
+    p_audit.add_argument(
+        "--max-id-records",
+        type=int,
+        default=50000,
+        help="Probe at most N 32-byte HONMON records; 0 = full scan.",
+    )
+    p_audit.add_argument("--no-skip-dbc", dest="skip_dbc", action="store_false")
+    p_audit.add_argument("--no-index-boundaries", dest="index_boundaries", action="store_false")
+    p_audit.add_argument("--json", action="store_true", help="Also print machine-readable JSON.")
+    p_audit.set_defaults(skip_dbc=True, index_boundaries=True, func=cmd_audit)
 
     p_gaiji_report = sub.add_parser(
         "gaiji-report",
