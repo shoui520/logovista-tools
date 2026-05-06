@@ -11,7 +11,7 @@ from typing import Any
 from . import __version__
 from .entries import discover_dictionaries, extract_dictionary
 from .fulldb import extract_fulldb_dictionary
-from .gaiji import UniRecord, parse_uni_resource
+from .gaiji import UniRecord, parse_ga16_resource, parse_uni_resource, write_ga16_glyph_png
 from .indexes import extract_indexes_for_idx
 from .resources import ImageResource, load_image_resource_profile
 from .ssed import (
@@ -292,6 +292,166 @@ def cmd_uni(args: argparse.Namespace) -> int:
     return 0
 
 
+GA16_RESOURCE_NAMES = {
+    "GA16HALF",
+    "GA16FULL",
+    "GAI16H",
+    "GAI16F",
+}
+
+
+def is_ga16_resource_path(path: Path) -> bool:
+    name = path.name.upper()
+    return (
+        name in GA16_RESOURCE_NAMES
+        or name.startswith("GAI16H")
+        or name.startswith("GAI16F")
+    )
+
+
+def discover_ga16_resources(path: Path) -> list[Path]:
+    if not path.exists():
+        return []
+    if path.is_file():
+        return [path] if is_ga16_resource_path(path) else []
+
+    direct = sorted(
+        child for child in path.iterdir() if child.is_file() and is_ga16_resource_path(child)
+    )
+    if direct:
+        return direct
+
+    return sorted(child for child in path.rglob("*") if child.is_file() and is_ga16_resource_path(child))
+
+
+def ga16_prefix_for_path(path: Path, override: str) -> str:
+    if override != "auto":
+        return override
+    name = path.name.upper()
+    if "HALF" in name or "16H" in name:
+        return "h"
+    if "FULL" in name or "16F" in name:
+        return "z"
+    return "g"
+
+
+def parse_hex_color(value: str) -> tuple[int, int, int, int]:
+    cleaned = value.strip().removeprefix("#")
+    if len(cleaned) not in (6, 8) or any(ch not in "0123456789abcdefABCDEF" for ch in cleaned):
+        raise argparse.ArgumentTypeError("color must be RRGGBB or RRGGBBAA")
+    if len(cleaned) == 6:
+        cleaned += "ff"
+    return (
+        int(cleaned[0:2], 16),
+        int(cleaned[2:4], 16),
+        int(cleaned[4:6], 16),
+        int(cleaned[6:8], 16),
+    )
+
+
+def parse_gaiji_code_arg(value: str) -> int:
+    cleaned = value.strip().strip("<>").lower()
+    if len(cleaned) == 5 and cleaned[0] in ("h", "z", "g"):
+        cleaned = cleaned[1:]
+    if cleaned.startswith("0x"):
+        cleaned = cleaned[2:]
+    if len(cleaned) != 4 or any(ch not in "0123456789abcdef" for ch in cleaned):
+        raise argparse.ArgumentTypeError("gaiji code must be four hex digits, e.g. A126 or hA126")
+    return int(cleaned, 16)
+
+
+def cmd_ga16(args: argparse.Namespace) -> int:
+    paths = discover_ga16_resources(args.path)
+    if not paths:
+        print(f"no GA16/GAI16 bitmap resources found under: {args.path}", file=sys.stderr)
+        return 1
+
+    selected_codes = set(args.code or [])
+    group_by_dict = args.path.is_dir()
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+
+    summaries = []
+    total_written = 0
+    for path in paths:
+        data = path.read_bytes()
+        resource = parse_ga16_resource(path)
+        if resource is None:
+            print(f"skip unparsable GA16 resource: {path}", file=sys.stderr)
+            continue
+
+        prefix = ga16_prefix_for_path(path, args.prefix)
+        target_dir = args.out_dir / path.parent.name if group_by_dict else args.out_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        written = 0
+        considered = 0
+        for code, glyph in resource.iter_glyphs(data):
+            if selected_codes and code not in selected_codes:
+                continue
+            considered += 1
+            base_name = f"{prefix}{code:04X}"
+            if args.variants:
+                write_ga16_glyph_png(
+                    target_dir / f"{base_name}_n.png",
+                    glyph,
+                    resource.width,
+                    resource.height,
+                    foreground=(0, 0, 0, 255),
+                    background=(0, 0, 0, 0),
+                )
+                write_ga16_glyph_png(
+                    target_dir / f"{base_name}_w.png",
+                    glyph,
+                    resource.width,
+                    resource.height,
+                    foreground=(255, 255, 255, 255),
+                    background=(0, 0, 0, 0),
+                )
+                written += 2
+            else:
+                write_ga16_glyph_png(
+                    target_dir / f"{base_name}.png",
+                    glyph,
+                    resource.width,
+                    resource.height,
+                    foreground=args.foreground,
+                    background=args.background,
+                )
+                written += 1
+            if args.limit is not None and considered >= args.limit:
+                break
+
+        total_written += written
+        summaries.append(
+            {
+                "path": str(path),
+                "out_dir": str(target_dir),
+                "prefix": prefix,
+                "width": resource.width,
+                "height": resource.height,
+                "start_code": f"{resource.start_code:04X}",
+                "count": resource.count,
+                "glyph_bytes": resource.glyph_bytes,
+                "glyphs_selected": considered,
+                "png_files_written": written,
+            }
+        )
+
+    if args.json:
+        print(json.dumps({"resources": summaries, "png_files_written": total_written}, ensure_ascii=False, indent=2))
+        return 0
+
+    for row in summaries:
+        print(
+            f"{Path(row['path']).name:10s} {row['width']}x{row['height']} "
+            f"start={row['start_code']} count={row['count']} "
+            f"selected={row['glyphs_selected']} wrote={row['png_files_written']} "
+            f"out={row['out_dir']}"
+        )
+    print(f"png files written: {total_written}")
+    return 0
+
+
 def cmd_titles(args: argparse.Namespace) -> int:
     sources = select_sources(args)
     if not sources:
@@ -429,6 +589,42 @@ def build_parser() -> argparse.ArgumentParser:
     p_uni.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     p_uni.add_argument("--limit", type=int, help="Limit records printed/emitted.")
     p_uni.set_defaults(func=cmd_uni)
+
+    p_ga16 = sub.add_parser("ga16", help="Render GA16HALF/GA16FULL bitmap gaiji to PNG assets.")
+    p_ga16.add_argument("path", type=Path, help="GA16 file, dictionary directory, or collection root.")
+    p_ga16.add_argument("out_dir", type=Path, help="Directory to write PNG files.")
+    p_ga16.add_argument("--limit", type=int, help="Limit glyphs rendered per resource.")
+    p_ga16.add_argument(
+        "--code",
+        action="append",
+        type=parse_gaiji_code_arg,
+        help="Only render one gaiji code. May be repeated. Accepts A126, 0xA126, or hA126.",
+    )
+    p_ga16.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    p_ga16.add_argument(
+        "--prefix",
+        choices=("auto", "h", "z", "g"),
+        default="auto",
+        help="Filename prefix. auto uses h for half-width resources and z for full-width resources.",
+    )
+    p_ga16.add_argument(
+        "--foreground",
+        type=parse_hex_color,
+        default=(0, 0, 0, 255),
+        help="Ink color for single-variant output, as RRGGBB or RRGGBBAA.",
+    )
+    p_ga16.add_argument(
+        "--background",
+        type=parse_hex_color,
+        default=(0, 0, 0, 0),
+        help="Background color for single-variant output, as RRGGBB or RRGGBBAA.",
+    )
+    p_ga16.add_argument(
+        "--variants",
+        action="store_true",
+        help="Write LogoVista-style black _n.png and white _w.png theme variants.",
+    )
+    p_ga16.set_defaults(func=cmd_ga16)
 
     p_titles = sub.add_parser("titles", help="Extract raw *TITLE.DIC headword/title lines as JSONL.")
     p_titles.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")

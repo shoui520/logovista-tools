@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import plistlib
 import re
+import struct
+import zlib
+from binascii import crc32
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Hashable
+from typing import Hashable, Iterable
 
 
 GAIJI_CODE_RE = re.compile(r"[A-Fa-f0-9]{4}")
@@ -80,6 +83,13 @@ class Ga16Resource:
         if end > len(data):
             return None
         return data[start:end]
+
+    def iter_glyphs(self, data: bytes) -> Iterable[tuple[int, bytes]]:
+        for index in range(self.count):
+            code = self.code_for_index(index)
+            glyph = self.glyph_for_code(data, code)
+            if glyph is not None:
+                yield code, glyph
 
 
 def candidate_gaiji_paths(idx: Path) -> tuple[list[Path], list[Path]]:
@@ -343,13 +353,11 @@ def parse_ga16_resource(path: Path) -> Ga16Resource | None:
         return None
     width = data[8]
     height = data[9]
-    if width <= 0 or height <= 0 or (width * height) % 8 != 0:
+    if width <= 0 or height <= 0:
         return None
     start_code = int.from_bytes(data[10:12], "big")
     count = int.from_bytes(data[12:14], "big")
-    glyph_bytes = (width * height) // 8
-    if count <= 0:
-        return None
+    glyph_bytes = ga16_glyph_size(width, height)
     return Ga16Resource(
         path=path,
         width=width,
@@ -358,3 +366,96 @@ def parse_ga16_resource(path: Path) -> Ga16Resource | None:
         count=count,
         glyph_bytes=glyph_bytes,
     )
+
+
+def ga16_row_size(width: int) -> int:
+    """Return stored bytes per bitmap row."""
+
+    return (width + 7) // 8
+
+
+def ga16_glyph_size(width: int, height: int) -> int:
+    """Return stored bytes per bitmap glyph."""
+
+    return ga16_row_size(width) * height
+
+
+def render_ga16_glyph_rgba(
+    glyph: bytes,
+    width: int,
+    height: int,
+    *,
+    foreground: tuple[int, int, int, int] = (0, 0, 0, 255),
+    background: tuple[int, int, int, int] = (0, 0, 0, 0),
+) -> bytes:
+    """Render one GA16 bitmap glyph to packed RGBA bytes.
+
+    Observed GA16 glyphs are 1bpp, row-major, and MSB-first within each row.
+    Set bits are ink pixels.
+    """
+
+    row_size = ga16_row_size(width)
+    required = row_size * height
+    if len(glyph) < required:
+        raise ValueError(f"glyph has {len(glyph)} bytes; expected at least {required}")
+
+    fg = bytes(foreground)
+    bg = bytes(background)
+    pixels = bytearray(width * height * 4)
+    pos = 0
+    for y in range(height):
+        row = glyph[y * row_size : (y + 1) * row_size]
+        for x in range(width):
+            byte = row[x // 8]
+            bit = 0x80 >> (x % 8)
+            pixels[pos : pos + 4] = fg if byte & bit else bg
+            pos += 4
+    return bytes(pixels)
+
+
+def _png_chunk(kind: bytes, payload: bytes) -> bytes:
+    crc = crc32(kind)
+    crc = crc32(payload, crc) & 0xFFFFFFFF
+    return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", crc)
+
+
+def encode_png_rgba(width: int, height: int, rgba: bytes) -> bytes:
+    """Encode packed RGBA pixels as a PNG image without external dependencies."""
+
+    expected = width * height * 4
+    if len(rgba) != expected:
+        raise ValueError(f"RGBA payload has {len(rgba)} bytes; expected {expected}")
+
+    stride = width * 4
+    scanlines = bytearray()
+    for y in range(height):
+        scanlines.append(0)  # filter type 0
+        start = y * stride
+        scanlines.extend(rgba[start : start + stride])
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", ihdr)
+        + _png_chunk(b"IDAT", zlib.compress(bytes(scanlines)))
+        + _png_chunk(b"IEND", b"")
+    )
+
+
+def write_ga16_glyph_png(
+    path: Path,
+    glyph: bytes,
+    width: int,
+    height: int,
+    *,
+    foreground: tuple[int, int, int, int] = (0, 0, 0, 255),
+    background: tuple[int, int, int, int] = (0, 0, 0, 0),
+) -> None:
+    rgba = render_ga16_glyph_rgba(
+        glyph,
+        width,
+        height,
+        foreground=foreground,
+        background=background,
+    )
+    path.write_bytes(encode_png_rgba(width, height, rgba))

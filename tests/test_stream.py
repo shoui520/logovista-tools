@@ -7,7 +7,15 @@ from logovista_tools.entries import (
     tokens_to_html,
     tokens_to_text,
 )
-from logovista_tools.gaiji import load_gaiji_profile, load_uni_gaiji_map, parse_ga16_resource, parse_uni_resource
+from logovista_tools.gaiji import (
+    encode_png_rgba,
+    load_gaiji_profile,
+    load_uni_gaiji_map,
+    parse_ga16_resource,
+    parse_uni_resource,
+    render_ga16_glyph_rgba,
+    write_ga16_glyph_png,
+)
 from logovista_tools.indexes import (
     IndexPointer,
     parse_cr_leaf_page,
@@ -245,6 +253,50 @@ def test_parse_ga16_resource_header_and_glyph(tmp_path) -> None:
     assert resource.count == 2
     assert resource.glyph_bytes == 16
     assert resource.glyph_for_code(path.read_bytes(), 0xA122) == glyph1
+
+
+def test_parse_ga16_resource_accepts_empty_bitmap_resource(tmp_path) -> None:
+    path = tmp_path / "GA16FULL"
+    header = bytearray(2048)
+    header[0] = 1
+    header[8] = 16
+    header[9] = 16
+    header[10:12] = bytes.fromhex("b121")
+    header[12:14] = (0).to_bytes(2, "big")
+    path.write_bytes(bytes(header))
+
+    resource = parse_ga16_resource(path)
+
+    assert resource is not None
+    assert resource.count == 0
+    assert list(resource.iter_glyphs(path.read_bytes())) == []
+
+
+def test_render_ga16_glyph_rgba_uses_msb_first_rows() -> None:
+    glyph = bytes([0b1000_0000, 0b0100_0000, 0b0010_0000, 0b0001_0000])
+
+    rgba = render_ga16_glyph_rgba(glyph, 8, 4)
+
+    pixels = [rgba[i : i + 4] for i in range(0, len(rgba), 4)]
+    assert pixels[0] == bytes([0, 0, 0, 255])
+    assert pixels[1] == bytes([0, 0, 0, 0])
+    assert pixels[9] == bytes([0, 0, 0, 255])
+    assert pixels[18] == bytes([0, 0, 0, 255])
+    assert pixels[27] == bytes([0, 0, 0, 255])
+
+
+def test_encode_png_rgba_and_write_ga16_glyph_png(tmp_path) -> None:
+    path = tmp_path / "hA121.png"
+    glyph = bytes([0x80] + [0] * 15)
+
+    write_ga16_glyph_png(path, glyph, 8, 16)
+    png = path.read_bytes()
+
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+    assert png[12:16] == b"IHDR"
+    assert int.from_bytes(png[16:20], "big") == 8
+    assert int.from_bytes(png[20:24], "big") == 16
+    assert encode_png_rgba(1, 1, bytes([0, 0, 0, 0])).startswith(b"\x89PNG\r\n\x1a\n")
 
 
 def test_load_image_resource_profile_discovers_theme_variants(tmp_path) -> None:

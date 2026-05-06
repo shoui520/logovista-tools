@@ -99,6 +99,12 @@ Inspect a `.uni` gaiji mapping file:
 logovista-tools uni /path/to/DICT/DICT.uni --limit 20
 ```
 
+Render bitmap-only `GA16HALF` / `GA16FULL` gaiji to PNG assets:
+
+```bash
+logovista-tools ga16 /path/to/DICT /path/to/out/gaiji --variants
+```
+
 Extract raw title/headword streams:
 
 ```bash
@@ -268,6 +274,43 @@ This command reports the detected layout, half/full record counts, mapped
 records, fallback/search records, legacy/alternate fields, and raw 16-bit
 fields for each record.
 
+### `ga16`
+
+Render LogoVista bitmap gaiji resources to portable PNG files.
+
+```bash
+logovista-tools ga16 /path/to/DICT/GA16HALF out/gaiji
+logovista-tools ga16 /path/to/DICT out/gaiji --variants
+logovista-tools ga16 /path/to/LogoVista out/gaiji --limit 10 --json
+```
+
+The input may be one resource file, one dictionary directory, or a collection
+root. Directory inputs are grouped under `out_dir/DICT_ID/`. File names are
+code-stable:
+
+```text
+hA126.png       half-width resource, single-variant output
+zB121.png       full-width resource, single-variant output
+hA126_n.png     black-theme variant
+hA126_w.png     white-theme variant
+```
+
+Useful options:
+
+```bash
+--code A126                         render only one code; may be repeated
+--limit N                           render at most N glyphs per resource
+--variants                          write black _n.png and white _w.png variants
+--foreground RRGGBB[AA]             ink color for single-variant output
+--background RRGGBB[AA]             background color for single-variant output
+--prefix auto|h|z|g                 choose filename prefix
+--json                              emit a machine-readable summary
+```
+
+Default output is black ink on transparent background. `--variants` mirrors
+the theme pattern used by packaged image resources such as `b13d_n.png` and
+`b13d_w.png`.
+
 ### `titles`
 
 Extract headword/title lines from expanded `*TITLE.DIC` components:
@@ -416,7 +459,8 @@ Known working layers:
   including UTF-16 surrogate-pair sequences and older 12-byte `.uni` files.
 - Plist gaiji fallback mapping when `Gaiji.plist` or `GaijiS.plist` is
   present.
-- `GA16HALF` / `GA16FULL` bitmap resource header parsing and glyph slicing.
+- `GA16HALF` / `GA16FULL` bitmap resource header parsing, glyph slicing, and
+  PNG rendering.
 - Top-level `img` resource discovery, including `_n` / `_w` theme variants.
 - Image-backed gaiji preservation as placeholders or inline HTML `<img>` tags.
 - Common `*INDEX.DIC` branch-page and leaf-row parsing.
@@ -431,8 +475,6 @@ Known limitations:
 - `KWINDEX.DIC` is not fully classified yet.
 - `CRINDEX.DIC` primary rows are parsed, but auxiliary `0xc0` subrows are
   skipped because their payload is not the same body/title pointer format.
-- `GA16HALF` / `GA16FULL` bitmap-only gaiji can be identified and sliced, but
-  are not rendered into PNG assets yet.
 - Named UI/style images such as `exam.png` are discovered, but mapping them to
   semantic entry regions is still dictionary-specific.
 - Output is JSONL, not a final Yomitan/MDict exporter.
@@ -919,8 +961,8 @@ The current extractor:
 - loads primary Unicode mappings from dictionary-local `.uni` / `.UNI` files;
 - uses `Gaiji.plist` and `GaijiS.plist` only as fallbacks for codes missing
   from `.uni`;
-- parses `GA16HALF` and `GA16FULL` headers and can slice individual bitmap
-  glyph records;
+- parses `GA16HALF` and `GA16FULL` headers, slices individual bitmap glyph
+  records, and renders them to transparent PNG files;
 - discovers PNG-backed gaiji from package image folders;
 - emits unresolved half-width gaiji as `<hXXXX>` by default;
 - can emit all unresolved gaiji as placeholders with `--gaiji placeholder`;
@@ -1088,8 +1130,40 @@ GA16HALF  width=8   height=16  glyph bytes=16
 GA16FULL  width=16  height=16  glyph bytes=32
 ```
 
-The parser can locate a glyph by code and return its raw bitmap bytes. Rendering
-those bytes to SVG/PNG is still future work.
+Bitmap data is a dense run of 1bpp glyphs:
+
+```text
+glyph_offset = 0x800 + (code - first_code) * glyph_bytes
+row_bytes    = ceil(width / 8)
+glyph_bytes  = row_bytes * height
+```
+
+Rows are stored top-to-bottom. Bits inside each row are MSB-first, and set bits
+are ink pixels. In HAESPJPN, this renders `A126` as `é` and `A138` as `ñ`,
+matching EBWin and the `.uni` text mapping.
+
+Some resources are valid headers with zero glyphs. For example, an empty
+`GA16HALF` may declare width, height, and start code but have count `0`. The
+toolkit reports these cleanly and emits no PNGs.
+
+The `ga16` command converts bitmap glyphs to transparent RGBA PNGs. With
+single-variant output, names use the resource kind as a prefix:
+
+```text
+hA126.png  half-width resource glyph A126
+zB121.png  full-width resource glyph B121
+```
+
+With `--variants`, the command writes LogoVista-style theme pairs:
+
+```text
+hA126_n.png  black ink on transparent background
+hA126_w.png  white ink on transparent background
+```
+
+These images can be copied into Yomitan, MDict, or HTML output packages and
+referenced with normal inline `<img>` tags for gaiji that have no usable
+Unicode mapping.
 
 ### DictFULLDB Payloads
 
@@ -1130,7 +1204,6 @@ reader implementation or documented key schedule is available.
 
 Near-term:
 
-- Render bitmap-only `GA16HALF` / `GA16FULL` gaiji to portable image assets.
 - Add SQL/`DictFULLDB`-assisted gaiji validation reports where available.
 - Preserve a richer structured AST instead of emitting only plain body text.
 - Classify `KWINDEX.DIC` and the skipped auxiliary `CRINDEX.DIC` subrecords.
