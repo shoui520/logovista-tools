@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -19,10 +19,32 @@ from .entries import (
     normalize_fullwidth_ascii,
 )
 from .gaiji import load_gaiji_profile
-from .ssed import BLOCK_SIZE, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
+from .ssed import BLOCK_SIZE, SsedInfoElement, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 
 
 MENU_TYPE = 0x01
+
+
+@dataclass(frozen=True)
+class MenuTarget:
+    component: str
+    component_type: str
+    kind: str
+    start_block: int
+    end_block: int
+    relative_offset: int
+    offset_in_block: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "component": self.component,
+            "component_type": self.component_type,
+            "kind": self.kind,
+            "start_block": self.start_block,
+            "end_block": self.end_block,
+            "relative_offset": self.relative_offset,
+            "offset_in_block": self.offset_in_block,
+        }
 
 
 @dataclass(frozen=True)
@@ -31,6 +53,7 @@ class MenuDestination:
     block: int
     offset: int
     encoding: str
+    target: MenuTarget | None = None
 
     @property
     def absolute_offset(self) -> int:
@@ -43,6 +66,7 @@ class MenuDestination:
             "block": self.block,
             "offset": self.offset,
             "absolute_offset": self.absolute_offset,
+            "target": self.target.as_dict() if self.target else None,
         }
 
 
@@ -155,6 +179,59 @@ def parse_menu_destination(payload: bytes) -> MenuDestination | None:
         offset=int.from_bytes(payload[4:6], "big"),
         encoding="big-endian",
     )
+
+
+def component_kind(component_type: int) -> str:
+    if component_type == 0x00:
+        return "body"
+    if component_type == 0x01:
+        return "menu"
+    if component_type in {0x03, 0x04, 0x05, 0x06, 0x07, 0x0A}:
+        return "title"
+    if component_type in {0x70, 0x71, 0x80, 0x81, 0x90, 0x91}:
+        return "index"
+    if component_type == 0xD2:
+        return "media-image"
+    if component_type == 0xD8:
+        return "media-audio"
+    if component_type in {0xF1, 0xF2}:
+        return "gaiji-resource"
+    return "component"
+
+
+def resolve_menu_destination(
+    destination: MenuDestination,
+    elements: list[SsedInfoElement],
+) -> MenuDestination:
+    for element in elements:
+        if not element.start:
+            continue
+        if element.start <= destination.block <= element.end:
+            relative_offset = (destination.block - element.start) * BLOCK_SIZE + destination.offset
+            target = MenuTarget(
+                component=element.filename,
+                component_type=f"{element.type:02x}",
+                kind=component_kind(element.type),
+                start_block=element.start,
+                end_block=element.end,
+                relative_offset=relative_offset,
+                offset_in_block=destination.offset,
+            )
+            return replace(destination, target=target)
+    return destination
+
+
+def resolve_menu_record_destinations(records: list[MenuRecord], elements: list[SsedInfoElement]) -> int:
+    resolved = 0
+    for record in records:
+        for link in record.links:
+            if link.destination is None:
+                continue
+            destination = resolve_menu_destination(link.destination, elements)
+            if destination.target is not None:
+                resolved += 1
+            link.destination = destination
+    return resolved
 
 
 def finish_active_link(line: _LineBuilder, *, end_offset: int, destination: MenuDestination | None) -> None:
@@ -380,6 +457,13 @@ def extract_menus_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) ->
 
             expanded = expand_sseddata_file(source)
             parsed = parse_menu_stream(expanded, gaiji=args.gaiji, gaiji_map=gaiji_profile.map)
+            resolved_destinations = resolve_menu_record_destinations(parsed.records, elements)
+            target_kinds: dict[str, int] = {}
+            for record in parsed.records:
+                for link in record.links:
+                    if link.destination is None or link.destination.target is None:
+                        continue
+                    target_kinds[link.destination.target.kind] = target_kinds.get(link.destination.target.kind, 0) + 1
             component_emitted = 0
             for record in parsed.records:
                 if args.limit and component_emitted >= args.limit:
@@ -413,6 +497,8 @@ def extract_menus_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) ->
                     "lines_emitted": component_emitted,
                     "links": parsed.stats["links"],
                     "destinations": parsed.stats["destinations"],
+                    "resolved_destinations": resolved_destinations,
+                    "target_kinds": target_kinds,
                     "sections": parsed.stats["sections"],
                     "stats": parsed.stats,
                     "stub": len(parsed.records) == 0,

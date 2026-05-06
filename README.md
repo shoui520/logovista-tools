@@ -560,7 +560,16 @@ Each JSONL row looks like:
         "encoding": "bcd",
         "block": 25678,
         "offset": 2,
-        "absolute_offset": 52586498
+        "absolute_offset": 52586498,
+        "target": {
+          "component": "HONMON.DIC",
+          "component_type": "00",
+          "kind": "body",
+          "start_block": 25678,
+          "end_block": 64404,
+          "relative_offset": 2,
+          "offset_in_block": 2
+        }
       }
     }
   ],
@@ -569,7 +578,16 @@ Each JSONL row looks like:
     "encoding": "bcd",
     "block": 25678,
     "offset": 2,
-    "absolute_offset": 52586498
+    "absolute_offset": 52586498,
+    "target": {
+      "component": "HONMON.DIC",
+      "component_type": "00",
+      "kind": "body",
+      "start_block": 25678,
+      "end_block": 64404,
+      "relative_offset": 2,
+      "offset_in_block": 2
+    }
   }
 }
 ```
@@ -578,6 +596,12 @@ Each JSONL row looks like:
 Section depth is derived from the numeric ordering of section control codes in
 that menu component, so `0001`/`0002`/`0003`, `0022`/`0023`, and similar style
 families become practical tree levels.
+
+Each destination is resolved against the `.IDX` component block ranges. The
+`target` object names the component and classifies it as `body`, `menu`,
+`title`, `index`, `media-image`, `media-audio`, `gaiji-resource`, or generic
+`component`. `relative_offset` is the byte offset inside the expanded target
+component.
 
 ### `indexes`
 
@@ -707,8 +731,8 @@ Known working layers:
   unreferenced sequential-record discovery, and portable WAV/MP3 writing.
 - SQL/`DictFULLDB`-assisted gaiji validation reports, including aligned
   `Block`/`Offset` checks where cache tables expose those columns.
-- Structured `MENU.DIC` extraction with menu hierarchy, link labels, and
-  packed-BCD destination pointers.
+- Structured `MENU.DIC` extraction with menu hierarchy, link labels,
+  packed-BCD destination pointers, and named component/body targets.
 - Common `*TITLE.DIC` extraction, including `KWTITLE.DIC` keyword-title
   streams and `CRTITLE.DIC` cross-reference-title streams.
 - Common `*INDEX.DIC` branch-page and leaf-row parsing, including forward,
@@ -723,8 +747,8 @@ Known working layers:
 Known limitations:
 
 - Not all dictionaries store definitions in `HONMON.DIC`.
-- `MENU.DIC` destinations are emitted as raw logical block/offset pointers;
-  resolving every target into a named component/body slice is still separate.
+- `MENU.DIC` destinations are resolved to components, but semantic target
+  labels inside the target body/menu stream are still dictionary-specific.
 - Named UI/style images such as `exam.png` are discovered, but mapping them to
   semantic entry regions is still dictionary-specific.
 - Output is JSONL, not a final Yomitan/MDict exporter.
@@ -1103,8 +1127,8 @@ and `0003`.
 The destination payload is six bytes: four packed-BCD decimal bytes for the
 logical block and two packed-BCD decimal bytes for the offset. In GENIUSEB, the
 first menu item has payload `00 02 56 78 00 02`, which resolves to block
-`25678`, offset `2`; that matches the start of `HONMON.DIC` in the same
-catalog.
+`25678`, offset `2`; that resolves to `HONMON.DIC` at component-relative
+offset `2`. Other GENIUSEB menu items point back into `MENU.DIC` itself.
 
 Some menu streams use the older `1f42 ... 1f62` wrapper instead. In HAIKSAIJ,
 many of those labels include a no-op `1f00` immediately after `1f42`; the
@@ -1117,6 +1141,15 @@ The `menus` command writes:
 raw_menus.jsonl   flat menu records with path, links, and destinations
 menu_tree.json    nested menu records grouped by inferred section depth
 menus_summary.json component-level counts and parser statistics
+```
+
+Representative target resolution from the local corpus:
+
+```text
+GENIUSEB  destinations=79     resolved=79     target kinds: body=67, menu=12
+HAIKSAIJ  destinations=2,667  resolved=2,667  target kinds: body=2,617, menu=50
+IBIO5     destinations=65,015 resolved=65,015 target kinds: body=61,082, menu=3,933
+NKGORIN2  destinations=10     resolved=10     target kinds: body=9, menu=1
 ```
 
 ### Title Components
@@ -1869,7 +1902,7 @@ reader implementation or documented key schedule is available.
 Near-term:
 
 - Preserve a richer structured AST instead of emitting only plain body text.
-- Resolve `MENU.DIC` destination pointers to named component/body targets.
+- Dereference resolved `MENU.DIC` targets into preview snippets where practical.
 - Add higher-level semantic labels for dictionary-specific section codes and
   named images.
 - Link title streams to body IDs for dense-HONMON dictionaries.

@@ -40,7 +40,7 @@ from logovista_tools.indexes import (
     parse_simple_leaf_page,
     parse_tagged_leaf_page,
 )
-from logovista_tools.menus import build_menu_tree, parse_menu_destination, parse_menu_stream
+from logovista_tools.menus import build_menu_tree, parse_menu_destination, parse_menu_stream, resolve_menu_destination
 from logovista_tools.pcmdata import (
     make_riff_wave,
     parse_pcm_pointer,
@@ -48,6 +48,7 @@ from logovista_tools.pcmdata import (
     portable_audio_bytes,
 )
 from logovista_tools.resources import load_image_resource_profile, relative_image_source
+from logovista_tools.ssed import SsedInfoElement
 
 
 def test_normalize_fullwidth_ascii() -> None:
@@ -148,6 +149,31 @@ def test_menu_destination_uses_bcd_block_and_offset() -> None:
     assert destination.encoding == "bcd"
     assert destination.block == 25678
     assert destination.offset == 2
+
+
+def test_menu_destination_resolves_to_idx_component() -> None:
+    destination = parse_menu_destination(bytes.fromhex("000256780002"))
+
+    assert destination is not None
+    resolved = resolve_menu_destination(
+        destination,
+        [
+            SsedInfoElement(
+                index=1,
+                multi=0,
+                type=0x00,
+                start=25678,
+                end=30000,
+                data=b"\x00\x00\x00\x00",
+                filename="HONMON.DIC",
+            )
+        ],
+    )
+
+    assert resolved.target is not None
+    assert resolved.target.component == "HONMON.DIC"
+    assert resolved.target.kind == "body"
+    assert resolved.target.relative_offset == 2
 
 
 def test_parse_menu_stream_emits_tree_records_and_destinations() -> None:
