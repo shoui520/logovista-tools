@@ -7,7 +7,7 @@ from logovista_tools.entries import (
     tokens_to_html,
     tokens_to_text,
 )
-from logovista_tools.gaiji import load_gaiji_profile, load_uni_gaiji_map, parse_ga16_resource
+from logovista_tools.gaiji import load_gaiji_profile, load_uni_gaiji_map, parse_ga16_resource, parse_uni_resource
 from logovista_tools.indexes import (
     IndexPointer,
     parse_cr_leaf_page,
@@ -101,8 +101,18 @@ def test_link_start_uses_16_byte_payload_then_visible_text() -> None:
     assert stats["links"] == 1
 
 
-def uni_record(code: int, primary: tuple[int, int], fallback: tuple[int, int] = (0, 0)) -> bytes:
-    values = [code, 0, primary[0], primary[1], fallback[0], fallback[1], 0, 0]
+def uni_record(
+    code: int,
+    primary: tuple[int, int],
+    fallback: tuple[int, int] = (0, 0),
+    legacy: tuple[int, int] = (0, 0),
+) -> bytes:
+    values = [code, 0, primary[0], primary[1], fallback[0], fallback[1], legacy[0], legacy[1]]
+    return b"".join(value.to_bytes(2, "big") for value in values)
+
+
+def simple_uni_record(code: int, primary: tuple[int, int], fallback: tuple[int, int] = (0, 0)) -> bytes:
+    values = [code, 0, primary[0], primary[1], fallback[0], fallback[1]]
     return b"".join(value.to_bytes(2, "big") for value in values)
 
 
@@ -123,6 +133,76 @@ def test_load_uni_gaiji_map_primary_sequences(tmp_path) -> None:
     assert mapping["a126"] == "é"
     assert mapping["a12a"] == "u̯"
     assert mapping["b121"] == "一"
+
+
+def test_parse_uni_resource_keeps_fallback_and_legacy_fields(tmp_path) -> None:
+    path = tmp_path / "TEST.uni"
+    path.write_bytes(
+        b"Ver2  "
+        + (1).to_bytes(4, "big")
+        + uni_record(0xA121, (0, 0x00E1), fallback=(0, 0x0061), legacy=(0, 0x00C2))
+        + (0).to_bytes(4, "big")
+    )
+
+    resource = parse_uni_resource(path)
+
+    assert resource is not None
+    assert resource.format == "ver2"
+    assert resource.records[0].display == "á"
+    assert resource.records[0].fallback == "a"
+    assert resource.records[0].legacy == "Â"
+
+
+def test_load_uni_gaiji_map_combines_surrogate_pairs(tmp_path) -> None:
+    path = tmp_path / "TEST.uni"
+    path.write_bytes(
+        b"Ver2  "
+        + (1).to_bytes(4, "big")
+        + uni_record(0xA44F, (0xD834, 0xDD10))
+        + (0).to_bytes(4, "big")
+    )
+
+    mapping, records_seen = load_uni_gaiji_map(path)
+
+    assert records_seen == 1
+    assert mapping["a44f"] == "\U0001d110"
+
+
+def test_load_simple12_uni_gaiji_map(tmp_path) -> None:
+    path = tmp_path / "KENROWA.uni"
+    path.write_bytes(
+        (1).to_bytes(4, "big")
+        + simple_uni_record(0xA128, (0x025B, 0x0303))
+        + (1).to_bytes(4, "big")
+        + simple_uni_record(0xB121, (0, 0x0401))
+    )
+
+    resource = parse_uni_resource(path)
+    mapping, records_seen = load_uni_gaiji_map(path)
+
+    assert resource is not None
+    assert resource.format == "simple12"
+    assert resource.half_count == 1
+    assert resource.full_count == 1
+    assert records_seen == 2
+    assert mapping["a128"] == "ɛ̃"
+    assert mapping["b121"] == "Ё"
+
+
+def test_load_uni_gaiji_map_later_sections_override_duplicate_codes(tmp_path) -> None:
+    path = tmp_path / "TEST.uni"
+    path.write_bytes(
+        b"Ver2  "
+        + (1).to_bytes(4, "big")
+        + uni_record(0xA121, (0, 0x00E1))
+        + (1).to_bytes(4, "big")
+        + uni_record(0xA121, (0, 0x00E0))
+    )
+
+    mapping, records_seen = load_uni_gaiji_map(path)
+
+    assert records_seen == 2
+    assert mapping["a121"] == "à"
 
 
 def test_load_gaiji_profile_prefers_uni_over_plist(tmp_path) -> None:

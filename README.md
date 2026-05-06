@@ -93,6 +93,12 @@ List image resources and image-backed gaiji assets:
 logovista-tools resources /path/to/LogoVista --dict HAESPJPN
 ```
 
+Inspect a `.uni` gaiji mapping file:
+
+```bash
+logovista-tools uni /path/to/DICT/DICT.uni --limit 20
+```
+
 Extract raw title/headword streams:
 
 ```bash
@@ -249,6 +255,19 @@ reports code-like resources such as `b13d` as image-backed gaiji. Named images
 such as `exam.png`, `esp.png`, or `jpn.png` are reported as package resources
 for format exporters to use when reconstructing dictionary-specific styling.
 
+### `uni`
+
+Inspect LogoVista `.uni` / `.UNI` gaiji mapping files.
+
+```bash
+logovista-tools uni /path/to/DICT/DICT.uni
+logovista-tools uni /path/to/DICT/DICT.uni --json --limit 50
+```
+
+This command reports the detected layout, half/full record counts, mapped
+records, fallback/search records, legacy/alternate fields, and raw 16-bit
+fields for each record.
+
 ### `titles`
 
 Extract headword/title lines from expanded `*TITLE.DIC` components:
@@ -393,7 +412,8 @@ Known working layers:
 - JIS X 0208 text decoding.
 - Common `0x1f` stream controls for line breaks, headword spans, links,
   emphasis-ish spans, superscript/subscript, and media/link wrappers.
-- Dictionary-specific `.uni` gaiji mapping using primary Unicode sequences.
+- Dictionary-specific `.uni` gaiji mapping using primary Unicode sequences,
+  including UTF-16 surrogate-pair sequences and older 12-byte `.uni` files.
 - Plist gaiji fallback mapping when `Gaiji.plist` or `GaijiS.plist` is
   present.
 - `GA16HALF` / `GA16FULL` bitmap resource header parsing and glyph slicing.
@@ -950,7 +970,12 @@ in `body_html`.
 
 #### `.uni` Files
 
-Observed `.uni` / `.UNI` files start with:
+`.uni` files are dictionary-specific gaiji mapping tables. They are not a
+universal character map, and they are not all the same container layout.
+
+Two layouts are currently supported.
+
+`Ver2` layout:
 
 ```text
 offset  size  meaning
@@ -961,20 +986,87 @@ offset  size  meaning
 ...     ...   full-width records, 16 bytes each
 ```
 
-Each 16-byte record is eight big-endian 16-bit fields:
+Simple 12-byte layout:
+
+```text
+offset  size  meaning
+0x00    4     half-width gaiji record count, big endian
+0x04    ...   half-width records, 12 bytes each
+...     4     full-width gaiji record count, big endian
+...     ...   full-width records, 12 bytes each
+```
+
+The simple layout appears in at least `IWKOKUG8` and `KENROWA`. `IWKOKUG8`
+uses a zero half count followed by full-width records.
+
+Each `Ver2` 16-byte record is eight big-endian 16-bit fields:
 
 ```text
 field  meaning
 0      gaiji code, for example A126 or B121
-1      glyph/style metadata, not fully classified
-2..3   primary Unicode sequence
-4..5   fallback/search sequence, not used for display today
-6..7   alternate/reference sequence, not used for display today
+1      metadata/flags or glyph metadata, not fully classified
+2..3   display Unicode sequence
+4..5   fallback/search Unicode sequence
+6..7   legacy/alternate fields, not reliable as display text
 ```
 
-The toolkit currently uses fields `2..3`, ignoring zero code units and invalid
-surrogates. This handles single-codepoint gaiji such as `é` and multi-codepoint
-sequences such as `u` + combining inverted breve below.
+Each simple 12-byte record is six big-endian 16-bit fields:
+
+```text
+field  meaning
+0      gaiji code
+1      metadata/flags or glyph metadata, not fully classified
+2..3   display Unicode sequence
+4..5   fallback/search Unicode sequence
+```
+
+The display sequence can be:
+
+- one BMP codepoint, for example `00E9` -> `é`;
+- a base character plus combining mark, for example `0075 032F` -> `u̯`;
+- a UTF-16 surrogate pair, for example `D834 DD10` -> `U+1D110`.
+
+The toolkit now combines valid surrogate pairs and ignores lone surrogate
+code units. Older builds skipped all surrogate code units, which lost
+supplementary-plane gaiji such as musical symbols and rare CJK characters.
+
+Fields `4..5` behave like search/fallback text in dictionaries where they are
+populated. For example, GENIUSEB maps `ɑ́` to fallback `a`, and KenE7J5 maps
+`Á` to fallback `A`. These are useful for lookup normalization, but should not
+replace the display sequence.
+
+Fields `6..7` in `Ver2` are not a second display mapping. They often contain
+legacy glyph codes or alternate values. Some look superficially useful
+(`é` records often carry `É`), while others decode to control characters,
+radical forms, or unrelated symbols. Treat them as diagnostic metadata until a
+specific dictionary proves otherwise.
+
+Some `Ver2` files contain duplicate gaiji codes across the half and full
+sections. `GENIUSEB.uni`, for example, has both half and full records for
+`A121`, with different display text. The current flattened map preserves the
+previous toolkit behavior: later records override earlier records. The richer
+record parser keeps section information so exporters can make a more precise
+choice later.
+
+Corpus summary from the local test collection:
+
+```text
+Ver2 files:    GENIUSEB, HAESPJPN, HAFRAN, KOJIEN7, and most others
+simple12 files: IWKOKUG8, KENROWA
+```
+
+Representative inspector output:
+
+```text
+logovista-tools uni GENIUSEB.uni --limit 2
+format: ver2
+records: 854 half=384 full=470 mapped=430 fallback=190 legacy=311 metadata=542
+half A121 meta=0000 display='á' fallback='a' legacy='Â'
+
+logovista-tools uni KENROWA.uni --limit 2
+format: simple12
+records: 376 half=97 full=279 mapped=199 fallback=0 legacy=0 metadata=49
+```
 
 #### `GA16HALF` / `GA16FULL`
 

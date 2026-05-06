@@ -13,6 +13,8 @@ GAIJI_CODE_RE = re.compile(r"[A-Fa-f0-9]{4}")
 UNI_MAGIC = b"Ver2  "
 UNI_HEADER_SIZE = 10
 UNI_RECORD_SIZE = 16
+UNI_SIMPLE_HEADER_SIZE = 4
+UNI_SIMPLE_RECORD_SIZE = 12
 
 
 @dataclass(frozen=True)
@@ -24,6 +26,36 @@ class GaijiProfile:
     plist_entries: int
     uni_paths: tuple[Path, ...]
     plist_paths: tuple[Path, ...]
+
+
+@dataclass(frozen=True)
+class UniRecord:
+    """One decoded .uni gaiji mapping record."""
+
+    section: str
+    index: int
+    code: str
+    metadata: int
+    display_units: tuple[int, ...]
+    display: str
+    fallback_units: tuple[int, ...]
+    fallback: str
+    legacy_units: tuple[int, ...]
+    legacy: str
+    raw_fields: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class UniResource:
+    """Parsed LogoVista .uni resource."""
+
+    path: Path
+    format: str
+    half_count: int
+    full_count: int
+    records: tuple[UniRecord, ...]
+    expected_size: int
+    trailing_bytes: int
 
 
 @dataclass(frozen=True)
@@ -77,36 +109,142 @@ def file_identity(path: Path) -> Hashable:
     return (stat.st_dev, stat.st_ino, stat.st_size)
 
 
-def decode_uni_code_units(values: list[int]) -> str:
+def decode_uni_code_units(values: list[int] | tuple[int, ...]) -> str:
     chars: list[str] = []
-    for value in values:
+    i = 0
+    while i < len(values):
+        value = values[i]
         if value == 0 or 0xD800 <= value <= 0xDFFF:
+            if (
+                0xD800 <= value <= 0xDBFF
+                and i + 1 < len(values)
+                and 0xDC00 <= values[i + 1] <= 0xDFFF
+            ):
+                codepoint = 0x10000 + ((value - 0xD800) << 10) + (values[i + 1] - 0xDC00)
+                try:
+                    chars.append(chr(codepoint))
+                except ValueError:
+                    pass
+                i += 2
+                continue
+            i += 1
             continue
         try:
             chars.append(chr(value))
         except ValueError:
             continue
+        i += 1
     return "".join(chars)
 
 
-def parse_uni_records(data: bytes, offset: int, count: int) -> tuple[dict[str, str], int]:
-    mapping: dict[str, str] = {}
-    records_seen = 0
+def parse_uni_records(
+    data: bytes, offset: int, count: int, *, record_size: int, section: str
+) -> tuple[list[UniRecord], int]:
+    records: list[UniRecord] = []
     for index in range(count):
-        start = offset + index * UNI_RECORD_SIZE
-        end = start + UNI_RECORD_SIZE
+        start = offset + index * record_size
+        end = start + record_size
         if end > len(data):
             break
         record = data[start:end]
         code = record[:2].hex().lower()
         if not GAIJI_CODE_RE.fullmatch(code):
             continue
-        values = [int.from_bytes(record[i : i + 2], "big") for i in range(0, UNI_RECORD_SIZE, 2)]
-        primary = decode_uni_code_units(values[2:4])
-        if primary:
-            mapping.setdefault(code, primary)
-        records_seen += 1
-    return mapping, records_seen
+        values = tuple(int.from_bytes(record[i : i + 2], "big") for i in range(0, record_size, 2))
+        display_units = values[2:4]
+        fallback_units = values[4:6]
+        legacy_units = values[6:8] if len(values) >= 8 else ()
+        records.append(
+            UniRecord(
+                section=section,
+                index=index,
+                code=code,
+                metadata=values[1] if len(values) > 1 else 0,
+                display_units=display_units,
+                display=decode_uni_code_units(display_units),
+                fallback_units=fallback_units,
+                fallback=decode_uni_code_units(fallback_units),
+                legacy_units=legacy_units,
+                legacy=decode_uni_code_units(legacy_units),
+                raw_fields=values,
+            )
+        )
+    return records, len(records)
+
+
+def parse_uni_resource(path: Path) -> UniResource | None:
+    """Parse a LogoVista .uni/UNI file.
+
+    Two layouts have been observed:
+
+    - ``Ver2  `` files: magic, 32-bit half count, 16-byte half records,
+      32-bit full count, 16-byte full records.
+    - simple files: 32-bit half count, 12-byte half records, 32-bit full
+      count, 12-byte full records. This layout appears in IWKOKUG8/KENROWA.
+    """
+
+    data = path.read_bytes()
+    if len(data) < 8:
+        return None
+
+    if data[:6] == UNI_MAGIC:
+        half_count = int.from_bytes(data[6:10], "big")
+        half_offset = UNI_HEADER_SIZE
+        half_records, _half_seen = parse_uni_records(
+            data, half_offset, half_count, record_size=UNI_RECORD_SIZE, section="half"
+        )
+        full_count_offset = half_offset + half_count * UNI_RECORD_SIZE
+        if full_count_offset + 4 > len(data):
+            return UniResource(
+                path=path,
+                format="ver2",
+                half_count=half_count,
+                full_count=0,
+                records=tuple(half_records),
+                expected_size=full_count_offset,
+                trailing_bytes=max(0, len(data) - full_count_offset),
+            )
+        full_count = int.from_bytes(data[full_count_offset : full_count_offset + 4], "big")
+        full_offset = full_count_offset + 4
+        full_records, _full_seen = parse_uni_records(
+            data, full_offset, full_count, record_size=UNI_RECORD_SIZE, section="full"
+        )
+        expected_size = full_offset + full_count * UNI_RECORD_SIZE
+        return UniResource(
+            path=path,
+            format="ver2",
+            half_count=half_count,
+            full_count=full_count,
+            records=tuple(half_records + full_records),
+            expected_size=expected_size,
+            trailing_bytes=max(0, len(data) - expected_size),
+        )
+
+    half_count = int.from_bytes(data[0:4], "big")
+    half_offset = UNI_SIMPLE_HEADER_SIZE
+    full_count_offset = half_offset + half_count * UNI_SIMPLE_RECORD_SIZE
+    if full_count_offset + 4 > len(data):
+        return None
+    full_count = int.from_bytes(data[full_count_offset : full_count_offset + 4], "big")
+    full_offset = full_count_offset + 4
+    expected_size = full_offset + full_count * UNI_SIMPLE_RECORD_SIZE
+    if expected_size > len(data):
+        return None
+    half_records, _half_seen = parse_uni_records(
+        data, half_offset, half_count, record_size=UNI_SIMPLE_RECORD_SIZE, section="half"
+    )
+    full_records, _full_seen = parse_uni_records(
+        data, full_offset, full_count, record_size=UNI_SIMPLE_RECORD_SIZE, section="full"
+    )
+    return UniResource(
+        path=path,
+        format="simple12",
+        half_count=half_count,
+        full_count=full_count,
+        records=tuple(half_records + full_records),
+        expected_size=expected_size,
+        trailing_bytes=max(0, len(data) - expected_size),
+    )
 
 
 def load_uni_gaiji_map(path: Path) -> tuple[dict[str, str], int]:
@@ -118,25 +256,15 @@ def load_uni_gaiji_map(path: Path) -> tuple[dict[str, str], int]:
     fields 2..3 are the primary Unicode sequence.
     """
 
-    data = path.read_bytes()
-    if len(data) < UNI_HEADER_SIZE or data[:6] != UNI_MAGIC:
+    resource = parse_uni_resource(path)
+    if resource is None:
         return {}, 0
 
-    half_count = int.from_bytes(data[6:10], "big")
-    half_offset = UNI_HEADER_SIZE
-    half_map, half_seen = parse_uni_records(data, half_offset, half_count)
-
-    full_count_offset = half_offset + half_count * UNI_RECORD_SIZE
-    if full_count_offset + 4 > len(data):
-        return half_map, half_seen
-
-    full_count = int.from_bytes(data[full_count_offset : full_count_offset + 4], "big")
-    full_offset = full_count_offset + 4
-    full_map, full_seen = parse_uni_records(data, full_offset, full_count)
-
-    merged = dict(half_map)
-    merged.update(full_map)
-    return merged, half_seen + full_seen
+    mapping: dict[str, str] = {}
+    for record in resource.records:
+        if record.display:
+            mapping[record.code] = record.display
+    return mapping, len(resource.records)
 
 
 def load_plist_gaiji_map_from_paths(paths: list[Path]) -> tuple[dict[str, str], tuple[Path, ...]]:

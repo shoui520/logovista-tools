@@ -11,6 +11,7 @@ from typing import Any
 from . import __version__
 from .entries import discover_dictionaries, extract_dictionary
 from .fulldb import extract_fulldb_dictionary
+from .gaiji import UniRecord, parse_uni_resource
 from .indexes import extract_indexes_for_idx
 from .resources import ImageResource, load_image_resource_profile
 from .ssed import (
@@ -218,6 +219,79 @@ def cmd_resources(args: argparse.Namespace) -> int:
     return 0
 
 
+def uni_record_to_json(record: UniRecord) -> dict[str, Any]:
+    return {
+        "section": record.section,
+        "index": record.index,
+        "code": record.code,
+        "metadata": record.metadata,
+        "display_units": [f"{value:04x}" for value in record.display_units],
+        "display": record.display,
+        "fallback_units": [f"{value:04x}" for value in record.fallback_units],
+        "fallback": record.fallback,
+        "legacy_units": [f"{value:04x}" for value in record.legacy_units],
+        "legacy": record.legacy,
+        "raw_fields": [f"{value:04x}" for value in record.raw_fields],
+    }
+
+
+def cmd_uni(args: argparse.Namespace) -> int:
+    resource = parse_uni_resource(args.path)
+    if resource is None:
+        print(f"could not parse .uni resource: {args.path}", file=sys.stderr)
+        return 1
+
+    mapped = sum(1 for record in resource.records if record.display)
+    fallback = sum(1 for record in resource.records if record.fallback)
+    legacy = sum(1 for record in resource.records if record.legacy)
+    metadata = sum(1 for record in resource.records if record.metadata)
+    if args.json:
+        records = resource.records
+        if args.limit is not None:
+            records = records[: args.limit]
+        print(
+            json.dumps(
+                {
+                    "path": str(resource.path),
+                    "format": resource.format,
+                    "half_count": resource.half_count,
+                    "full_count": resource.full_count,
+                    "records": len(resource.records),
+                    "mapped_records": mapped,
+                    "fallback_records": fallback,
+                    "legacy_records": legacy,
+                    "metadata_records": metadata,
+                    "expected_size": resource.expected_size,
+                    "trailing_bytes": resource.trailing_bytes,
+                    "items": [uni_record_to_json(record) for record in records],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0
+
+    print(f"path: {resource.path}")
+    print(f"format: {resource.format}")
+    print(
+        f"records: {len(resource.records)} "
+        f"half={resource.half_count} full={resource.full_count} "
+        f"mapped={mapped} fallback={fallback} legacy={legacy} metadata={metadata}"
+    )
+    print(f"expected_size: {resource.expected_size} trailing_bytes: {resource.trailing_bytes}")
+    limit = args.limit if args.limit is not None else 24
+    for record in resource.records[:limit]:
+        print(
+            f"{record.section:4s} {record.code.upper()} "
+            f"meta={record.metadata:04X} "
+            f"display={record.display!r} "
+            f"fallback={record.fallback!r} "
+            f"legacy={record.legacy!r} "
+            f"raw={' '.join(f'{value:04X}' for value in record.raw_fields)}"
+        )
+    return 0
+
+
 def cmd_titles(args: argparse.Namespace) -> int:
     sources = select_sources(args)
     if not sources:
@@ -349,6 +423,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_resources.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
     p_resources.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     p_resources.set_defaults(func=cmd_resources)
+
+    p_uni = sub.add_parser("uni", help="Inspect a LogoVista .uni/UNI gaiji mapping file.")
+    p_uni.add_argument("path", type=Path)
+    p_uni.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    p_uni.add_argument("--limit", type=int, help="Limit records printed/emitted.")
+    p_uni.set_defaults(func=cmd_uni)
 
     p_titles = sub.add_parser("titles", help="Extract raw *TITLE.DIC headword/title lines as JSONL.")
     p_titles.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
