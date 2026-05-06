@@ -11,6 +11,7 @@ from typing import Any
 from . import __version__
 from .entries import discover_dictionaries, extract_dictionary
 from .fulldb import extract_fulldb_dictionary
+from .gaiji_report import extract_gaiji_reports
 from .gaiji import UniRecord, parse_ga16_resource, parse_uni_resource, write_ga16_glyph_png
 from .indexes import extract_indexes_for_idx
 from .resources import ImageResource, load_image_resource_profile
@@ -508,6 +509,24 @@ def cmd_fulldb(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_gaiji_report(args: argparse.Namespace) -> int:
+    sources = select_sources(args)
+    if not sources:
+        print("no dictionaries found", file=sys.stderr)
+        return 1
+
+    summaries = extract_gaiji_reports(sources, args.out_dir, args)
+    for summary in summaries:
+        print(
+            f"{summary['dict_id']:12s} raw={summary['raw_distinct_codes']:4d} "
+            f"mapped={summary['mapped_codes']:4d} sqlite={summary['sqlite_sources']:2d} "
+            f"aligned_hits={summary['aligned_hits']:6d} "
+            f"aligned_misses={summary['aligned_misses']:6d}",
+            file=sys.stderr,
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="logovista-tools",
@@ -583,6 +602,43 @@ def build_parser() -> argparse.ArgumentParser:
     p_resources.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
     p_resources.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     p_resources.set_defaults(func=cmd_resources)
+
+    p_gaiji_report = sub.add_parser(
+        "gaiji-report",
+        help="Write SQL/DictFULLDB-assisted gaiji validation reports.",
+    )
+    p_gaiji_report.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_gaiji_report.add_argument("--out-dir", type=Path, default=Path("logovista-gaiji-report"))
+    p_gaiji_report.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
+    p_gaiji_report.add_argument(
+        "--no-sql-cache",
+        action="store_true",
+        help="Only use declared DictFULLDB SQLite sources, not sibling app-cache databases.",
+    )
+    p_gaiji_report.add_argument(
+        "--max-sql-rows",
+        type=int,
+        default=5000,
+        help="Limit scanned rows per SQLite table; use 0 for a full scan.",
+    )
+    p_gaiji_report.add_argument(
+        "--max-aligned-entries",
+        type=int,
+        default=50000,
+        help="Limit raw HONMON entries used for aligned Block/Offset checks; use 0 for a full scan.",
+    )
+    p_gaiji_report.add_argument(
+        "--alignment-tolerance",
+        type=int,
+        default=16,
+        help="Block/offset match tolerance in bytes for cache rows.",
+    )
+    p_gaiji_report.add_argument(
+        "--include-unused-mapped",
+        action="store_true",
+        help="Include mapped gaiji codes not seen in raw HONMON/TITLE scans.",
+    )
+    p_gaiji_report.set_defaults(func=cmd_gaiji_report)
 
     p_uni = sub.add_parser("uni", help="Inspect a LogoVista .uni/UNI gaiji mapping file.")
     p_uni.add_argument("path", type=Path)

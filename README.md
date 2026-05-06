@@ -93,6 +93,13 @@ List image resources and image-backed gaiji assets:
 logovista-tools resources /path/to/LogoVista --dict HAESPJPN
 ```
 
+Write a gaiji validation report using raw streams plus SQL/`DictFULLDB`
+evidence where available:
+
+```bash
+logovista-tools gaiji-report /path/to/LogoVista --dict HAESPJPN --out-dir out/gaiji-report
+```
+
 Inspect a `.uni` gaiji mapping file:
 
 ```bash
@@ -260,6 +267,70 @@ theme variants such as `b13d_n.png` and `b13d_w.png` under the same key and
 reports code-like resources such as `b13d` as image-backed gaiji. Named images
 such as `exam.png`, `esp.png`, or `jpn.png` are reported as package resources
 for format exporters to use when reconstructing dictionary-specific styling.
+
+### `gaiji-report`
+
+Write per-dictionary gaiji audit reports.
+
+```bash
+logovista-tools gaiji-report /path/to/LogoVista --dict HAESPJPN --out-dir gaiji-report
+logovista-tools gaiji-report /path/to/LogoVista --dict KOJIEN7 --no-sql-cache --max-sql-rows 1000
+```
+
+Output layout:
+
+```text
+gaiji-report/
+  summary.json
+  DICT_ID/
+    gaiji_report.json
+```
+
+The report combines:
+
+- raw gaiji occurrence counts from expanded `HONMON.DIC` and `*TITLE.DIC`;
+- dictionary-local `.uni` mappings and plist fallback mappings;
+- `GA16HALF` / `GA16FULL` bitmap coverage;
+- package PNG/image gaiji coverage;
+- SQLite text evidence from declared `DictFULLDB` and sibling app-cache
+  databases;
+- aligned validation for cache tables that expose `Block` and `Offset`.
+
+Useful options:
+
+```bash
+--dict NAME                         inspect only matching dictionary ids
+--no-sql-cache                      use declared DictFULLDB only
+--max-sql-rows N                    scan at most N rows per SQLite table; 0 = full scan
+--max-aligned-entries N             align at most N raw HONMON entries; 0 = full scan
+--alignment-tolerance N             byte tolerance for Block/Offset cache matching
+--include-unused-mapped             include mapped codes not seen in raw scans
+```
+
+Per-code rows include fields such as:
+
+```json
+{
+  "code": "a126",
+  "placeholder": "<hA126>",
+  "raw_count": 17690,
+  "mapped": "é",
+  "mapping_source": "uni",
+  "bitmap": {"resource": "GA16HALF", "width": 8, "height": 16},
+  "sqlite_text_hits_for_display": 5249,
+  "aligned_hits": 5232,
+  "aligned_misses": 0,
+  "status": "validated_aligned"
+}
+```
+
+Status values are deliberately conservative. `validated_aligned` is strongest:
+the raw entry pointer matched a SQLite row by `Block`/`Offset`, and the mapped
+display text was present in that row. `db_text_evidence` means the display text
+appeared somewhere in SQL/`DictFULLDB`, but not in an aligned row. SQL evidence
+is not treated as authority because several app caches normalize or flatten
+characters. For example, GENIUSEB validates many IPA/symbol gaiji through SQL,
+but its cache omits some accent display forms that are present in `.uni`.
 
 ### `uni`
 
@@ -463,6 +534,8 @@ Known working layers:
   PNG rendering.
 - Top-level `img` resource discovery, including `_n` / `_w` theme variants.
 - Image-backed gaiji preservation as placeholders or inline HTML `<img>` tags.
+- SQL/`DictFULLDB`-assisted gaiji validation reports, including aligned
+  `Block`/`Offset` checks where cache tables expose those columns.
 - Common `*INDEX.DIC` branch-page and leaf-row parsing.
 - Placeholder preservation for unresolved gaiji, for example `<hA126>`.
 - Full-width ASCII normalization to half-width ASCII.
@@ -1165,6 +1238,42 @@ These images can be copied into Yomitan, MDict, or HTML output packages and
 referenced with normal inline `<img>` tags for gaiji that have no usable
 Unicode mapping.
 
+#### SQL/DictFULLDB Validation
+
+SQL and `DictFULLDB` payloads are useful for validating gaiji mappings, but
+they are evidence, not the primary source. The toolkit uses them in two ways.
+
+First, it scans readable SQLite text columns and counts occurrences of
+informative mapped display strings from `.uni` / plist resources. Single ASCII
+characters are skipped for validation because a match on `a`, `/`, or `-` is
+too ambiguous to prove anything.
+
+Second, when a cache table has `Block` and `Offset` columns, it builds an
+aligned row index. Raw `HONMON.DIC` entry slices are matched back to cache rows
+by block/offset, with a small byte tolerance because some app caches point just
+inside or just before the visible entry wrapper. If a raw entry contains gaiji
+`A126`, `.uni` maps `A126` to `é`, and the aligned cache row contains `é`, the
+code receives an aligned validation hit.
+
+The report status values are:
+
+```text
+validated_aligned                strongest evidence; raw pointer and SQL text agree
+db_text_evidence                 mapped display appears in SQL, but not via aligned row
+mapped_no_db_evidence            raw/mapped code exists, SQL did not confirm it
+mapped_unvalidated_uninformative mapped text is too ambiguous for SQL validation
+mapped_unused_in_raw_scan        mapping exists, but raw HONMON/TITLE scans did not see it
+image_asset_only                 no Unicode map, but package PNG gaiji exists
+bitmap_asset_only                no Unicode map, but GA16 bitmap exists
+unresolved                       raw code has no Unicode, image, or bitmap coverage
+```
+
+This distinction matters. HAESPJPN produces strong aligned evidence for accent
+gaiji such as `A126` -> `é` and `A138` -> `ñ`. GENIUSEB, however, shows that
+some SQLite cache text is normalized: many IPA/symbol mappings validate, while
+some accent display forms from `.uni` do not appear in the cache. The correct
+reaction is to flag that discrepancy, not to overwrite `.uni`.
+
 ### DictFULLDB Payloads
 
 Many LogoVista products include `.db` or `.sql` files. Some are app search
@@ -1183,7 +1292,9 @@ Practical interpretation:
   extraction when raw HONMON stores IDs instead of definitions.
 
 The `entries` and `titles` commands do not read SQLite. The `fulldb` command
-does, but only after decoding body IDs from raw HONMON records.
+does, but only after decoding body IDs from raw HONMON records. The
+`gaiji-report` command reads SQLite as an auxiliary validation source and keeps
+that evidence separate from the raw `.DIC`/`.IDX` extraction path.
 
 ### Outliers
 
@@ -1204,11 +1315,9 @@ reader implementation or documented key schedule is available.
 
 Near-term:
 
-- Add SQL/`DictFULLDB`-assisted gaiji validation reports where available.
 - Preserve a richer structured AST instead of emitting only plain body text.
 - Classify `KWINDEX.DIC` and the skipped auxiliary `CRINDEX.DIC` subrecords.
 - Link title streams to body IDs for dense-HONMON dictionaries.
-- Add optional SQLite-assisted validation reports for non-`DictFULLDB` caches.
 
 Exporters:
 

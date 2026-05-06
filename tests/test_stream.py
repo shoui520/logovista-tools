@@ -1,4 +1,5 @@
 import plistlib
+import sqlite3
 
 from logovista_tools.entries import (
     decode_tokens,
@@ -6,6 +7,14 @@ from logovista_tools.entries import (
     resolve_section_image_sources,
     tokens_to_html,
     tokens_to_text,
+)
+from logovista_tools.gaiji_report import (
+    SqliteSource,
+    TextTable,
+    collect_sqlite_text_evidence,
+    informative_display,
+    iter_gaiji_codes_in_stream,
+    nearest_aligned_text,
 )
 from logovista_tools.gaiji import (
     encode_png_rgba,
@@ -297,6 +306,51 @@ def test_encode_png_rgba_and_write_ga16_glyph_png(tmp_path) -> None:
     assert int.from_bytes(png[16:20], "big") == 8
     assert int.from_bytes(png[20:24], "big") == 16
     assert encode_png_rgba(1, 1, bytes([0, 0, 0, 0])).startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_iter_gaiji_codes_in_stream_skips_jis_and_control_payloads() -> None:
+    data = bytes.fromhex("24221f4a00010000000231930000000231991579a1261f0a")
+
+    assert list(iter_gaiji_codes_in_stream(data)) == ["a126"]
+
+
+def test_collect_sqlite_text_evidence_counts_informative_displays(tmp_path) -> None:
+    db_path = tmp_path / "DICT.sql"
+    con = sqlite3.connect(db_path)
+    con.execute("create table entries (Block integer, Offset integer, Title text, Body text)")
+    con.execute("insert into entries values (1, 2, 'café', 'niño café')")
+    con.execute("insert into entries values (1, 8, 'plain', 'nothing')")
+    con.commit()
+    con.close()
+    source = SqliteSource(
+        path=db_path,
+        kind="sqlite_cache",
+        tables=(TextTable("entries", ("Title", "Body"), 2, True),),
+    )
+
+    counts, summaries = collect_sqlite_text_evidence((source,), ["é", "ñ", "a"])
+
+    assert informative_display("é")
+    assert not informative_display("a")
+    assert counts["é"] == 2
+    assert counts["ñ"] == 1
+    assert summaries[0]["rows_scanned"] == 2
+
+
+def test_nearest_aligned_text_uses_tolerance(tmp_path) -> None:
+    source = SqliteSource(path=tmp_path / "DICT.sql", kind="sqlite_cache", tables=())
+    index = type(
+        "Index",
+        (),
+        {
+            "source": source,
+            "rows_by_block": {10: [(100, "too far"), (156, "matched")]},
+            "rows_indexed": 2,
+        },
+    )()
+
+    assert nearest_aligned_text((index,), 10, 158, tolerance=4) == ("matched", str(source.path), 156)
+    assert nearest_aligned_text((index,), 10, 158, tolerance=1) is None
 
 
 def test_load_image_resource_profile_discovers_theme_variants(tmp_path) -> None:
