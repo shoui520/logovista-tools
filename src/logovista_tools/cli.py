@@ -15,6 +15,7 @@ from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
 from .gaiji import UniRecord, parse_ga16_resource, parse_uni_resource, write_ga16_glyph_png
 from .indexes import extract_indexes_for_idx
+from .pcmdata import extract_pcmdata_for_sources
 from .resources import ImageResource, load_image_resource_profile
 from .ssed import (
     BLOCK_SIZE,
@@ -535,6 +536,13 @@ def cmd_colscr(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pcmdata(args: argparse.Namespace) -> int:
+    summaries = extract_pcmdata_for_sources(args)
+    if args.json:
+        print(json.dumps(summaries, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="logovista-tools",
@@ -631,6 +639,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_colscr.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
     p_colscr.set_defaults(func=cmd_colscr)
+
+    p_pcmdata = sub.add_parser("pcmdata", help="Inspect or extract PCMDATA.DIC audio/media records.")
+    p_pcmdata.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_pcmdata.add_argument("--out-dir", type=Path, default=Path("logovista-pcmdata"))
+    p_pcmdata.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
+    p_pcmdata.add_argument("--limit", type=int, help="Limit HONMON audio references per dictionary.")
+    p_pcmdata.add_argument(
+        "--write-audio",
+        action="store_true",
+        help="Write portable audio files next to the manifest.",
+    )
+    p_pcmdata.add_argument(
+        "--no-include-unreferenced",
+        dest="include_unreferenced",
+        action="store_false",
+        help="Do not scan unreferenced records in PCMDATA gaps.",
+    )
+    p_pcmdata.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    p_pcmdata.set_defaults(include_unreferenced=True, func=cmd_pcmdata)
 
     p_gaiji_report = sub.add_parser(
         "gaiji-report",

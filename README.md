@@ -122,6 +122,12 @@ Extract images referenced by `HONMON.DIC` media controls from `COLSCR.DIC`:
 logovista-tools colscr /path/to/DICT/DICT.IDX --out-dir out/colscr --write-media
 ```
 
+Extract audio/media referenced by `HONMON.DIC` controls from `PCMDATA.DIC`:
+
+```bash
+logovista-tools pcmdata /path/to/DICT/DICT.IDX --out-dir out/pcmdata --write-audio
+```
+
 Extract raw title/headword streams:
 
 ```bash
@@ -317,6 +323,48 @@ Useful options:
 --write-media                       write referenced BMP/JPEG files
 --json                              emit a machine-readable summary
 ```
+
+### `pcmdata`
+
+Inspect or extract audio/media records stored in `PCMDATA.DIC` and referenced
+by raw `HONMON.DIC` controls.
+
+```bash
+logovista-tools pcmdata /path/to/LogoVista --dict HAESPJPN --out-dir pcmdata
+logovista-tools pcmdata /path/to/DICT/DICT.IDX --write-audio --out-dir pcmdata
+```
+
+Output layout:
+
+```text
+pcmdata/
+  summary.json
+  DICT_ID/
+    pcmdata_summary.json
+    pcmdata_manifest.jsonl
+    audio/
+      00001_00023193_0000.wav
+```
+
+The manifest includes the raw 16-byte payload, decoded logical block range,
+visible link label when present, codec, chunk layout, sample rate, channel
+count, bit depth, source (`honmon` or `unreferenced`), and optional output
+filename.
+
+Useful options:
+
+```bash
+--dict NAME                         inspect only matching dictionary ids
+--limit N                           stop after N HONMON audio references per dictionary
+--write-audio                       write portable .wav/.mp3 files
+--no-include-unreferenced           skip sequential records not referenced by HONMON
+--json                              emit a machine-readable summary
+```
+
+For `fmt `/`data` PCM records, `--write-audio` wraps the raw chunks in a
+standard `RIFF/WAVE` container. For MPEG Layer III records stored inside WAVE
+chunks, it writes the `data` chunk as `.mp3`. For native `ID3`/MP3 records, it
+writes the MP3 payload directly.
 
 ### `gaiji-report`
 
@@ -588,6 +636,8 @@ Known working layers:
 - Image-backed gaiji preservation as placeholders or inline HTML `<img>` tags.
 - `COLSCR.DIC` media pointer decoding and extraction of referenced BMP/JPEG
   image records from raw `HONMON.DIC` media controls.
+- `PCMDATA.DIC` audio/media pointer decoding, referenced-record extraction,
+  unreferenced sequential-record discovery, and portable WAV/MP3 writing.
 - SQL/`DictFULLDB`-assisted gaiji validation reports, including aligned
   `Block`/`Offset` checks where cache tables expose those columns.
 - Common `*INDEX.DIC` branch-page and leaf-row parsing, including type `0x80`
@@ -701,6 +751,7 @@ Component types observed so far:
 0x90  FKINDEX.DIC
 0x91  FHINDEX.DIC
 0xd2  COLSCR.DIC media/image resource stream
+0xd8  PCMDATA.DIC audio/media resource stream
 0xf1  GA16FULL resource
 0xf2  GA16HALF resource
 ```
@@ -796,7 +847,7 @@ The stream also contains `0x1f` control opcodes. Important controls observed:
 1f 61             headword span end
 1f 42             link-ish start
 1f 62 ...         link-ish end with payload
-1f 4a ...         jump/link start with a 16-byte payload
+1f 4a ...         jump/link/media start with a 16-byte payload
 1f 4d ...         media/reference start with an 18-byte payload
 1f e0 xx xx       bold-ish start
 1f e1             bold-ish end
@@ -808,11 +859,12 @@ The current extractor does not claim full semantic knowledge of every control.
 It uses enough structure to preserve line breaks and avoid mixing payload bytes
 into visible text.
 
-`1f 4a` link starts are followed by 16 bytes of binary target metadata before
-visible link text resumes. In HAESPJPN, treating this as a 15-byte payload
-leaks one binary byte into the text stream and produces mojibake before labels
-such as `→音声1`. `1f 4d` media starts have an 18-byte payload in the same
-dictionary family.
+`1f 4a` starts are followed by 16 bytes of binary target metadata before
+visible link text resumes. In PCMDATA dictionaries, the same payload encodes a
+sound/media start and end range. In HAESPJPN, treating this as a 15-byte
+payload leaks one binary byte into the text stream and produces mojibake before
+labels such as `→音声1`. `1f 4d` media starts have an 18-byte payload in the
+same dictionary family.
 
 ### Entry Slicing
 
@@ -1308,15 +1360,87 @@ The payload is not one fixed format. Verified examples include:
 | `NKGORIN2` | 28,841 | 28,841 | BMP, mixed 8/24/1 bpp |
 | `OUKOKU11` | 2,579 | 2,579 | BMP, 24 bpp |
 
-The local collection has `IBIO5`; `IBIOS5` was not found. If another package
-uses the `IBIOS5` id, it should be tested separately.
-
 For OUKOKU11 specifically, all raw media references resolve to strict
 `data`-wrapped BMP records. Section code `0200` corresponds to `:筆順`
 stroke-order images and section code `0201` corresponds to `:図版` figure
 images. A strict scan of expanded `COLSCR.DIC` finds the same 2,579 records as
 the `HONMON.DIC` media controls, with no unreferenced records under the current
 parser.
+
+#### `PCMDATA.DIC` Audio/Media Resources
+
+`PCMDATA.DIC` is a compressed SSED component, usually listed as component type
+`0xd8`. It is a sequential media store used mainly for audio. The first
+expanded 2048-byte block is a small directory/header area. In all currently
+tested dictionaries it starts with:
+
+```text
+0108 0000 ... 0000
+```
+
+and then contains 16-byte directory-looking rows such as:
+
+```text
+0000 0e00 0000 0002 0000 0000 0000 0000
+0001 0e00 0000 0002 0000 0000 0000 0000
+```
+
+The exact purpose of this first block is still not classified, but actual
+media records begin at expanded offset `2048`.
+
+Raw `HONMON.DIC` references use `1f 4a` with a 16-byte payload. The same
+control may render visible text such as `→音声1` until the closing `1f 6a`.
+The useful pointer fields are:
+
+```text
+payload bytes 0..1    kind, observed 0001
+payload bytes 2..3    flags, dictionary dependent
+payload bytes 4..7    start logical block, packed BCD decimal
+payload bytes 8..9    start offset in block, packed BCD decimal
+payload bytes 10..13  end logical block, packed BCD decimal
+payload bytes 14..15  end offset in block, packed BCD decimal
+```
+
+For example:
+
+```text
+00010000000231930000000231991579
+```
+
+decodes to start block `23193`, offset `0`, end block `23199`, offset `1579`.
+In HAESPJPN this points at the first audio record and the visible label is
+`→音声1`.
+
+The pointed record formats observed so far are:
+
+```text
+fmt  + data
+fmt  + fact + data
+ID3/MP3 payload
+```
+
+The `fmt `/`data` records are RIFF/WAVE chunks without the outer `RIFF` and
+`WAVE` wrapper. They are followed by a 12-byte zero trailer. For portable
+export, the toolkit wraps PCM chunks into a standard WAVE file. If the WAVE
+format tag is `0x0055` (`MPEG Layer III`), the toolkit writes the `data` chunk
+as `.mp3` instead. Native `ID3`/MP3 records are written directly as `.mp3`.
+
+Verified examples:
+
+| Dictionary | HONMON refs | Unique refs | Unreferenced records | Payload formats |
+| --- | ---: | ---: | ---: | --- |
+| `HAESPJPN` | 9,996 | 9,996 | 10 | PCM WAVE chunks, mono 16 kHz, 16-bit |
+| `KenE7J5` | 14,811 | 14,776 | 525 | PCM WAVE chunks, mono 11.025 kHz, 8-bit |
+| `GENIUS53` | 105,805 | 100,835 | 2 | Native ID3/MP3 records |
+| `RDRSP2` | 14,050 | 13,995 | 0 | MPEG Layer III stored inside WAVE chunks |
+| `Readers3` | 14,050 | 13,995 | 0 | MPEG Layer III stored inside WAVE chunks |
+| `ROYALEGR` | 295 | 295 | 0 | PCM WAVE chunks |
+| `SINMEI7` | 84,372 | 68,437 | 0 | Native ID3/MP3 records |
+
+The unreferenced count matters: `PCMDATA.DIC` is not merely a lookup table for
+HONMON references. It is a sequential media store, and some records can exist
+between referenced ranges. The `pcmdata` command therefore reports both
+HONMON-referenced records and unreferenced records found in nonzero gaps.
 
 #### `.uni` Files
 

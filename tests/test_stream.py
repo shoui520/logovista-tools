@@ -40,6 +40,12 @@ from logovista_tools.indexes import (
     parse_simple_leaf_page,
     parse_tagged_leaf_page,
 )
+from logovista_tools.pcmdata import (
+    make_riff_wave,
+    parse_pcm_pointer,
+    parse_pcmdata_record,
+    portable_audio_bytes,
+)
 from logovista_tools.resources import load_image_resource_profile, relative_image_source
 
 
@@ -190,6 +196,88 @@ def test_colscr_detects_jpeg_record() -> None:
     wrapped = b"data" + payload_size.to_bytes(4, "little") + bytes.fromhex("ffd8ffe000104a4649460001")
 
     assert parse_colscr_image_header(wrapped) == (payload_size, "jpeg", "jpg", None, None, None, None)
+
+
+def test_pcmdata_pointer_uses_bcd_start_and_end() -> None:
+    payload = bytes.fromhex("00010000000231930000000231991579")
+    pointer = parse_pcm_pointer(payload)
+
+    assert pointer is not None
+    assert pointer.kind == 1
+    assert pointer.flags == 0
+    assert pointer.start_block == 23193
+    assert pointer.start_offset == 0
+    assert pointer.end_block == 23199
+    assert pointer.end_offset == 1579
+
+
+def pcm_wave_chunks(data_size: int = 4) -> bytes:
+    fmt = (
+        b"fmt "
+        + (16).to_bytes(4, "little")
+        + (1).to_bytes(2, "little")
+        + (1).to_bytes(2, "little")
+        + (16000).to_bytes(4, "little")
+        + (32000).to_bytes(4, "little")
+        + (2).to_bytes(2, "little")
+        + (16).to_bytes(2, "little")
+    )
+    data = b"data" + data_size.to_bytes(4, "little") + (b"\x01\x02" * ((data_size + 1) // 2))[:data_size]
+    return fmt + data + (b"\x00" if data_size & 1 else b"") + (b"\x00" * 12)
+
+
+def test_pcmdata_parses_wave_chunks_and_writes_riff_wrapper() -> None:
+    raw = pcm_wave_chunks(4)
+    parsed = parse_pcmdata_record(raw, 2048)
+
+    assert parsed is not None
+    record, chunks = parsed
+    assert record.codec == "pcm"
+    assert record.extension == "wav"
+    assert record.sample_rate == 16000
+    assert record.bits_per_sample == 16
+    assert record.data_size == 4
+    assert record.trailing_zero_bytes == 12
+    assert [chunk.tag for chunk in chunks] == ["fmt ", "data"]
+    assert portable_audio_bytes(record, raw) == make_riff_wave(raw[: record.content_size])
+
+
+def test_pcmdata_extracts_mpeg_wave_data_as_mp3() -> None:
+    fmt_payload = (
+        (0x55).to_bytes(2, "little")
+        + (2).to_bytes(2, "little")
+        + (44100).to_bytes(4, "little")
+        + (16000).to_bytes(4, "little")
+        + (1).to_bytes(2, "little")
+        + (0).to_bytes(2, "little")
+        + (12).to_bytes(2, "little")
+        + bytes.fromhex("0100020000009f0101007105")
+    )
+    mp3 = bytes.fromhex("fffb9060") + (b"\x55" * 8)
+    raw = b"fmt " + len(fmt_payload).to_bytes(4, "little") + fmt_payload
+    raw += b"fact" + (4).to_bytes(4, "little") + (123).to_bytes(4, "little")
+    raw += b"data" + len(mp3).to_bytes(4, "little") + mp3 + (b"\x00" * 12)
+    parsed = parse_pcmdata_record(raw, 0)
+
+    assert parsed is not None
+    record, chunks = parsed
+    assert record.codec == "mpeg_layer3_wave"
+    assert record.extension == "mp3"
+    assert [chunk.tag for chunk in chunks] == ["fmt ", "fact", "data"]
+    assert portable_audio_bytes(record, raw) == mp3
+
+
+def test_pcmdata_detects_id3_mp3_record() -> None:
+    raw = b"ID3\x03\x00\x00\x00\x00\x00\x00" + bytes.fromhex("fff354c4") + (b"\x55" * 8) + (b"\x00" * 12)
+    parsed = parse_pcmdata_record(raw, 0)
+
+    assert parsed is not None
+    record, _chunks = parsed
+    assert record.media_type == "mp3"
+    assert record.codec == "mp3"
+    assert record.extension == "mp3"
+    assert record.trailing_zero_bytes == 12
+    assert portable_audio_bytes(record, raw).startswith(b"ID3")
 
 
 def test_index_boundaries_are_sorted_before_entry_slicing() -> None:
