@@ -9,6 +9,7 @@ Gaiji.plist/GaijiS.plist fallback mappings, or emitted as placeholders.
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import re
 import sys
@@ -17,6 +18,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .gaiji import load_gaiji_map, load_gaiji_profile
+from .resources import load_image_resource_profile
 from .ssed import BLOCK_SIZE, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 
 
@@ -26,8 +28,8 @@ CONTROL_ARG_LENGTHS = {
     0x09: 2,
     0x41: 2,
     0x42: 0,
-    0x4A: 15,
-    0x4D: 16,
+    0x4A: 16,
+    0x4D: 18,
     0x62: 6,
     0xE0: 2,
     0xE2: 2,
@@ -54,7 +56,23 @@ class Break:
     pass
 
 
-Token = Text | StartTag | EndTag | Break
+@dataclass(frozen=True)
+class Image:
+    key: str
+    kind: str = "gaiji"
+
+
+@dataclass(frozen=True)
+class Media:
+    payload: str
+
+
+@dataclass(frozen=True)
+class Section:
+    code: str
+
+
+Token = Text | StartTag | EndTag | Break | Image | Media | Section
 
 
 @dataclass(frozen=True)
@@ -67,6 +85,10 @@ class DictionarySource:
     gaiji_map: dict[str, str]
     gaiji_uni_entries: int = 0
     gaiji_plist_entries: int = 0
+    image_resource_entries: int = 0
+    image_gaiji_keys: frozenset[str] = frozenset()
+    image_sources: dict[str, str] | None = None
+    image_dirs: tuple[Path, ...] = ()
 
 
 def decode_jis_pair(pair: bytes) -> str:
@@ -134,11 +156,28 @@ def control_tag_for_end(op: int) -> str | None:
 
 
 def decode_tokens(
-    data: bytes, *, gaiji: str = "drop", gaiji_map: dict[str, str] | None = None
+    data: bytes,
+    *,
+    gaiji: str = "drop",
+    gaiji_map: dict[str, str] | None = None,
+    image_gaiji_keys: frozenset[str] | set[str] | None = None,
+    preserve_image_gaiji: bool = False,
+    preserve_media: bool = False,
+    preserve_sections: bool = False,
 ) -> tuple[list[Token], dict[str, int]]:
     gaiji_map = gaiji_map or {}
+    image_gaiji_keys = image_gaiji_keys or frozenset()
     tokens: list[Token] = []
-    stats = {"controls": 0, "unknown_controls": 0, "gaiji": 0, "jis_pairs": 0}
+    stats = {
+        "controls": 0,
+        "unknown_controls": 0,
+        "gaiji": 0,
+        "image_gaiji": 0,
+        "media": 0,
+        "sections": 0,
+        "links": 0,
+        "jis_pairs": 0,
+    }
     i = 0
     while i < len(data):
         b = data[i]
@@ -150,14 +189,33 @@ def decode_tokens(
         if b == 0x1F and i + 1 < len(data):
             op = data[i + 1]
             stats["controls"] += 1
+            if op == 0x09:
+                payload = data[i + 2 : i + 4]
+                stats["sections"] += 1
+                if preserve_sections and len(payload) == 2:
+                    tokens.append(Section(payload.hex()))
+                i += 2 + CONTROL_ARG_LENGTHS[op]
+                continue
             if op == 0x0A:
                 tokens.append(Break())
                 i += 2
+                continue
+            if op == 0x4D:
+                arg_len = CONTROL_ARG_LENGTHS[op]
+                payload = data[i + 2 : i + 2 + arg_len]
+                stats["media"] += 1
+                if preserve_media:
+                    tokens.append(Media(payload.hex()))
+                else:
+                    tokens.append(StartTag("media"))
+                i += 2 + arg_len
                 continue
             start_tag = control_tag_for_start(op)
             end_tag = control_tag_for_end(op)
             if start_tag is not None:
                 tokens.append(StartTag(start_tag))
+                if start_tag == "link":
+                    stats["links"] += 1
             elif end_tag is not None:
                 tokens.append(EndTag(end_tag))
             elif op not in (0x02, 0x03, 0x04, 0x05, 0x00):
@@ -174,9 +232,16 @@ def decode_tokens(
             continue
 
         if i + 1 < len(data) and 0xA1 <= b <= 0xFE:
-            value = gaiji_text(b, data[i + 1], gaiji, gaiji_map)
-            if value:
-                tokens.append(Text(value))
+            key = f"{b:02x}{data[i + 1]:02x}"
+            if key in gaiji_map:
+                tokens.append(Text(gaiji_map[key]))
+            elif preserve_image_gaiji and key in image_gaiji_keys:
+                tokens.append(Image(key))
+                stats["image_gaiji"] += 1
+            else:
+                value = gaiji_text(b, data[i + 1], gaiji, gaiji_map)
+                if value:
+                    tokens.append(Text(value))
             stats["gaiji"] += 1
             i += 2
             continue
@@ -191,6 +256,12 @@ def tokens_to_text(tokens: list[Token]) -> str:
     for token in tokens:
         if isinstance(token, Text):
             lines[-1] += token.value
+        elif isinstance(token, Image):
+            lines[-1] += f"<img:{token.key}>"
+        elif isinstance(token, Media):
+            lines[-1] += f"<media:{token.payload}>"
+        elif isinstance(token, Section):
+            lines[-1] += f"<section:{token.code}>"
         elif isinstance(token, Break):
             if lines[-1] or (lines and lines[-1] != ""):
                 lines.append("")
@@ -214,6 +285,111 @@ def tokens_to_text(tokens: list[Token]) -> str:
     while cleaned and cleaned[-1] == "":
         cleaned.pop()
     return "\n".join(cleaned)
+
+
+def html_image_src(key: str, image_sources: dict[str, str]) -> str | None:
+    return image_sources.get(key.lower())
+
+
+def tokens_to_html(
+    tokens: list[Token],
+    *,
+    image_sources: dict[str, str] | None = None,
+    section_image_sources: dict[str, str] | None = None,
+) -> str:
+    """Render decoded tokens as conservative inline HTML.
+
+    The resulting HTML is intended as an interchange/debug representation for
+    targets that support inline HTML. Exporters should copy the referenced image
+    files into the target package and rewrite paths if needed.
+    """
+
+    image_sources = image_sources or {}
+    section_image_sources = section_image_sources or {}
+    html_parts: list[str] = []
+    tag_stack: list[str] = []
+    tag_map = {
+        "bold": "b",
+        "italic": "i",
+        "sub": "sub",
+        "sup": "sup",
+        "em": "em",
+        "head": "span",
+        "color": "span",
+    }
+    attrs = {
+        "head": ' class="lv-head"',
+        "color": ' class="lv-color"',
+    }
+
+    for token in tokens:
+        if isinstance(token, Text):
+            html_parts.append(html.escape(token.value, quote=False))
+        elif isinstance(token, Image):
+            src = html_image_src(token.key, image_sources)
+            if src is None:
+                html_parts.append(html.escape(f"<img:{token.key}>", quote=False))
+                continue
+            escaped_src = html.escape(src, quote=True)
+            escaped_key = html.escape(token.key, quote=True)
+            html_parts.append(f'<img src="{escaped_src}" alt="{escaped_key}" class="lv-gaiji lv-gaiji-{escaped_key}">')
+        elif isinstance(token, Media):
+            escaped_payload = html.escape(token.payload, quote=True)
+            html_parts.append(f'<span class="lv-media" data-lv-media="{escaped_payload}"></span>')
+        elif isinstance(token, Section):
+            escaped_code = html.escape(token.code, quote=True)
+            section_src = section_image_sources.get(token.code.lower())
+            if section_src is not None:
+                escaped_src = html.escape(section_src, quote=True)
+                html_parts.append(
+                    f'<img src="{escaped_src}" alt="{escaped_code}" '
+                    f'class="lv-section-image lv-section-image-{escaped_code}">'
+                )
+            html_parts.append(f'<span class="lv-section" data-lv-section="{escaped_code}"></span>')
+        elif isinstance(token, Break):
+            html_parts.append("<br>")
+        elif isinstance(token, StartTag):
+            html_tag = tag_map.get(token.tag)
+            if html_tag is None:
+                continue
+            html_parts.append(f"<{html_tag}{attrs.get(token.tag, '')}>")
+            tag_stack.append(html_tag)
+        elif isinstance(token, EndTag):
+            html_tag = tag_map.get(token.tag)
+            if html_tag is None:
+                continue
+            if html_tag in tag_stack:
+                while tag_stack:
+                    closing = tag_stack.pop()
+                    html_parts.append(f"</{closing}>")
+                    if closing == html_tag:
+                        break
+
+    while tag_stack:
+        html_parts.append(f"</{tag_stack.pop()}>")
+    return "".join(html_parts)
+
+
+def resolve_section_image_sources(specs: list[str] | None, image_sources: dict[str, str] | None) -> dict[str, str]:
+    """Resolve CODE=KEY section-image specs into CODE=img/path mappings."""
+
+    resolved: dict[str, str] = {}
+    if not specs:
+        return resolved
+    image_sources = image_sources or {}
+    for spec in specs:
+        if "=" not in spec:
+            raise ValueError(f"invalid --section-image value {spec!r}; expected CODE=IMAGE_KEY")
+        code, image_key = spec.split("=", 1)
+        code = code.strip().lower()
+        image_key = image_key.strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{4}", code):
+            raise ValueError(f"invalid section code {code!r}; expected four hex digits")
+        image_src = image_sources.get(image_key)
+        if image_src is None:
+            image_src = f"img/{image_key}.png"
+        resolved[code] = image_src
+    return resolved
 
 
 def extract_heading(tokens: list[Token], body: str) -> str:
@@ -309,6 +485,12 @@ def discover_dictionaries(roots: list[Path]) -> list[DictionarySource]:
                 continue
             dict_id = idx.parent.parent.name if idx.parent.name == idx.parent.parent.name else idx.stem
             gaiji_profile = load_gaiji_profile(idx)
+            image_profile = load_image_resource_profile(idx)
+            image_sources = {}
+            for key, resource in image_profile.resources.items():
+                selected = resource.normal or resource.default or resource.white
+                if selected is not None:
+                    image_sources[key] = f"img/{selected.name}"
             found.append(
                 DictionarySource(
                     dict_id=dict_id,
@@ -319,6 +501,10 @@ def discover_dictionaries(roots: list[Path]) -> list[DictionarySource]:
                     gaiji_map=gaiji_profile.map,
                     gaiji_uni_entries=gaiji_profile.uni_entries,
                     gaiji_plist_entries=gaiji_profile.plist_entries,
+                    image_resource_entries=len(image_profile.resources),
+                    image_gaiji_keys=image_profile.gaiji_image_keys,
+                    image_sources=image_sources,
+                    image_dirs=image_profile.image_dirs,
                 )
             )
     return found
@@ -332,12 +518,22 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
     dict_out = out_dir / source.dict_id
     dict_out.mkdir(parents=True, exist_ok=True)
     entries_path = dict_out / "raw_entries.jsonl"
+    section_image_sources = resolve_section_image_sources(getattr(args, "section_image", None), source.image_sources)
 
     expanded = expand_sseddata_file(source.honmon)
     marker_count = expanded.count(ENTRY_MARKER)
     emitted = 0
     skipped_empty = 0
-    aggregate_stats = {"controls": 0, "unknown_controls": 0, "gaiji": 0, "jis_pairs": 0}
+    aggregate_stats = {
+        "controls": 0,
+        "unknown_controls": 0,
+        "gaiji": 0,
+        "image_gaiji": 0,
+        "media": 0,
+        "sections": 0,
+        "links": 0,
+        "jis_pairs": 0,
+    }
     warnings: list[str] = []
 
     dense_marker_honmon = marker_count > 0 and marker_count * 64 > len(expanded)
@@ -362,6 +558,9 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
             "gaiji_map_entries": len(source.gaiji_map),
             "gaiji_uni_entries": source.gaiji_uni_entries,
             "gaiji_plist_entries": source.gaiji_plist_entries,
+            "image_resource_entries": source.image_resource_entries,
+            "image_gaiji_entries": len(source.image_gaiji_keys),
+            "image_dirs": [str(path) for path in source.image_dirs],
             "entries_path": str(entries_path),
         }
         write_json(dict_out / "summary.json", summary)
@@ -372,7 +571,15 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
             if args.limit and emitted >= args.limit:
                 break
             segment = expanded[start:end]
-            tokens, stats = decode_tokens(segment, gaiji=args.gaiji, gaiji_map=source.gaiji_map)
+            tokens, stats = decode_tokens(
+                segment,
+                gaiji=args.gaiji,
+                gaiji_map=source.gaiji_map,
+                image_gaiji_keys=source.image_gaiji_keys,
+                preserve_image_gaiji=args.image_gaiji,
+                preserve_media=args.media_placeholder,
+                preserve_sections=args.section_markers,
+            )
             body = tokens_to_text(tokens)
             if is_useless_body(body) or len(body.strip()) < args.min_chars:
                 skipped_empty += 1
@@ -392,6 +599,12 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
                 "heading": heading,
                 "body": body,
             }
+            if args.html:
+                item["body_html"] = tokens_to_html(
+                    tokens,
+                    image_sources=source.image_sources,
+                    section_image_sources=section_image_sources,
+                )
             out.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")))
             out.write("\n")
             emitted += 1
@@ -411,6 +624,9 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
         "gaiji_map_entries": len(source.gaiji_map),
         "gaiji_uni_entries": source.gaiji_uni_entries,
         "gaiji_plist_entries": source.gaiji_plist_entries,
+        "image_resource_entries": source.image_resource_entries,
+        "image_gaiji_entries": len(source.image_gaiji_keys),
+        "image_dirs": [str(path) for path in source.image_dirs],
         "entries_path": str(entries_path),
     }
     write_json(dict_out / "summary.json", summary)
@@ -429,6 +645,31 @@ def main() -> int:
     parser.add_argument("--limit", type=int, help="Limit entries per dictionary, for testing.")
     parser.add_argument("--min-chars", type=int, default=1)
     parser.add_argument("--gaiji", choices=("drop", "h-placeholder", "placeholder"), default="h-placeholder")
+    parser.add_argument(
+        "--image-gaiji",
+        action="store_true",
+        help="Preserve unresolved gaiji that have PNG assets as <img:code> placeholders.",
+    )
+    parser.add_argument(
+        "--media-placeholder",
+        action="store_true",
+        help="Preserve 1f4d media controls as <media:payload-hex> placeholders.",
+    )
+    parser.add_argument(
+        "--section-markers",
+        action="store_true",
+        help="Preserve 1f09 section markers as <section:xxxx> placeholders.",
+    )
+    parser.add_argument(
+        "--html",
+        action="store_true",
+        help="Also emit body_html with conservative inline HTML and img tags for image gaiji.",
+    )
+    parser.add_argument(
+        "--section-image",
+        action="append",
+        help="For HTML output, insert an image at a section marker. Format: CODE=IMAGE_KEY, e.g. 0011=exam.",
+    )
     parser.add_argument(
         "--no-skip-dense-marker-honmon",
         dest="skip_dense_marker_honmon",

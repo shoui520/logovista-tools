@@ -1,0 +1,173 @@
+"""LogoVista package resource discovery."""
+
+from __future__ import annotations
+
+import plistlib
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Hashable
+
+
+IMAGE_SUFFIX_RE = re.compile(r"^(?P<key>.+)_(?P<theme>[nw])$")
+GAIJI_IMAGE_KEY_RE = re.compile(r"[A-Fa-f][0-9A-Fa-f]{3}")
+
+
+@dataclass(frozen=True)
+class ImageResource:
+    """A discovered image resource and its optional theme variants."""
+
+    key: str
+    files: tuple[Path, ...]
+    normal: Path | None = None
+    white: Path | None = None
+    default: Path | None = None
+    listed_in_resources_copy: bool = False
+    listed_in_gaijiicon: bool = False
+
+
+@dataclass(frozen=True)
+class ImageResourceProfile:
+    """Image resources found near one dictionary package."""
+
+    image_dirs: tuple[Path, ...]
+    resources: dict[str, ImageResource]
+    gaiji_image_keys: frozenset[str]
+    resources_copy_paths: tuple[Path, ...]
+    gaijiicon_paths: tuple[Path, ...]
+    resources_copy_entries: tuple[str, ...]
+    gaijiicon_entries: tuple[str, ...]
+
+
+def file_identity(path: Path) -> Hashable:
+    try:
+        stat = path.stat()
+    except OSError:
+        return str(path).lower()
+    return (stat.st_dev, stat.st_ino, stat.st_size)
+
+
+def candidate_package_roots(path: Path) -> list[Path]:
+    """Return likely LogoVista package roots for an IDX file or package dir."""
+
+    resolved = path.resolve()
+    roots: list[Path] = []
+    if resolved.is_file():
+        roots.extend([resolved.parent.parent, resolved.parent])
+    else:
+        roots.extend([resolved, resolved.parent])
+
+    deduped: list[Path] = []
+    seen: set[Hashable] = set()
+    for root in roots:
+        identity = file_identity(root)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        deduped.append(root)
+    return deduped
+
+
+def load_string_list_plists(paths: list[Path]) -> tuple[tuple[str, ...], tuple[Path, ...]]:
+    values: list[str] = []
+    loaded: list[Path] = []
+    seen_paths: set[Hashable] = set()
+    seen_values: set[str] = set()
+    for path in paths:
+        if not path.exists():
+            continue
+        identity = file_identity(path)
+        if identity in seen_paths:
+            continue
+        seen_paths.add(identity)
+        try:
+            data = plistlib.load(path.open("rb"))
+        except Exception:
+            continue
+        if not isinstance(data, list):
+            continue
+        loaded.append(path)
+        for item in data:
+            if not isinstance(item, str) or item in seen_values:
+                continue
+            seen_values.add(item)
+            values.append(item)
+    return tuple(values), tuple(loaded)
+
+
+def image_key_and_theme(path: Path) -> tuple[str, str | None]:
+    match = IMAGE_SUFFIX_RE.fullmatch(path.stem)
+    if match:
+        return match.group("key").lower(), match.group("theme")
+    return path.stem.lower(), None
+
+
+def load_image_resource_profile(path: Path) -> ImageResourceProfile:
+    """Discover PNG resources, resource copy plists, and gaiji icon plists.
+
+    LogoVista packages commonly keep dictionary-specific icon PNGs in a sibling
+    ``img`` directory next to the dictionary directory. Files ending in ``_n``
+    and ``_w`` are treated as normal/light and white/dark-theme variants of the
+    same resource key.
+    """
+
+    roots = candidate_package_roots(path)
+    image_dirs: list[Path] = []
+    seen_dirs: set[Hashable] = set()
+    for root in roots:
+        image_dir = root / "img"
+        if not image_dir.is_dir():
+            continue
+        identity = file_identity(image_dir)
+        if identity in seen_dirs:
+            continue
+        seen_dirs.add(identity)
+        image_dirs.append(image_dir)
+
+    resources_copy_entries, resources_copy_paths = load_string_list_plists(
+        [root / "resourcesCopy.plist" for root in roots]
+    )
+    gaijiicon_entries, gaijiicon_paths = load_string_list_plists([root / "gaijiicon.plist" for root in roots])
+
+    listed_resources = {image_key_and_theme(Path(name))[0] for name in resources_copy_entries}
+    listed_gaijiicons = {name.lower() for name in gaijiicon_entries}
+
+    grouped: dict[str, dict[str, object]] = {}
+    for image_dir in image_dirs:
+        for file in sorted(image_dir.glob("*.png")):
+            key, theme = image_key_and_theme(file)
+            bucket = grouped.setdefault(key, {"files": [], "normal": None, "white": None, "default": None})
+            bucket["files"].append(file)
+            if theme == "n":
+                bucket["normal"] = file
+            elif theme == "w":
+                bucket["white"] = file
+            else:
+                bucket["default"] = file
+
+    resources: dict[str, ImageResource] = {}
+    for key, bucket in sorted(grouped.items()):
+        files = tuple(bucket["files"])  # type: ignore[arg-type]
+        normal = bucket["normal"] if isinstance(bucket["normal"], Path) else None
+        white = bucket["white"] if isinstance(bucket["white"], Path) else None
+        default = bucket["default"] if isinstance(bucket["default"], Path) else None
+        resources[key] = ImageResource(
+            key=key,
+            files=files,
+            normal=normal,
+            white=white,
+            default=default,
+            listed_in_resources_copy=key in listed_resources,
+            listed_in_gaijiicon=key in listed_gaijiicons,
+        )
+
+    gaiji_image_keys = frozenset(key for key in resources if GAIJI_IMAGE_KEY_RE.fullmatch(key))
+    return ImageResourceProfile(
+        image_dirs=tuple(image_dirs),
+        resources=resources,
+        gaiji_image_keys=gaiji_image_keys,
+        resources_copy_paths=resources_copy_paths,
+        gaijiicon_paths=gaijiicon_paths,
+        resources_copy_entries=resources_copy_entries,
+        gaijiicon_entries=gaijiicon_entries,
+    )

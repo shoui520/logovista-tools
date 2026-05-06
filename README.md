@@ -14,7 +14,9 @@ decompress SSED data, compose EPWING-like book images, extract readable
 streams from `*TITLE.DIC`, and follow raw HONMON numeric ID records into
 LogoVista `DictFULLDB` body payloads for products such as KOJIEN7 and other
 dense-HONMON dictionaries. It also parses the common `*INDEX.DIC` search-tree
-formats and emits raw lookup keys with body/title pointers.
+formats, emits raw lookup keys with body/title pointers, and discovers
+dictionary-specific image resources used for image-backed gaiji and inline
+badges.
 
 No dictionary data is included in this repository.
 
@@ -70,6 +72,25 @@ Extract readable `HONMON.DIC` bodies as JSONL:
 
 ```bash
 logovista-tools entries /path/to/LogoVista --out-dir out/bodies
+```
+
+Extract bodies while preserving PNG-backed gaiji as inline HTML:
+
+```bash
+logovista-tools entries /path/to/LogoVista --dict HAESPJPN --image-gaiji --html --out-dir out/html-bodies
+```
+
+For dictionaries where section markers correspond to named style images, add a
+section-image rule:
+
+```bash
+logovista-tools entries /path/to/LogoVista --dict HAESPJPN --image-gaiji --html --section-image 0011=exam --out-dir out/html-bodies
+```
+
+List image resources and image-backed gaiji assets:
+
+```bash
+logovista-tools resources /path/to/LogoVista --dict HAESPJPN
 ```
 
 Extract raw title/headword streams:
@@ -188,8 +209,45 @@ Useful options:
 --gaiji drop                        omit all unresolved gaiji
 --gaiji h-placeholder               keep half-width gaiji placeholders only
 --gaiji placeholder                 keep half-width and full-width placeholders
+--image-gaiji                       preserve unresolved PNG-backed gaiji as <img:code>
+--html                              also emit body_html with inline HTML img tags
+--media-placeholder                 preserve 1f4d media payloads as placeholders
+--section-markers                   preserve 1f09 section markers as placeholders
+--section-image CODE=IMAGE_KEY      insert a named image at a section marker in HTML output
 --no-skip-dense-marker-honmon       force extraction on placeholder HONMON
 ```
+
+When `--html` is used, rows include `body_html` in addition to `body`.
+PNG-backed gaiji are rendered as package-relative image tags such as:
+
+```html
+<img src="img/b13d_n.png" alt="b13d" class="lv-gaiji lv-gaiji-b13d">
+```
+
+Exporters for Yomitan, MDict, or another HTML-capable format should copy the
+referenced PNG files into the target package and rewrite `src` paths if their
+archive layout differs.
+
+`--section-image` is intentionally explicit. For HAESPJPN, `0011=exam` is a
+useful first-pass rule because `0011` marks Spanish example lines and
+`exam.png` is the dictionary's `用例` badge. Other dictionaries may use the
+same section code differently.
+
+### `resources`
+
+Discover package image resources.
+
+```bash
+logovista-tools resources /path/to/LogoVista --dict HAESPJPN
+logovista-tools resources /path/to/LogoVista --dict HAESPJPN --json
+```
+
+LogoVista packages often include a top-level `img` directory plus
+`resourcesCopy.plist` and `gaijiicon.plist`. The resource scanner groups
+theme variants such as `b13d_n.png` and `b13d_w.png` under the same key and
+reports code-like resources such as `b13d` as image-backed gaiji. Named images
+such as `exam.png`, `esp.png`, or `jpn.png` are reported as package resources
+for format exporters to use when reconstructing dictionary-specific styling.
 
 ### `titles`
 
@@ -339,6 +397,8 @@ Known working layers:
 - Plist gaiji fallback mapping when `Gaiji.plist` or `GaijiS.plist` is
   present.
 - `GA16HALF` / `GA16FULL` bitmap resource header parsing and glyph slicing.
+- Top-level `img` resource discovery, including `_n` / `_w` theme variants.
+- Image-backed gaiji preservation as placeholders or inline HTML `<img>` tags.
 - Common `*INDEX.DIC` branch-page and leaf-row parsing.
 - Placeholder preservation for unresolved gaiji, for example `<hA126>`.
 - Full-width ASCII normalization to half-width ASCII.
@@ -351,8 +411,10 @@ Known limitations:
 - `KWINDEX.DIC` is not fully classified yet.
 - `CRINDEX.DIC` primary rows are parsed, but auxiliary `0xc0` subrows are
   skipped because their payload is not the same body/title pointer format.
-- Bitmap-only gaiji can be identified and sliced from `GA16HALF` / `GA16FULL`,
-  but are not rendered or exported as image assets yet.
+- `GA16HALF` / `GA16FULL` bitmap-only gaiji can be identified and sliced, but
+  are not rendered into PNG assets yet.
+- Named UI/style images such as `exam.png` are discovered, but mapping them to
+  semantic entry regions is still dictionary-specific.
 - Output is JSONL, not a final Yomitan/MDict exporter.
 - Some control opcodes are recognized only enough to avoid corrupt text.
 - `DictFtsDB` `.dbc` payloads such as `OXFPEU4.dbc` are opaque; the observed
@@ -536,8 +598,8 @@ The stream also contains `0x1f` control opcodes. Important controls observed:
 1f 61             headword span end
 1f 42             link-ish start
 1f 62 ...         link-ish end with payload
-1f 4a ...         jump/link start with payload
-1f 4d ...         media/reference start with payload
+1f 4a ...         jump/link start with a 16-byte payload
+1f 4d ...         media/reference start with an 18-byte payload
 1f e0 xx xx       bold-ish start
 1f e1             bold-ish end
 1f e2 xx xx       color/style start
@@ -547,6 +609,12 @@ The stream also contains `0x1f` control opcodes. Important controls observed:
 The current extractor does not claim full semantic knowledge of every control.
 It uses enough structure to preserve line breaks and avoid mixing payload bytes
 into visible text.
+
+`1f 4a` link starts are followed by 16 bytes of binary target metadata before
+visible link text resumes. In HAESPJPN, treating this as a 15-byte payload
+leaks one binary byte into the text stream and produces mojibake before labels
+such as `→音声1`. `1f 4d` media starts have an 18-byte payload in the same
+dictionary family.
 
 ### Entry Slicing
 
@@ -833,6 +901,7 @@ The current extractor:
   from `.uni`;
 - parses `GA16HALF` and `GA16FULL` headers and can slice individual bitmap
   glyph records;
+- discovers PNG-backed gaiji from package image folders;
 - emits unresolved half-width gaiji as `<hXXXX>` by default;
 - can emit all unresolved gaiji as placeholders with `--gaiji placeholder`;
 - can drop unresolved gaiji with `--gaiji drop`.
@@ -840,6 +909,44 @@ The current extractor:
 For conversion work, keeping unresolved placeholders is usually better than
 dropping. It lets a later gaiji pass replace `<hXXXX>` / `<zXXXX>` with images
 if the character has no Unicode equivalent.
+
+#### Image Resources
+
+Some dictionaries ship ready-made PNG resources outside `HONMON.DIC`. HAESPJPN
+has a top-level `img` directory with files such as:
+
+```text
+img/b13d_n.png
+img/b13d_w.png
+img/b13e_n.png
+img/b13e_w.png
+img/exam.png
+```
+
+The `_n` and `_w` suffixes are theme variants of the same asset. In HAESPJPN,
+`b13d_n.png` is the black-theme image for the `B13D` full-width gaiji, and
+`b13d_w.png` is the corresponding white-theme image. The body stream can refer
+to that asset by the gaiji bytes `b1 3d`; the extractor can preserve it as
+`<img:b13d>` or emit inline HTML:
+
+```html
+<img src="img/b13d_n.png" alt="b13d" class="lv-gaiji lv-gaiji-b13d">
+```
+
+Package metadata helps classify these resources:
+
+```text
+resourcesCopy.plist  complete-ish list of PNG resources to copy into the app package
+gaijiicon.plist      keys that the app treats as gaiji/icon resources
+```
+
+Named images such as `exam.png` are not necessarily referenced by filename in
+`HONMON.DIC`. They may be style resources used by the app for semantic regions
+such as examples. The toolkit reports these resources, while the exporter or a
+dictionary-specific style layer decides when to insert them. The `entries`
+command supports explicit section-image rules such as `--section-image
+0011=exam`; this preserves the raw section marker and inserts the named image
+in `body_html`.
 
 #### `.uni` Files
 

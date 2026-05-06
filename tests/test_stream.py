@@ -1,6 +1,12 @@
 import plistlib
 
-from logovista_tools.entries import decode_tokens, normalize_fullwidth_ascii, tokens_to_text
+from logovista_tools.entries import (
+    decode_tokens,
+    normalize_fullwidth_ascii,
+    resolve_section_image_sources,
+    tokens_to_html,
+    tokens_to_text,
+)
 from logovista_tools.gaiji import load_gaiji_profile, load_uni_gaiji_map, parse_ga16_resource
 from logovista_tools.indexes import (
     IndexPointer,
@@ -9,6 +15,7 @@ from logovista_tools.indexes import (
     parse_simple_leaf_page,
     parse_tagged_leaf_page,
 )
+from logovista_tools.resources import load_image_resource_profile
 
 
 def test_normalize_fullwidth_ascii() -> None:
@@ -38,6 +45,60 @@ def test_gaiji_placeholder_modes() -> None:
 def test_gaiji_map_wins_over_placeholder() -> None:
     tokens, _ = decode_tokens(bytes.fromhex("a126"), gaiji="h-placeholder", gaiji_map={"a126": "é"})
     assert tokens_to_text(tokens) == "é"
+
+
+def test_image_gaiji_placeholder_for_png_backed_codes() -> None:
+    tokens, stats = decode_tokens(
+        bytes.fromhex("b13d"),
+        gaiji="drop",
+        image_gaiji_keys=frozenset({"b13d"}),
+        preserve_image_gaiji=True,
+    )
+
+    assert tokens_to_text(tokens) == "<img:b13d>"
+    assert stats["image_gaiji"] == 1
+
+
+def test_tokens_to_html_renders_image_sources() -> None:
+    tokens, _ = decode_tokens(
+        bytes.fromhex("b13d1f0a2422"),
+        image_gaiji_keys=frozenset({"b13d"}),
+        preserve_image_gaiji=True,
+    )
+
+    assert tokens_to_html(tokens, image_sources={"b13d": "img/b13d_n.png"}) == (
+        '<img src="img/b13d_n.png" alt="b13d" class="lv-gaiji lv-gaiji-b13d"><br>あ'
+    )
+
+
+def test_tokens_to_html_can_insert_section_images() -> None:
+    tokens, _ = decode_tokens(bytes.fromhex("1f0900112422"), preserve_sections=True)
+
+    assert tokens_to_html(tokens, section_image_sources={"0011": "img/exam.png"}) == (
+        '<img src="img/exam.png" alt="0011" class="lv-section-image lv-section-image-0011">'
+        '<span class="lv-section" data-lv-section="0011"></span>あ'
+    )
+
+
+def test_resolve_section_image_sources_uses_discovered_image_key() -> None:
+    assert resolve_section_image_sources(["0011=exam"], {"exam": "img/exam.png"}) == {"0011": "img/exam.png"}
+
+
+def test_media_control_uses_18_byte_payload() -> None:
+    # 1f4d media starts carry 18 bytes of payload before visible text resumes.
+    payload = bytes.fromhex("000000000000000000000000000186961670")
+    tokens, stats = decode_tokens(b"\x1f\x4d" + payload + bytes.fromhex("2422"), preserve_media=True)
+
+    assert tokens_to_text(tokens) == f"<media:{payload.hex()}>あ"
+    assert stats["media"] == 1
+
+
+def test_link_start_uses_16_byte_payload_then_visible_text() -> None:
+    payload = bytes.fromhex("00010000000231930000000231991579")
+    tokens, stats = decode_tokens(b"\x1f\x4a" + payload + bytes.fromhex("2422") + b"\x1f\x6a" + bytes.fromhex("2424"))
+
+    assert tokens_to_text(tokens) == "あい"
+    assert stats["links"] == 1
 
 
 def uni_record(code: int, primary: tuple[int, int], fallback: tuple[int, int] = (0, 0)) -> bytes:
@@ -104,6 +165,32 @@ def test_parse_ga16_resource_header_and_glyph(tmp_path) -> None:
     assert resource.count == 2
     assert resource.glyph_bytes == 16
     assert resource.glyph_for_code(path.read_bytes(), 0xA122) == glyph1
+
+
+def test_load_image_resource_profile_discovers_theme_variants(tmp_path) -> None:
+    package = tmp_path / "PKG"
+    dict_dir = package / "DICT"
+    image_dir = package / "img"
+    dict_dir.mkdir(parents=True)
+    image_dir.mkdir()
+    idx = dict_dir / "DICT.IDX"
+    idx.write_bytes(b"")
+    (image_dir / "b13d_n.png").write_bytes(b"")
+    (image_dir / "b13d_w.png").write_bytes(b"")
+    (image_dir / "exam.png").write_bytes(b"")
+    with (package / "resourcesCopy.plist").open("wb") as out:
+        plistlib.dump(["b13d_n.png", "b13d_w.png", "exam.png"], out)
+    with (package / "gaijiicon.plist").open("wb") as out:
+        plistlib.dump(["b13d"], out)
+
+    profile = load_image_resource_profile(idx)
+
+    assert profile.image_dirs == (image_dir,)
+    assert "b13d" in profile.gaiji_image_keys
+    assert profile.resources["b13d"].normal == image_dir / "b13d_n.png"
+    assert profile.resources["b13d"].white == image_dir / "b13d_w.png"
+    assert profile.resources["b13d"].listed_in_gaijiicon
+    assert profile.resources["exam"].default == image_dir / "exam.png"
 
 
 def test_parse_internal_index_page_uses_32bit_child() -> None:
