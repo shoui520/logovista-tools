@@ -13,7 +13,8 @@ decompress SSED data, compose EPWING-like book images, extract readable
 `HONMON.DIC` body entries for many dictionaries, extract raw title/headword
 streams from `*TITLE.DIC`, and follow raw HONMON numeric ID records into
 LogoVista `DictFULLDB` body payloads for products such as KOJIEN7 and other
-dense-HONMON dictionaries.
+dense-HONMON dictionaries. It also parses the common `*INDEX.DIC` search-tree
+formats and emits raw lookup keys with body/title pointers.
 
 No dictionary data is included in this repository.
 
@@ -75,6 +76,12 @@ Extract raw title/headword streams:
 
 ```bash
 logovista-tools titles /path/to/LogoVista --out-dir out/titles
+```
+
+Extract raw search-index rows:
+
+```bash
+logovista-tools indexes /path/to/LogoVista --dict KOJIEN7 --out-dir out/indexes
 ```
 
 Extract formatted bodies from products that use raw HONMON ID records plus
@@ -217,6 +224,58 @@ Each JSONL row looks like:
 Title extraction is especially useful for dictionaries whose `HONMON.DIC` is a
 placeholder table rather than a body stream.
 
+### `indexes`
+
+Extract lookup keys and pointer rows from expanded `*INDEX.DIC` components:
+
+```bash
+logovista-tools indexes /path/to/LogoVista --out-dir indexes
+logovista-tools indexes /path/to/LogoVista --dict KOJIEN7 --component FHINDEX.DIC --limit 50
+```
+
+Output layout:
+
+```text
+indexes/
+  summary.json
+  DICT_ID/
+    indexes_summary.json
+    raw_indexes.jsonl
+```
+
+Each leaf row looks like:
+
+```json
+{
+  "dict_id": "KOJIEN7",
+  "dict_title": "広辞苑 第七版",
+  "kind": "leaf",
+  "component": "FHINDEX.DIC",
+  "page_index": 98,
+  "logical_block": 44310,
+  "row_index": 12,
+  "key": "?ASHURA'",
+  "target_key": "?Ashura'",
+  "body": {"block": 284, "offset": 1794},
+  "title": {"block": 38005, "offset": 334},
+  "tagged": true,
+  "target_count_hint": 1,
+  "continued_group": false
+}
+```
+
+Useful options:
+
+```bash
+--dict NAME                         extract only matching dictionary ids
+--component NAME                    extract only matching index filename(s)
+--include-internal                  also emit binary-search tree branch rows
+--limit N                           stop writing JSONL rows after N rows
+--gaiji drop                        omit all unresolved gaiji in keys
+--gaiji h-placeholder               keep half-width gaiji placeholders only
+--gaiji placeholder                 keep half-width and full-width placeholders
+```
+
 ### `fulldb`
 
 Extract formatted bodies from LogoVista products that declare a `DictFULLDB`
@@ -280,6 +339,7 @@ Known working layers:
 - Plist gaiji fallback mapping when `Gaiji.plist` or `GaijiS.plist` is
   present.
 - `GA16HALF` / `GA16FULL` bitmap resource header parsing and glyph slicing.
+- Common `*INDEX.DIC` branch-page and leaf-row parsing.
 - Placeholder preservation for unresolved gaiji, for example `<hA126>`.
 - Full-width ASCII normalization to half-width ASCII.
 - Dense HONMON ID-table detection.
@@ -288,7 +348,9 @@ Known working layers:
 Known limitations:
 
 - Not all dictionaries store definitions in `HONMON.DIC`.
-- `*INDEX.DIC` binary search structures are not fully parsed yet.
+- `KWINDEX.DIC` is not fully classified yet.
+- `CRINDEX.DIC` primary rows are parsed, but auxiliary `0xc0` subrows are
+  skipped because their payload is not the same body/title pointer format.
 - Bitmap-only gaiji can be identified and sliced from `GA16HALF` / `GA16FULL`,
   but are not rendered or exported as image assets yet.
 - Output is JSONL, not a final Yomitan/MDict exporter.
@@ -576,9 +638,10 @@ headword/title lines.
 
 ### Index Components
 
-`*INDEX.DIC` components are binary. They contain search keys, branch/page
-structures, and pointers into other components. Some bytes decode as text if
-treated naively, but most of the component is structured binary data.
+`*INDEX.DIC` components are binary search trees over 2048-byte pages. They
+contain lookup keys, branch pages, leaf pages, and pointers into body/title
+components. Some bytes decode as text if treated naively, but the useful data
+comes from parsing the page records.
 
 Common index components:
 
@@ -591,7 +654,137 @@ CRINDEX.DIC
 KWINDEX.DIC
 ```
 
-Parsing these directly is the next major milestone. It is required for:
+Component types observed in `SSEDINFO`:
+
+```text
+0x90  FKINDEX.DIC  forward tagged index
+0x91  FHINDEX.DIC  forward simple headword index
+0x70  BKINDEX.DIC  backward tagged index
+0x71  BHINDEX.DIC  backward simple headword index
+0x81  CRINDEX.DIC  cross-reference index
+```
+
+The toolkit parses the common `FK/FH/BK/BH` page formats and the primary
+`CRINDEX` rows.
+
+#### Index Page Header
+
+Every expanded index page begins with:
+
+```text
+offset  size  meaning
+0x00    2     page flags / slot-size word, big endian
+0x02    2     row or subrecord count, big endian
+0x04    ...   page records
+```
+
+Pages whose first word has bit `0x8000` clear are branch pages. Pages whose
+first word has bit `0x8000` set are leaf pages.
+
+Branch page words observed include:
+
+```text
+601c 601e 6020
+401e 4020
+201e 2020
+001e 0020
+```
+
+The low bits encode the branch slot size:
+
+```text
+slot_size = (page_word & 0x3f) + 4
+```
+
+Each branch slot is:
+
+```text
+offset  size             meaning
+0x00    slot_size - 4    padded JIS key boundary
+...     4                child logical block number, big endian
+```
+
+The child is a 32-bit logical block number. In small dictionaries the high two
+bytes are usually zero, which can make the field look like a 16-bit pointer.
+Large dictionaries such as KOJIEN7 require the full 32 bits.
+
+#### Simple Leaf Pages
+
+`FHINDEX.DIC` (`0x91`) and `BHINDEX.DIC` (`0x71`) usually use simple leaf
+records:
+
+```text
+offset  size     meaning
+0x00    1        key byte length
+0x01    n        JIS/gaiji key bytes
+...     4        body logical block, big endian
+...     2        body offset in block, big endian
+...     4        title logical block, big endian
+...     2        title offset in block, big endian
+```
+
+Examples:
+
+```text
+HAFRAN FHINDEX  ACCENT -> body 4:1570, title 4:1570
+GENIUSEB FHINDEX read-ish keys -> body HONMON blocks, title FHTITLE blocks
+KOJIEN7 FHINDEX ?ASHURA' -> body HONMON ID-table anchor, title FHTITLE row
+```
+
+If a dictionary has no `*TITLE.DIC`, the title pointer can equal the body
+pointer.
+
+#### Tagged Leaf Pages
+
+`FKINDEX.DIC` (`0x90`) and `BKINDEX.DIC` (`0x70`) usually use tagged leaf
+subrecords. A search-key group starts with:
+
+```text
+offset  size  meaning
+0x00    1     tag 0x80
+0x01    1     key byte length
+0x02    2     target count hint, big endian
+0x04    n     JIS/gaiji search key bytes
+```
+
+Each following target row starts with:
+
+```text
+offset  size  meaning
+0x00    1     tag 0xc0
+0x01    1     target/display key byte length
+0x02    n     JIS/gaiji target key bytes
+...     4     body logical block, big endian
+...     2     body offset in block, big endian
+...     4     title logical block, big endian
+...     2     title offset in block, big endian
+```
+
+The same search key can have multiple target rows. Page boundaries can occur
+inside a group, so the parser carries the current `0x80` search key across
+leaf pages when a page begins with a `0xc0` target row.
+
+#### Cross-Reference Leaf Pages
+
+`CRINDEX.DIC` (`0x81`) uses a related but different format. Primary rows are:
+
+```text
+offset  size  meaning
+0x00    2     key byte length, big endian
+0x02    n     JIS/gaiji key bytes
+...     4     body logical block, big endian
+...     2     body offset in block, big endian
+...     4     title logical block, big endian
+...     2     title offset in block, big endian
+```
+
+KOJIEN7 also has auxiliary `0x80` / `0xc0` CR subrecords. The `0x80` rows look
+like grouped keys, but the following `0xc0` payloads do not behave like normal
+6-byte body pointers and can exceed the book's logical block range if decoded
+that way. The current parser counts these groups and skips the auxiliary
+targets until their payload is understood.
+
+Direct index parsing is useful for:
 
 - deriving all exact lookup keys without SQLite;
 - pairing title lines with body addresses;
@@ -602,8 +795,8 @@ Raw-only probes confirm that indexes can expose useful lookup strings even
 when no `*TITLE.DIC` component is present. For example, `HABGESPA` exposes
 Spanish keys in `FHINDEX.DIC` / `BHINDEX.DIC`, and `HAFRAN` exposes French
 keys in the same forward/backward index components. Those decoded strings are
-not full body entries; they are evidence that the remaining direct raw work is
-index-structure parsing.
+not full body entries; they are search keys and pointers into the body/title
+layer.
 
 ### Gaiji
 
@@ -741,7 +934,7 @@ Near-term:
 - Render bitmap-only `GA16HALF` / `GA16FULL` gaiji to portable image assets.
 - Add SQL/`DictFULLDB`-assisted gaiji validation reports where available.
 - Preserve a richer structured AST instead of emitting only plain body text.
-- Parse common `*INDEX.DIC` search structures.
+- Classify `KWINDEX.DIC` and the skipped auxiliary `CRINDEX.DIC` subrecords.
 - Link title streams to body IDs for dense-HONMON dictionaries.
 - Add optional SQLite-assisted validation reports for non-`DictFULLDB` caches.
 

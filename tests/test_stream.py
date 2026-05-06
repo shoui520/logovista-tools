@@ -2,6 +2,13 @@ import plistlib
 
 from logovista_tools.entries import decode_tokens, normalize_fullwidth_ascii, tokens_to_text
 from logovista_tools.gaiji import load_gaiji_profile, load_uni_gaiji_map, parse_ga16_resource
+from logovista_tools.indexes import (
+    IndexPointer,
+    parse_cr_leaf_page,
+    parse_internal_page,
+    parse_simple_leaf_page,
+    parse_tagged_leaf_page,
+)
 
 
 def test_normalize_fullwidth_ascii() -> None:
@@ -97,3 +104,90 @@ def test_parse_ga16_resource_header_and_glyph(tmp_path) -> None:
     assert resource.count == 2
     assert resource.glyph_bytes == 16
     assert resource.glyph_for_code(path.read_bytes(), 0xA122) == glyph1
+
+
+def test_parse_internal_index_page_uses_32bit_child() -> None:
+    page = bytearray(2048)
+    page[0:2] = bytes.fromhex("601e")
+    page[2:4] = (1).to_bytes(2, "big")
+    page[4:6] = bytes.fromhex("2422")
+    page[34:38] = (0x000112BD).to_bytes(4, "big")
+
+    rows = list(parse_internal_page("FKINDEX.DIC", bytes(page), 1, 100, gaiji_map={}, gaiji="drop"))
+
+    assert len(rows) == 1
+    assert rows[0].key == "あ"
+    assert rows[0].child_block == 0x000112BD
+
+
+def test_parse_simple_leaf_index_page() -> None:
+    page = bytearray(2048)
+    page[0:2] = bytes.fromhex("c000")
+    page[2:4] = (1).to_bytes(2, "big")
+    page[4] = 2
+    page[5:7] = bytes.fromhex("2422")
+    page[7:19] = bytes.fromhex("000000010002000000030004")
+
+    rows, unknown = parse_simple_leaf_page("FHINDEX.DIC", bytes(page), 1, 100, gaiji_map={}, gaiji="drop")
+
+    assert unknown == 0
+    assert rows[0].key == "あ"
+    assert rows[0].body == IndexPointer(1, 2)
+    assert rows[0].title == IndexPointer(3, 4)
+
+
+def test_parse_tagged_leaf_index_page() -> None:
+    page = bytearray(2048)
+    page[0:2] = bytes.fromhex("d000")
+    page[2:4] = (2).to_bytes(2, "big")
+    page[4:10] = bytes.fromhex("800200012422")
+    page[10:26] = bytes.fromhex("c0022424000000010002000000030004")
+
+    rows, current_key, hint, groups, unknown = parse_tagged_leaf_page(
+        "FKINDEX.DIC",
+        bytes(page),
+        1,
+        100,
+        current_key=None,
+        current_count_hint=None,
+        gaiji_map={},
+        gaiji="drop",
+    )
+
+    assert unknown == 0
+    assert groups == 1
+    assert hint == 1
+    assert current_key == "あ"
+    assert rows[0].key == "あ"
+    assert rows[0].target_key == "い"
+    assert rows[0].body == IndexPointer(1, 2)
+    assert rows[0].title == IndexPointer(3, 4)
+
+
+def test_parse_cr_leaf_primary_row() -> None:
+    page = bytearray(2048)
+    page[0:2] = bytes.fromhex("d000")
+    page[2:4] = (1).to_bytes(2, "big")
+    page[4:8] = bytes.fromhex("00022422")
+    page[8:20] = bytes.fromhex("000000010002000000030004")
+
+    rows, current_key, current_title, hint, groups, unknown = parse_cr_leaf_page(
+        "CRINDEX.DIC",
+        bytes(page),
+        1,
+        100,
+        current_key=None,
+        current_title=None,
+        current_count_hint=None,
+        gaiji_map={},
+        gaiji="drop",
+    )
+
+    assert unknown == 0
+    assert groups == 0
+    assert hint is None
+    assert current_key is None
+    assert current_title is None
+    assert rows[0].key == "あ"
+    assert rows[0].body == IndexPointer(1, 2)
+    assert rows[0].title == IndexPointer(3, 4)

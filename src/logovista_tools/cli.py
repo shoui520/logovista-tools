@@ -11,6 +11,7 @@ from typing import Any
 from . import __version__
 from .entries import discover_dictionaries, extract_dictionary
 from .fulldb import extract_fulldb_dictionary
+from .indexes import extract_indexes_for_idx
 from .ssed import (
     BLOCK_SIZE,
     expand_sseddata_file,
@@ -175,6 +176,23 @@ def cmd_titles(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_indexes(args: argparse.Namespace) -> int:
+    sources = select_sources(args)
+    if not sources:
+        print("no dictionaries found", file=sys.stderr)
+        return 1
+
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    summaries = []
+    for source in sources:
+        print(f"extracting indexes {source.dict_id}: {source.title}", file=sys.stderr)
+        summary = extract_indexes_for_idx(source.idx, args.out_dir, args)
+        summaries.append(summary)
+        print(f"  index_rows={summary['rows_emitted']}", file=sys.stderr)
+    write_json(args.out_dir / "summary.json", summaries)
+    return 0
+
+
 def cmd_fulldb(args: argparse.Namespace) -> int:
     sources = select_sources(args)
     if not sources:
@@ -249,6 +267,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_titles.add_argument("--gaiji", choices=("drop", "h-placeholder", "placeholder"), default="h-placeholder")
     p_titles.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
     p_titles.set_defaults(func=cmd_titles)
+
+    p_indexes = sub.add_parser("indexes", help="Extract raw *INDEX.DIC search rows as JSONL.")
+    p_indexes.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_indexes.add_argument("--out-dir", type=Path, default=Path("logovista-raw-indexes"))
+    p_indexes.add_argument("--limit", type=int, help="Limit emitted index rows per run.")
+    p_indexes.add_argument("--gaiji", choices=("drop", "h-placeholder", "placeholder"), default="h-placeholder")
+    p_indexes.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
+    p_indexes.add_argument("--component", action="append", help="Only extract matching component filename(s).")
+    p_indexes.add_argument(
+        "--include-internal",
+        action="store_true",
+        help="Also emit binary-search tree internal rows, not only leaf search records.",
+    )
+    p_indexes.set_defaults(func=cmd_indexes)
 
     p_fulldb = sub.add_parser(
         "fulldb",
