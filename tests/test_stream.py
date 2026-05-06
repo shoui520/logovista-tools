@@ -3,6 +3,7 @@ import sqlite3
 
 from logovista_tools.entries import (
     decode_tokens,
+    iter_entry_slices_with_boundaries,
     normalize_fullwidth_ascii,
     resolve_section_image_sources,
     tokens_to_html,
@@ -29,10 +30,11 @@ from logovista_tools.indexes import (
     IndexPointer,
     parse_cr_leaf_page,
     parse_internal_page,
+    parse_kw_leaf_page,
     parse_simple_leaf_page,
     parse_tagged_leaf_page,
 )
-from logovista_tools.resources import load_image_resource_profile
+from logovista_tools.resources import load_image_resource_profile, relative_image_source
 
 
 def test_normalize_fullwidth_ascii() -> None:
@@ -116,6 +118,14 @@ def test_link_start_uses_16_byte_payload_then_visible_text() -> None:
 
     assert tokens_to_text(tokens) == "あい"
     assert stats["links"] == 1
+
+
+def test_index_boundaries_are_sorted_before_entry_slicing() -> None:
+    data = b"\x00\x00" + bytes.fromhex("1f09000824221f0a") + bytes.fromhex("1f0900032424") + bytes.fromhex("1f0900012426")
+
+    slices = list(iter_entry_slices_with_boundaries(data, [2, 10]))
+
+    assert slices == [(2, 10), (10, 16), (16, len(data))]
 
 
 def uni_record(
@@ -379,6 +389,28 @@ def test_load_image_resource_profile_discovers_theme_variants(tmp_path) -> None:
     assert profile.resources["exam"].default == image_dir / "exam.png"
 
 
+def test_load_image_resource_profile_discovers_android_kmkimges(tmp_path) -> None:
+    package = tmp_path / "PKG"
+    dict_dir = package / "DICT"
+    image_dir = package / "resource" / "kmkimges"
+    dict_dir.mkdir(parents=True)
+    image_dir.mkdir(parents=True)
+    idx = dict_dir / "DICT.IDX"
+    idx.write_bytes(b"")
+    (image_dir / "b167_1.png").write_bytes(b"")
+    (image_dir / "b167_3.png").write_bytes(b"")
+    (image_dir / "gogen_w.png").write_bytes(b"")
+
+    profile = load_image_resource_profile(idx)
+
+    assert profile.image_dirs == (image_dir,)
+    assert "b167" in profile.gaiji_image_keys
+    assert profile.resources["b167"].normal == image_dir / "b167_1.png"
+    assert profile.resources["b167"].white == image_dir / "b167_3.png"
+    assert profile.resources["gogen"].white == image_dir / "gogen_w.png"
+    assert relative_image_source(image_dir / "b167_1.png", idx) == "resource/kmkimges/b167_1.png"
+
+
 def test_parse_internal_index_page_uses_32bit_child() -> None:
     page = bytearray(2048)
     page[0:2] = bytes.fromhex("601e")
@@ -464,3 +496,32 @@ def test_parse_cr_leaf_primary_row() -> None:
     assert rows[0].key == "あ"
     assert rows[0].body == IndexPointer(1, 2)
     assert rows[0].title == IndexPointer(3, 4)
+
+
+def test_parse_kw_leaf_page_group_and_body_targets() -> None:
+    page = bytearray(2048)
+    page[0:2] = bytes.fromhex("d000")
+    page[2:4] = (3).to_bytes(2, "big")
+    page[4:12] = bytes.fromhex("8002000000022422")
+    page[12:19] = bytes.fromhex("c0000000100020")
+    page[19:26] = bytes.fromhex("b0000000110030")
+
+    rows, current_key, hint, groups, unknown = parse_kw_leaf_page(
+        "KWINDEX.DIC",
+        bytes(page),
+        1,
+        100,
+        current_key=None,
+        current_count_hint=None,
+        gaiji_map={},
+        gaiji="drop",
+    )
+
+    assert unknown == 0
+    assert groups == 1
+    assert hint == 2
+    assert current_key == "あ"
+    assert [row.key for row in rows] == ["あ", "あ"]
+    assert rows[0].body == IndexPointer(0x10, 0x20)
+    assert rows[0].title == rows[0].body
+    assert rows[1].body == IndexPointer(0x11, 0x30)

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .gaiji import load_gaiji_map, load_gaiji_profile
-from .resources import load_image_resource_profile
+from .resources import load_image_resource_profile, relative_image_source
 from .ssed import BLOCK_SIZE, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 
 
@@ -428,6 +428,13 @@ def is_useless_body(body: str) -> bool:
 
 
 def iter_entry_slices(data: bytes) -> Iterable[tuple[int, int]]:
+    return iter_entry_slices_with_boundaries(data)
+
+
+def iter_entry_slices_with_boundaries(
+    data: bytes,
+    boundary_offsets: Iterable[int] | None = None,
+) -> Iterable[tuple[int, int]]:
     positions: list[int] = []
     pos = data.find(ENTRY_MARKER)
     while pos != -1:
@@ -435,16 +442,21 @@ def iter_entry_slices(data: bytes) -> Iterable[tuple[int, int]]:
         positions.append(start)
         pos = data.find(ENTRY_MARKER, pos + 1)
 
+    if boundary_offsets is not None:
+        for offset in boundary_offsets:
+            if 0 <= offset < len(data):
+                if offset >= 2 and data[offset - 2 : offset] == b"\x1f\x02" and data[offset : offset + 4] == ENTRY_MARKER:
+                    positions.append(offset - 2)
+                else:
+                    positions.append(offset)
+
     if not positions:
         stripped = data.strip(b"\x00")
         if stripped:
             yield 0, len(data)
         return
 
-    deduped: list[int] = []
-    for start in positions:
-        if not deduped or start != deduped[-1]:
-            deduped.append(start)
+    deduped = sorted(set(positions))
     for index, start in enumerate(deduped):
         end = deduped[index + 1] if index + 1 < len(deduped) else len(data)
         if end > start:
@@ -490,7 +502,7 @@ def discover_dictionaries(roots: list[Path]) -> list[DictionarySource]:
             for key, resource in image_profile.resources.items():
                 selected = resource.normal or resource.default or resource.white
                 if selected is not None:
-                    image_sources[key] = f"img/{selected.name}"
+                    image_sources[key] = relative_image_source(selected, idx)
             found.append(
                 DictionarySource(
                     dict_id=dict_id,
@@ -566,8 +578,22 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
         write_json(dict_out / "summary.json", summary)
         return summary
 
+    index_boundary_offsets: set[int] = set()
+    if getattr(args, "index_boundaries", True):
+        try:
+            from .indexes import collect_index_body_offsets_for_idx
+
+            index_boundary_offsets = collect_index_body_offsets_for_idx(
+                source.idx,
+                honmon_start_block=source.honmon_start_block,
+                expanded_size=len(expanded),
+            )
+        except Exception as exc:
+            warnings.append(f"Could not collect index-derived entry boundaries: {exc}")
+
     with entries_path.open("w", encoding="utf-8") as out:
-        for entry_index, (start, end) in enumerate(iter_entry_slices(expanded), start=1):
+        slices = iter_entry_slices_with_boundaries(expanded, index_boundary_offsets)
+        for entry_index, (start, end) in enumerate(slices, start=1):
             if args.limit and emitted >= args.limit:
                 break
             segment = expanded[start:end]
@@ -617,6 +643,7 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
         "honmon_start_block": source.honmon_start_block,
         "expanded_bytes": len(expanded),
         "entry_markers": marker_count,
+        "index_entry_boundaries": len(index_boundary_offsets),
         "entries_emitted": emitted,
         "entries_skipped_empty": skipped_empty,
         "stats": aggregate_stats,
@@ -676,7 +703,14 @@ def main() -> int:
         action="store_false",
         help="Attempt extraction even when HONMON looks like an anchor/id table.",
     )
+    parser.add_argument(
+        "--no-index-boundaries",
+        dest="index_boundaries",
+        action="store_false",
+        help="Do not add raw index body pointers as extra entry boundaries.",
+    )
     parser.set_defaults(skip_dense_marker_honmon=True)
+    parser.set_defaults(index_boundaries=True)
     parser.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
     args = parser.parse_args()
 

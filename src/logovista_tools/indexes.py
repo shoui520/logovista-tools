@@ -18,8 +18,9 @@ from .gaiji import load_gaiji_profile
 from .ssed import BLOCK_SIZE, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 
 
-INDEX_TYPES = {0x70, 0x71, 0x81, 0x90, 0x91}
+INDEX_TYPES = {0x70, 0x71, 0x80, 0x81, 0x90, 0x91}
 TAGGED_LEAF_TYPES = {0x70, 0x90}
+KW_LEAF_TYPES = {0x80}
 CR_LEAF_TYPES = {0x81}
 SIMPLE_LEAF_TYPES = {0x71, 0x91}
 
@@ -370,6 +371,82 @@ def parse_cr_leaf_page(
     return rows, current_key, current_title, current_count_hint, groups, unknown
 
 
+def parse_kw_leaf_page(
+    component: str,
+    page: bytes,
+    page_index: int,
+    logical_block: int,
+    *,
+    current_key: str | None,
+    current_count_hint: int | None,
+    gaiji: str,
+    gaiji_map: dict[str, str],
+) -> tuple[list[LeafRow], str | None, int | None, int, int]:
+    """Parse KWINDEX keyword leaf pages.
+
+    Observed OUKOKU11 type-0x80 pages use 0x80 group records followed by
+    0xc0/0xb0 target rows. The target rows carry only a 6-byte body pointer,
+    not a separate title pointer.
+    """
+
+    count = be16(page, 2)
+    pos = 4
+    rows: list[LeafRow] = []
+    groups = 0
+    unknown = 0
+    subrecord = 0
+
+    while subrecord < count and pos < len(page):
+        tag = page[pos]
+        if tag == 0:
+            break
+
+        if tag == 0x80:
+            if pos + 6 > len(page):
+                unknown += 1
+                break
+            key_len = page[pos + 1]
+            if pos + 6 + key_len > len(page):
+                unknown += 1
+                break
+            current_count_hint = be32(page, pos + 2)
+            current_key = decode_index_key(page[pos + 6 : pos + 6 + key_len], gaiji=gaiji, gaiji_map=gaiji_map)
+            pos += 6 + key_len
+            groups += 1
+            subrecord += 1
+            continue
+
+        if tag in (0xB0, 0xC0):
+            if pos + 7 > len(page):
+                unknown += 1
+                break
+            body = IndexPointer(block=be32(page, pos + 1), offset=be16(page, pos + 5))
+            key = current_key or ""
+            rows.append(
+                LeafRow(
+                    component=component,
+                    page_index=page_index,
+                    logical_block=logical_block,
+                    row_index=len(rows) + 1,
+                    key=key,
+                    target_key=key,
+                    body=body,
+                    title=body,
+                    tagged=True,
+                    target_count_hint=current_count_hint,
+                    continued_group=current_key is None,
+                )
+            )
+            pos += 7
+            subrecord += 1
+            continue
+
+        unknown += 1
+        break
+
+    return rows, current_key, current_count_hint, groups, unknown
+
+
 def scan_index_component(
     component_name: str,
     component_type: int,
@@ -442,6 +519,19 @@ def scan_index_component(
             )
             result.search_groups += groups
             result.unknown_leaf_bytes += unknown
+        elif component_type in KW_LEAF_TYPES:
+            leaf_rows, current_key, current_count_hint, groups, unknown = parse_kw_leaf_page(
+                component_name,
+                page,
+                page_index,
+                logical_block,
+                current_key=current_key,
+                current_count_hint=current_count_hint,
+                gaiji=gaiji,
+                gaiji_map=gaiji_map,
+            )
+            result.search_groups += groups
+            result.unknown_leaf_bytes += unknown
         elif component_type in CR_LEAF_TYPES:
             leaf_rows, current_key, current_title, current_count_hint, groups, unknown = parse_cr_leaf_page(
                 component_name,
@@ -493,6 +583,52 @@ def scan_index_component(
         result.warnings = result.warnings or []
         result.warnings.append("Some leaf subrecords could not be parsed.")
     return result
+
+
+def collect_index_body_offsets_for_idx(
+    idx: Path,
+    *,
+    honmon_start_block: int,
+    expanded_size: int,
+) -> set[int]:
+    """Collect raw HONMON-relative body offsets from index leaf rows."""
+
+    _title, elements = parse_ssedinfo(idx)
+    gaiji_profile = load_gaiji_profile(idx)
+    offsets: set[int] = set()
+    for element in elements:
+        if element.type not in INDEX_TYPES or not element.start:
+            continue
+        source = find_case_insensitive(idx.parent, element.filename)
+        if source is None:
+            continue
+        expanded = expand_sseddata_file(source)
+
+        def collect(row: dict[str, Any]) -> None:
+            if row.get("kind") != "leaf":
+                return
+            body = row.get("body")
+            if not isinstance(body, dict):
+                return
+            block = body.get("block")
+            offset = body.get("offset")
+            if not isinstance(block, int) or not isinstance(offset, int):
+                return
+            relative = (block - honmon_start_block) * BLOCK_SIZE + offset
+            if 0 <= relative < expanded_size:
+                offsets.add(relative)
+
+        scan_index_component(
+            element.filename,
+            element.type,
+            expanded,
+            element.start,
+            gaiji="drop",
+            gaiji_map=gaiji_profile.map,
+            emit_internal=False,
+            emit_row=collect,
+        )
+    return offsets
 
 
 def extract_indexes_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) -> dict[str, Any]:

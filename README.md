@@ -16,7 +16,9 @@ LogoVista `DictFULLDB` body payloads for products such as KOJIEN7 and other
 dense-HONMON dictionaries. It also parses the common `*INDEX.DIC` search-tree
 formats, emits raw lookup keys with body/title pointers, and discovers
 dictionary-specific image resources used for image-backed gaiji and inline
-badges.
+badges. For body-stream dictionaries, it can also use raw index body pointers
+as additional entry boundaries, which is required for packages whose real
+entries do not all start with the common `1f09 0001` marker.
 
 No dictionary data is included in this repository.
 
@@ -233,6 +235,7 @@ Useful options:
 --media-placeholder                 preserve 1f4d media payloads as placeholders
 --section-markers                   preserve 1f09 section markers as placeholders
 --section-image CODE=IMAGE_KEY      insert a named image at a section marker in HTML output
+--no-index-boundaries               slice only on HONMON entry markers
 --no-skip-dense-marker-honmon       force extraction on placeholder HONMON
 ```
 
@@ -241,6 +244,7 @@ PNG-backed gaiji are rendered as package-relative image tags such as:
 
 ```html
 <img src="img/b13d_n.png" alt="b13d" class="lv-gaiji lv-gaiji-b13d">
+<img src="resource/kmkimges/b167_1.png" alt="b167" class="lv-gaiji lv-gaiji-b167">
 ```
 
 Exporters for Yomitan, MDict, or another HTML-capable format should copy the
@@ -262,11 +266,14 @@ logovista-tools resources /path/to/LogoVista --dict HAESPJPN --json
 ```
 
 LogoVista packages often include a top-level `img` directory plus
-`resourcesCopy.plist` and `gaijiicon.plist`. The resource scanner groups
-theme variants such as `b13d_n.png` and `b13d_w.png` under the same key and
-reports code-like resources such as `b13d` as image-backed gaiji. Named images
-such as `exam.png`, `esp.png`, or `jpn.png` are reported as package resources
-for format exporters to use when reconstructing dictionary-specific styling.
+`resourcesCopy.plist` and `gaijiicon.plist`. Android/Windows-only packages may
+omit those plist manifests and put images in `resource/kmkimges`,
+`appendix/img`, or `manual/contents/img`. The resource scanner checks all of
+those locations, groups theme variants such as `b13d_n.png` / `b13d_w.png` and
+Android-style `b167_1.png` / `b167_3.png`, and reports code-like resources such
+as `b13d` or `b167` as image-backed gaiji. Named images such as `exam.png`,
+`esp.png`, or `jpn.png` are reported as package resources for format exporters
+to use when reconstructing dictionary-specific styling.
 
 ### `gaiji-report`
 
@@ -532,11 +539,16 @@ Known working layers:
   present.
 - `GA16HALF` / `GA16FULL` bitmap resource header parsing, glyph slicing, and
   PNG rendering.
-- Top-level `img` resource discovery, including `_n` / `_w` theme variants.
+- Package image discovery from top-level `img`, Android `resource/kmkimges`,
+  `appendix/img`, and `manual/contents/img`, including `_n` / `_w` and
+  `_1` / `_3` theme variants.
 - Image-backed gaiji preservation as placeholders or inline HTML `<img>` tags.
 - SQL/`DictFULLDB`-assisted gaiji validation reports, including aligned
   `Block`/`Offset` checks where cache tables expose those columns.
-- Common `*INDEX.DIC` branch-page and leaf-row parsing.
+- Common `*INDEX.DIC` branch-page and leaf-row parsing, including type `0x80`
+  keyword indexes observed in OUKOKU11.
+- Index-derived HONMON body boundaries for entries whose first section is not
+  `0001`.
 - Placeholder preservation for unresolved gaiji, for example `<hA126>`.
 - Full-width ASCII normalization to half-width ASCII.
 - Dense HONMON ID-table detection.
@@ -545,7 +557,8 @@ Known working layers:
 Known limitations:
 
 - Not all dictionaries store definitions in `HONMON.DIC`.
-- `KWINDEX.DIC` is not fully classified yet.
+- `KWINDEX.DIC` type `0x80` leaf targets are parsed as body pointers, but the
+  higher-level keyword semantics are not fully classified yet.
 - `CRINDEX.DIC` primary rows are parsed, but auxiliary `0xc0` subrows are
   skipped because their payload is not the same body/title pointer format.
 - Named UI/style images such as `exam.png` are discovered, but mapping them to
@@ -567,6 +580,8 @@ A typical dictionary directory looks like:
 ```text
 DICT.IDX
 HONMON.DIC
+KWTITLE.DIC
+KWINDEX.DIC
 FKTITLE.DIC
 FKINDEX.DIC
 FHTITLE.DIC
@@ -628,6 +643,7 @@ Component types observed so far:
 ```text
 0x00  HONMON.DIC body/main text component
 0x01  MENU.DIC
+0x03  KWTITLE.DIC
 0x04  FKTITLE.DIC
 0x05  FHTITLE.DIC
 0x06  BKTITLE.DIC
@@ -635,9 +651,11 @@ Component types observed so far:
 0x0a  CRTITLE.DIC
 0x70  BKINDEX.DIC
 0x71  BHINDEX.DIC
+0x80  KWINDEX.DIC
 0x81  CRINDEX.DIC
 0x90  FKINDEX.DIC
 0x91  FHINDEX.DIC
+0xd2  COLSCR.DIC or large auxiliary resource stream
 0xf1  GA16FULL resource
 0xf2  GA16HALF resource
 ```
@@ -753,18 +771,31 @@ dictionary family.
 
 ### Entry Slicing
 
-Many body streams use this marker near each entry boundary:
+Many body streams use this marker near many entry boundaries:
 
 ```text
 1f 09 00 01
 ```
 
-The current entry extractor finds every marker and slices from one marker to
-the next. If the marker is immediately preceded by `1f 02`, the slice starts at
-that wrapper start instead.
+A marker-only strategy is insufficient for some body streams. OUKOKU11 real
+entries can begin with other `1f09` section codes, including `0008`, `0003`,
+`0004`, `0002`, and `1001`. For example, the first two raw body entries in
+OUKOKU11 start at:
+
+```text
+block 2 offset 2    1f09 0008  あ ア
+block 2 offset 146  1f09 0003  あ【亜】【亞】
+```
+
+Those entries are discoverable from raw `*INDEX.DIC` body pointers, not from
+the `0001` marker scan. The current `entries` command therefore collects body
+pointers from parsed index leaf rows, converts them to HONMON-relative byte
+offsets, sorts and deduplicates them with marker starts, then slices from each
+boundary to the next. `--no-index-boundaries` restores marker-only slicing for
+debug comparison.
 
 This works well for dictionaries where `HONMON.DIC` really is a body stream,
-including dictionaries such as GENIUSEB and HAESPJPN.
+including dictionaries such as GENIUSEB, HAESPJPN, and OUKOKU11.
 
 ### Dense HONMON ID Tables
 
@@ -820,6 +851,65 @@ For these, the `entries` command skips body extraction by default and reports a
 warning in `summary.json`. Try `fulldb` when `DictList.plist` declares
 `DictFULLDB`.
 
+### Android/Windows Body Streams
+
+OUKOKU11 is useful because it was not packaged for LogoVista's iOS pipeline.
+It has no `Gaiji.plist`, `GaijiS.plist`, `resourcesCopy.plist`, or
+`gaijiicon.plist`, but the raw `.IDX` / `.DIC` structure is still compatible
+with the toolkit.
+
+Observed OUKOKU11 layout:
+
+```text
+OUKOKU11.IDX
+HONMON.DIC
+FKTITLE/FKINDEX, FHTITLE/FHINDEX
+BKTITLE/BKINDEX, BHTITLE/BHINDEX
+KWTITLE.DIC
+KWINDEX.DIC
+COLSCR.DIC
+GA16FULL
+GA16HALF
+OUKOKU11.UNI
+OUKOKU11.db
+OUKOKU11_indexinfo.db
+resource/kmkimges/
+appendix/img/
+manual/contents/img/
+```
+
+Important findings:
+
+- Uppercase `.UNI` is enough for primary Unicode gaiji mapping. OUKOKU11 has
+  568 usable Unicode mappings and no plist mappings.
+- `GA16FULL` and `GA16HALF` are normal bitmap resources. The observed counts
+  are 771 full-width glyphs from `B121` and 38 half-width glyphs from `A121`.
+- `HONMON.DIC` is a real body stream, not a dense ID table. Expanded size is
+  18,020,352 bytes.
+- Entry starts are index-defined, not marker-defined. Raw marker count is
+  64,453, but index-derived body boundaries produce 82,220 coherent entries.
+- The app cache table has 70,375 `Block`/`Offset` rows. It is useful for
+  validation, but it is not needed to extract body text.
+- `OUKOKU11_indexinfo.db` is metadata, not dictionary body text.
+
+A full raw extraction command:
+
+```bash
+logovista-tools entries /path/to/OUKOKU11 --dict OUKOKU11 \
+  --section-markers --image-gaiji --html --out-dir out/oukoku
+```
+
+Expected high-level summary from the local test copy:
+
+```text
+entries_emitted:        82,220
+index_entry_boundaries: 82,220
+entry_markers:          64,453
+image_resource_entries: 167
+image_gaiji_entries:    56
+unknown_controls:       0
+```
+
 ### Title Components
 
 `*TITLE.DIC` components frequently contain readable headword/title lines after
@@ -864,11 +954,12 @@ Component types observed in `SSEDINFO`:
 0x91  FHINDEX.DIC  forward simple headword index
 0x70  BKINDEX.DIC  backward tagged index
 0x71  BHINDEX.DIC  backward simple headword index
+0x80  KWINDEX.DIC  keyword index
 0x81  CRINDEX.DIC  cross-reference index
 ```
 
-The toolkit parses the common `FK/FH/BK/BH` page formats and the primary
-`CRINDEX` rows.
+The toolkit parses the common `FK/FH/BK/BH` page formats, the OUKOKU-style
+`KWINDEX` page format, and the primary `CRINDEX` rows.
 
 #### Index Page Header
 
@@ -987,6 +1078,34 @@ like grouped keys, but the following `0xc0` payloads do not behave like normal
 that way. The current parser counts these groups and skips the auxiliary
 targets until their payload is understood.
 
+#### Keyword Leaf Pages
+
+`KWINDEX.DIC` (`0x80`) is present in OUKOKU11 and uses a compact grouped leaf
+format. A group starts with:
+
+```text
+offset  size  meaning
+0x00    1     tag 0x80
+0x01    1     key byte length
+0x02    4     target count hint, big endian
+0x06    n     JIS/gaiji keyword bytes
+```
+
+Following target rows are seven bytes:
+
+```text
+offset  size  meaning
+0x00    1     tag 0xb0 or 0xc0
+0x01    4     body logical block, big endian
+0x05    2     body offset in block, big endian
+```
+
+Unlike `FKINDEX`/`FHINDEX`, these rows do not carry a separate title pointer.
+The toolkit emits the body pointer as both `body` and `title` in JSONL so the
+row shape stays compatible with other index output. OUKOKU11's `KWINDEX.DIC`
+has 405 pages, 57 keyword groups, and 2,211 target rows with no unknown leaf
+bytes under this parser.
+
 Direct index parsing is useful for:
 
 - deriving all exact lookup keys without SQLite;
@@ -1007,10 +1126,10 @@ Gaiji are dictionary-specific characters and formatting markers. A gaiji code
 is not globally meaningful. The same code can map to different Unicode text in
 different dictionaries:
 
-| Code | `HAESPJPN` | `GENIUSEB` | `KOJIEN7` | `HAFRAN` |
-| --- | --- | --- | --- | --- |
-| `A126` | `é` | `ɑ̃` | `Ö` | `é` |
-| `A138` | `ñ` | `ō` | `ñ` | `⑥` |
+| Code | `HAESPJPN` | `GENIUSEB` | `KOJIEN7` | `HAFRAN` | `OUKOKU11` |
+| --- | --- | --- | --- | --- | --- |
+| `A126` | `é` | `ɑ̃` | `Ö` | `é` | `ä` |
+| `A138` | `ñ` | `ō` | `ñ` | `⑥` | `ŋ` |
 
 The extractor therefore builds a gaiji profile per dictionary. Do not use a
 global replacement table such as `A126 = é`.
@@ -1074,6 +1193,22 @@ Package metadata helps classify these resources:
 resourcesCopy.plist  complete-ish list of PNG resources to copy into the app package
 gaijiicon.plist      keys that the app treats as gaiji/icon resources
 ```
+
+OUKOKU11 is an Android/Windows-only layout with no plist manifests. Its image
+assets are still local and usable:
+
+```text
+resource/kmkimges/b167_1.png
+resource/kmkimges/b167_3.png
+appendix/img/10_00.gif
+manual/contents/img/rei.png
+```
+
+The `_1` and `_3` suffixes behave like theme variants, with `_1` used as the
+normal/dark-on-transparent asset and `_3` used as the white/light-on-transparent
+asset. Because no plist identifies gaiji icons, the toolkit classifies
+code-shaped filenames such as `b167` as image-backed gaiji and keeps named
+resources such as `rei` or `waka` as ordinary package images.
 
 Named images such as `exam.png` are not necessarily referenced by filename in
 `HONMON.DIC`. They may be style resources used by the app for semantic regions
@@ -1181,6 +1316,10 @@ half A121 meta=0000 display='á' fallback='a' legacy='Â'
 logovista-tools uni KENROWA.uni --limit 2
 format: simple12
 records: 376 half=97 full=279 mapped=199 fallback=0 legacy=0 metadata=49
+
+logovista-tools uni OUKOKU11.UNI --limit 2
+format: ver2
+records: 894 half=48 full=846 mapped=568 fallback=0 legacy=537 metadata=479
 ```
 
 #### `GA16HALF` / `GA16FULL`
@@ -1255,6 +1394,13 @@ inside or just before the visible entry wrapper. If a raw entry contains gaiji
 `A126`, `.uni` maps `A126` to `é`, and the aligned cache row contains `é`, the
 code receives an aligned validation hit.
 
+Aligned validation uses the same index-derived body boundaries as `entries`.
+This matters for OUKOKU11: marker-only slicing sees 64,453 `1f09 0001`
+boundaries, but parsed indexes expose 82,220 body boundaries. With index
+boundaries enabled, a 10,000-entry validation pass produced 7,996 aligned
+gaiji hits and only 8 mapped misses; marker-only slicing missed many legitimate
+non-`0001` entries.
+
 The report status values are:
 
 ```text
@@ -1273,6 +1419,10 @@ gaiji such as `A126` -> `é` and `A138` -> `ñ`. GENIUSEB, however, shows that
 some SQLite cache text is normalized: many IPA/symbol mappings validate, while
 some accent display forms from `.uni` do not appear in the cache. The correct
 reaction is to flag that discrepancy, not to overwrite `.uni`.
+
+Some sibling SQLite files are not useful validation sources. Android
+`android_metadata` tables and standalone `*_indexinfo.db` metadata tables are
+skipped so locale/index metadata does not pollute text evidence.
 
 ### DictFULLDB Payloads
 
@@ -1316,7 +1466,9 @@ reader implementation or documented key schedule is available.
 Near-term:
 
 - Preserve a richer structured AST instead of emitting only plain body text.
-- Classify `KWINDEX.DIC` and the skipped auxiliary `CRINDEX.DIC` subrecords.
+- Classify the skipped auxiliary `CRINDEX.DIC` subrecords.
+- Add higher-level semantic labels for dictionary-specific section codes and
+  named images.
 - Link title streams to body IDs for dense-HONMON dictionaries.
 
 Exporters:

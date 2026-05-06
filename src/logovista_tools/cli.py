@@ -594,7 +594,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="Attempt extraction even when HONMON looks like a placeholder table.",
     )
-    p_entries.set_defaults(skip_dense_marker_honmon=True, func=cmd_entries)
+    p_entries.add_argument(
+        "--no-index-boundaries",
+        dest="index_boundaries",
+        action="store_false",
+        help="Do not add raw index body pointers as extra entry boundaries.",
+    )
+    p_entries.set_defaults(skip_dense_marker_honmon=True, index_boundaries=True, func=cmd_entries)
     p_entries.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
 
     p_resources = sub.add_parser("resources", help="List package image resources and image-backed gaiji.")

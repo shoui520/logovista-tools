@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import Hashable
 
 
-IMAGE_SUFFIX_RE = re.compile(r"^(?P<key>.+)_(?P<theme>[nw])$")
+IMAGE_SUFFIX_RE = re.compile(r"^(?P<key>.+)_(?P<theme>n|w|1|3|1_1)$")
 GAIJI_IMAGE_KEY_RE = re.compile(r"[A-Fa-f][0-9A-Fa-f]{3}")
+IMAGE_EXTENSIONS = {".png", ".gif", ".jpg", ".jpeg", ".webp"}
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,7 @@ def candidate_package_roots(path: Path) -> list[Path]:
     resolved = path.resolve()
     roots: list[Path] = []
     if resolved.is_file():
-        roots.extend([resolved.parent.parent, resolved.parent])
+        roots.extend([resolved.parent, resolved.parent.parent])
     else:
         roots.extend([resolved, resolved.parent])
 
@@ -102,27 +103,46 @@ def image_key_and_theme(path: Path) -> tuple[str, str | None]:
     return path.stem.lower(), None
 
 
+def candidate_image_dirs(root: Path) -> list[Path]:
+    return [
+        root / "img",
+        root / "resource" / "kmkimges",
+        root / "appendix" / "img",
+        root / "manual" / "contents" / "img",
+    ]
+
+
+def relative_image_source(path: Path, package_hint: Path) -> str:
+    for root in candidate_package_roots(package_hint):
+        try:
+            return path.relative_to(root).as_posix()
+        except ValueError:
+            continue
+    return path.name
+
+
 def load_image_resource_profile(path: Path) -> ImageResourceProfile:
     """Discover PNG resources, resource copy plists, and gaiji icon plists.
 
     LogoVista packages commonly keep dictionary-specific icon PNGs in a sibling
-    ``img`` directory next to the dictionary directory. Files ending in ``_n``
-    and ``_w`` are treated as normal/light and white/dark-theme variants of the
-    same resource key.
+    ``img`` directory next to the dictionary directory. Android/Windows packages
+    can instead use ``resource/kmkimges`` and omit plist manifests. Files ending
+    in ``_n`` / ``_w`` and Android-style ``_1`` / ``_3`` are grouped as theme
+    variants of the same resource key.
     """
 
     roots = candidate_package_roots(path)
     image_dirs: list[Path] = []
     seen_dirs: set[Hashable] = set()
     for root in roots:
-        image_dir = root / "img"
-        if not image_dir.is_dir():
-            continue
-        identity = file_identity(image_dir)
-        if identity in seen_dirs:
-            continue
-        seen_dirs.add(identity)
-        image_dirs.append(image_dir)
+        for image_dir in candidate_image_dirs(root):
+            if not image_dir.is_dir():
+                continue
+            identity = file_identity(image_dir)
+            if identity in seen_dirs:
+                continue
+            seen_dirs.add(identity)
+            image_dirs.append(image_dir)
 
     resources_copy_entries, resources_copy_paths = load_string_list_plists(
         [root / "resourcesCopy.plist" for root in roots]
@@ -134,13 +154,13 @@ def load_image_resource_profile(path: Path) -> ImageResourceProfile:
 
     grouped: dict[str, dict[str, object]] = {}
     for image_dir in image_dirs:
-        for file in sorted(image_dir.glob("*.png")):
+        for file in sorted(child for child in image_dir.iterdir() if child.suffix.lower() in IMAGE_EXTENSIONS):
             key, theme = image_key_and_theme(file)
             bucket = grouped.setdefault(key, {"files": [], "normal": None, "white": None, "default": None})
             bucket["files"].append(file)
-            if theme == "n":
+            if theme in {"n", "1", "1_1"}:
                 bucket["normal"] = file
-            elif theme == "w":
+            elif theme in {"w", "3"}:
                 bucket["white"] = file
             else:
                 bucket["default"] = file

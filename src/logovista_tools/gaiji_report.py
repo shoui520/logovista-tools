@@ -16,6 +16,7 @@ from .entries import (
     DictionarySource,
     discover_dictionaries,
     iter_entry_slices,
+    iter_entry_slices_with_boundaries,
 )
 from .fulldb import find_fulldb
 from .gaiji import (
@@ -32,6 +33,7 @@ from .ssed import BLOCK_SIZE, expand_sseddata_file, find_case_insensitive, parse
 SQLITE_MAGIC = b"SQLite format 3\x00"
 SQLITE_PATTERNS = ("*.db", "*.sql", "*.sqlite")
 GA16_NAMES = {"GA16HALF", "GA16FULL", "GAI16H", "GAI16F"}
+SKIPPED_SQLITE_TABLES = {"android_metadata", "indexinfo"}
 
 
 @dataclass(frozen=True)
@@ -129,6 +131,8 @@ def inspect_sqlite_source(path: Path, kind: str) -> SqliteSource | None:
         ]
         tables: list[TextTable] = []
         for table_name in table_names:
+            if table_name.lower() in SKIPPED_SQLITE_TABLES:
+                continue
             columns = [
                 (row[1], row[2] or "")
                 for row in con.execute(f"pragma table_info({quote_sqlite_identifier(table_name)})")
@@ -435,6 +439,8 @@ def aligned_cache_validation(
             {"path": str(index.source.path), "kind": index.source.kind, "rows_indexed": index.rows_indexed}
             for index in indexes
         ],
+        "index_entry_boundaries": 0,
+        "boundary_warning": None,
         "entries_seen": 0,
         "entries_with_gaiji": 0,
         "rows_matched": 0,
@@ -451,7 +457,20 @@ def aligned_cache_validation(
         return summary, {"hits": code_hits, "misses": code_misses, "skipped": code_skipped}
 
     expanded = expand_sseddata_file(source.honmon)
-    for start, end in iter_entry_slices(expanded):
+    boundary_offsets: set[int] = set()
+    try:
+        from .indexes import collect_index_body_offsets_for_idx
+
+        boundary_offsets = collect_index_body_offsets_for_idx(
+            source.idx,
+            honmon_start_block=source.honmon_start_block,
+            expanded_size=len(expanded),
+        )
+        summary["index_entry_boundaries"] = len(boundary_offsets)
+    except Exception as exc:
+        summary["boundary_warning"] = str(exc)
+    slices = iter_entry_slices_with_boundaries(expanded, boundary_offsets) if boundary_offsets else iter_entry_slices(expanded)
+    for start, end in slices:
         if max_entries is not None and summary["entries_seen"] >= max_entries:
             break
         summary["entries_seen"] += 1
