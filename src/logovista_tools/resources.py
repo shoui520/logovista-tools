@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Hashable
 
 
-IMAGE_SUFFIX_RE = re.compile(r"^(?P<key>.+)_(?P<theme>n|w|1|3|1_1)$")
+IMAGE_SUFFIX_RE = re.compile(r"^(?P<key>.+)_(?P<theme>n|w|m|1|3|1_1)$", re.IGNORECASE)
 GAIJI_IMAGE_KEY_RE = re.compile(r"[A-Fa-f][0-9A-Fa-f]{3}")
 IMAGE_EXTENSIONS = {".png", ".gif", ".jpg", ".jpeg", ".webp", ".bmp", ".svg"}
 
@@ -99,7 +99,7 @@ def load_string_list_plists(paths: list[Path]) -> tuple[tuple[str, ...], tuple[P
 def image_key_and_theme(path: Path) -> tuple[str, str | None]:
     match = IMAGE_SUFFIX_RE.fullmatch(path.stem)
     if match:
-        return match.group("key").lower(), match.group("theme")
+        return match.group("key").lower(), match.group("theme").lower()
     return path.stem.lower(), None
 
 
@@ -107,6 +107,8 @@ def candidate_image_dirs(root: Path) -> list[Path]:
     return [
         root / "img",
         root / "Templates",
+        root / "HANREI" / "img",
+        root / "HANREI" / "contents" / "img",
         root / "OTHER" / "images",
         root / "resource" / "kmkimges",
         root / "appendix" / "img",

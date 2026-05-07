@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .entries import DictionarySource, discover_dictionaries
-from .lvcrypto import decrypt_logofont_cipher_file_to_path
+from .lvcrypto import decrypt_logofont_cipher_bytes, decrypt_logofont_cipher_file_to_path
 from .ssed import BLOCK_SIZE, expand_sseddata_file_with_storage
 from .windows import RendererSidecar, discover_renderer_sidecars, load_exinfo_for_idx, sqlite_storage_for_path
 
@@ -20,6 +20,7 @@ from .windows import RendererSidecar, discover_renderer_sidecars, load_exinfo_fo
 JIS_SPACE = b"\x21\x21"
 JIS_DIGIT_PREFIX = 0x23
 SAFE_NAME_RE = re.compile(r"[^0-9A-Za-z._-]+")
+ZIPTOMEDIA_RE = re.compile(r"lved\.ziptomedia:([^\"'>\s]+)")
 
 
 @dataclass(frozen=True)
@@ -98,11 +99,15 @@ def quote_identifier(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def table_columns(con: sqlite3.Connection, table: str) -> set[str]:
+def table_column_map(con: sqlite3.Connection, table: str) -> dict[str, str]:
     try:
-        return {row[1] for row in con.execute(f"pragma table_info({quote_identifier(table)})")}
+        return {row[1].lower(): row[1] for row in con.execute(f"pragma table_info({quote_identifier(table)})")}
     except sqlite3.DatabaseError:
-        return set()
+        return {}
+
+
+def table_columns(con: sqlite3.Connection, table: str) -> set[str]:
+    return set(table_column_map(con, table).values())
 
 
 def table_count(con: sqlite3.Connection, table: str) -> int | None:
@@ -119,6 +124,10 @@ def table_exists(con: sqlite3.Connection, table: str) -> bool:
 
 
 def blob_extension(blob: bytes) -> str:
+    if blob.startswith(b"RIFF") and blob[8:12] == b"WAVE":
+        return "wav"
+    if blob.startswith(b"ID3") or blob.startswith(b"\xff\xfb"):
+        return "mp3"
     if blob.lstrip().lower().startswith(b"<svg"):
         return "svg"
     if blob.startswith((b"GIF87a", b"GIF89a")):
@@ -132,21 +141,127 @@ def blob_extension(blob: bytes) -> str:
     return "bin"
 
 
-def safe_media_name(number: int, name: str | None, extension: str) -> str:
+def safe_media_name(number: int, name: str | None, extension: str, used: set[str] | None = None) -> str:
     stem = SAFE_NAME_RE.sub("_", name or f"media_{number}").strip("._")
     if not stem:
         stem = f"media_{number}"
-    return f"{number:05d}_{stem}.{extension}"
+    filename = stem if Path(stem).suffix else f"{stem}.{extension}"
+    if used is not None and filename in used:
+        filename = f"{number:05d}_{filename}"
+    if used is not None:
+        used.add(filename)
+    return filename
+
+
+def ziptomedia_reference_names(html: str | None) -> list[str]:
+    if not html:
+        return []
+    return ZIPTOMEDIA_RE.findall(html)
+
+
+def ziptomedia_stem(name: str) -> str:
+    return name[:-4] if name.lower().endswith(".wav") else name
+
+
+def discover_ziptomedia_dir(idx: Path) -> Path | None:
+    candidates = [
+        idx.parent / "Sound_Files",
+        idx.parent / "sound",
+        idx.parent / "sounds",
+        idx.parent.parent / f"{idx.parent.name}_Sound_Files",
+    ]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate.resolve()
+    return None
+
+
+def ziptomedia_source_path(sound_dir: Path, reference: str) -> Path | None:
+    candidates = [
+        sound_dir / reference,
+        sound_dir / ziptomedia_stem(reference),
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def safe_ziptomedia_name(reference: str, data: bytes) -> str:
+    name = SAFE_NAME_RE.sub("_", reference).strip("._")
+    if not name:
+        name = "audio"
+    if "." not in Path(name).name:
+        name = f"{name}.{blob_extension(data)}"
+    return name
+
+
+def write_ziptomedia_records(
+    sound_dir: Path | None,
+    refs: Counter[str],
+    out_dir: Path,
+    *,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    if sound_dir is None:
+        return {"ziptomedia_written": 0}
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written = 0
+    errors: list[dict[str, str]] = []
+    for reference in sorted(refs):
+        if limit is not None and written >= limit:
+            break
+        source = ziptomedia_source_path(sound_dir, reference)
+        if source is None:
+            continue
+        try:
+            data = decrypt_logofont_cipher_bytes(source.read_bytes())
+        except Exception as exc:  # pragma: no cover - exercised by corpus probes.
+            errors.append({"reference": reference, "error": str(exc)})
+            continue
+        (out_dir / safe_ziptomedia_name(reference, data)).write_bytes(data)
+        written += 1
+    return {
+        "ziptomedia_written": written,
+        "ziptomedia_write_errors": errors[:20],
+    }
+
+
+def summarize_ziptomedia_refs(idx: Path, refs: Counter[str]) -> dict[str, Any]:
+    sound_dir = discover_ziptomedia_dir(idx)
+    files = {path.name for path in sound_dir.iterdir() if path.is_file()} if sound_dir else set()
+    ref_stems = {ziptomedia_stem(reference) for reference in refs}
+    missing = sorted(stem for stem in ref_stems if stem not in files)
+    unreferenced = sorted(files - ref_stems)
+    return {
+        "ziptomedia_dir": str(sound_dir) if sound_dir else None,
+        "ziptomedia_references": sum(refs.values()),
+        "ziptomedia_distinct_references": len(refs),
+        "ziptomedia_files_available": len(ref_stems & files),
+        "ziptomedia_missing_references": len(missing),
+        "ziptomedia_missing_samples": missing[:20],
+        "ziptomedia_unreferenced_files": len(unreferenced),
+        "ziptomedia_unreferenced_samples": unreferenced[:20],
+    }
 
 
 def media_column_names(con: sqlite3.Connection) -> tuple[str, str, str, str] | None:
-    if not table_exists(con, "media"):
+    table = media_table_name(con)
+    if table is None:
         return None
-    columns = table_columns(con, "media")
-    if {"No", "f_name", "f_type", "f_main"} <= columns:
-        return ("No", "f_name", "f_type", "f_main")
-    if {"id", "name", "type", "main"} <= columns:
-        return ("id", "name", "type", "main")
+    columns = table_column_map(con, table)
+    if {"no", "f_name", "f_type", "f_main"} <= set(columns):
+        return (columns["no"], columns["f_name"], columns["f_type"], columns["f_main"])
+    if {"id", "name", "type", "main"} <= set(columns):
+        return (columns["id"], columns["name"], columns["type"], columns["main"])
+    return None
+
+
+def media_table_name(con: sqlite3.Connection) -> str | None:
+    if table_exists(con, "media"):
+        return "media"
+    if table_exists(con, "t_media"):
+        return "t_media"
     return None
 
 
@@ -166,18 +281,20 @@ def prepare_sidecar_database(sidecar: RendererSidecar, dict_out: Path, args: arg
 
 
 def write_media_records(con: sqlite3.Connection, media_dir: Path, *, limit: int | None = None) -> dict[str, Any]:
+    media_table = media_table_name(con)
     media_columns = media_column_names(con)
-    if media_columns is None:
+    if media_table is None or media_columns is None:
         return {"media_rows": 0, "media_written": 0, "media_type_counts": {}}
     number_col, name_col, type_col, blob_col = media_columns
     media_dir.mkdir(parents=True, exist_ok=True)
     rows = con.execute(
         f"select {quote_identifier(number_col)}, {quote_identifier(name_col)}, "
         f"{quote_identifier(type_col)}, {quote_identifier(blob_col)} "
-        f"from media order by {quote_identifier(number_col)}"
+        f"from {quote_identifier(media_table)} order by {quote_identifier(number_col)}"
     )
     type_counts: Counter[int] = Counter()
     written = 0
+    used_names: set[str] = set()
     for row in rows:
         number, name, media_type, blob = row
         type_counts[int(media_type)] += 1
@@ -185,7 +302,7 @@ def write_media_records(con: sqlite3.Connection, media_dir: Path, *, limit: int 
             continue
         blob = bytes(blob)
         extension = blob_extension(blob)
-        (media_dir / safe_media_name(int(number), name, extension)).write_bytes(blob)
+        (media_dir / safe_media_name(int(number), name, extension, used_names)).write_bytes(blob)
         written += 1
     return {
         "media_rows": sum(type_counts.values()),
@@ -195,24 +312,55 @@ def write_media_records(con: sqlite3.Connection, media_dir: Path, *, limit: int 
 
 
 def media_type_counts(con: sqlite3.Connection) -> dict[str, int]:
+    media_table = media_table_name(con)
     media_columns = media_column_names(con)
-    if media_columns is None:
+    if media_table is None or media_columns is None:
         return {}
     _number_col, _name_col, type_col, _blob_col = media_columns
     return {
         str(int(row[0])): int(row[1])
         for row in con.execute(
-            f"select {quote_identifier(type_col)}, count(*) from media "
+            f"select {quote_identifier(type_col)}, count(*) from {quote_identifier(media_table)} "
             f"group by {quote_identifier(type_col)} order by {quote_identifier(type_col)}"
         )
     }
 
 
-def html_media_reference_rows(con: sqlite3.Connection) -> int | None:
-    if not table_exists(con, "t_contents") or "f_Html" not in table_columns(con, "t_contents"):
+def t_contents_columns(con: sqlite3.Connection) -> dict[str, str]:
+    columns = table_column_map(con, "t_contents")
+    wanted = [
+        "f_DataId",
+        "f_Type",
+        "f_DataGroupId",
+        "f_Anchor",
+        "f_Title",
+        "f_Title_SS",
+        "f_Html",
+        "f_Keyword",
+        "f_Plane",
+    ]
+    return {canonical: columns[canonical.lower()] for canonical in wanted if canonical.lower() in columns}
+
+
+def html_rows_matching(con: sqlite3.Connection, pattern: str) -> int | None:
+    if not table_exists(con, "t_contents"):
         return None
-    row = con.execute("select count(*) from t_contents where f_Html like '%class=\"media\"%'").fetchone()
+    html_col = t_contents_columns(con).get("f_Html")
+    if html_col is None:
+        return None
+    row = con.execute(
+        f"select count(*) from t_contents where {quote_identifier(html_col)} like ?",
+        (pattern,),
+    ).fetchone()
     return int(row[0]) if row else None
+
+
+def html_media_reference_rows(con: sqlite3.Connection) -> int | None:
+    return html_rows_matching(con, '%class="media"%')
+
+
+def html_ziptomedia_reference_rows(con: sqlite3.Connection) -> int | None:
+    return html_rows_matching(con, "%lved.ziptomedia:%")
 
 
 def is_android_body_database(path: Path, dict_id: str) -> bool:
@@ -286,7 +434,7 @@ def extract_android_body_database(
                 "entries_matched_to_raw_honmon": matched_ids,
                 "entries_emitted": emitted,
                 "raw_honmon_ids_missing_in_db": max(0, len(raw_ids) - matched_ids),
-                "media_rows": table_count(con, "media") if table_exists(con, "media") else None,
+                "media_rows": table_count(con, media_table_name(con)) if media_table_name(con) else None,
                 "media_type_counts": media_type_counts(con),
                 "html_rows_with_media_references": None,
             }
@@ -354,52 +502,53 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
             summary.update({"status": "missing_t_contents", "entries_emitted": 0})
             return summary
 
-        columns = table_columns(con, "t_contents")
-        wanted = [
-            "f_DataId",
-            "f_Type",
-            "f_DataGroupId",
-            "f_Anchor",
-            "f_Title",
-            "f_Title_SS",
-            "f_Html",
-            "f_Keyword",
-            "f_Plane",
+        columns = t_contents_columns(con)
+        data_id_col = columns.get("f_DataId")
+        if data_id_col is None:
+            summary.update({"status": "missing_t_contents_data_id", "entries_emitted": 0})
+            return summary
+        select_columns = [
+            f"{quote_identifier(actual)} as {quote_identifier(canonical)}"
+            for canonical, actual in columns.items()
         ]
-        select_columns = [column for column in wanted if column in columns]
-        query = f"select {', '.join(select_columns)} from t_contents order by f_DataId"
+        query = f"select {', '.join(select_columns)} from t_contents order by {quote_identifier(data_id_col)}"
         emitted = 0
         matched_ids = 0
         extra_rows = 0
         type_counts: Counter[int] = Counter()
+        ziptomedia_refs: Counter[str] = Counter()
         group_count = 0
         group_ids: set[int] = set()
         with (dict_out / "rendererdb_entries.jsonl").open("w", encoding="utf-8") as out:
             for row in con.execute(query):
+                row_keys = row.keys()
                 data_id = int(row["f_DataId"])
                 raw = ids_by_data_id.get(data_id)
                 if raw is None:
                     extra_rows += 1
                     continue
                 matched_ids += 1
-                if row["f_Type"] is not None:
+                if "f_Type" in row_keys and row["f_Type"] is not None:
                     type_counts[int(row["f_Type"])] += 1
-                if "f_DataGroupId" in row.keys() and row["f_DataGroupId"] is not None:
+                if "f_DataGroupId" in row_keys and row["f_DataGroupId"] is not None:
                     group_ids.add(int(row["f_DataGroupId"]))
-                html_value = row["f_Html"] if "f_Html" in row.keys() else None
-                plane = row["f_Plane"] if "f_Plane" in row.keys() else None
+                html_value = row["f_Html"] if "f_Html" in row_keys else None
+                title_value = row["f_Title"] if "f_Title" in row_keys else None
+                plane = row["f_Plane"] if "f_Plane" in row_keys else None
+                ziptomedia_refs.update(ziptomedia_reference_names(html_value))
                 if args.limit is None or emitted < args.limit:
                     record = {
                         "dict_id": source.dict_id,
                         "dict_title": source.title,
                         "data_id": data_id,
                         "raw_honmon": honmon_id_record_to_json(raw),
-                        "type": row["f_Type"] if "f_Type" in row.keys() else None,
-                        "data_group_id": row["f_DataGroupId"] if "f_DataGroupId" in row.keys() else None,
-                        "anchor": row["f_Anchor"] if "f_Anchor" in row.keys() else None,
-                        "title": row["f_Title"] if "f_Title" in row.keys() else None,
-                        "title_search": row["f_Title_SS"] if "f_Title_SS" in row.keys() else None,
-                        "keyword": row["f_Keyword"] if "f_Keyword" in row.keys() else None,
+                        "type": row["f_Type"] if "f_Type" in row_keys else None,
+                        "data_group_id": row["f_DataGroupId"] if "f_DataGroupId" in row_keys else None,
+                        "anchor": row["f_Anchor"] if "f_Anchor" in row_keys else None,
+                        "title": title_value,
+                        "title_plain": html_to_plain(title_value) if title_value else None,
+                        "title_search": row["f_Title_SS"] if "f_Title_SS" in row_keys else None,
+                        "keyword": row["f_Keyword"] if "f_Keyword" in row_keys else None,
                         "plain": plane or (html_to_plain(html_value) if html_value else ""),
                     }
                     if args.include_html:
@@ -408,6 +557,8 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
                     emitted += 1
         group_count = len(group_ids)
         content_rows = table_count(con, "t_contents")
+        media_table = media_table_name(con)
+        ziptomedia_summary = summarize_ziptomedia_refs(source.idx, ziptomedia_refs)
         summary.update(
             {
                 "status": "ok",
@@ -419,13 +570,26 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
                 "type_counts": {str(key): value for key, value in sorted(type_counts.items())},
                 "data_group_ids_matched": group_count,
                 "t_bunya_rows": table_count(con, "t_bunya") if table_exists(con, "t_bunya") else None,
-                "media_rows": table_count(con, "media") if table_exists(con, "media") else None,
+                "media_table": media_table,
+                "media_rows": table_count(con, media_table) if media_table else None,
                 "media_type_counts": media_type_counts(con),
                 "html_rows_with_media_references": html_media_reference_rows(con),
+                "html_rows_with_ziptomedia_references": html_ziptomedia_reference_rows(con),
+                **ziptomedia_summary,
             }
         )
         if args.write_media:
             summary.update(write_media_records(con, dict_out / "media", limit=args.media_limit))
+        if args.write_ziptomedia:
+            sound_dir = Path(ziptomedia_summary["ziptomedia_dir"]) if ziptomedia_summary["ziptomedia_dir"] else None
+            summary.update(
+                write_ziptomedia_records(
+                    sound_dir,
+                    ziptomedia_refs,
+                    dict_out / "ziptomedia",
+                    limit=args.ziptomedia_limit,
+                )
+            )
     finally:
         con.close()
 

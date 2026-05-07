@@ -53,10 +53,17 @@ from logovista_tools.pcmdata import (
 from logovista_tools.rendererdb import (
     blob_extension,
     discover_android_body_databases,
+    discover_ziptomedia_dir,
+    html_media_reference_rows,
     html_to_plain,
+    html_ziptomedia_reference_rows,
     iter_honmon_id_records,
     media_type_counts,
     parse_dense_honmon_id,
+    safe_media_name,
+    t_contents_columns,
+    ziptomedia_reference_names,
+    ziptomedia_source_path,
 )
 from logovista_tools.resources import load_image_resource_profile, relative_image_source
 from logovista_tools.lvcrypto import (
@@ -731,22 +738,29 @@ def test_load_image_resource_profile_discovers_android_kmkimges(tmp_path) -> Non
 def test_load_image_resource_profile_discovers_windows_templates(tmp_path) -> None:
     package = tmp_path / "DICT"
     templates = package / "Templates"
+    hanrei_img = package / "HANREI" / "img"
     templates.mkdir(parents=True)
+    hanrei_img.mkdir(parents=True)
     idx = package / "DICT.IDX"
     idx.write_bytes(b"")
     (templates / "exam.png").write_bytes(b"png")
     (templates / "B222.png").write_bytes(b"png")
     (templates / "1652-1.bmp").write_bytes(b"bmp")
     (templates / "inline.svg").write_bytes(b"<svg/>")
+    (hanrei_img / "b159_M.png").write_bytes(b"png")
 
     profile = load_image_resource_profile(idx)
 
     assert templates in profile.image_dirs
+    assert hanrei_img in profile.image_dirs
     assert profile.resources["exam"].default == templates / "exam.png"
     assert "b222" in profile.gaiji_image_keys
+    assert "b159" in profile.gaiji_image_keys
+    assert profile.resources["b159"].default == hanrei_img / "b159_M.png"
     assert profile.resources["1652-1"].default == templates / "1652-1.bmp"
     assert profile.resources["inline"].default == templates / "inline.svg"
     assert relative_image_source(templates / "exam.png", idx) == "Templates/exam.png"
+    assert relative_image_source(hanrei_img / "b159_M.png", idx) == "HANREI/img/b159_M.png"
 
 
 def test_parse_windows_exinfo_and_auxiliary_text_idx(tmp_path) -> None:
@@ -845,6 +859,51 @@ def test_discover_android_body_database_and_media_schema(tmp_path) -> None:
     assert blob_extension(b'  <svg id="x"/>') == "svg"
 
     con.close()
+
+
+def test_rendererdb_lowercase_content_and_t_media_schema(tmp_path) -> None:
+    cache = tmp_path / "renderer.sqlite"
+    con = sqlite3.connect(cache)
+    con.execute("create table t_contents (f_dataid integer primary key, f_type integer, f_html text)")
+    con.execute(
+        "insert into t_contents values (5, 1, '<a href=\"lved.ziptomedia:000010.wav\">sound</a>')"
+    )
+    con.execute("insert into t_contents values (10, 1, '<img src=\"x.gif\" class=\"media\">')")
+    con.execute("create table t_media (id integer, name text, type integer, main blob)")
+    con.execute("insert into t_media values (1, 'fig', 2, ?)", (b'\x89PNG\r\n\x1a\nx',))
+    con.commit()
+
+    assert t_contents_columns(con)["f_DataId"] == "f_dataid"
+    assert html_ziptomedia_reference_rows(con) == 1
+    assert html_media_reference_rows(con) == 1
+    assert media_type_counts(con) == {"2": 1}
+
+    con.close()
+
+
+def test_safe_media_name_preserves_renderer_filename_when_possible() -> None:
+    used: set[str] = set()
+
+    assert safe_media_name(1, "3djr_0002.gif", "gif", used) == "3djr_0002.gif"
+    assert safe_media_name(2, "00002153-0082-000006ec", "png", used) == "00002153-0082-000006ec.png"
+    assert safe_media_name(3, "3djr_0002.gif", "gif", used) == "00003_3djr_0002.gif"
+
+
+def test_ziptomedia_reference_discovery_uses_sibling_sound_folder(tmp_path) -> None:
+    dict_dir = tmp_path / "_DCT_TEST"
+    dict_dir.mkdir()
+    idx = dict_dir / "TEST.IDX"
+    idx.write_bytes(b"")
+    sound_dir = tmp_path / "_DCT_TEST_Sound_Files"
+    sound_dir.mkdir()
+    sound_file = sound_dir / "000010"
+    sound_file.write_bytes(b"encrypted")
+
+    refs = ziptomedia_reference_names('<a href="lved.ziptomedia:000010.wav">sound</a>')
+
+    assert refs == ["000010.wav"]
+    assert discover_ziptomedia_dir(idx) == sound_dir.resolve()
+    assert ziptomedia_source_path(sound_dir, refs[0]) == sound_file
 
 
 def test_parse_dense_honmon_id_record_and_pointer() -> None:

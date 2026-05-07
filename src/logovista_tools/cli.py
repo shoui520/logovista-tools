@@ -846,8 +846,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rendererdb.add_argument("--write-media", action="store_true", help="Write media blobs from the sidecar database.")
     p_rendererdb.add_argument("--media-limit", type=int, help="Limit media blobs written.")
+    p_rendererdb.add_argument(
+        "--write-ziptomedia",
+        action="store_true",
+        help="Decrypt/write loose ziptomedia sound files referenced by renderer HTML.",
+    )
+    p_rendererdb.add_argument("--ziptomedia-limit", type=int, help="Limit ziptomedia sound files written.")
     p_rendererdb.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
-    p_rendererdb.set_defaults(include_html=True, func=cmd_rendererdb)
+    p_rendererdb.set_defaults(include_html=True, write_ziptomedia=False, ziptomedia_limit=None, func=cmd_rendererdb)
 
     p_spindex = sub.add_parser("spindex", help="Inspect standalone SPINDEX.DIC suffix-index resources.")
     p_spindex.add_argument("root", type=Path, nargs="*", help="Collection directory or direct SPINDEX.DIC path.")

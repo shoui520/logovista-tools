@@ -403,9 +403,10 @@ logovista-tools resources /path/to/LogoVista --dict HAESPJPN --json
 
 LogoVista packages often include a top-level `img` directory plus
 `resourcesCopy.plist` and `gaijiicon.plist`. Windows packages can put HTML
-renderer assets in `Templates`; Android packages can omit plist manifests and
-put images in `resource/kmkimges`, `appendix/img`, or `manual/contents/img`. The
-resource scanner checks all of those locations, groups theme variants such as
+renderer assets in `Templates` and `HANREI/img`; Android packages can omit
+plist manifests and put images in `resource/kmkimges`, `appendix/img`, or
+`manual/contents/img`. The resource scanner checks all of those locations,
+groups theme variants such as
 `b13d_n.png` / `b13d_w.png` and Android-style `b167_1.png` / `b167_3.png`, and
 reports code-like resources such as `b13d` or `b167` as image-backed gaiji.
 PNG, GIF, JPEG, WebP, BMP, and SVG files are all treated as portable package
@@ -524,6 +525,7 @@ Extract renderer/app SQLite bodies by following raw HONMON ID anchors.
 logovista-tools rendererdb /path/to/DICT --out-dir rendererdb
 logovista-tools rendererdb /path/to/DICT --limit 20 --no-html
 logovista-tools rendererdb /path/to/DICT --write-media --media-limit 100
+logovista-tools rendererdb /path/to/DICT --write-ziptomedia --ziptomedia-limit 100
 ```
 
 This command handles layouts where `HONMON.DIC` is a dense 32-byte anchor
@@ -534,7 +536,8 @@ table, not a body stream. It still starts from raw HONMON:
 3. Discover a sibling body SQLite payload.
 4. For Windows renderer DBs, decrypt observed LogoFontCipher sidecars such as
    `vlpljblb` when needed, query `t_contents`, and emit only rows whose
-   `f_DataId` exists in raw HONMON.
+   `f_DataId` exists in raw HONMON. Mixed-case and lowercase column variants
+   such as `f_DataId` / `f_dataid` are normalized.
 5. For the observed Android body DB shape, query the `DICTID(Html)` table and
    emit rows where `rowid * 5` exists in raw HONMON.
 
@@ -548,13 +551,20 @@ rendererdb/
     rendererdb_entries.jsonl
     vlpljblb.sqlite
     media/
-      00001_3djr_0002.gif
+      3djr_0002.gif
+    ziptomedia/
+      000010.wav
 ```
 
-Rows include `data_id`, raw HONMON block/offset, type, group id, title,
-search title, keyword text, plain body text, and HTML unless `--no-html` is
-used. `--write-media` exports BLOBs from the sidecar `media` table using magic
-bytes to choose `.gif`, `.png`, `.jpg`, `.bmp`, or `.bin`.
+Rows include `data_id`, raw HONMON block/offset, type, group id, title HTML,
+plain title, search title, keyword text, plain body text, and HTML unless
+`--no-html` is used. `--write-media` exports BLOBs from `media` or `t_media` using magic bytes
+to choose `.gif`, `.png`, `.jpg`, `.bmp`, or `.bin`; filenames are preserved
+when the renderer HTML already references the original media name. Some Windows
+packages also use `lved.ziptomedia:NAME.wav` links. `--write-ziptomedia`
+discovers a sibling sound directory such as `_DCT_NAME_Sound_Files`, decrypts
+LogoFontCipher-wrapped loose sound files, and writes portable `.wav` / `.mp3`
+assets for the references that are physically present.
 
 ### `spindex`
 
@@ -948,9 +958,10 @@ Known working layers:
   present.
 - `GA16HALF` / `GA16FULL` bitmap resource header parsing, glyph slicing, and
   PNG rendering.
-- Package image discovery from top-level `img`, Windows `Templates`, Android
-  `resource/kmkimges`, `appendix/img`, and `manual/contents/img`, including
-  `_n` / `_w` and `_1` / `_3` theme variants.
+- Package image discovery from top-level `img`, Windows `Templates` and
+  `HANREI/img`, Android `resource/kmkimges`, `appendix/img`, and
+  `manual/contents/img`, including `_n` / `_w`, `_1` / `_3`, and observed
+  `_M` marker-image variants.
 - Image-backed gaiji preservation as placeholders or inline HTML `<img>` tags.
 - `COLSCR.DIC` media pointer decoding and extraction of referenced BMP/JPEG
   image records from raw `HONMON.DIC` media controls.
@@ -962,6 +973,8 @@ Known working layers:
 - Windows `EXINFO.INI` parsing and CP932 auxiliary text-index tree extraction.
 - Windows renderer SQLite extraction through raw HONMON ID anchors and
   `t_contents` rows, with optional `media` BLOB export.
+- Windows loose `lved.ziptomedia:*` sound reference discovery and optional
+  LogoFontCipher WAVE/MP3 export.
 - Android body DB extraction through raw HONMON ID anchors and the observed
   `rowid * 5` mapping, with optional SVG/media BLOB export.
 - Standalone `SPINDEX.DIC` inspection for observed Windows suffix-index
@@ -1034,7 +1047,8 @@ iOS       DictList.plist, Gaiji.plist, GaijiS.plist, resourcesCopy.plist,
           gaijiicon.plist, img/, html/, OTHER/, *.sql
 Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
 Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, *.chm, vlpljbl*,
-          sometimes standalone auxiliary SPINDEX.DIC
+          sometimes standalone auxiliary SPINDEX.DIC and sibling
+          *_Sound_Files/ ziptomedia audio
 ```
 
 `Gaiji.plist` and `GaijiS.plist` are therefore not generic LogoVista files.
@@ -1737,6 +1751,136 @@ GA16HALF:     8x16, start A121, 92 glyphs
 GA16FULL:    16x16, start B121, 1,191 glyphs
 Templates:  255 portable resources after PNG/GIF/BMP/SVG discovery
 ```
+
+#### PROYAL53 Windows Renderer Database and Ziptomedia
+
+PROYAL53 (`旺文社「プチ・ロワイヤル 仏和（第5版）・和仏（第3版）辞典」`)
+is another Windows renderer-database package. Its raw core has the same 11
+component shape as DAIJIRN4:
+
+```text
+HONMON.DIC
+FKTITLE/FKINDEX, FHTITLE/FHINDEX
+BKTITLE/BKINDEX, BHTITLE/BHINDEX
+GA16FULL
+GA16HALF
+```
+
+`HONMON.DIC` is plain `SSEDDATA`, expands to 12,040,192 bytes, and is a dense
+32-byte raw ID anchor table rather than definition text. Direct `entries`
+extraction correctly emits no body entries. `audit-honmon` classifies the
+package as `dense_honmon_id_table_rendererdb`.
+
+`EXINFO.INI` declares `HTML=1`, `HTMLDLL=HC015F.dll`, `PCMP3=1`,
+`IDXINFO0=0000015F.IDX`, `IDXINFO1=select.html`, `ROSQLNAME=PROYAL53.db`,
+`BUBUNDB=1`, and `ZENBUNDB=1`. The auxiliary `0000015F.IDX` is a readable
+CP932 tab tree with 149 rows and HONMON anchor destinations for sections such
+as `仏和辞典-重要語 / ランク1`.
+
+The encrypted sibling `vlpljblF` decrypts with the LogoFontCipher key to a
+SQLite renderer database. Its schema is a lowercase variant of the same idea:
+
+```sql
+CREATE TABLE t_contents (
+  f_dataid INTEGER PRIMARY KEY,
+  f_datagroupid INTEGER,
+  f_type INTEGER,
+  f_genre INTEGER,
+  f_title TEXT,
+  f_title_ss TEXT,
+  f_keyword TEXT,
+  f_sakuin TEXT,
+  f_rank INTEGER,
+  f_html TEXT,
+  f_plane TEXT
+);
+
+CREATE TABLE t_media (
+  id INTEGER PRIMARY KEY,
+  type INTEGER,
+  name TEXT,
+  main BLOB
+);
+```
+
+Renderer extraction now normalizes `t_contents` column case and accepts both
+`media` and `t_media` BLOB-table names. Observed counts:
+
+```text
+raw HONMON ID records:       75,243
+t_contents rows:             75,225
+rows matching raw IDs:        75,224
+DB rows without raw ID:            1
+raw IDs missing in DB:            19
+
+f_type=1  main entries        44,538
+f_type=2  sub/child entries   30,564
+f_type=8..12 special rows        122
+
+t_media rows:                   342
+t_media type=1                  116
+t_media type=2                  226
+```
+
+The raw search/title layer is parseable:
+
+```text
+FKINDEX/BKINDEX leaf rows:   362,519 each
+FHINDEX/BHINDEX leaf rows:   361,903 each
+FK/BK search groups:         314,922
+unknown index leaf bytes:          0
+title unknown controls:            0
+```
+
+`f_Html` is complete renderer HTML and contains enough structure for a
+Yomitan/MDict-style export: headword spans, subentry anchors, grammatical
+labels, examples, inline references, and media/image tags. `f_keyword` is also
+very useful for exact lookup expansion because it contains alternate spellings
+and inflected French forms separated by `∥`, for example `abandonné`,
+`abandonnee`, plural forms, and conjugated forms. This is better lookup
+evidence than trying to infer every exact Yomitan headword from display HTML.
+
+Image resources come from both `Templates/` and `HANREI/img`. The renderer HTML
+references assets such as `sound.png`, `b159_M.png`, and BLOB-backed names such
+as `00002153-0082-000006ec.png`; `--write-media` preserves original renderer
+filenames when possible so those HTML `src` values can be copied or rewritten
+directly. PROYAL53 gaiji is otherwise normal:
+
+```text
+PROYAL53.uni: simple12, 60 half records, 350 full records, 120 mappings
+GA16HALF:     8x16, start A121, 60 glyphs
+GA16FULL:    16x16, start B121, 351 glyphs
+raw unresolved gaiji codes after .uni/image/bitmap coverage: 0
+```
+
+PROYAL53 also introduces loose ziptomedia audio. Renderer HTML links look like:
+
+```html
+<a href="lved.ziptomedia:000010.wav"><img src="sound.png" class="gaiji_icon"></a>
+```
+
+The physical files live outside the dictionary core in the sibling directory
+`_DCT_PROYAL53_Sound_Files/` and have no filename extension. Each observed file
+is LogoFontCipher-wrapped audio; decrypting `000010` yields a normal
+`RIFF/WAVE` file:
+
+```text
+000010.wav: WAVE audio, Microsoft PCM, 16 bit, mono 44100 Hz
+```
+
+The package references more audio than is physically present in the local copy:
+
+```text
+HTML ziptomedia references:       17,155
+distinct referenced sound names:  17,124
+loose sound files present:         2,506
+unreferenced loose sound files:        0
+referenced sound files missing:   14,618
+```
+
+That is not a body-decoding blocker. It means a full text/image conversion is
+well covered, while complete audio export requires a package/install that
+contains the missing ziptomedia files.
 
 #### SPINDEX.DIC
 
