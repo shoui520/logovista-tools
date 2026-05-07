@@ -45,12 +45,16 @@ Component types observed so far:
 0x06  BKTITLE.DIC
 0x07  BHTITLE.DIC
 0x0a  CRTITLE.DIC
+0x30  KINDEX.DIC body-only tagged index
+0x60  HINDEX.DIC body-only simple index
 0x70  BKINDEX.DIC
 0x71  BHINDEX.DIC
+0x72  BAINDEX.DIC alternate/simple backward index
 0x80  KWINDEX.DIC
 0x81  CRINDEX.DIC
 0x90  FKINDEX.DIC
 0x91  FHINDEX.DIC
+0x92  FAINDEX.DIC alternate/simple forward index
 0xd2  COLSCR.DIC media/image resource stream
 0xd8  PCMDATA.DIC audio/media resource stream
 0xf1  GA16FULL resource

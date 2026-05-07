@@ -18,12 +18,16 @@ LogoVista dictionary model.
 - Body-stream `HONMON.DIC` extraction for supported dictionaries.
 - Index-derived body boundaries for entries whose first section is not `0001`.
 - Common `*TITLE.DIC` extraction.
-- Common `*INDEX.DIC` branch-page and leaf-row parsing for forward, backward,
-  keyword, and cross-reference indexes.
+- Observed `*INDEX.DIC` branch-page and leaf-row parsing for forward,
+  backward, keyword, cross-reference, body-only, alternate, and text-like
+  index components.
 - Dictionary-local `.uni` gaiji mapping, including UTF-16 surrogate-pair
-  sequences and older 12-byte `.uni` files.
+  sequences, older 12-byte `.uni` files, and explicit trailer accounting.
 - `GA16HALF` / `GA16FULL` bitmap header parsing, glyph slicing, and PNG
   rendering.
+- Full-corpus byte accounting for observed `MENU.DIC`, `*TITLE.DIC`,
+  `*INDEX.DIC`, `.uni`, `GA16*`, `COLSCR.DIC`, and `PCMDATA.DIC`
+  components.
 
 ## Supported / Corpus-Inferred
 
@@ -40,9 +44,10 @@ LogoVista dictionary model.
   `rowid * 5` mapping.
 - Structured `MENU.DIC` extraction with menu hierarchy, link labels,
   packed-BCD destination pointers, and named component/body targets.
-- `COLSCR.DIC` media pointer decoding and referenced BMP/JPEG extraction.
+- `COLSCR.DIC` media pointer decoding and referenced BMP/JPEG/PNG extraction.
 - `PCMDATA.DIC` audio/media pointer decoding, unreferenced-record discovery,
-  and portable WAV/MP3 writing.
+  referenced-range byte coverage, and portable WAV/MP3 writing for classified
+  payloads.
 - Package image discovery from iOS `img`, Windows `Templates` / `HANREI/img`,
   and Android resource folders.
 - SQL/`DictFULLDB`-assisted gaiji validation reports.
@@ -93,6 +98,13 @@ LogoVista dictionary model.
 - The current Windows SSED corpus has one known physical tail anomaly:
   `NANDOKU3` ends with a lone final `0x1f` byte after the last decoded text
   cell. It is covered and reported as a truncated control, not guessed.
+- The companion component-forensics pass has narrow residuals outside HONMON:
+  `NANDOKU2` has a 3-byte nonzero physical tail after full `FHINDEX.DIC` pages;
+  `25IGAKU` has one title-stream `1f1f` control with unknown renderer
+  semantics; `ITALIAN` has one standalone title byte `0x11`; and three `.uni`
+  files have small nonzero trailers after all parsed records.
+- `ARCHSIC3` has 235 in-range `PCMDATA.DIC` pointer ranges whose payload bytes
+  are accounted for but whose audio codec/container is not yet classified.
 - Named UI/style images such as `exam.png` are discovered, but mapping them to
   semantic entry regions is dictionary-specific.
 - `dump-ir` is a lossless span JSONL inspection format. It is not yet the
@@ -116,6 +128,9 @@ Recently landed:
 5. Full-corpus `HONMON.DIC` byte accounting with zero unknown controls, zero
    unknown bytes, and zero invalid JIS cells on the 169-target Windows SSED
    corpus.
+6. Full-corpus component forensics for menu/title/index/gaiji/media resources,
+   including new index variants, wrapped PNG `COLSCR.DIC` records, GA16 byte
+   coverage, `.uni` trailer accounting, and raw `PCMDATA.DIC` range coverage.
 
 Next priorities:
 

@@ -147,6 +147,7 @@ The payload is not one fixed format. Verified examples include:
 | `IPHYCHE5` | 4,189 | 4,189 | BMP, 8 bpp |
 | `KANJIGN5` | 952 | 952 | BMP, 8 bpp |
 | `KenE7J5` | 96 | 96 | BMP, 8 bpp |
+| `MEIKYOU2` / `Gen2013` family | observed | observed | PNG |
 | `NKGORIN2` | 28,841 | 28,841 | BMP, mixed 8/24/1 bpp |
 | `OUKOKU11` | 2,579 | 2,579 | BMP, 24 bpp |
 
@@ -157,10 +158,18 @@ images. A strict scan of expanded `COLSCR.DIC` finds the same 2,579 records as
 the `HONMON.DIC` media controls, with no unreferenced records under the current
 parser.
 
+Corpus-wide component forensics currently covers 59 `COLSCR.DIC` components
+with zero nonzero unparsed bytes and zero invalid referenced records. PNG
+records use the same wrapper as BMP/JPEG records: ASCII `data`, a little-endian
+payload length, and then a native PNG byte stream beginning with the PNG
+signature. Width and height are recovered from the IHDR chunk when present.
+
 ## `PCMDATA.DIC` Audio/Media Resources
 
 `PCMDATA.DIC` is a compressed SSED component, usually listed as component type
-`0xd8`. It is a sequential media store used mainly for audio. The first
+`0xd8`. It is a sequential media store used mainly for audio. No `PCMSCR.DIC`
+file was present in the current SSED corpus; the toolkit classifies that name
+as the same media/audio role if it appears in a future package. The first
 expanded 2048-byte block is a small directory/header area. In all currently
 tested dictionaries it starts with:
 
@@ -207,6 +216,7 @@ The pointed record formats observed so far are:
 fmt  + data
 fmt  + fact + data
 ID3/MP3 payload
+unclassified raw payload, byte-addressed by valid HONMON pointers
 ```
 
 The `fmt `/`data` records are RIFF/WAVE chunks without the outer `RIFF` and
@@ -226,11 +236,18 @@ Verified examples:
 | `Readers3` | 14,050 | 13,995 | 0 | MPEG Layer III stored inside WAVE chunks |
 | `ROYALEGR` | 295 | 295 | 0 | PCM WAVE chunks |
 | `SINMEI7` | 84,372 | 68,437 | 0 | Native ID3/MP3 records |
+| `ARCHSIC3` | 235 | 235 | 0 | unclassified raw payload ranges |
 
 The unreferenced count matters: `PCMDATA.DIC` is not merely a lookup table for
 HONMON references. It is a sequential media store, and some records can exist
 between referenced ranges. The `pcmdata` command therefore reports both
 HONMON-referenced records and unreferenced records found in nonzero gaps.
+
+Corpus-wide component forensics currently covers 12 `PCMDATA.DIC` components
+with zero nonzero unparsed bytes. `ARCHSIC3` contributes 235 referenced ranges
+whose start/end pointers are valid and whose bytes are therefore accounted for,
+but the payload codec/container is not yet identified. Those ranges are kept as
+`unknown_audio_payload` instead of being forced into WAV or MP3.
 
 ## `.uni` Files
 
@@ -319,6 +336,19 @@ Ver2 files:    GENIUSEB, HAESPJPN, HAFRAN, KOJIEN7, and most others
 simple12 files: IWKOKUG8, KENROWA
 ```
 
+The current Windows SSED component-forensics pass saw 90 `.uni` / `.UNI`
+files. All declared records parse under the two layouts above. The only
+residuals are trailers after the parsed record tables:
+
+```text
+total trailing bytes:         72
+nonzero trailing bytes:       14
+nonzero trailer dictionaries: HKDKSR14, HKDKSR30, YHOUGO4
+```
+
+These trailer bytes are reported as file-tail evidence. They are not used as
+display mappings.
+
 Representative inspector output:
 
 ```text
@@ -371,6 +401,13 @@ matching EBWin and the `.uni` text mapping.
 Some resources are valid headers with zero glyphs. For example, an empty
 `GA16HALF` may declare width, height, and start code but have count `0`. The
 toolkit reports these cleanly and emits no PNGs.
+
+Corpus-wide component forensics currently covers 314 GA16-style resources
+(`GA16HALF`, `GA16FULL`, `GAI16H*`, and `GAI16F*`) with zero missing glyph
+bytes, zero nonzero trailing bytes, and zero nonzero unknown header bytes.
+Offset `0x00` is a version/header byte in observed resources; width/height,
+start code, and count are the fields required for re-rendering the bitmap
+glyph stream.
 
 The `ga16` command converts bitmap glyphs to transparent RGBA PNGs. With
 single-variant output, names use the resource kind as a prefix:

@@ -195,6 +195,13 @@ def parse_colscr_image_header(
         return size, "bmp", "bmp", width, height, bits_per_pixel, compression
     if image.startswith(b"\xff\xd8\xff"):
         return payload_size, "jpeg", "jpg", None, None, None, None
+    if image.startswith(b"\x89PNG\r\n\x1a\n"):
+        width = None
+        height = None
+        if len(image) >= 24 and image[12:16] == b"IHDR":
+            width = int.from_bytes(image[16:20], "big")
+            height = int.from_bytes(image[20:24], "big")
+        return payload_size, "png", "png", width, height, None, None
     return None
 
 

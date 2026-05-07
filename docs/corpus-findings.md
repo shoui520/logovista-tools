@@ -98,6 +98,96 @@ The sole remaining forensic issue is `NANDOKU3`: the expanded stream ends with
 a lone final `0x1f` byte after decoded text. It is covered and reported as a
 truncated control; no opcode is inferred.
 
+## Full Component Forensics Pass
+
+The companion pass accounts for non-HONMON SSED components and adjacent gaiji
+mapping files across the same Windows SSED corpus:
+
+```bash
+logovista-tools component-forensics /path/to/LOGOVISTA_SSED_DICTS_WINDOWS \
+  --jobs 0 --max-issue-samples 20 \
+  --out-dir /tmp/lv-component-forensics-corpus
+```
+
+Aggregate component inventory:
+
+```text
+packages scanned:        169
+component reports:     1,231 ok, 82 missing_file
+MENU.DIC:                84
+*TITLE.DIC:             307
+structured *INDEX.DIC:  536
+text-like INDEX.DIC:      1
+GA16 resources:         314
+COLSCR.DIC:              59
+PCMDATA.DIC:             12
+.uni/.UNI files:         90
+```
+
+The `missing_file` count reflects incomplete local gathered packages whose
+`SSEDINFO` tables name components that are not physically present. It is not a
+parser failure mode.
+
+No `PCMSCR.DIC` component or file was found in this SSED corpus. The scanner
+recognizes the name as a media/audio role if a future package uses it, but the
+current evidence is all `PCMDATA.DIC`.
+
+Byte-coverage result:
+
+```text
+text stream uncovered bytes:          0
+text stream unknown controls:         1
+text stream unknown bytes:            1
+text stream invalid JIS pairs:        0
+structured index nonzero residual:    3
+GA16 missing glyph bytes:             0
+GA16 nonzero trailing bytes:          0
+GA16 unknown header nonzero bytes:    0
+COLSCR nonzero unparsed bytes:        0
+COLSCR invalid referenced records:    0
+PCMDATA nonzero unparsed bytes:       0
+PCMDATA unclassified ref ranges:    235
+.uni trailing bytes:                 72
+.uni nonzero trailing bytes:         14
+```
+
+The pass added several concrete format details:
+
+- `0x30` `KINDEX.DIC` is a body-only tagged index: grouped rows match the
+  `0x70`/`0x90` tagged grammar, but target rows carry a single 6-byte body
+  pointer instead of a body/title pair.
+- `0x60` `HINDEX.DIC` is a body-only simple index: each key row carries a
+  single 6-byte body pointer and uses that same address as the title address.
+- `0x72` `BAINDEX.DIC` and `0x92` `FAINDEX.DIC` use the same simple row grammar
+  as `0x71`/`0x91`.
+- Tagged index pages can contain direct `00 len` rows in addition to grouped
+  `80`/`c0` rows.
+- Some simple leaf pages are keyless 13-byte pointer tables: 6-byte body
+  pointer, one flag byte, and 6-byte title pointer.
+- Branch-page slot size uses the full low byte:
+  `slot_size = (page_word & 0xff) + 4`. The upper byte/bits are page flags, and
+  valid observed slots include 6-byte rows.
+- One `INDEX.DIC` outlier is text-like rather than a B-tree page component:
+  `KQSYNONM` component type `0x27` is handled as a text stream.
+- `COLSCR.DIC` records can wrap PNG payloads with the same `data` + little
+  endian size header used by BMP/JPEG records.
+- `PCMDATA.DIC` pointer ranges are valid byte-addressed records even when the
+  payload codec is not yet classified.
+
+The remaining component anomalies are intentionally small and named:
+
+- `NANDOKU2` `FHINDEX.DIC` has three nonzero physical tail bytes after all full
+  2048-byte index pages are parsed.
+- `25IGAKU` `FHTITLE.DIC` has one `1f1f` control. It is structurally covered
+  as a two-byte control span, but renderer semantics are unknown.
+- `ITALIAN` `FHTITLE.DIC` has one standalone `0x11` byte. It is covered as an
+  unknown byte span.
+- `HKDKSR14`, `HKDKSR30`, and `YHOUGO4` have small nonzero `.uni` trailers
+  after all declared records are parsed.
+- `ARCHSIC3` has 235 in-range `PCMDATA.DIC` references whose byte intervals are
+  covered, but whose payloads are not RIFF/WAVE, native ID3/MP3, or the
+  currently classified MPEG-in-WAVE shape.
+
 ## HONMON/IDX Corpus Audit
 
 The local `LOGOVISTA_ALL` corpus was audited with raw SSED expansion, raw

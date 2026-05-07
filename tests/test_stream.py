@@ -37,6 +37,9 @@ from logovista_tools.gaiji import (
 )
 from logovista_tools.indexes import (
     IndexPointer,
+    internal_slot_size,
+    parse_body_only_simple_leaf_page,
+    parse_body_only_tagged_leaf_page,
     parse_cr_leaf_page,
     parse_internal_page,
     parse_kw_leaf_page,
@@ -366,6 +369,20 @@ def test_colscr_detects_jpeg_record() -> None:
     wrapped = b"data" + payload_size.to_bytes(4, "little") + bytes.fromhex("ffd8ffe000104a4649460001")
 
     assert parse_colscr_image_header(wrapped) == (payload_size, "jpeg", "jpg", None, None, None, None)
+
+
+def test_colscr_detects_png_record_dimensions() -> None:
+    payload = (
+        b"\x89PNG\r\n\x1a\n"
+        + (13).to_bytes(4, "big")
+        + b"IHDR"
+        + (32).to_bytes(4, "big")
+        + (48).to_bytes(4, "big")
+        + b"\x08\x06\x00\x00\x00"
+    )
+    wrapped = b"data" + len(payload).to_bytes(4, "little") + payload
+
+    assert parse_colscr_image_header(wrapped) == (len(payload), "png", "png", 32, 48, None, None)
 
 
 def test_pcmdata_pointer_uses_bcd_start_and_end() -> None:
@@ -1004,6 +1021,21 @@ def test_parse_internal_index_page_uses_32bit_child() -> None:
     assert rows[0].child_block == 0x000112BD
 
 
+def test_parse_internal_index_page_uses_full_low_byte_slot_size() -> None:
+    page = bytearray(2048)
+    page[0:2] = bytes.fromhex("6068")
+    page[2:4] = (1).to_bytes(2, "big")
+    page[4:6] = bytes.fromhex("2422")
+    page[108:112] = (0x12345678).to_bytes(4, "big")
+
+    rows = list(parse_internal_page("BHINDEX.DIC", bytes(page), 1, 100, gaiji_map={}, gaiji="drop"))
+
+    assert internal_slot_size(0x6068) == 108
+    assert len(rows) == 1
+    assert rows[0].key == "あ"
+    assert rows[0].child_block == 0x12345678
+
+
 def test_parse_simple_leaf_index_page() -> None:
     page = bytearray(2048)
     page[0:2] = bytes.fromhex("c000")
@@ -1018,6 +1050,36 @@ def test_parse_simple_leaf_index_page() -> None:
     assert rows[0].key == "あ"
     assert rows[0].body == IndexPointer(1, 2)
     assert rows[0].title == IndexPointer(3, 4)
+
+
+def test_parse_simple_leaf_keyless_pointer_table() -> None:
+    page = bytearray(2048)
+    page[0:2] = bytes.fromhex("c000")
+    page[2:4] = (1).to_bytes(2, "big")
+    page[4:17] = bytes.fromhex("0000000100027f000000030004")
+
+    rows, unknown = parse_simple_leaf_page("MUL2_1_2.DIC", bytes(page), 1, 100, gaiji_map={}, gaiji="drop")
+
+    assert unknown == 0
+    assert rows[0].key == ""
+    assert rows[0].body == IndexPointer(1, 2)
+    assert rows[0].title == IndexPointer(3, 4)
+
+
+def test_parse_body_only_simple_leaf_index_page() -> None:
+    page = bytearray(2048)
+    page[0:2] = bytes.fromhex("c000")
+    page[2:4] = (1).to_bytes(2, "big")
+    page[4] = 2
+    page[5:7] = bytes.fromhex("2422")
+    page[7:13] = bytes.fromhex("000000010002")
+
+    rows, unknown = parse_body_only_simple_leaf_page("HINDEX.DIC", bytes(page), 1, 100, gaiji_map={}, gaiji="drop")
+
+    assert unknown == 0
+    assert rows[0].key == "あ"
+    assert rows[0].body == IndexPointer(1, 2)
+    assert rows[0].title == IndexPointer(1, 2)
 
 
 def test_parse_tagged_leaf_index_page() -> None:
@@ -1046,6 +1108,34 @@ def test_parse_tagged_leaf_index_page() -> None:
     assert rows[0].target_key == "い"
     assert rows[0].body == IndexPointer(1, 2)
     assert rows[0].title == IndexPointer(3, 4)
+
+
+def test_parse_body_only_tagged_leaf_index_page() -> None:
+    page = bytearray(2048)
+    page[0:2] = bytes.fromhex("d000")
+    page[2:4] = (2).to_bytes(2, "big")
+    page[4:10] = bytes.fromhex("800200012422")
+    page[10:20] = bytes.fromhex("c0022424000000010002")
+
+    rows, current_key, hint, groups, unknown = parse_body_only_tagged_leaf_page(
+        "KINDEX.DIC",
+        bytes(page),
+        1,
+        100,
+        current_key=None,
+        current_count_hint=None,
+        gaiji_map={},
+        gaiji="drop",
+    )
+
+    assert unknown == 0
+    assert groups == 1
+    assert hint == 1
+    assert current_key == "あ"
+    assert rows[0].key == "あ"
+    assert rows[0].target_key == "い"
+    assert rows[0].body == IndexPointer(1, 2)
+    assert rows[0].title == IndexPointer(1, 2)
 
 
 def test_parse_cr_leaf_primary_row() -> None:

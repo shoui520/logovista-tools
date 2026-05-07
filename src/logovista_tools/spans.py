@@ -167,6 +167,10 @@ def _add_span(result: SpanDecodeResult, span: Span) -> None:
     result.stats["bytes_covered"] += span.end - span.start
 
 
+def _span_raw_hex(result: SpanDecodeResult, raw: bytes) -> str:
+    return raw.hex() if result.collect_spans else ""
+
+
 def decode_lossless_spans(
     data: bytes,
     *,
@@ -206,7 +210,7 @@ def decode_lossless_spans(
             raw = data[start:i]
             result.stats["padding_bytes"] += len(raw)
             if include_padding:
-                _add_span(result, Span("padding", start, i, raw.hex()))
+                _add_span(result, Span("padding", start, i, _span_raw_hex(result, raw)))
             else:
                 result.stats["bytes_covered"] += len(raw)
             continue
@@ -224,7 +228,7 @@ def decode_lossless_spans(
                     raw=raw,
                     message="0x1f control introducer has no opcode byte",
                 )
-                _add_span(result, Span("problem", start, len(data), raw.hex(), issue="truncated_control"))
+                _add_span(result, Span("problem", start, len(data), _span_raw_hex(result, raw), issue="truncated_control"))
                 break
 
             op = data[i + 1]
@@ -248,7 +252,7 @@ def decode_lossless_spans(
                 )
                 _add_span(
                     result,
-                    Span("control", start, start + len(raw), raw.hex(), op=op_hex, issue="truncated_control"),
+                    Span("control", start, start + len(raw), _span_raw_hex(result, raw), op=op_hex, issue="truncated_control"),
                 )
                 break
 
@@ -258,7 +262,7 @@ def decode_lossless_spans(
                 result.stats["sections"] += 1
                 _add_span(
                     result,
-                    Span("section", start, start + length, raw.hex(), op=op_hex, payload_hex=payload.hex()),
+                    Span("section", start, start + length, _span_raw_hex(result, raw), op=op_hex, payload_hex=payload.hex()),
                 )
                 i += length
                 continue
@@ -266,7 +270,7 @@ def decode_lossless_spans(
             if op == 0x0A:
                 result.stats["known_controls"] += 1
                 result.stats["breaks"] += 1
-                _add_span(result, Span("break", start, start + length, raw.hex(), op=op_hex))
+                _add_span(result, Span("break", start, start + length, _span_raw_hex(result, raw), op=op_hex))
                 i += length
                 continue
 
@@ -275,7 +279,7 @@ def decode_lossless_spans(
                 result.stats["media"] += 1
                 _add_span(
                     result,
-                    Span("media_ref", start, start + length, raw.hex(), op=op_hex, payload_hex=payload.hex()),
+                    Span("media_ref", start, start + length, _span_raw_hex(result, raw), op=op_hex, payload_hex=payload.hex()),
                 )
                 i += length
                 continue
@@ -301,7 +305,7 @@ def decode_lossless_spans(
                         "control",
                         start,
                         start + length,
-                        raw.hex(),
+                        _span_raw_hex(result, raw),
                         op=op_hex,
                         payload_hex=payload.hex() or None,
                         tag=tag,
@@ -322,7 +326,7 @@ def decode_lossless_spans(
             )
             _add_span(
                 result,
-                Span("unknown_control", start, start + length, raw.hex(), op=op_hex, issue="unknown_control"),
+                Span("unknown_control", start, start + length, _span_raw_hex(result, raw), op=op_hex, issue="unknown_control"),
             )
             i += length
             continue
@@ -330,7 +334,7 @@ def decode_lossless_spans(
         if b == 0x0A:
             raw = data[i : i + 1]
             result.stats["breaks"] += 1
-            _add_span(result, Span("break", i, i + 1, raw.hex()))
+            _add_span(result, Span("break", i, i + 1, _span_raw_hex(result, raw)))
             i += 1
             continue
 
@@ -341,7 +345,7 @@ def decode_lossless_spans(
                 normalized = normalize_fullwidth_ascii(text)
                 result.stats["jis_pairs"] += 1
                 result.stats["jis_bytes"] += 2
-                _add_span(result, Span("text", i, i + 2, raw.hex(), text=text, normalized=normalized))
+                _add_span(result, Span("text", i, i + 2, _span_raw_hex(result, raw), text=text, normalized=normalized))
             else:
                 result.stats["invalid_jis_pairs"] += 1
                 _record_issue(
@@ -352,7 +356,7 @@ def decode_lossless_spans(
                     raw=raw,
                     message="JIS pair could not be decoded as ISO-2022-JP",
                 )
-                _add_span(result, Span("problem", i, i + 2, raw.hex(), issue="invalid_jis_pair"))
+                _add_span(result, Span("problem", i, i + 2, _span_raw_hex(result, raw), issue="invalid_jis_pair"))
             i += 2
             continue
 
@@ -368,7 +372,7 @@ def decode_lossless_spans(
                     raw=raw,
                     message="gaiji lead byte has no trailing byte",
                 )
-                _add_span(result, Span("gaiji", i, len(data), raw.hex(), issue="truncated_gaiji"))
+                _add_span(result, Span("gaiji", i, len(data), _span_raw_hex(result, raw), issue="truncated_gaiji"))
                 break
             raw = data[i : i + 2]
             key = raw.hex()
@@ -387,7 +391,7 @@ def decode_lossless_spans(
                     "gaiji",
                     i,
                     i + 2,
-                    raw.hex(),
+                    _span_raw_hex(result, raw),
                     code=key,
                     gaiji_space="half" if b < 0xB0 else "full",
                     resolved=resolved,
@@ -400,7 +404,7 @@ def decode_lossless_spans(
         if 0x20 <= b <= 0x7E:
             raw = data[i : i + 1]
             result.stats["ascii_bytes"] += 1
-            _add_span(result, Span("ascii", i, i + 1, raw.hex(), text=chr(b), normalized=chr(b)))
+            _add_span(result, Span("ascii", i, i + 1, _span_raw_hex(result, raw), text=chr(b), normalized=chr(b)))
             i += 1
             continue
 
@@ -414,7 +418,7 @@ def decode_lossless_spans(
             raw=raw,
             message=f"byte 0x{b:02x} is not classified by the text decoder",
         )
-        _add_span(result, Span("problem", i, i + 1, raw.hex(), issue="unknown_byte"))
+        _add_span(result, Span("problem", i, i + 1, _span_raw_hex(result, raw), issue="unknown_byte"))
         i += 1
 
     return result

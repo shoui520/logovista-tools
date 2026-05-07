@@ -18,11 +18,13 @@ from .gaiji import load_gaiji_profile
 from .ssed import BLOCK_SIZE, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 
 
-INDEX_TYPES = {0x70, 0x71, 0x80, 0x81, 0x90, 0x91}
+INDEX_TYPES = {0x30, 0x60, 0x70, 0x71, 0x72, 0x80, 0x81, 0x90, 0x91, 0x92}
+BODY_ONLY_TAGGED_LEAF_TYPES = {0x30}
+BODY_ONLY_SIMPLE_LEAF_TYPES = {0x60}
 TAGGED_LEAF_TYPES = {0x70, 0x90}
 KW_LEAF_TYPES = {0x80}
 CR_LEAF_TYPES = {0x81}
-SIMPLE_LEAF_TYPES = {0x71, 0x91}
+SIMPLE_LEAF_TYPES = {0x71, 0x72, 0x91, 0x92}
 
 
 @dataclass(frozen=True)
@@ -102,7 +104,7 @@ def is_leaf_page(word: int) -> bool:
 
 
 def internal_slot_size(word: int) -> int:
-    return (word & 0x3F) + 4
+    return (word & 0xFF) + 4
 
 
 def decode_index_key(
@@ -148,7 +150,7 @@ def parse_internal_page(
     word = be16(page, 0)
     count = be16(page, 2)
     slot = internal_slot_size(word)
-    if slot < 8:
+    if slot < 6:
         return
     pos = 4
     for row_index in range(1, count + 1):
@@ -187,9 +189,30 @@ def parse_simple_leaf_page(
     rows: list[LeafRow] = []
     unknown = 0
     for row_index in range(1, count + 1):
-        if pos >= len(page) or page[pos] == 0:
+        if pos >= len(page):
             break
         key_len = page[pos]
+        if key_len == 0:
+            if any(page[pos : min(len(page), pos + 13)]):
+                while pos + 13 <= len(page) and any(page[pos : pos + 13]):
+                    body = IndexPointer(block=be32(page, pos), offset=be16(page, pos + 4))
+                    title = IndexPointer(block=be32(page, pos + 7), offset=be16(page, pos + 11))
+                    rows.append(
+                        LeafRow(
+                            component=component,
+                            page_index=page_index,
+                            logical_block=logical_block,
+                            row_index=len(rows) + 1,
+                            key="",
+                            target_key="",
+                            body=body,
+                            title=title,
+                            tagged=False,
+                        )
+                    )
+                    pos += 13
+                break
+            break
         pos += 1
         if pos + key_len + 12 > len(page):
             unknown += 1
@@ -209,6 +232,48 @@ def parse_simple_leaf_page(
                 target_key=key,
                 body=body,
                 title=title,
+                tagged=False,
+            )
+        )
+    return rows, unknown
+
+
+def parse_body_only_simple_leaf_page(
+    component: str,
+    page: bytes,
+    page_index: int,
+    logical_block: int,
+    *,
+    gaiji: str,
+    gaiji_map: dict[str, str],
+) -> tuple[list[LeafRow], int]:
+    count = be16(page, 2)
+    pos = 4
+    rows: list[LeafRow] = []
+    unknown = 0
+    for row_index in range(1, count + 1):
+        if pos >= len(page) or page[pos] == 0:
+            break
+        key_len = page[pos]
+        pos += 1
+        if pos + key_len + 6 > len(page):
+            unknown += 1
+            break
+        key_bytes = page[pos : pos + key_len]
+        pos += key_len
+        body = IndexPointer(block=be32(page, pos), offset=be16(page, pos + 4))
+        pos += 6
+        key = decode_index_key(key_bytes, gaiji=gaiji, gaiji_map=gaiji_map)
+        rows.append(
+            LeafRow(
+                component=component,
+                page_index=page_index,
+                logical_block=logical_block,
+                row_index=row_index,
+                key=key,
+                target_key=key,
+                body=body,
+                title=body,
                 tagged=False,
             )
         )
@@ -236,9 +301,33 @@ def parse_tagged_leaf_page(
     while subrecord < count and pos + 2 <= len(page):
         tag = page[pos]
         key_len = page[pos + 1]
-        if tag == 0 or key_len == 0:
+        if tag == 0 and key_len == 0:
             break
         pos += 2
+
+        if tag == 0x00:
+            if pos + key_len + 12 > len(page):
+                unknown += 1
+                break
+            key = decode_index_key(page[pos : pos + key_len], gaiji=gaiji, gaiji_map=gaiji_map)
+            pos += key_len
+            body, title = read_pointer_pair(page, pos)
+            pos += 12
+            rows.append(
+                LeafRow(
+                    component=component,
+                    page_index=page_index,
+                    logical_block=logical_block,
+                    row_index=len(rows) + 1,
+                    key=key,
+                    target_key=key,
+                    body=body,
+                    title=title,
+                    tagged=False,
+                )
+            )
+            subrecord += 1
+            continue
 
         if tag == 0x80:
             if pos + 2 + key_len > len(page):
@@ -271,6 +360,106 @@ def parse_tagged_leaf_page(
                     target_key=target_key,
                     body=body,
                     title=title,
+                    tagged=True,
+                    target_count_hint=current_count_hint,
+                    continued_group=current_key is None,
+                )
+            )
+            subrecord += 1
+            continue
+
+        unknown += 1
+        break
+
+    return rows, current_key, current_count_hint, groups, unknown
+
+
+def parse_body_only_tagged_leaf_page(
+    component: str,
+    page: bytes,
+    page_index: int,
+    logical_block: int,
+    *,
+    current_key: str | None,
+    current_count_hint: int | None,
+    gaiji: str,
+    gaiji_map: dict[str, str],
+) -> tuple[list[LeafRow], str | None, int | None, int, int]:
+    """Parse type-0x30 KINDEX-style grouped leaves.
+
+    The row grammar matches the 0x70/0x90 tagged family except target records
+    carry only a 6-byte body pointer, not a body/title pointer pair.
+    """
+
+    count = be16(page, 2)
+    pos = 4
+    rows: list[LeafRow] = []
+    groups = 0
+    unknown = 0
+    subrecord = 0
+
+    while subrecord < count and pos + 2 <= len(page):
+        tag = page[pos]
+        key_len = page[pos + 1]
+        if tag == 0 and key_len == 0:
+            break
+        pos += 2
+
+        if tag == 0x00:
+            if pos + key_len + 6 > len(page):
+                unknown += 1
+                break
+            key = decode_index_key(page[pos : pos + key_len], gaiji=gaiji, gaiji_map=gaiji_map)
+            pos += key_len
+            body = IndexPointer(block=be32(page, pos), offset=be16(page, pos + 4))
+            pos += 6
+            rows.append(
+                LeafRow(
+                    component=component,
+                    page_index=page_index,
+                    logical_block=logical_block,
+                    row_index=len(rows) + 1,
+                    key=key,
+                    target_key=key,
+                    body=body,
+                    title=body,
+                    tagged=False,
+                )
+            )
+            subrecord += 1
+            continue
+
+        if tag == 0x80:
+            if pos + 2 + key_len > len(page):
+                unknown += 1
+                break
+            current_count_hint = be16(page, pos)
+            pos += 2
+            current_key = decode_index_key(page[pos : pos + key_len], gaiji=gaiji, gaiji_map=gaiji_map)
+            pos += key_len
+            groups += 1
+            subrecord += 1
+            continue
+
+        if tag == 0xC0:
+            if pos + key_len + 6 > len(page):
+                unknown += 1
+                break
+            target_key = decode_index_key(page[pos : pos + key_len], gaiji=gaiji, gaiji_map=gaiji_map)
+            pos += key_len
+            body = IndexPointer(block=be32(page, pos), offset=be16(page, pos + 4))
+            pos += 6
+            key = current_key if current_key is not None else target_key
+            rows.append(
+                LeafRow(
+                    component=component,
+                    page_index=page_index,
+                    logical_block=logical_block,
+                    row_index=len(rows) + 1,
+                    key=key,
+                    target_key=target_key,
+                    body=body,
+                    title=body,
                     tagged=True,
                     target_count_hint=current_count_hint,
                     continued_group=current_key is None,
@@ -562,7 +751,30 @@ def scan_index_component(
             continue
 
         result.leaf_pages += 1
-        if component_type in TAGGED_LEAF_TYPES:
+        if component_type in BODY_ONLY_SIMPLE_LEAF_TYPES:
+            leaf_rows, unknown = parse_body_only_simple_leaf_page(
+                component_name,
+                page,
+                page_index,
+                logical_block,
+                gaiji=gaiji,
+                gaiji_map=gaiji_map,
+            )
+            result.unknown_leaf_bytes += unknown
+        elif component_type in BODY_ONLY_TAGGED_LEAF_TYPES:
+            leaf_rows, current_key, current_count_hint, groups, unknown = parse_body_only_tagged_leaf_page(
+                component_name,
+                page,
+                page_index,
+                logical_block,
+                current_key=current_key,
+                current_count_hint=current_count_hint,
+                gaiji=gaiji,
+                gaiji_map=gaiji_map,
+            )
+            result.search_groups += groups
+            result.unknown_leaf_bytes += unknown
+        elif component_type in TAGGED_LEAF_TYPES:
             leaf_rows, current_key, current_count_hint, groups, unknown = parse_tagged_leaf_page(
                 component_name,
                 page,

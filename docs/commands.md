@@ -17,8 +17,8 @@ Corpus-scale commands support `--jobs`:
 This applies to commands that operate across many dictionaries or resources:
 `scan`, `entries`, `resources`, `colscr`, `pcmdata`, `extras`, `rendererdb`,
 `spindex`, `audit-honmon`, `gaiji-report`, `ga16`, `titles`, `indexes`,
-`menus`, `fulldb`, `profile`, `honmon-bytes`, `dump-ir`, and LVED payload
-inspection.
+`menus`, `fulldb`, `profile`, `honmon-bytes`, `component-forensics`,
+`dump-ir`, and LVED payload inspection.
 
 For huge corpora, start with a moderate value such as `--jobs 8` or `--jobs 16`
 when also writing many JSON/media files. `--jobs 0` is useful for CPU-heavy
@@ -318,6 +318,50 @@ The current Windows SSED corpus run accounts for 3,497,793,539 expanded HONMON
 bytes with zero unknown controls, zero unknown bytes, zero invalid JIS cells,
 and one known truncated final `0x1f` byte in `NANDOKU3`.
 
+### `component-forensics`
+
+Forensically account for non-HONMON core components: `MENU.DIC`,
+`*TITLE.DIC`, structured `*INDEX.DIC`, text-like `INDEX.DIC` outliers,
+`.uni` / `.UNI`, `GA16HALF` / `GA16FULL` / `GAI16*`, `COLSCR.DIC`, and
+`PCMDATA.DIC`.
+
+```bash
+logovista-tools component-forensics /path/to/LogoVista --jobs 0 --out-dir component-forensics
+logovista-tools component-forensics /path/to/LogoVista --dict GENIUSEB --json
+```
+
+Output layout:
+
+```text
+component-forensics/
+  summary.json
+  DICT_ID/
+    component_forensics.json
+```
+
+Each report records declared component status, expanded byte sizes, structural
+coverage, residual nonzero bytes, unknown text controls/bytes, index page
+coverage, `.uni` record/trailer counts, GA16 glyph byte coverage, `COLSCR`
+media record coverage, and `PCMDATA` referenced-range coverage. It does not
+emit dictionary body text, media payloads, gaiji bitmaps, or proprietary data.
+
+Useful options:
+
+```bash
+--dict NAME                         scan only matching dictionary ids
+--parse-mode forensic                record issues and continue; default
+--parse-mode strict                  treat unknown/unsafe text bytes as strict failures
+--max-issue-samples N                issue samples kept per dictionary
+--jobs 0                             use all detected CPU cores
+--json                              also print the aggregate JSON summary
+```
+
+The current Windows SSED corpus component pass covers 1,231 present components:
+84 `MENU.DIC`, 307 `*TITLE.DIC`, 536 structured `*INDEX.DIC`, one text-like
+`INDEX.DIC`, 314 GA16 resources, 59 `COLSCR.DIC`, and 12 `PCMDATA.DIC`.
+Remaining residuals are reported by exact dictionary/component instead of
+silently skipped.
+
 ### `dump-ir`
 
 Emit entry-level lossless span JSONL from expanded `HONMON.DIC`. This is the
@@ -396,7 +440,7 @@ Useful options:
 ```bash
 --dict NAME                         inspect only matching dictionary ids
 --limit N                           stop after N media references per dictionary
---write-media                       write referenced BMP/JPEG files
+--write-media                       write referenced BMP/JPEG/PNG files
 --json                              emit a machine-readable summary
 ```
 

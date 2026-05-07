@@ -106,21 +106,34 @@ KWINDEX.DIC
 Component types observed in `SSEDINFO`:
 
 ```text
+0x30  KINDEX.DIC   body-only tagged index
+0x60  HINDEX.DIC   body-only simple index
 0x90  FKINDEX.DIC  forward tagged index
 0x91  FHINDEX.DIC  forward simple headword index
+0x92  FAINDEX.DIC  forward alternate/simple index
 0x70  BKINDEX.DIC  backward tagged index
 0x71  BHINDEX.DIC  backward simple headword index
+0x72  BAINDEX.DIC  backward alternate/simple index
 0x80  KWINDEX.DIC  keyword index
 0x81  CRINDEX.DIC  cross-reference index
 ```
 
+One observed `INDEX.DIC` outlier is not a B-tree index component:
+`KQSYNONM` declares component type `0x27` and its `INDEX.DIC` expands to a
+text-like stream. It is handled as a text component, not as a structured index
+page tree.
+
 The toolkit parses the common `FK/FH/BK/BH` page formats, direct and grouped
-`KWINDEX` rows, and direct and grouped `CRINDEX` rows. The layouts below were
+`KWINDEX` rows, direct and grouped `CRINDEX` rows, the body-only `0x30`/`0x60`
+variants, and simple alternate `0x72`/`0x92` pages. The layouts below were
 validated against Japanese, English, Spanish, French, science, medical, and
 collocation dictionaries, including HAESPJPN, GENIUSEB, HAFRAN, NANMED20,
-OUKOKU11, IPHYCHE5, KENCOLLO, KQJCOLLO, and KOJIEN7. The current 169-package
-Windows SSED profile reports `unknown_index_leaf_bytes = 0`, so every observed
-index leaf byte in that corpus is consumed by the parser.
+OUKOKU11, IPHYCHE5, KENCOLLO, KQJCOLLO, KOJIEN7, 45KAGAKU, and KQSYNONM.
+
+The current 169-package Windows SSED component-forensics pass reports zero
+unknown index leaf subrecords. The only index residual is `NANDOKU2`
+`FHINDEX.DIC`, which has three nonzero physical tail bytes after all full
+2048-byte pages are consumed.
 
 Representative parser coverage from the local corpus:
 
@@ -153,15 +166,16 @@ Branch page words observed include:
 
 ```text
 601c 601e 6020
+6068
 401e 4020
 201e 2020
 001e 0020
 ```
 
-The low bits encode the branch slot size:
+The low byte encodes the branch slot size:
 
 ```text
-slot_size = (page_word & 0x3f) + 4
+slot_size = (page_word & 0xff) + 4
 ```
 
 Each branch slot is:
@@ -176,10 +190,16 @@ The child is a 32-bit logical block number. In small dictionaries the high two
 bytes are usually zero, which can make the field look like a 16-bit pointer.
 Large dictionaries such as KOJIEN7 require the full 32 bits.
 
+The upper byte/bits of the page word are page flags. Earlier probes treated
+only the low six bits as the slot-size field, but corpus-wide branch-page
+parsing found words such as `6068`; the full low byte is required. Valid
+observed branch slots include the compact 6-byte form: two key bytes plus a
+four-byte child block.
+
 ### Simple Leaf Pages
 
-`FHINDEX.DIC` (`0x91`) and `BHINDEX.DIC` (`0x71`) usually use simple leaf
-records:
+`FHINDEX.DIC` (`0x91`), `FAINDEX.DIC` (`0x92`), `BHINDEX.DIC` (`0x71`), and
+`BAINDEX.DIC` (`0x72`) usually use simple leaf records:
 
 ```text
 offset  size     meaning
@@ -201,6 +221,22 @@ KOJIEN7 FHINDEX ?ASHURA' -> body HONMON ID-table anchor, title FHTITLE row
 
 If a dictionary has no `*TITLE.DIC`, the title pointer can equal the body
 pointer.
+
+Some simple leaves contain no keys at all and instead store a compact pointer
+table. The observed row size is 13 bytes:
+
+```text
+offset  size  meaning
+0x00    4     body logical block, big endian
+0x04    2     body offset in block, big endian
+0x06    1     row flag / marker, not yet semantically named
+0x07    4     title logical block, big endian
+0x0b    2     title offset in block, big endian
+```
+
+This shape appears in 45KAGAKU `MUL2_1_2.DIC` / `MUL2_2_2.DIC`. The pointer
+rows are structurally complete; the one-byte flag is preserved as an observed
+field until renderer behavior gives it a stronger name.
 
 ### Tagged Leaf Pages
 
@@ -231,6 +267,51 @@ offset  size  meaning
 The same search key can have multiple target rows. Page boundaries can occur
 inside a group, so the parser carries the current `0x80` search key across
 leaf pages when a page begins with a `0xc0` target row.
+
+Tagged pages can also contain direct rows:
+
+```text
+offset  size  meaning
+0x00    1     tag 0x00
+0x01    1     key byte length
+0x02    n     JIS/gaiji key bytes
+...     4     body logical block, big endian
+...     2     body offset in block, big endian
+...     4     title logical block, big endian
+...     2     title offset in block, big endian
+```
+
+This direct-row form is not a separate component type; it can appear mixed into
+otherwise tagged `0x70`/`0x90` pages.
+
+### Body-Only Tagged Leaf Pages
+
+`KINDEX.DIC` (`0x30`) uses the same grouped structure as tagged
+`FKINDEX.DIC`/`BKINDEX.DIC`, but target rows carry only a body pointer:
+
+```text
+0x80 group row:  tag, key length, 2-byte target count, key bytes
+0xc0 target row: tag, target key length, target key bytes, 6-byte body pointer
+0x00 direct row: tag, key length, key bytes, 6-byte body pointer
+```
+
+The title address is therefore the body address. This is an index grammar
+variant, not evidence that title data is missing from the package globally.
+
+### Body-Only Simple Leaf Pages
+
+`HINDEX.DIC` (`0x60`) is the simple equivalent of `0x30`:
+
+```text
+offset  size     meaning
+0x00    1        key byte length
+0x01    n        JIS/gaiji key bytes
+...     4        body logical block, big endian
+...     2        body offset in block, big endian
+```
+
+As with `0x30`, the title pointer is taken to be the body pointer because the
+row carries no separate title address.
 
 ### Cross-Reference Leaf Pages
 

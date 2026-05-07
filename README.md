@@ -32,9 +32,9 @@ are still allowed to change as more products are tested.
 | EPWING-like component block mapping | High |
 | Body-stream `HONMON.DIC` extraction | High for supported dictionaries |
 | Dense HONMON ID-anchor dereferencing | Strong, still corpus-driven |
-| `*INDEX.DIC` / `*TITLE.DIC` parsing | Strong, still being formalized |
-| `.uni`, `GA16HALF`, `GA16FULL` gaiji resources | Strong for observed variants |
-| `MENU.DIC`, `COLSCR.DIC`, `PCMDATA.DIC` | Supported, still accumulating edge cases |
+| `*INDEX.DIC` / `*TITLE.DIC` parsing | High for the current SSED corpus |
+| `.uni`, `GA16HALF`, `GA16FULL` gaiji resources | High for observed variants |
+| `MENU.DIC`, `COLSCR.DIC`, `PCMDATA.DIC` | High byte coverage for the current SSED corpus |
 | Windows / Android / iOS wrappers | Supported per observed package family |
 | LVED/WebView2 `main.data` / `.dbc` SQLCipher payloads | Validated for observed OXFPEU4/KQCMPROS packages |
 | LogoVista writer support | Not implemented |
@@ -53,6 +53,13 @@ cell table, every expanded HONMON byte is accounted for: zero unknown controls,
 zero unknown bytes, zero invalid JIS cells, and one known final truncated
 control byte in `NANDOKU3`. See [Corpus Findings](docs/corpus-findings.md) for
 the exact aggregate.
+
+The companion component-forensics pass accounts for observed `MENU.DIC`,
+`*TITLE.DIC`, `*INDEX.DIC`, `.uni`, `GA16*`, `COLSCR.DIC`, and `PCMDATA.DIC`
+components across the same 169-package corpus. Remaining anomalies are narrow
+and explicitly reported: one 3-byte physical index tail, one unknown title
+control, one unknown title byte, a few `.uni` trailer bytes, and one dictionary
+with in-range but still-unclassified raw audio payloads.
 
 ## Install
 
@@ -120,6 +127,13 @@ Decode every expanded `HONMON.DIC` byte and write redacted coverage reports:
 
 ```bash
 logovista-tools honmon-bytes /path/to/LogoVista --jobs 0 --out-dir out/honmon-bytes
+```
+
+Forensically account for menu, title, index, gaiji, image, and audio
+components:
+
+```bash
+logovista-tools component-forensics /path/to/LogoVista --jobs 0 --out-dir out/components
 ```
 
 Dump lossless span JSONL for entry-level reverse engineering:
