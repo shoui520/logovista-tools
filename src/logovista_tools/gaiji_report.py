@@ -27,6 +27,7 @@ from .gaiji import (
     parse_ga16_resource,
 )
 from .lvcrypto import decrypt_logofont_cipher_file_to_path
+from .parallel import parallel_map_ordered, worker_args
 from .resources import load_image_resource_profile
 from .ssed import BLOCK_SIZE, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 from .windows import discover_renderer_sidecars, load_exinfo_for_idx
@@ -692,11 +693,19 @@ def extract_gaiji_report(source: DictionarySource, out_dir: Path, args: argparse
     }
 
 
+def _gaiji_report_task(payload: tuple[DictionarySource, Path, argparse.Namespace]) -> dict[str, Any]:
+    source, out_dir, args = payload
+    return extract_gaiji_report(source, out_dir, args)
+
+
 def extract_gaiji_reports(sources: list[DictionarySource], out_dir: Path, args: argparse.Namespace) -> list[dict[str, Any]]:
     out_dir.mkdir(parents=True, exist_ok=True)
-    summaries = []
-    for source in sources:
-        summaries.append(extract_gaiji_report(source, out_dir, args))
+    task_args = worker_args(args)
+    summaries = parallel_map_ordered(
+        _gaiji_report_task,
+        [(source, out_dir, task_args) for source in sources],
+        jobs=getattr(args, "jobs", 1),
+    )
     write_json(out_dir / "summary.json", summaries)
     return summaries
 

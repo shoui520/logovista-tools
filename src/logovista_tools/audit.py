@@ -20,6 +20,7 @@ from .entries import (
 )
 from .gaiji import load_gaiji_profile
 from .indexes import collect_index_body_offsets_for_idx
+from .parallel import parallel_map_ordered, worker_args
 from .rendererdb import discover_android_body_databases
 from .ssed import (
     BLOCK_SIZE,
@@ -56,27 +57,32 @@ def candidate_dictlist_paths_for_idx(idx: Path) -> list[Path]:
     ]
 
 
-def discover_audit_sources(roots: list[Path]) -> list[AuditSource]:
-    sources: list[AuditSource] = []
+def _audit_source_from_idx(idx: Path) -> AuditSource | None:
+    try:
+        title, elements = parse_ssedinfo(idx)
+    except Exception:
+        return None
+    return AuditSource(dict_id_for_idx(idx), idx, title, elements)
+
+
+def discover_audit_sources(roots: list[Path], *, jobs: int | None = 1) -> list[AuditSource]:
+    candidates: list[Path] = []
     seen: set[Path] = set()
     for root in roots:
-        candidates: list[Path] = []
         if root.is_file() and root.suffix.upper() == ".IDX":
             candidates.append(root)
         elif root.is_dir():
             candidates.extend(root.rglob("*.IDX"))
             candidates.extend(root.rglob("*.idx"))
-        for idx in sorted(candidates):
-            idx = idx.resolve()
-            if idx in seen:
-                continue
-            seen.add(idx)
-            try:
-                title, elements = parse_ssedinfo(idx)
-            except Exception:
-                continue
-            sources.append(AuditSource(dict_id_for_idx(idx), idx, title, elements))
-    return sources
+    unique_candidates: list[Path] = []
+    for idx in sorted(candidates):
+        resolved = idx.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique_candidates.append(resolved)
+    rows = parallel_map_ordered(_audit_source_from_idx, unique_candidates, jobs=jobs)
+    return [row for row in rows if row is not None]
 
 
 def dictlist_summary(source: AuditSource) -> list[dict[str, str]]:
@@ -358,8 +364,13 @@ def audit_source(source: AuditSource, args: argparse.Namespace) -> dict[str, Any
     }
 
 
+def _audit_source_task(payload: tuple[AuditSource, argparse.Namespace]) -> dict[str, Any]:
+    source, args = payload
+    return audit_source(source, args)
+
+
 def extract_audit_for_sources(args: argparse.Namespace) -> list[dict[str, Any]]:
-    sources = discover_audit_sources(args.root or [Path(".")])
+    sources = discover_audit_sources(args.root or [Path(".")], jobs=getattr(args, "jobs", 1))
     if args.dict:
         selected = set(args.dict)
         sources = [
@@ -368,16 +379,22 @@ def extract_audit_for_sources(args: argparse.Namespace) -> list[dict[str, Any]]:
             if source.dict_id in selected or source.idx.stem in selected
         ]
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    rows = []
-    for source in sources:
-        row = audit_source(source, args)
-        rows.append(row)
+    task_args = worker_args(args)
+
+    def log_row(row: dict[str, Any]) -> None:
         print(
             f"{row['dict_id']:12s} {row['status']:38s} "
             f"samples={row.get('body_sample_count', 0):2d} "
             f"markers={row.get('entry_markers', 0):8d} "
             f"idx={row.get('index_boundary_offsets', 0):8d}",
         )
+
+    rows = parallel_map_ordered(
+        _audit_source_task,
+        [(source, task_args) for source in sources],
+        jobs=getattr(args, "jobs", 1),
+        on_result=log_row,
+    )
     (args.out_dir / "honmon_audit.json").write_text(
         json.dumps(rows, ensure_ascii=False, indent=2),
         encoding="utf-8",

@@ -48,6 +48,8 @@ LogoVista dictionary model.
   resources.
 - LVED/WebView2 `main.data` / `.dbc` SQLCipher classification and validation
   for observed OXFPEU4/KQCMPROS packages.
+- `--jobs` process-level parallelism for corpus-scale scanning, extraction,
+  audit, gaiji/media reports, LVED inspection, and GA16 rendering.
 
 ## Experimental / Active Reverse Engineering
 
@@ -88,10 +90,9 @@ LogoVista dictionary model.
 Near term:
 
 1. Build a corpus classifier that emits stable, redacted package profiles.
-2. Add `--jobs` parallelism for corpus-level audits and profiles.
-3. Add strict and forensic parsing modes.
-4. Move low-level decoding toward lossless spans instead of flattened text.
-5. Make unknown controls, pointers, gaiji, media, and unparsed bytes measurable.
+2. Add strict and forensic parsing modes.
+3. Move low-level decoding toward lossless spans instead of flattened text.
+4. Make unknown controls, pointers, gaiji, media, and unparsed bytes measurable.
 
 Model work:
 

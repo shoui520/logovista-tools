@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from .parallel import parallel_map_ordered
+
 
 LVED_SQLCIPHER_PAGE_SIZE = 4096
 LVED_SQLCIPHER_RESERVE_BYTES = 80
@@ -257,6 +259,41 @@ def find_lved_key_candidates_in_dump(path: Path) -> list[str]:
     return sorted(keys)
 
 
+def _inspect_lved_payload_task(
+    payload: tuple[Path, int | None, str | None, str | None, list[str]]
+) -> dict[str, Any]:
+    path, dict_id, dict_code, explicit_key, memory_keys = payload
+    inspected = inspect_lved_payload(path)
+    row: dict[str, Any] = {
+        "path": str(inspected.path),
+        "kind": inspected.kind,
+        "size": inspected.size,
+        "pages_4096": inspected.pages_4096,
+        "mod_4096": inspected.mod_4096,
+        "sha256": inspected.sha256,
+        "entropy_sample": inspected.entropy_sample,
+        "header_hex": inspected.header_hex,
+        "classification": inspected.classification,
+        "inferred_dict_code": inspected.inferred_dict_code,
+        "validation": [],
+    }
+    validation_keys: list[tuple[str, str]] = []
+    if explicit_key:
+        validation_keys.append(("explicit_key", explicit_key))
+    if dict_id is not None:
+        code = dict_code or inspected.inferred_dict_code
+        if code:
+            validation_keys.append(("derived_metadata", derive_lved_sqlcipher_key(dict_id, code)))
+    for candidate in memory_keys:
+        validation_keys.append(("memory_dump_candidate", candidate))
+    for source, candidate in validation_keys:
+        result = validate_lved_sqlcipher4(path, candidate)
+        safe_result = {key: value for key, value in result.items() if key != "reason" or value}
+        safe_result["source"] = source
+        row["validation"].append(safe_result)
+    return row
+
+
 def inspect_lved_roots(
     roots: Iterable[Path],
     *,
@@ -264,41 +301,16 @@ def inspect_lved_roots(
     dict_code: str | None = None,
     key: str | None = None,
     memory_dump: Path | None = None,
+    jobs: int | None = 1,
 ) -> dict[str, Any]:
     payload_paths = discover_lved_payloads(roots)
     explicit_key = key
     memory_keys = find_lved_key_candidates_in_dump(memory_dump) if memory_dump else []
-    payloads = []
-    for path in payload_paths:
-        payload = inspect_lved_payload(path)
-        row: dict[str, Any] = {
-            "path": str(payload.path),
-            "kind": payload.kind,
-            "size": payload.size,
-            "pages_4096": payload.pages_4096,
-            "mod_4096": payload.mod_4096,
-            "sha256": payload.sha256,
-            "entropy_sample": payload.entropy_sample,
-            "header_hex": payload.header_hex,
-            "classification": payload.classification,
-            "inferred_dict_code": payload.inferred_dict_code,
-            "validation": [],
-        }
-        validation_keys: list[tuple[str, str]] = []
-        if explicit_key:
-            validation_keys.append(("explicit_key", explicit_key))
-        if dict_id is not None:
-            code = dict_code or payload.inferred_dict_code
-            if code:
-                validation_keys.append(("derived_metadata", derive_lved_sqlcipher_key(dict_id, code)))
-        for candidate in memory_keys:
-            validation_keys.append(("memory_dump_candidate", candidate))
-        for source, candidate in validation_keys:
-            result = validate_lved_sqlcipher4(path, candidate)
-            safe_result = {key: value for key, value in result.items() if key != "reason" or value}
-            safe_result["source"] = source
-            row["validation"].append(safe_result)
-        payloads.append(row)
+    payloads = parallel_map_ordered(
+        _inspect_lved_payload_task,
+        [(path, dict_id, dict_code, explicit_key, memory_keys) for path in payload_paths],
+        jobs=jobs,
+    )
 
     return {
         "payloads": payloads,

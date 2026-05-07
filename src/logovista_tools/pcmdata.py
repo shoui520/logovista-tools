@@ -12,6 +12,7 @@ from typing import Any, Iterable
 
 from .colscr import decode_bcd_decimal
 from .entries import decode_tokens, discover_dictionaries, tokens_to_text
+from .parallel import parallel_map_ordered, worker_args
 from .ssed import BLOCK_SIZE, SsedRandomReader, find_case_insensitive, parse_ssedinfo
 
 
@@ -619,22 +620,33 @@ def extract_pcmdata_for_source(source: Any, out_dir: Path, args: argparse.Namesp
     return summary
 
 
+def _pcmdata_source_task(payload: tuple[Any, Path, argparse.Namespace]) -> dict[str, Any]:
+    source, out_dir, args = payload
+    return extract_pcmdata_for_source(source, out_dir, args)
+
+
 def extract_pcmdata_for_sources(args: argparse.Namespace) -> list[dict[str, Any]]:
-    sources = discover_dictionaries(args.root or [Path(".")])
+    sources = discover_dictionaries(args.root or [Path(".")], jobs=getattr(args, "jobs", 1))
     if args.dict:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    summaries = []
-    for source in sources:
-        print(f"extracting PCMDATA {source.dict_id}: {source.title}", file=sys.stderr)
-        summary = extract_pcmdata_for_source(source, args.out_dir, args)
+    task_args = worker_args(args)
+
+    def log_summary(summary: dict[str, Any]) -> None:
         print(
-            f"  refs={summary['audio_references']} valid={summary['valid_referenced_records']} "
+            f"{summary['dict_id']:12s} refs={summary['audio_references']} "
+            f"valid={summary['valid_referenced_records']} "
             f"unreferenced={summary['unreferenced_records']} bytes={summary.get('pcmdata_expanded_bytes', 0)}",
             file=sys.stderr,
         )
-        summaries.append(summary)
+
+    summaries = parallel_map_ordered(
+        _pcmdata_source_task,
+        [(source, args.out_dir, task_args) for source in sources],
+        jobs=getattr(args, "jobs", 1),
+        on_result=log_summary,
+    )
     write_json(args.out_dir / "summary.json", summaries)
     return summaries
 

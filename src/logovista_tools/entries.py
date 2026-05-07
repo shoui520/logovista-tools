@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .gaiji import load_gaiji_map, load_gaiji_profile
+from .parallel import parallel_map_ordered
 from .resources import load_image_resource_profile, relative_image_source
 from .ssed import (
     BLOCK_SIZE,
@@ -490,58 +491,62 @@ def load_plist_gaiji_map(idx: Path) -> dict[str, str]:
     return load_gaiji_map(idx)
 
 
-def discover_dictionaries(roots: list[Path]) -> list[DictionarySource]:
-    found: list[DictionarySource] = []
+def _dictionary_source_from_idx(idx: Path) -> DictionarySource | None:
+    try:
+        title, elements = parse_ssedinfo(idx)
+    except Exception:
+        return None
+    honmon_element = next((e for e in elements if e.filename.upper() == "HONMON.DIC"), None)
+    if honmon_element is None:
+        return None
+    honmon = find_case_insensitive(idx.parent, honmon_element.filename)
+    if honmon is None:
+        return None
+    dict_id = idx.parent.parent.name if idx.parent.name == idx.parent.parent.name else idx.stem
+    gaiji_profile = load_gaiji_profile(idx)
+    image_profile = load_image_resource_profile(idx)
+    image_sources = {}
+    for key, resource in image_profile.resources.items():
+        selected = resource.normal or resource.default or resource.white
+        if selected is not None:
+            image_sources[key] = relative_image_source(selected, idx)
+    return DictionarySource(
+        dict_id=dict_id,
+        idx=idx,
+        title=title,
+        honmon=honmon,
+        honmon_start_block=honmon_element.start,
+        honmon_storage=sseddata_storage_for_file(honmon),
+        gaiji_map=gaiji_profile.map,
+        gaiji_uni_entries=gaiji_profile.uni_entries,
+        gaiji_plist_entries=gaiji_profile.plist_entries,
+        image_resource_entries=len(image_profile.resources),
+        image_gaiji_keys=image_profile.gaiji_image_keys,
+        image_sources=image_sources,
+        image_dirs=image_profile.image_dirs,
+    )
+
+
+def discover_dictionaries(roots: list[Path], *, jobs: int | None = 1) -> list[DictionarySource]:
+    candidates: list[Path] = []
     seen: set[Path] = set()
     for root in roots:
-        candidates: list[Path] = []
         if root.is_file() and root.suffix.upper() == ".IDX":
             candidates.append(root)
         elif root.is_dir():
             candidates.extend(root.rglob("*.IDX"))
             candidates.extend(root.rglob("*.idx"))
 
-        for idx in sorted(candidates):
-            idx = idx.resolve()
-            if idx in seen:
-                continue
-            seen.add(idx)
-            try:
-                title, elements = parse_ssedinfo(idx)
-            except Exception:
-                continue
-            honmon_element = next((e for e in elements if e.filename.upper() == "HONMON.DIC"), None)
-            if honmon_element is None:
-                continue
-            honmon = find_case_insensitive(idx.parent, honmon_element.filename)
-            if honmon is None:
-                continue
-            dict_id = idx.parent.parent.name if idx.parent.name == idx.parent.parent.name else idx.stem
-            gaiji_profile = load_gaiji_profile(idx)
-            image_profile = load_image_resource_profile(idx)
-            image_sources = {}
-            for key, resource in image_profile.resources.items():
-                selected = resource.normal or resource.default or resource.white
-                if selected is not None:
-                    image_sources[key] = relative_image_source(selected, idx)
-            found.append(
-                DictionarySource(
-                    dict_id=dict_id,
-                    idx=idx,
-                    title=title,
-                    honmon=honmon,
-                    honmon_start_block=honmon_element.start,
-                    honmon_storage=sseddata_storage_for_file(honmon),
-                    gaiji_map=gaiji_profile.map,
-                    gaiji_uni_entries=gaiji_profile.uni_entries,
-                    gaiji_plist_entries=gaiji_profile.plist_entries,
-                    image_resource_entries=len(image_profile.resources),
-                    image_gaiji_keys=image_profile.gaiji_image_keys,
-                    image_sources=image_sources,
-                    image_dirs=image_profile.image_dirs,
-                )
-            )
-    return found
+    unique_candidates: list[Path] = []
+    for idx in sorted(candidates):
+        resolved = idx.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique_candidates.append(resolved)
+
+    rows = parallel_map_ordered(_dictionary_source_from_idx, unique_candidates, jobs=jobs)
+    return [row for row in rows if row is not None]
 
 
 def write_json(path: Path, data: Any) -> None:

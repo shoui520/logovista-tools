@@ -13,6 +13,7 @@ from typing import Any, Iterable
 
 from .entries import DictionarySource, discover_dictionaries
 from .lvcrypto import decrypt_logofont_cipher_bytes, decrypt_logofont_cipher_file_to_path
+from .parallel import parallel_map_ordered, worker_args
 from .ssed import BLOCK_SIZE, expand_sseddata_file_with_storage
 from .windows import RendererSidecar, discover_renderer_sidecars, load_exinfo_for_idx, sqlite_storage_for_path
 
@@ -597,20 +598,30 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
     return summary
 
 
+def _rendererdb_dictionary_task(payload: tuple[DictionarySource, Path, argparse.Namespace]) -> dict[str, Any]:
+    source, out_dir, args = payload
+    return extract_rendererdb_dictionary(source, out_dir, args)
+
+
 def extract_rendererdb_for_sources(args: argparse.Namespace) -> list[dict[str, Any]]:
-    sources = discover_dictionaries(args.root or [Path(".")])
+    sources = discover_dictionaries(args.root or [Path(".")], jobs=getattr(args, "jobs", 1))
     if args.dict:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    rows: list[dict[str, Any]] = []
-    for source in sources:
-        print(f"extracting rendererdb {source.dict_id}: {source.title}")
-        row = extract_rendererdb_dictionary(source, args.out_dir, args)
-        rows.append(row)
+    task_args = worker_args(args)
+
+    def log_summary(row: dict[str, Any]) -> None:
         print(
-            f"  status={row['status']} raw_ids={row.get('raw_honmon_id_records', 0)} "
+            f"{row['dict_id']:12s} status={row['status']} raw_ids={row.get('raw_honmon_id_records', 0)} "
             f"emitted={row.get('entries_emitted', 0)} sidecars={len(row.get('sidecars', []))}"
         )
+
+    rows = parallel_map_ordered(
+        _rendererdb_dictionary_task,
+        [(source, args.out_dir, task_args) for source in sources],
+        jobs=getattr(args, "jobs", 1),
+        on_result=log_summary,
+    )
     (args.out_dir / "summary.json").write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
     return rows

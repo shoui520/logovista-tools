@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .entries import discover_dictionaries
+from .parallel import parallel_map_ordered, worker_args
 from .ssed import BLOCK_SIZE, SsedRandomReader, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 
 
@@ -347,22 +348,32 @@ def extract_colscr_for_source(source: Any, out_dir: Path, args: argparse.Namespa
     return summary
 
 
+def _colscr_source_task(payload: tuple[Any, Path, argparse.Namespace]) -> dict[str, Any]:
+    source, out_dir, args = payload
+    return extract_colscr_for_source(source, out_dir, args)
+
+
 def extract_colscr_for_sources(args: argparse.Namespace) -> list[dict[str, Any]]:
-    sources = discover_dictionaries(args.root or [Path(".")])
+    sources = discover_dictionaries(args.root or [Path(".")], jobs=getattr(args, "jobs", 1))
     if args.dict:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]
-    summaries = []
-    for source in sources:
-        print(f"extracting COLSCR {source.dict_id}: {source.title}", file=sys.stderr)
-        summary = extract_colscr_for_source(source, args.out_dir, args)
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    task_args = worker_args(args)
+
+    def log_summary(summary: dict[str, Any]) -> None:
         print(
-            f"  media={summary['media_references']} valid={summary['valid_records']} "
+            f"{summary['dict_id']:12s} media={summary['media_references']} valid={summary['valid_records']} "
             f"bytes={summary.get('colscr_expanded_bytes', 0)}",
             file=sys.stderr,
         )
-        summaries.append(summary)
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+
+    summaries = parallel_map_ordered(
+        _colscr_source_task,
+        [(source, args.out_dir, task_args) for source in sources],
+        jobs=getattr(args, "jobs", 1),
+        on_result=log_summary,
+    )
     write_json(args.out_dir / "summary.json", summaries)
     return summaries
 

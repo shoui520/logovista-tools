@@ -84,6 +84,13 @@ Scan a LogoVista collection:
 logovista-tools scan /path/to/LogoVista
 ```
 
+For large corpora, add `--jobs N` to corpus-scale commands. `--jobs 0` uses
+all CPUs reported by Python:
+
+```bash
+logovista-tools audit-honmon /path/to/LogoVista --jobs 0 --out-dir out/honmon-audit
+```
+
 Inspect one dictionary catalog:
 
 ```bash

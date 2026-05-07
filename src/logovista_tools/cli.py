@@ -24,6 +24,7 @@ from .lved import (
 )
 from .lvcrypto import decrypt_logofont_cipher_file_to_path
 from .menus import extract_menus_for_idx
+from .parallel import add_jobs_argument, parallel_map_ordered, worker_args
 from .pcmdata import extract_pcmdata_for_sources
 from .rendererdb import extract_rendererdb_for_sources
 from .resources import ImageResource, load_image_resource_profile
@@ -93,7 +94,7 @@ def cmd_info(args: argparse.Namespace) -> int:
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
-    sources = discover_dictionaries(args.root or [Path(".")])
+    sources = discover_dictionaries(args.root or [Path(".")], jobs=args.jobs)
     if not sources:
         print("no dictionaries found", file=sys.stderr)
         return 1
@@ -163,6 +164,7 @@ def cmd_lved(args: argparse.Namespace) -> int:
         dict_code=args.dict_code,
         key=key,
         memory_dump=args.memory_dump,
+        jobs=args.jobs,
     )
 
     if args.write_decrypted:
@@ -253,11 +255,36 @@ def cmd_compose(args: argparse.Namespace) -> int:
 
 
 def select_sources(args: argparse.Namespace):
-    sources = discover_dictionaries(args.root or [Path(".")])
+    sources = discover_dictionaries(args.root or [Path(".")], jobs=getattr(args, "jobs", 1))
     if args.dict:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]
     return sources
+
+
+def _entries_task(payload: tuple[Any, Path, argparse.Namespace]) -> dict[str, Any]:
+    source, out_dir, args = payload
+    return extract_dictionary(source, out_dir, args)
+
+
+def _titles_task(payload: tuple[Any, Path, argparse.Namespace]) -> dict[str, Any]:
+    source, out_dir, args = payload
+    return extract_titles_for_idx(source.idx, out_dir, args)
+
+
+def _indexes_task(payload: tuple[Any, Path, argparse.Namespace]) -> dict[str, Any]:
+    source, out_dir, args = payload
+    return extract_indexes_for_idx(source.idx, out_dir, args)
+
+
+def _menus_task(payload: tuple[Any, Path, argparse.Namespace]) -> dict[str, Any]:
+    source, out_dir, args = payload
+    return extract_menus_for_idx(source.idx, out_dir, args)
+
+
+def _fulldb_task(payload: tuple[Any, Path, argparse.Namespace]) -> dict[str, Any]:
+    source, out_dir, args = payload
+    return extract_fulldb_dictionary(source, out_dir, args)
 
 
 def cmd_entries(args: argparse.Namespace) -> int:
@@ -267,16 +294,22 @@ def cmd_entries(args: argparse.Namespace) -> int:
         return 1
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    summaries = []
-    for source in sources:
-        print(f"extracting {source.dict_id}: {source.title}", file=sys.stderr)
-        summary = extract_dictionary(source, args.out_dir, args)
-        summaries.append(summary)
+
+    def log_summary(summary: dict[str, Any]) -> None:
         print(
-            f"  entries={summary['entries_emitted']} markers={summary['entry_markers']} "
+            f"{summary['dict_id']:12s} entries={summary['entries_emitted']} "
+            f"markers={summary['entry_markers']} "
             f"bytes={summary['expanded_bytes']}",
             file=sys.stderr,
         )
+
+    task_args = worker_args(args)
+    summaries = parallel_map_ordered(
+        _entries_task,
+        [(source, args.out_dir, task_args) for source in sources],
+        jobs=args.jobs,
+        on_result=log_summary,
+    )
     write_json(args.out_dir / "summary.json", summaries)
     return 0
 
@@ -476,82 +509,90 @@ def parse_gaiji_code_arg(value: str) -> int:
     return int(cleaned, 16)
 
 
+def _ga16_task(payload: tuple[Path, argparse.Namespace, bool]) -> dict[str, Any] | None:
+    path, args, group_by_dict = payload
+    data = path.read_bytes()
+    resource = parse_ga16_resource(path)
+    if resource is None:
+        return {"path": str(path), "status": "unparsable", "png_files_written": 0}
+
+    selected_codes = set(args.code or [])
+    prefix = ga16_prefix_for_path(path, args.prefix)
+    target_dir = args.out_dir / path.parent.name if group_by_dict else args.out_dir
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    written = 0
+    considered = 0
+    for code, glyph in resource.iter_glyphs(data):
+        if selected_codes and code not in selected_codes:
+            continue
+        considered += 1
+        base_name = f"{prefix}{code:04X}"
+        if args.variants:
+            write_ga16_glyph_png(
+                target_dir / f"{base_name}_n.png",
+                glyph,
+                resource.width,
+                resource.height,
+                foreground=(0, 0, 0, 255),
+                background=(0, 0, 0, 0),
+            )
+            write_ga16_glyph_png(
+                target_dir / f"{base_name}_w.png",
+                glyph,
+                resource.width,
+                resource.height,
+                foreground=(255, 255, 255, 255),
+                background=(0, 0, 0, 0),
+            )
+            written += 2
+        else:
+            write_ga16_glyph_png(
+                target_dir / f"{base_name}.png",
+                glyph,
+                resource.width,
+                resource.height,
+                foreground=args.foreground,
+                background=args.background,
+            )
+            written += 1
+        if args.limit is not None and considered >= args.limit:
+            break
+
+    return {
+        "path": str(path),
+        "out_dir": str(target_dir),
+        "prefix": prefix,
+        "width": resource.width,
+        "height": resource.height,
+        "start_code": f"{resource.start_code:04X}",
+        "count": resource.count,
+        "glyph_bytes": resource.glyph_bytes,
+        "glyphs_selected": considered,
+        "png_files_written": written,
+    }
+
+
 def cmd_ga16(args: argparse.Namespace) -> int:
     paths = discover_ga16_resources(args.path)
     if not paths:
         print(f"no GA16/GAI16 bitmap resources found under: {args.path}", file=sys.stderr)
         return 1
 
-    selected_codes = set(args.code or [])
     group_by_dict = args.path.is_dir()
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    summaries = []
-    total_written = 0
-    for path in paths:
-        data = path.read_bytes()
-        resource = parse_ga16_resource(path)
-        if resource is None:
-            print(f"skip unparsable GA16 resource: {path}", file=sys.stderr)
-            continue
-
-        prefix = ga16_prefix_for_path(path, args.prefix)
-        target_dir = args.out_dir / path.parent.name if group_by_dict else args.out_dir
-        target_dir.mkdir(parents=True, exist_ok=True)
-
-        written = 0
-        considered = 0
-        for code, glyph in resource.iter_glyphs(data):
-            if selected_codes and code not in selected_codes:
-                continue
-            considered += 1
-            base_name = f"{prefix}{code:04X}"
-            if args.variants:
-                write_ga16_glyph_png(
-                    target_dir / f"{base_name}_n.png",
-                    glyph,
-                    resource.width,
-                    resource.height,
-                    foreground=(0, 0, 0, 255),
-                    background=(0, 0, 0, 0),
-                )
-                write_ga16_glyph_png(
-                    target_dir / f"{base_name}_w.png",
-                    glyph,
-                    resource.width,
-                    resource.height,
-                    foreground=(255, 255, 255, 255),
-                    background=(0, 0, 0, 0),
-                )
-                written += 2
-            else:
-                write_ga16_glyph_png(
-                    target_dir / f"{base_name}.png",
-                    glyph,
-                    resource.width,
-                    resource.height,
-                    foreground=args.foreground,
-                    background=args.background,
-                )
-                written += 1
-            if args.limit is not None and considered >= args.limit:
-                break
-
-        total_written += written
-        summaries.append(
-            {
-                "path": str(path),
-                "out_dir": str(target_dir),
-                "prefix": prefix,
-                "width": resource.width,
-                "height": resource.height,
-                "start_code": f"{resource.start_code:04X}",
-                "count": resource.count,
-                "glyph_bytes": resource.glyph_bytes,
-                "glyphs_selected": considered,
-                "png_files_written": written,
-            }
-        )
+    task_args = worker_args(args)
+    summaries = parallel_map_ordered(
+        _ga16_task,
+        [(path, task_args, group_by_dict) for path in paths],
+        jobs=args.jobs,
+    )
+    for row in summaries:
+        if row.get("status") == "unparsable":
+            print(f"skip unparsable GA16 resource: {row['path']}", file=sys.stderr)
+    total_written = sum(row.get("png_files_written", 0) for row in summaries)
+    summaries = [row for row in summaries if row.get("status") != "unparsable"]
 
     if args.json:
         print(json.dumps({"resources": summaries, "png_files_written": total_written}, ensure_ascii=False, indent=2))
@@ -575,12 +616,17 @@ def cmd_titles(args: argparse.Namespace) -> int:
         return 1
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    summaries = []
-    for source in sources:
-        print(f"extracting titles {source.dict_id}: {source.title}", file=sys.stderr)
-        summary = extract_titles_for_idx(source.idx, args.out_dir, args)
-        summaries.append(summary)
-        print(f"  title_lines={summary['lines_emitted']}", file=sys.stderr)
+    task_args = worker_args(args)
+
+    def log_summary(summary: dict[str, Any]) -> None:
+        print(f"{summary['dict_id']:12s} title_lines={summary['lines_emitted']}", file=sys.stderr)
+
+    summaries = parallel_map_ordered(
+        _titles_task,
+        [(source, args.out_dir, task_args) for source in sources],
+        jobs=args.jobs,
+        on_result=log_summary,
+    )
     write_json(args.out_dir / "summary.json", summaries)
     return 0
 
@@ -592,12 +638,17 @@ def cmd_indexes(args: argparse.Namespace) -> int:
         return 1
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    summaries = []
-    for source in sources:
-        print(f"extracting indexes {source.dict_id}: {source.title}", file=sys.stderr)
-        summary = extract_indexes_for_idx(source.idx, args.out_dir, args)
-        summaries.append(summary)
-        print(f"  index_rows={summary['rows_emitted']}", file=sys.stderr)
+    task_args = worker_args(args)
+
+    def log_summary(summary: dict[str, Any]) -> None:
+        print(f"{summary['dict_id']:12s} index_rows={summary['rows_emitted']}", file=sys.stderr)
+
+    summaries = parallel_map_ordered(
+        _indexes_task,
+        [(source, args.out_dir, task_args) for source in sources],
+        jobs=args.jobs,
+        on_result=log_summary,
+    )
     write_json(args.out_dir / "summary.json", summaries)
     return 0
 
@@ -609,12 +660,17 @@ def cmd_menus(args: argparse.Namespace) -> int:
         return 1
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    summaries = []
-    for source in sources:
-        print(f"extracting menus {source.dict_id}: {source.title}", file=sys.stderr)
-        summary = extract_menus_for_idx(source.idx, args.out_dir, args)
-        summaries.append(summary)
-        print(f"  menu_lines={summary['lines_emitted']}", file=sys.stderr)
+    task_args = worker_args(args)
+
+    def log_summary(summary: dict[str, Any]) -> None:
+        print(f"{summary['dict_id']:12s} menu_lines={summary['lines_emitted']}", file=sys.stderr)
+
+    summaries = parallel_map_ordered(
+        _menus_task,
+        [(source, args.out_dir, task_args) for source in sources],
+        jobs=args.jobs,
+        on_result=log_summary,
+    )
     write_json(args.out_dir / "summary.json", summaries)
     return 0
 
@@ -626,17 +682,22 @@ def cmd_fulldb(args: argparse.Namespace) -> int:
         return 1
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    summaries = []
-    for source in sources:
-        print(f"extracting fulldb {source.dict_id}: {source.title}", file=sys.stderr)
-        summary = extract_fulldb_dictionary(source, args.out_dir, args)
-        summaries.append(summary)
+    task_args = worker_args(args)
+
+    def log_summary(summary: dict[str, Any]) -> None:
         print(
-            f"  entries={summary['entries_emitted']} "
+            f"{summary['dict_id']:12s} entries={summary['entries_emitted']} "
             f"ids={summary['honmon_ids_seen']} "
             f"missing={summary['honmon_ids_missing_in_fulldb']}",
             file=sys.stderr,
         )
+
+    summaries = parallel_map_ordered(
+        _fulldb_task,
+        [(source, args.out_dir, task_args) for source in sources],
+        jobs=args.jobs,
+        on_result=log_summary,
+    )
     write_json(args.out_dir / "summary.json", summaries)
     return 0
 
@@ -726,6 +787,75 @@ def comparable_path_key(path: Path) -> str:
     return f"{stat.st_dev}:{stat.st_ino}"
 
 
+def extract_extras_for_source(source: Any, out_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
+    title, elements = parse_ssedinfo(source.idx)
+    exinfo = load_exinfo_for_idx(source.idx)
+    dict_out = out_dir / source.dict_id
+    dict_out.mkdir(parents=True, exist_ok=True)
+    row = {
+        "dict_id": source.dict_id,
+        "dict_title": title,
+        "idx": str(source.idx),
+        "exinfo": str(exinfo.path) if exinfo else None,
+        "general": exinfo.general if exinfo else {},
+        "aux_indexes": [],
+        "numeric_indexes": [],
+    }
+    referenced_aux_paths: set[str] = set()
+    if exinfo is not None:
+        for spec in iter_aux_index_specs(exinfo):
+            if spec.path is not None:
+                referenced_aux_paths.add(comparable_path_key(spec.path))
+            spec_row = {
+                "index": spec.index,
+                "name": spec.name,
+                "info": spec.info,
+                "path": str(spec.path) if spec.path else None,
+                "kind": None,
+                "rows": 0,
+                "rows_path": None,
+                "sample": [],
+            }
+            if spec.path and spec.path.exists():
+                if spec.path.suffix.lower() in {".html", ".htm"}:
+                    spec_row["kind"] = "html"
+                    spec_row["bytes"] = spec.path.stat().st_size
+                else:
+                    parsed_rows = parse_aux_index_text(spec.path, elements)
+                    if parsed_rows:
+                        rows_path = dict_out / f"aux_{spec.index}_{spec.path.name}.jsonl"
+                        spec_row.update(write_aux_index_rows(spec.path, parsed_rows, rows_path, args.limit))
+                    else:
+                        spec_row["kind"] = "unknown"
+                        spec_row["bytes"] = spec.path.stat().st_size
+            row["aux_indexes"].append(spec_row)
+    for path in discover_numeric_aux_indexes(source.idx):
+        parsed_rows = parse_aux_index_text(path, elements)
+        numeric_row = {
+            "path": str(path),
+            "name": path.name,
+            "referenced_by_exinfo": comparable_path_key(path) in referenced_aux_paths,
+            "kind": None,
+            "rows": 0,
+            "rows_path": None,
+            "sample": [],
+        }
+        if parsed_rows:
+            rows_path = dict_out / f"numeric_{path.name}.jsonl"
+            numeric_row.update(write_aux_index_rows(path, parsed_rows, rows_path, args.limit))
+        else:
+            numeric_row["kind"] = "unknown"
+            numeric_row["bytes"] = path.stat().st_size
+        row["numeric_indexes"].append(numeric_row)
+    (dict_out / "extras_summary.json").write_text(json.dumps(row, ensure_ascii=False, indent=2), encoding="utf-8")
+    return row
+
+
+def _extras_task(payload: tuple[Any, Path, argparse.Namespace]) -> dict[str, Any]:
+    source, out_dir, args = payload
+    return extract_extras_for_source(source, out_dir, args)
+
+
 def cmd_extras(args: argparse.Namespace) -> int:
     sources = select_sources(args)
     if not sources:
@@ -733,75 +863,21 @@ def cmd_extras(args: argparse.Namespace) -> int:
         return 1
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    summaries = []
-    for source in sources:
-        title, elements = parse_ssedinfo(source.idx)
-        exinfo = load_exinfo_for_idx(source.idx)
-        dict_out = args.out_dir / source.dict_id
-        dict_out.mkdir(parents=True, exist_ok=True)
-        row = {
-            "dict_id": source.dict_id,
-            "dict_title": title,
-            "idx": str(source.idx),
-            "exinfo": str(exinfo.path) if exinfo else None,
-            "general": exinfo.general if exinfo else {},
-            "aux_indexes": [],
-            "numeric_indexes": [],
-        }
-        referenced_aux_paths: set[str] = set()
-        if exinfo is not None:
-            for spec in iter_aux_index_specs(exinfo):
-                if spec.path is not None:
-                    referenced_aux_paths.add(comparable_path_key(spec.path))
-                spec_row = {
-                    "index": spec.index,
-                    "name": spec.name,
-                    "info": spec.info,
-                    "path": str(spec.path) if spec.path else None,
-                    "kind": None,
-                    "rows": 0,
-                    "rows_path": None,
-                    "sample": [],
-                }
-                if spec.path and spec.path.exists():
-                    if spec.path.suffix.lower() in {".html", ".htm"}:
-                        spec_row["kind"] = "html"
-                        spec_row["bytes"] = spec.path.stat().st_size
-                    else:
-                        parsed_rows = parse_aux_index_text(spec.path, elements)
-                        if parsed_rows:
-                            rows_path = dict_out / f"aux_{spec.index}_{spec.path.name}.jsonl"
-                            spec_row.update(write_aux_index_rows(spec.path, parsed_rows, rows_path, args.limit))
-                        else:
-                            spec_row["kind"] = "unknown"
-                            spec_row["bytes"] = spec.path.stat().st_size
-                row["aux_indexes"].append(spec_row)
-        for path in discover_numeric_aux_indexes(source.idx):
-            parsed_rows = parse_aux_index_text(path, elements)
-            numeric_row = {
-                "path": str(path),
-                "name": path.name,
-                "referenced_by_exinfo": comparable_path_key(path) in referenced_aux_paths,
-                "kind": None,
-                "rows": 0,
-                "rows_path": None,
-                "sample": [],
-            }
-            if parsed_rows:
-                rows_path = dict_out / f"numeric_{path.name}.jsonl"
-                numeric_row.update(write_aux_index_rows(path, parsed_rows, rows_path, args.limit))
-            else:
-                numeric_row["kind"] = "unknown"
-                numeric_row["bytes"] = path.stat().st_size
-            row["numeric_indexes"].append(numeric_row)
-        (dict_out / "extras_summary.json").write_text(json.dumps(row, ensure_ascii=False, indent=2), encoding="utf-8")
-        summaries.append(row)
+    task_args = worker_args(args)
+
+    def log_summary(row: dict[str, Any]) -> None:
         print(
-            f"{source.dict_id:12s} exinfo={'yes' if exinfo else 'no':3s} "
+            f"{row['dict_id']:12s} exinfo={'yes' if row['exinfo'] else 'no':3s} "
             f"aux={len(row['aux_indexes']):2d} numeric={len(row['numeric_indexes']):2d}",
             file=sys.stderr,
         )
 
+    summaries = parallel_map_ordered(
+        _extras_task,
+        [(source, args.out_dir, task_args) for source in sources],
+        jobs=args.jobs,
+        on_result=log_summary,
+    )
     write_json(args.out_dir / "summary.json", summaries)
     if args.json:
         print(json.dumps(summaries, ensure_ascii=False, indent=2))
@@ -815,6 +891,12 @@ def cmd_rendererdb(args: argparse.Namespace) -> int:
     return 0
 
 
+def _spindex_task(payload: tuple[Path, Path, int | None]) -> dict[str, Any]:
+    path, out_dir, limit = payload
+    dict_out = out_dir / path.parent.name
+    return inspect_spindex(path, out_dir=dict_out, row_limit=limit)
+
+
 def cmd_spindex(args: argparse.Namespace) -> int:
     paths = discover_spindex_files(args.root or [Path(".")])
     if not paths:
@@ -822,11 +904,9 @@ def cmd_spindex(args: argparse.Namespace) -> int:
         return 1
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    summaries = []
-    for path in paths:
-        dict_out = args.out_dir / path.parent.name
-        summary = inspect_spindex(path, out_dir=dict_out, row_limit=args.limit)
-        summaries.append(summary)
+
+    def log_summary(summary: dict[str, Any]) -> None:
+        path = Path(summary["path"])
         print(
             f"{path.parent.name:12s} chunks={summary['chunks_present']:3d}/{summary['declared_chunks']:3d} "
             f"pages={summary['pages_parsed']:4d} rows={summary['internal_rows']:5d} "
@@ -834,6 +914,12 @@ def cmd_spindex(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
+    summaries = parallel_map_ordered(
+        _spindex_task,
+        [(path, args.out_dir, args.limit) for path in paths],
+        jobs=args.jobs,
+        on_result=log_summary,
+    )
     write_json(args.out_dir / "summary.json", summaries)
     if args.json:
         print(json.dumps(summaries, ensure_ascii=False, indent=2))
@@ -863,6 +949,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan = sub.add_parser("scan", help="Find LogoVista dictionaries under roots.")
     p_scan.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
     p_scan.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    add_jobs_argument(p_scan)
     p_scan.set_defaults(func=cmd_scan)
 
     p_expand = sub.add_parser("expand", help="Expand one SSEDDATA .DIC file.")
@@ -895,6 +982,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write a plaintext SQLite copy for one payload. Requires --dict-id or --key-file.",
     )
     p_lved.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    add_jobs_argument(p_lved)
     p_lved.set_defaults(func=cmd_lved)
 
     p_compose = sub.add_parser("compose", help="Compose an EPWING-like book image from one .IDX.")
@@ -947,6 +1035,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="Do not add raw index body pointers as extra entry boundaries.",
     )
+    add_jobs_argument(p_entries)
     p_entries.set_defaults(skip_dense_marker_honmon=True, index_boundaries=True, func=cmd_entries)
     p_entries.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
 
@@ -954,6 +1043,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_resources.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
     p_resources.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
     p_resources.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    add_jobs_argument(p_resources)
     p_resources.set_defaults(func=cmd_resources)
 
     p_colscr = sub.add_parser("colscr", help="Inspect or extract COLSCR.DIC media image records.")
@@ -969,6 +1059,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write referenced image files next to the manifest.",
     )
     p_colscr.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    add_jobs_argument(p_colscr)
     p_colscr.set_defaults(func=cmd_colscr)
 
     p_pcmdata = sub.add_parser("pcmdata", help="Inspect or extract PCMDATA.DIC audio/media records.")
@@ -988,6 +1079,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Do not scan unreferenced records in PCMDATA gaps.",
     )
     p_pcmdata.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    add_jobs_argument(p_pcmdata)
     p_pcmdata.set_defaults(include_unreferenced=True, func=cmd_pcmdata)
 
     p_extras = sub.add_parser("extras", help="Parse Windows EXINFO.INI auxiliary index/html metadata.")
@@ -996,6 +1088,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_extras.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
     p_extras.add_argument("--limit", type=int, default=10, help="Number of sample aux-index rows per file.")
     p_extras.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    add_jobs_argument(p_extras)
     p_extras.set_defaults(func=cmd_extras)
 
     p_rendererdb = sub.add_parser(
@@ -1026,6 +1119,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rendererdb.add_argument("--ziptomedia-limit", type=int, help="Limit ziptomedia sound files written.")
     p_rendererdb.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    add_jobs_argument(p_rendererdb)
     p_rendererdb.set_defaults(include_html=True, write_ziptomedia=False, ziptomedia_limit=None, func=cmd_rendererdb)
 
     p_spindex = sub.add_parser("spindex", help="Inspect standalone SPINDEX.DIC suffix-index resources.")
@@ -1033,6 +1127,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_spindex.add_argument("--out-dir", type=Path, default=Path("logovista-spindex"))
     p_spindex.add_argument("--limit", type=int, help="Limit emitted internal rows per SPINDEX.DIC.")
     p_spindex.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    add_jobs_argument(p_spindex)
     p_spindex.set_defaults(func=cmd_spindex)
 
     p_audit = sub.add_parser("audit-honmon", help="Audit raw HONMON/IDX readability without SQLite bodies.")
@@ -1050,6 +1145,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_audit.add_argument("--no-skip-dbc", dest="skip_dbc", action="store_false")
     p_audit.add_argument("--no-index-boundaries", dest="index_boundaries", action="store_false")
     p_audit.add_argument("--json", action="store_true", help="Also print machine-readable JSON.")
+    add_jobs_argument(p_audit)
     p_audit.set_defaults(skip_dbc=True, index_boundaries=True, func=cmd_audit)
 
     p_gaiji_report = sub.add_parser(
@@ -1092,6 +1188,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include mapped gaiji codes not seen in raw HONMON/TITLE scans.",
     )
+    add_jobs_argument(p_gaiji_report)
     p_gaiji_report.set_defaults(func=cmd_gaiji_report)
 
     p_uni = sub.add_parser("uni", help="Inspect a LogoVista .uni/UNI gaiji mapping file.")
@@ -1134,6 +1231,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Write LogoVista-style black _n.png and white _w.png theme variants.",
     )
+    add_jobs_argument(p_ga16)
     p_ga16.set_defaults(func=cmd_ga16)
 
     p_titles = sub.add_parser("titles", help="Extract raw *TITLE.DIC headword/title lines as JSONL.")
@@ -1142,6 +1240,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_titles.add_argument("--limit", type=int, help="Limit emitted title lines per component.")
     p_titles.add_argument("--gaiji", choices=("drop", "h-placeholder", "placeholder"), default="h-placeholder")
     p_titles.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
+    add_jobs_argument(p_titles)
     p_titles.set_defaults(func=cmd_titles)
 
     p_indexes = sub.add_parser("indexes", help="Extract raw *INDEX.DIC search rows as JSONL.")
@@ -1156,6 +1255,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Also emit binary-search tree internal rows, not only leaf search records.",
     )
+    add_jobs_argument(p_indexes)
     p_indexes.set_defaults(func=cmd_indexes)
 
     p_menus = sub.add_parser("menus", help="Extract MENU.DIC menu trees and destination pointers.")
@@ -1164,6 +1264,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_menus.add_argument("--limit", type=int, help="Limit emitted menu lines per component.")
     p_menus.add_argument("--gaiji", choices=("drop", "h-placeholder", "placeholder"), default="h-placeholder")
     p_menus.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
+    add_jobs_argument(p_menus)
     p_menus.set_defaults(func=cmd_menus)
 
     p_fulldb = sub.add_parser(
@@ -1179,6 +1280,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="If DictList.plist has no DictFULLDB, try a neighboring .db/.sql file.",
     )
+    add_jobs_argument(p_fulldb)
     p_fulldb.set_defaults(func=cmd_fulldb)
 
     return parser

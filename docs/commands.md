@@ -4,6 +4,26 @@ This page documents the current command-line interface. Commands are grouped by 
 
 ## CLI Commands
 
+### Parallel Jobs
+
+Corpus-scale commands support `--jobs`:
+
+```bash
+--jobs 1     run serially; this is the default
+--jobs 8     use eight worker processes
+--jobs 0     use os.cpu_count()
+```
+
+This applies to commands that operate across many dictionaries or resources:
+`scan`, `entries`, `resources`, `colscr`, `pcmdata`, `extras`, `rendererdb`,
+`spindex`, `audit-honmon`, `gaiji-report`, `ga16`, `titles`, `indexes`,
+`menus`, `fulldb`, and LVED payload inspection.
+
+For huge corpora, start with a moderate value such as `--jobs 8` or `--jobs 16`
+when also writing many JSON/media files. `--jobs 0` is useful for CPU-heavy
+audits on local SSD/NVMe storage, but it can be counterproductive on slow or
+network-mounted disks.
+
 ### `scan`
 
 Find SSED dictionaries under one or more roots.
