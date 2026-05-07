@@ -11,7 +11,7 @@ from typing import Hashable
 
 IMAGE_SUFFIX_RE = re.compile(r"^(?P<key>.+)_(?P<theme>n|w|1|3|1_1)$")
 GAIJI_IMAGE_KEY_RE = re.compile(r"[A-Fa-f][0-9A-Fa-f]{3}")
-IMAGE_EXTENSIONS = {".png", ".gif", ".jpg", ".jpeg", ".webp", ".bmp"}
+IMAGE_EXTENSIONS = {".png", ".gif", ".jpg", ".jpeg", ".webp", ".bmp", ".svg"}
 
 
 @dataclass(frozen=True)

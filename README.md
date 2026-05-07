@@ -24,7 +24,10 @@ boundaries, which is required for packages whose real entries do not all start
 with the common `1f09 0001` marker. The `audit-honmon` command is a raw-only
 corpus probe for checking whether a dictionary's `HONMON.DIC` is a readable body
 stream, a dense raw ID/token table, or an opaque/stub component; it does not read
-SQLite body text.
+SQLite body text. Windows packages with `EXINFO.INI` side panels and encrypted
+renderer databases are also supported: `extras` parses auxiliary index trees,
+and `rendererdb` follows raw HONMON ID anchors into observed `t_contents`
+renderer SQLite payloads such as DAIJIRN4's `vlpljblb`.
 
 No dictionary data is included in this repository.
 
@@ -80,6 +83,12 @@ Decrypt a LogoFontCipher sidecar without expanding it:
 
 ```bash
 logovista-tools decrypt /path/to/DICT/vlpljblF vlpljblF.sqlite
+```
+
+Parse Windows `EXINFO.INI` side panels and auxiliary text indexes:
+
+```bash
+logovista-tools extras /path/to/DICT --out-dir out/extras
 ```
 
 Compose an EPWING-like book image from an `.IDX` and its sibling `.DIC` files:
@@ -176,6 +185,13 @@ Extract formatted bodies from products that use raw HONMON ID records plus
 logovista-tools fulldb /path/to/LogoVista --dict KOJIEN7 --out-dir out/fulldb
 ```
 
+Extract formatted bodies from Windows renderer SQLite sidecars linked by raw
+HONMON ID anchors:
+
+```bash
+logovista-tools rendererdb /path/to/LogoVista --dict DAIJIRN4 --out-dir out/rendererdb
+```
+
 Smoke-test one dictionary:
 
 ```bash
@@ -231,6 +247,8 @@ logovista-tools decrypt vlpljblF vlpljblF.sqlite
 Use this for sidecars that decrypt to another container such as SQLite. For
 encrypted `HONMON.DIC`, `info`, `expand`, `entries`, and `audit-honmon` already
 decrypt transparently when the optional crypto dependency is installed.
+The command streams input to output, so large sidecars such as DAIJIRN4's
+610 MB `vlpljblb` do not need to be loaded into memory.
 
 ### `compose`
 
@@ -356,6 +374,8 @@ mixed_or_dense_but_raw_slices_readable
                                     dense signals exist, but raw slices are readable
 dense_honmon_id_table_dictfulldb    HONMON stores raw numeric body IDs
 dense_honmon_token_table_dictfulldb HONMON stores opaque raw tokens/anchors
+dense_honmon_id_table_rendererdb    HONMON stores raw numeric IDs that resolve
+                                    to a Windows renderer SQLite sidecar
 idx_title_only_no_readable_honmon_body
                                     indexes/titles exist, but sampled HONMON bodies do not
 skipped_dbc                         .dbc payload skipped by default
@@ -377,6 +397,8 @@ put images in `resource/kmkimges`, `appendix/img`, or `manual/contents/img`. The
 resource scanner checks all of those locations, groups theme variants such as
 `b13d_n.png` / `b13d_w.png` and Android-style `b167_1.png` / `b167_3.png`, and
 reports code-like resources such as `b13d` or `b167` as image-backed gaiji.
+PNG, GIF, JPEG, WebP, BMP, and SVG files are all treated as portable package
+resources.
 Named images such as `exam.png`, `esp.png`, or `jpn.png` are reported as package
 resources for format exporters to use when reconstructing dictionary-specific
 styling.
@@ -458,6 +480,68 @@ standard `RIFF/WAVE` container. For MPEG Layer III records stored inside WAVE
 chunks, it writes the `data` chunk as `.mp3`. For native `ID3`/MP3 records, it
 writes the MP3 payload directly.
 
+### `extras`
+
+Parse Windows `EXINFO.INI` metadata and auxiliary side-panel files.
+
+```bash
+logovista-tools extras /path/to/DICT --out-dir extras
+logovista-tools extras /path/to/LogoVista --dict DAIJIRN4 --json
+```
+
+Windows packages often declare side UI through fields such as `IDXCOUNT`,
+`IDXNAME0`, and `IDXINFO0`. HTML entries are reported as HTML files. Text
+auxiliary indexes such as DAIJIRN4's `0000015E.IDX` are parsed as CP932 tab
+trees whose first two columns are eight-digit hexadecimal block/offset
+pointers. Rows are resolved against the `.IDX` component ranges when possible.
+
+Output layout:
+
+```text
+extras/
+  summary.json
+  DICT_ID/
+    extras_summary.json
+    aux_0_0000015E.IDX.jsonl
+```
+
+### `rendererdb`
+
+Extract Windows renderer SQLite bodies by following raw HONMON ID anchors.
+
+```bash
+logovista-tools rendererdb /path/to/DICT --out-dir rendererdb
+logovista-tools rendererdb /path/to/DICT --limit 20 --no-html
+logovista-tools rendererdb /path/to/DICT --write-media --media-limit 100
+```
+
+This command handles the DAIJIRN4-style layout where `HONMON.DIC` is a dense
+32-byte anchor table, not a body stream. It still starts from raw HONMON:
+
+1. Expand `HONMON.DIC`.
+2. Decode 32-byte records whose visible field is a full-width decimal ID.
+3. Discover a sibling Windows renderer SQLite sidecar, decrypting observed
+   LogoFontCipher sidecars such as `vlpljblb` when needed.
+4. Query `t_contents` and emit only rows whose `f_DataId` exists in raw HONMON.
+
+Output layout:
+
+```text
+rendererdb/
+  summary.json
+  DICT_ID/
+    rendererdb_summary.json
+    rendererdb_entries.jsonl
+    vlpljblb.sqlite
+    media/
+      00001_3djr_0002.gif
+```
+
+Rows include `data_id`, raw HONMON block/offset, type, group id, title,
+search title, keyword text, plain body text, and HTML unless `--no-html` is
+used. `--write-media` exports BLOBs from the sidecar `media` table using magic
+bytes to choose `.gif`, `.png`, `.jpg`, `.bmp`, or `.bin`.
+
 ### `gaiji-report`
 
 Write per-dictionary gaiji audit reports.
@@ -465,6 +549,7 @@ Write per-dictionary gaiji audit reports.
 ```bash
 logovista-tools gaiji-report /path/to/LogoVista --dict HAESPJPN --out-dir gaiji-report
 logovista-tools gaiji-report /path/to/LogoVista --dict KOJIEN7 --no-sql-cache --max-sql-rows 1000
+logovista-tools gaiji-report /path/to/LogoVista --dict DAIJIRN4 --renderer-sidecars
 ```
 
 Output layout:
@@ -484,6 +569,8 @@ The report combines:
 - package PNG/image gaiji coverage;
 - SQLite text evidence from declared `DictFULLDB` and sibling app-cache
   databases;
+- optional Windows renderer SQLite sidecar evidence when `--renderer-sidecars`
+  is used;
 - aligned validation for cache tables that expose `Block` and `Offset`.
 
 Useful options:
@@ -491,6 +578,7 @@ Useful options:
 ```bash
 --dict NAME                         inspect only matching dictionary ids
 --no-sql-cache                      use declared DictFULLDB only
+--renderer-sidecars                 decrypt/use Windows renderer SQLite sidecars
 --max-sql-rows N                    scan at most N rows per SQLite table; 0 = full scan
 --max-aligned-entries N             align at most N raw HONMON entries; 0 = full scan
 --alignment-tolerance N             byte tolerance for Block/Offset cache matching
@@ -797,7 +885,7 @@ Known working layers:
 - `SSEDINFO` `.IDX` parsing.
 - `SSEDDATA` `.DIC` expansion.
 - Observed Windows LogoFontCipher AES-CBC decryption for encrypted
-  `HONMON.DIC` and sidecars.
+  `HONMON.DIC` and sidecars, including streaming decrypt for large files.
 - EPWING-like component composition.
 - JIS X 0208 text decoding.
 - Common `0x1f` stream controls for line breaks, headword spans, links,
@@ -819,6 +907,10 @@ Known working layers:
   unreferenced sequential-record discovery, and portable WAV/MP3 writing.
 - SQL/`DictFULLDB`-assisted gaiji validation reports, including aligned
   `Block`/`Offset` checks where cache tables expose those columns.
+- Optional encrypted Windows renderer sidecar use in gaiji validation reports.
+- Windows `EXINFO.INI` parsing and CP932 auxiliary text-index tree extraction.
+- Windows renderer SQLite extraction through raw HONMON ID anchors and
+  `t_contents` rows, with optional `media` BLOB export.
 - Structured `MENU.DIC` extraction with menu hierarchy, link labels,
   packed-BCD destination pointers, and named component/body targets.
 - Common `*TITLE.DIC` extraction, including `KWTITLE.DIC` keyword-title
@@ -838,6 +930,9 @@ Known working layers:
 Known limitations:
 
 - Not all dictionaries store definitions in `HONMON.DIC`.
+- Some Windows titles store only body IDs in `HONMON.DIC` and put renderer HTML
+  in an encrypted SQLite sidecar. In that case raw HONMON remains the anchor
+  table, but the body text requires dereferencing the sidecar.
 - Not every product that declares `DictFULLDB` has an unreadable `HONMON.DIC`;
   several still have readable raw body streams. Audit the raw layer first.
 - `MENU.DIC` destinations are resolved to components, but semantic target
@@ -1096,7 +1191,7 @@ Blank slots contain repeated JIS blank cells (`2121`). Populated slots contain
 body IDs in the same span:
 
 ```text
-1f0a 1f09 0001 1f41 0160 1f04 3330 3330 ... 1f05 1f61
+1f0a 1f09 0001 1f41 0160 1f04 2330 2330 ... 1f05 1f61
 ```
 
 Decoded as text, the ID span can be:
@@ -1120,7 +1215,9 @@ The model for these dictionaries is:
 - direct HONMON slicing does not recover definitions;
 - HONMON is still meaningful as a raw numeric ID/address table;
 - `DictList.plist` can name a sibling `DictFULLDB` payload;
-- the full body is recovered by following raw HONMON IDs into that payload.
+- Windows `EXINFO.INI` / renderer sidecars can provide a `t_contents` payload;
+- the full body is recovered by following raw HONMON IDs into the appropriate
+  payload.
 
 Other dense products use the same 32-byte HONMON structure but store opaque
 tokens rather than decimal body IDs. HOUGAKU5 is currently in this class: raw
@@ -1140,10 +1237,12 @@ Observed non-body HONMON dictionaries in the local corpus include:
 | `KENROWA` | Numeric ID table | `*TITLE.DIC` streams expose Russian/Japanese lookup titles. |
 | `KOJIEN7` | Numeric ID table | `*TITLE.DIC` streams expose Japanese lookup titles; HONMON IDs resolve to `DictFULLDB`. |
 | `NANMED20` | Numeric ID table | `*TITLE.DIC` streams expose alias triples such as `見出し|読み|表示見出し`. |
+| `DAIJIRN4_WIN` | Numeric ID anchor table | `*TITLE.DIC` streams expose headwords; HONMON IDs resolve to encrypted Windows renderer table `t_contents`. |
 
 For these, the `entries` command skips body extraction by default and reports a
 warning in `summary.json`. Try `fulldb` when `DictList.plist` declares
-`DictFULLDB`.
+`DictFULLDB`; try `rendererdb` when a Windows package has `EXINFO.INI` and an
+encrypted renderer SQLite sidecar such as `vlpljblb`.
 
 This is why the toolkit keeps the dense raw layer in scope. Even when a
 database is required for final body text, raw `HONMON.DIC` and `*INDEX.DIC`
@@ -1238,9 +1337,9 @@ unknown_controls:       0
 
 ### Windows Packages
 
-Two Windows packages have now been checked directly: SINMEI7 Windows and
-EJJE200. They share the same SSED/EPWING-like core, but add Windows app sidecars
-around it.
+Three Windows packages have now been checked directly: SINMEI7 Windows, EJJE200,
+and DAIJIRN4 Windows. They share the same SSED/EPWING-like core, but add Windows
+app sidecars around it.
 
 #### SINMEI7 Windows vs iOS
 
@@ -1352,6 +1451,123 @@ CREATE TABLE t_Search_N (
   f_block TEXT,
   f_offset TEXT
 );
+```
+
+#### DAIJIRN4 Windows Renderer Database
+
+DAIJIRN4 is the first observed Windows package where plain `HONMON.DIC` is not
+a definition stream and the full formatted body is in a Windows renderer
+database. The core `SSEDINFO` table contains 11 components:
+
+```text
+HONMON.DIC
+FKTITLE/FKINDEX, FHTITLE/FHINDEX
+BKTITLE/BKINDEX, BHTITLE/BHINDEX
+GA16FULL
+GA16HALF
+```
+
+There is no `MENU.DIC`, `PCMDATA.DIC`, or `COLSCR.DIC`. `HONMON.DIC` is plain
+`SSEDDATA` and expands to 43,106,304 bytes, but the expanded stream is a dense
+run of 32-byte anchor records:
+
+```text
+1f0a 1f09 0001 1f41 0160 1f04 [8 JIS cells] 1f05 1f61
+```
+
+Every fifth record carries an eight-cell full-width decimal ID, for example
+`00000025`; the other four records in that group are blank anchors. The marker
+start used by raw indexes is two bytes after the 32-byte record start. Example:
+data id `25` is at record offset `768`, block `2`, offset `768`, with the
+marker target at block `2`, offset `770`.
+
+The count relationship is exact:
+
+```text
+HONMON entry markers:       1,347,035
+HONMON ID records:            269,407
+t_contents rows:              269,386
+DB rows matching raw IDs:      269,386
+raw IDs missing in DB:             21  terminal trailer anchors only
+```
+
+This is not a failed HONMON parse. It is a raw anchor table. The body payload is
+the encrypted sibling `vlpljblb`, and the bundled `vlpljbl.bin` is byte-identical
+to the EJJE200 decryptor. Decrypting `vlpljblb` with the LogoFontCipher key
+produces a 610,735,616-byte SQLite database with three tables:
+
+```sql
+CREATE TABLE t_contents (
+  f_DataId INTEGER PRIMARY KEY,
+  f_Type INTEGER,
+  f_DataGroupId INTEGER,
+  f_Anchor TEXT,
+  f_Title TEXT,
+  f_Title_SS TEXT,
+  f_Html TEXT,
+  f_Keyword TEXT,
+  f_Plane TEXT
+);
+
+CREATE TABLE t_bunya (
+  f_DataId INTEGER NOT NULL PRIMARY KEY,
+  f_GenreKey TEXT,
+  f_Title TEXT,
+  f_TitleSS TEXT
+);
+
+CREATE TABLE media (
+  No INTEGER NOT NULL PRIMARY KEY,
+  f_name TEXT,
+  f_type INTEGER,
+  f_main BLOB
+);
+```
+
+Observed row counts and content types:
+
+```text
+t_contents: 269,386 rows
+t_bunya:     47,375 rows
+media:        2,830 rows
+
+f_Type=1  parent entries                 179,350
+f_Type=2  child/sub entries               78,144
+f_Type=3  idiom/phrase entries             8,328
+f_Type=4  kanji entries                    3,283
+f_Type=5  late appendix/search rows          273
+f_Type=6  terminal/special rows                8
+
+media f_type=2  PNG appendix images           86
+media f_type=3  GIF entry figures          2,744
+```
+
+`f_Html` is complete renderer HTML. It contains links such as
+`lved.dataid:01346760` and inline figure tags such as
+`<img src="3djr_0002.gif" class="media">`; those image names resolve to the
+`media.f_name` BLOB table. `f_Plane` is the flattened plain/search body. The
+`rendererdb` command emits the HTML/plain rows and can write the `media` BLOBs
+as portable image files.
+
+`HC015E.dll` confirms this interpretation. Its strings include
+`pluginFunction2nd`, `epwing2HtmlBodydata`, the sidecar name `vlpljblb`, and SQL
+queries such as `SELECT f_Html FROM t_contents WHERE f_DataId = ?` and
+`SELECT f_name, f_main FROM media WHERE f_name = ?`.
+
+`EXINFO.INI` declares `HTML=1`, `HTMLDLL=HC015E.dll`, `IDXCOUNT=3`,
+`IDXINFO0=0000015E.IDX`, `IDXINFO1=select.html`, `IDXINFO2=select2.html`,
+`ROSQLNAME=DAIJIRN4.db`, `BUBUNDB=1`, `ZENBUNDB=1`, and `VERTICAL=1`.
+`0000015E.IDX` is a CP932 tab-tree with 284 rows. Its first two columns are
+hex block/offset pointers into the raw HONMON anchor layer; tab depth defines
+labels such as `大辞林 第四版 / 分野別索引 / 季語 / 春`.
+
+DAIJIRN4 gaiji/resources are otherwise normal:
+
+```text
+DAIJIRN4.uni: simple12, 92 half records, 1,191 full records, 1,243 mappings
+GA16HALF:     8x16, start A121, 92 glyphs
+GA16FULL:    16x16, start B121, 1,191 glyphs
+Templates:  255 portable resources after PNG/GIF/BMP/SVG discovery
 ```
 
 `SPINDEX.DIC` is present in EJJE200 and SINMEI7 Windows, but it is not listed in

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from typing import BinaryIO
 
 
 LOGOFONT_CIPHER_PASSPHRASE = b"LogoFontCipher"
@@ -86,3 +87,51 @@ def decrypt_logofont_cipher_bytes(data: bytes) -> bytes:
 def decrypt_logofont_cipher_file(path: Path) -> bytes:
     return decrypt_logofont_cipher_bytes(path.read_bytes())
 
+
+def decrypt_logofont_cipher_stream(infile: BinaryIO, outfile: BinaryIO, *, chunk_size: int = 1024 * 1024) -> int:
+    """Decrypt a LogoFontCipher payload from one binary file object to another.
+
+    Unlike :func:`decrypt_logofont_cipher_file`, this keeps memory use bounded.
+    It expects a normal PKCS#7-padded payload, which matches the observed
+    Windows sidecars that decrypt to SQLite.
+    """
+
+    if chunk_size < BLOCK_SIZE:
+        chunk_size = BLOCK_SIZE
+    chunk_size -= chunk_size % BLOCK_SIZE
+
+    Cipher, algorithms, modes, padding = _cryptography_modules()
+    key, iv = logofont_cipher_key_iv()
+    decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
+    unpadder = padding.PKCS7(BLOCK_SIZE * 8).unpadder()
+    written = 0
+    pending = b""
+
+    while True:
+        chunk = infile.read(chunk_size)
+        if not chunk:
+            break
+        pending += chunk
+        process_len = len(pending) - (len(pending) % BLOCK_SIZE)
+        if not process_len:
+            continue
+        plaintext = decryptor.update(pending[:process_len])
+        pending = pending[process_len:]
+        out = unpadder.update(plaintext)
+        outfile.write(out)
+        written += len(out)
+
+    if pending:
+        raise LogoVistaCryptoError("encrypted payload length is not a multiple of 16 bytes")
+
+    out = unpadder.update(decryptor.finalize()) + unpadder.finalize()
+    outfile.write(out)
+    written += len(out)
+    return written
+
+
+def decrypt_logofont_cipher_file_to_path(path: Path, out: Path, *, chunk_size: int = 1024 * 1024) -> int:
+    """Decrypt a LogoFontCipher file to *out* without reading it all at once."""
+
+    with path.open("rb") as infile, out.open("wb") as outfile:
+        return decrypt_logofont_cipher_stream(infile, outfile, chunk_size=chunk_size)

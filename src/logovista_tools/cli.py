@@ -16,9 +16,10 @@ from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
 from .gaiji import UniRecord, parse_ga16_resource, parse_uni_resource, write_ga16_glyph_png
 from .indexes import extract_indexes_for_idx
-from .lvcrypto import decrypt_logofont_cipher_file
+from .lvcrypto import decrypt_logofont_cipher_file_to_path
 from .menus import extract_menus_for_idx
 from .pcmdata import extract_pcmdata_for_sources
+from .rendererdb import extract_rendererdb_for_sources
 from .resources import ImageResource, load_image_resource_profile
 from .ssed import (
     BLOCK_SIZE,
@@ -30,6 +31,7 @@ from .ssed import (
     write_epwing_catalog_header,
 )
 from .titles import extract_titles_for_idx
+from .windows import aux_index_row_to_json, iter_aux_index_specs, load_exinfo_for_idx, parse_aux_index_text
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -133,10 +135,9 @@ def cmd_expand(args: argparse.Namespace) -> int:
 
 def cmd_decrypt(args: argparse.Namespace) -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    plaintext = decrypt_logofont_cipher_file(args.file)
-    args.out.write_bytes(plaintext)
+    written = decrypt_logofont_cipher_file_to_path(args.file, args.out)
     print(f"decrypted {args.file} -> {args.out}")
-    print(f"bytes: {len(plaintext)}")
+    print(f"bytes: {written}")
     return 0
 
 
@@ -589,6 +590,79 @@ def cmd_pcmdata(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_extras(args: argparse.Namespace) -> int:
+    sources = select_sources(args)
+    if not sources:
+        print("no dictionaries found", file=sys.stderr)
+        return 1
+
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    summaries = []
+    for source in sources:
+        title, elements = parse_ssedinfo(source.idx)
+        exinfo = load_exinfo_for_idx(source.idx)
+        dict_out = args.out_dir / source.dict_id
+        dict_out.mkdir(parents=True, exist_ok=True)
+        row = {
+            "dict_id": source.dict_id,
+            "dict_title": title,
+            "idx": str(source.idx),
+            "exinfo": str(exinfo.path) if exinfo else None,
+            "general": exinfo.general if exinfo else {},
+            "aux_indexes": [],
+        }
+        if exinfo is not None:
+            for spec in iter_aux_index_specs(exinfo):
+                spec_row = {
+                    "index": spec.index,
+                    "name": spec.name,
+                    "info": spec.info,
+                    "path": str(spec.path) if spec.path else None,
+                    "kind": None,
+                    "rows": 0,
+                    "rows_path": None,
+                    "sample": [],
+                }
+                if spec.path and spec.path.exists():
+                    if spec.path.suffix.lower() in {".html", ".htm"}:
+                        spec_row["kind"] = "html"
+                        spec_row["bytes"] = spec.path.stat().st_size
+                    else:
+                        parsed_rows = parse_aux_index_text(spec.path, elements)
+                        if parsed_rows:
+                            spec_row["kind"] = "text-index"
+                            spec_row["rows"] = len(parsed_rows)
+                            rows_path = dict_out / f"aux_{spec.index}_{spec.path.name}.jsonl"
+                            with rows_path.open("w", encoding="utf-8") as out:
+                                for item in parsed_rows:
+                                    out.write(json.dumps(aux_index_row_to_json(item), ensure_ascii=False) + "\n")
+                            spec_row["rows_path"] = str(rows_path)
+                            spec_row["sample"] = [aux_index_row_to_json(item) for item in parsed_rows[: args.limit]]
+                        else:
+                            spec_row["kind"] = "unknown"
+                            spec_row["bytes"] = spec.path.stat().st_size
+                row["aux_indexes"].append(spec_row)
+        (dict_out / "extras_summary.json").write_text(json.dumps(row, ensure_ascii=False, indent=2), encoding="utf-8")
+        summaries.append(row)
+        print(
+            f"{source.dict_id:12s} exinfo={'yes' if exinfo else 'no':3s} "
+            f"aux={len(row['aux_indexes']):2d}",
+            file=sys.stderr,
+        )
+
+    write_json(args.out_dir / "summary.json", summaries)
+    if args.json:
+        print(json.dumps(summaries, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_rendererdb(args: argparse.Namespace) -> int:
+    summaries = extract_rendererdb_for_sources(args)
+    if args.json:
+        print(json.dumps(summaries, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
     rows = extract_audit_for_sources(args)
     if args.json:
@@ -717,6 +791,38 @@ def build_parser() -> argparse.ArgumentParser:
     p_pcmdata.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
     p_pcmdata.set_defaults(include_unreferenced=True, func=cmd_pcmdata)
 
+    p_extras = sub.add_parser("extras", help="Parse Windows EXINFO.INI auxiliary index/html metadata.")
+    p_extras.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_extras.add_argument("--out-dir", type=Path, default=Path("logovista-extras"))
+    p_extras.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
+    p_extras.add_argument("--limit", type=int, default=10, help="Number of sample aux-index rows per file.")
+    p_extras.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    p_extras.set_defaults(func=cmd_extras)
+
+    p_rendererdb = sub.add_parser(
+        "rendererdb",
+        help="Extract Windows renderer SQLite bodies linked from raw HONMON ID anchors.",
+    )
+    p_rendererdb.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_rendererdb.add_argument("--out-dir", type=Path, default=Path("logovista-rendererdb"))
+    p_rendererdb.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
+    p_rendererdb.add_argument("--limit", type=int, help="Limit emitted body rows per dictionary.")
+    p_rendererdb.add_argument(
+        "--decrypted-db",
+        type=Path,
+        help="Use an existing plaintext SQLite database for a single dictionary instead of discovering/decrypting.",
+    )
+    p_rendererdb.add_argument(
+        "--no-html",
+        dest="include_html",
+        action="store_false",
+        help="Omit f_Html from JSONL rows and keep the plain/search body text only.",
+    )
+    p_rendererdb.add_argument("--write-media", action="store_true", help="Write media blobs from the sidecar database.")
+    p_rendererdb.add_argument("--media-limit", type=int, help="Limit media blobs written.")
+    p_rendererdb.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    p_rendererdb.set_defaults(include_html=True, func=cmd_rendererdb)
+
     p_audit = sub.add_parser("audit-honmon", help="Audit raw HONMON/IDX readability without SQLite bodies.")
     p_audit.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
     p_audit.add_argument("--out-dir", type=Path, default=Path("logovista-honmon-audit"))
@@ -745,6 +851,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-sql-cache",
         action="store_true",
         help="Only use declared DictFULLDB SQLite sources, not sibling app-cache databases.",
+    )
+    p_gaiji_report.add_argument(
+        "--renderer-sidecars",
+        action="store_true",
+        help="Also decrypt/use Windows renderer SQLite sidecars such as vlpljblb.",
     )
     p_gaiji_report.add_argument(
         "--max-sql-rows",

@@ -29,6 +29,7 @@ from .ssed import (
     parse_ssedinfo,
 )
 from .titles import TITLE_TYPES
+from .windows import discover_renderer_sidecars, load_exinfo_for_idx
 
 
 ID_RE = re.compile(r"\d{1,12}")
@@ -219,6 +220,7 @@ def classify_audit(
     dense_marker_honmon: bool,
     id_records: int,
     dictfulldb: bool,
+    rendererdb: bool = False,
     title_components: list[dict[str, Any]],
     index_boundaries: int,
 ) -> str:
@@ -230,6 +232,8 @@ def classify_audit(
         return "dense_honmon_id_table_dictfulldb"
     if dense_marker_honmon and dictfulldb:
         return "dense_honmon_token_table_dictfulldb"
+    if dense_marker_honmon and rendererdb and id_records:
+        return "dense_honmon_id_table_rendererdb"
     if title_components or index_boundaries:
         return "idx_title_only_no_readable_honmon_body"
     return "unreadable_or_empty"
@@ -299,12 +303,15 @@ def audit_source(source: AuditSource, args: argparse.Namespace) -> dict[str, Any
         gaiji_profile.map,
         sample_limit=args.sample_limit,
     )
+    exinfo = load_exinfo_for_idx(source.idx)
+    renderer_sidecars = discover_renderer_sidecars(source.idx, exinfo)
 
     status = classify_audit(
         body_samples=body_samples,
         dense_marker_honmon=dense_marker_honmon,
         id_records=id_records,
         dictfulldb=has_dictfulldb(dictlist),
+        rendererdb=bool(renderer_sidecars),
         title_components=title_components,
         index_boundaries=len(index_boundaries),
     )
@@ -326,6 +333,11 @@ def audit_source(source: AuditSource, args: argparse.Namespace) -> dict[str, Any
         "dictlist": dictlist,
         "dictfulldb_declared": has_dictfulldb(dictlist),
         "dictftsdb_declared": has_dictftsdb(dictlist),
+        "exinfo": str(exinfo.path) if exinfo else None,
+        "renderer_sidecars": [
+            {"path": str(sidecar.path), "storage": sidecar.storage}
+            for sidecar in renderer_sidecars
+        ],
         "index_boundary_offsets": len(index_boundaries),
         "index_error": index_error,
         "title_components": title_components,

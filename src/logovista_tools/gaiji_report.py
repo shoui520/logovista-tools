@@ -26,8 +26,10 @@ from .gaiji import (
     load_uni_gaiji_map,
     parse_ga16_resource,
 )
+from .lvcrypto import decrypt_logofont_cipher_file_to_path
 from .resources import load_image_resource_profile
 from .ssed import BLOCK_SIZE, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
+from .windows import discover_renderer_sidecars, load_exinfo_for_idx
 
 
 SQLITE_MAGIC = b"SQLite format 3\x00"
@@ -74,7 +76,8 @@ def normalized_limit(value: int | None) -> int | None:
 
 def is_sqlite_file(path: Path) -> bool:
     try:
-        return path.read_bytes()[:16] == SQLITE_MAGIC
+        with path.open("rb") as infile:
+            return infile.read(16) == SQLITE_MAGIC
     except OSError:
         return False
 
@@ -159,7 +162,12 @@ def inspect_sqlite_source(path: Path, kind: str) -> SqliteSource | None:
         con.close()
 
 
-def candidate_sqlite_sources(source: DictionarySource, *, include_cache: bool = True) -> tuple[SqliteSource, ...]:
+def candidate_sqlite_sources(
+    source: DictionarySource,
+    *,
+    include_cache: bool = True,
+    renderer_sidecar_dir: Path | None = None,
+) -> tuple[SqliteSource, ...]:
     candidates: list[tuple[Path, str]] = []
     declared = find_fulldb(source, allow_db_fallback=False)
     if declared is not None:
@@ -171,6 +179,18 @@ def candidate_sqlite_sources(source: DictionarySource, *, include_cache: bool = 
                 for path in sorted(root.glob(pattern)):
                     kind = "declared_fulldb" if declared is not None and path.resolve() == declared.resolve() else "sqlite_cache"
                     candidates.append((path, kind))
+
+    if renderer_sidecar_dir is not None:
+        exinfo = load_exinfo_for_idx(source.idx)
+        for sidecar in discover_renderer_sidecars(source.idx, exinfo):
+            if sidecar.storage == "plain":
+                candidates.append((sidecar.path, "renderer_sidecar"))
+                continue
+            renderer_sidecar_dir.mkdir(parents=True, exist_ok=True)
+            decrypted = renderer_sidecar_dir / f"{sidecar.path.name}.sqlite"
+            if not decrypted.exists():
+                decrypt_logofont_cipher_file_to_path(sidecar.path, decrypted)
+            candidates.append((decrypted, "renderer_sidecar"))
 
     seen: set[Any] = set()
     sources: list[SqliteSource] = []
@@ -595,7 +615,12 @@ def extract_gaiji_report(source: DictionarySource, out_dir: Path, args: argparse
     bitmaps = bitmap_gaiji_codes(source)
     image_profile = load_image_resource_profile(source.idx)
     image_codes = set(image_profile.gaiji_image_keys)
-    sqlite_sources = candidate_sqlite_sources(source, include_cache=not getattr(args, "no_sql_cache", False))
+    renderer_sidecar_dir = dict_out / "renderer-sidecars" if getattr(args, "renderer_sidecars", False) else None
+    sqlite_sources = candidate_sqlite_sources(
+        source,
+        include_cache=not getattr(args, "no_sql_cache", False),
+        renderer_sidecar_dir=renderer_sidecar_dir,
+    )
 
     informative_values = [
         value
@@ -682,6 +707,11 @@ def main() -> int:
     parser.add_argument("--out-dir", type=Path, default=Path("logovista-gaiji-report"))
     parser.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
     parser.add_argument("--no-sql-cache", action="store_true", help="Only use declared DictFULLDB SQLite sources.")
+    parser.add_argument(
+        "--renderer-sidecars",
+        action="store_true",
+        help="Also decrypt/use Windows renderer SQLite sidecars such as vlpljblb.",
+    )
     parser.add_argument(
         "--max-sql-rows",
         type=int,

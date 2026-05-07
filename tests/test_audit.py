@@ -37,3 +37,15 @@ def test_audit_classifies_readable_and_dense_honmon_shapes() -> None:
         )
         == "dense_honmon_token_table_dictfulldb"
     )
+    assert (
+        classify_audit(
+            body_samples=[],
+            dense_marker_honmon=True,
+            id_records=100,
+            dictfulldb=False,
+            rendererdb=True,
+            title_components=[],
+            index_boundaries=100,
+        )
+        == "dense_honmon_id_table_rendererdb"
+    )

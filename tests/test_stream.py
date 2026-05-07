@@ -50,9 +50,15 @@ from logovista_tools.pcmdata import (
     parse_pcmdata_record,
     portable_audio_bytes,
 )
+from logovista_tools.rendererdb import html_to_plain, iter_honmon_id_records, parse_dense_honmon_id
 from logovista_tools.resources import load_image_resource_profile, relative_image_source
-from logovista_tools.lvcrypto import decrypt_logofont_cipher_bytes, logofont_cipher_key_iv
+from logovista_tools.lvcrypto import (
+    decrypt_logofont_cipher_bytes,
+    decrypt_logofont_cipher_file_to_path,
+    logofont_cipher_key_iv,
+)
 from logovista_tools.ssed import SsedInfoElement, load_sseddata_bytes, sseddata_storage_for_bytes
+from logovista_tools.windows import iter_aux_index_specs, parse_aux_index_text, parse_exinfo
 
 
 def test_normalize_fullwidth_ascii() -> None:
@@ -81,6 +87,27 @@ def test_logofont_cipher_decrypts_pkcs7_payload() -> None:
     assert decrypt_logofont_cipher_bytes(encrypted) == plaintext
     assert sseddata_storage_for_bytes(encrypted) == "logofont_cipher"
     assert load_sseddata_bytes(encrypted) == (plaintext, "logofont_cipher")
+
+
+def test_logofont_cipher_stream_decrypts_to_path(tmp_path) -> None:
+    pytest.importorskip("cryptography")
+    from cryptography.hazmat.primitives import padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    plaintext = b"SQLite format 3\x00" + (b"x" * 4096)
+    key, iv = logofont_cipher_key_iv()
+    padder = padding.PKCS7(128).padder()
+    padded = padder.update(plaintext) + padder.finalize()
+    encryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).encryptor()
+    encrypted = encryptor.update(padded) + encryptor.finalize()
+    encrypted_path = tmp_path / "vlpljblb"
+    decrypted_path = tmp_path / "vlpljblb.sqlite"
+    encrypted_path.write_bytes(encrypted)
+
+    written = decrypt_logofont_cipher_file_to_path(encrypted_path, decrypted_path, chunk_size=31)
+
+    assert written == len(plaintext)
+    assert decrypted_path.read_bytes() == plaintext
 
 
 def test_decode_jis_pair_and_line_break() -> None:
@@ -702,6 +729,7 @@ def test_load_image_resource_profile_discovers_windows_templates(tmp_path) -> No
     (templates / "exam.png").write_bytes(b"png")
     (templates / "B222.png").write_bytes(b"png")
     (templates / "1652-1.bmp").write_bytes(b"bmp")
+    (templates / "inline.svg").write_bytes(b"<svg/>")
 
     profile = load_image_resource_profile(idx)
 
@@ -709,7 +737,65 @@ def test_load_image_resource_profile_discovers_windows_templates(tmp_path) -> No
     assert profile.resources["exam"].default == templates / "exam.png"
     assert "b222" in profile.gaiji_image_keys
     assert profile.resources["1652-1"].default == templates / "1652-1.bmp"
+    assert profile.resources["inline"].default == templates / "inline.svg"
     assert relative_image_source(templates / "exam.png", idx) == "Templates/exam.png"
+
+
+def test_parse_windows_exinfo_and_auxiliary_text_idx(tmp_path) -> None:
+    exinfo = tmp_path / "EXINFO.INI"
+    exinfo.write_text(
+        "[GENERAL]\nIDXCOUNT=1\nIDXNAME0=分野\nIDXINFO0=0000015E.IDX\nROSQLNAME=DICT.db\n",
+        encoding="cp932",
+    )
+    idx_text = tmp_path / "0000015E.IDX"
+    idx_text.write_text(
+        "00000000\t00000000\t大辞林 第四版\n"
+        "00005221\t00000722\t\t季語\n"
+        "00005221\t000007C2\t\t\t春\n",
+        encoding="cp932",
+    )
+    element = SsedInfoElement(
+        index=0,
+        multi=0,
+        type=0,
+        start=0x5221,
+        end=0x5230,
+        data=b"",
+        filename="HONMON.DIC",
+    )
+
+    parsed = parse_exinfo(exinfo)
+    specs = iter_aux_index_specs(parsed)
+    rows = parse_aux_index_text(idx_text, [element])
+
+    assert specs[0].name == "分野"
+    assert specs[0].info == "0000015E.IDX"
+    assert rows[0].label == "大辞林 第四版"
+    assert rows[0].depth == 1
+    assert rows[1].path == ("大辞林 第四版", "季語")
+    assert rows[2].path == ("大辞林 第四版", "季語", "春")
+    assert rows[1].target["component"] == "HONMON.DIC"
+
+
+def test_parse_dense_honmon_id_record_and_pointer() -> None:
+    record = bytes.fromhex(
+        "1f0a1f0900011f4101601f04"
+        "23302330233023302330233123322333"
+        "1f051f61"
+    )
+    expanded = (b"\x00" * 32) + record
+    records = list(iter_honmon_id_records(expanded, honmon_start_block=2))
+
+    assert parse_dense_honmon_id(record) == 123
+    assert records[0].data_id == 123
+    assert records[0].record_offset == 32
+    assert records[0].block == 2
+    assert records[0].offset == 32
+    assert records[0].marker_offset == 34
+
+
+def test_rendererdb_html_to_plain_preserves_line_breaks() -> None:
+    assert html_to_plain("<div>あ<br />い<br>う</div>") == "あ\nい\nう"
 
 
 def test_parse_internal_index_page_uses_32bit_child() -> None:
