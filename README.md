@@ -27,7 +27,9 @@ stream, a dense raw ID/token table, or an opaque/stub component; it does not rea
 SQLite body text. Windows packages with `EXINFO.INI` side panels and encrypted
 renderer databases are also supported: `extras` parses auxiliary index trees,
 and `rendererdb` follows raw HONMON ID anchors into observed `t_contents`
-renderer SQLite payloads such as DAIJIRN4's `vlpljblb`.
+renderer SQLite payloads such as DAIJIRN4's `vlpljblb`. Android body databases
+that preserve the same raw HONMON ID relationship are supported as a separate
+app-cache shape.
 
 No dictionary data is included in this repository.
 
@@ -185,8 +187,8 @@ Extract formatted bodies from products that use raw HONMON ID records plus
 logovista-tools fulldb /path/to/LogoVista --dict KOJIEN7 --out-dir out/fulldb
 ```
 
-Extract formatted bodies from Windows renderer SQLite sidecars linked by raw
-HONMON ID anchors:
+Extract formatted bodies from renderer/app SQLite sidecars linked by raw HONMON
+ID anchors:
 
 ```bash
 logovista-tools rendererdb /path/to/LogoVista --dict DAIJIRN4 --out-dir out/rendererdb
@@ -376,6 +378,8 @@ dense_honmon_id_table_dictfulldb    HONMON stores raw numeric body IDs
 dense_honmon_token_table_dictfulldb HONMON stores opaque raw tokens/anchors
 dense_honmon_id_table_rendererdb    HONMON stores raw numeric IDs that resolve
                                     to a Windows renderer SQLite sidecar
+dense_honmon_id_table_androiddb     HONMON stores raw numeric IDs that resolve
+                                    to an Android app body database
 idx_title_only_no_readable_honmon_body
                                     indexes/titles exist, but sampled HONMON bodies do not
 skipped_dbc                         .dbc payload skipped by default
@@ -507,7 +511,7 @@ extras/
 
 ### `rendererdb`
 
-Extract Windows renderer SQLite bodies by following raw HONMON ID anchors.
+Extract renderer/app SQLite bodies by following raw HONMON ID anchors.
 
 ```bash
 logovista-tools rendererdb /path/to/DICT --out-dir rendererdb
@@ -515,14 +519,17 @@ logovista-tools rendererdb /path/to/DICT --limit 20 --no-html
 logovista-tools rendererdb /path/to/DICT --write-media --media-limit 100
 ```
 
-This command handles the DAIJIRN4-style layout where `HONMON.DIC` is a dense
-32-byte anchor table, not a body stream. It still starts from raw HONMON:
+This command handles layouts where `HONMON.DIC` is a dense 32-byte anchor
+table, not a body stream. It still starts from raw HONMON:
 
 1. Expand `HONMON.DIC`.
 2. Decode 32-byte records whose visible field is a full-width decimal ID.
-3. Discover a sibling Windows renderer SQLite sidecar, decrypting observed
-   LogoFontCipher sidecars such as `vlpljblb` when needed.
-4. Query `t_contents` and emit only rows whose `f_DataId` exists in raw HONMON.
+3. Discover a sibling body SQLite payload.
+4. For Windows renderer DBs, decrypt observed LogoFontCipher sidecars such as
+   `vlpljblb` when needed, query `t_contents`, and emit only rows whose
+   `f_DataId` exists in raw HONMON.
+5. For the observed Android body DB shape, query the `DICTID(Html)` table and
+   emit rows where `rowid * 5` exists in raw HONMON.
 
 Output layout:
 
@@ -911,6 +918,8 @@ Known working layers:
 - Windows `EXINFO.INI` parsing and CP932 auxiliary text-index tree extraction.
 - Windows renderer SQLite extraction through raw HONMON ID anchors and
   `t_contents` rows, with optional `media` BLOB export.
+- Android body DB extraction through raw HONMON ID anchors and the observed
+  `rowid * 5` mapping, with optional SVG/media BLOB export.
 - Structured `MENU.DIC` extraction with menu hierarchy, link labels,
   packed-BCD destination pointers, and named component/body targets.
 - Common `*TITLE.DIC` extraction, including `KWTITLE.DIC` keyword-title
@@ -954,7 +963,7 @@ LogoVista/SystemSoft files handled by this project.
 
 ### Big Picture
 
-A typical dictionary directory looks like:
+A typical raw dictionary core looks like:
 
 ```text
 DICT.IDX
@@ -970,10 +979,21 @@ BKINDEX.DIC
 GA16HALF
 GA16FULL
 DICT.uni
-Gaiji.plist
-GaijiS.plist
-DICT.db or DICT.sql
 ```
+
+That core is the stable part. Platform packages wrap it differently:
+
+```text
+iOS       DictList.plist, Gaiji.plist, GaijiS.plist, resourcesCopy.plist,
+          gaijiicon.plist, img/, html/, OTHER/, *.sql
+Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
+Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, *.chm, vlpljbl*
+```
+
+`Gaiji.plist` and `GaijiS.plist` are therefore not generic LogoVista files.
+They are iOS packaging fallbacks observed in some products. Cross-platform
+gaiji handling should start from the dictionary-local `.uni`/`.UNI` file and
+then use platform-specific image/plist/font assets where present.
 
 The core raw format has two layers:
 
@@ -1238,11 +1258,13 @@ Observed non-body HONMON dictionaries in the local corpus include:
 | `KOJIEN7` | Numeric ID table | `*TITLE.DIC` streams expose Japanese lookup titles; HONMON IDs resolve to `DictFULLDB`. |
 | `NANMED20` | Numeric ID table | `*TITLE.DIC` streams expose alias triples such as `見出し|読み|表示見出し`. |
 | `DAIJIRN4_WIN` | Numeric ID anchor table | `*TITLE.DIC` streams expose headwords; HONMON IDs resolve to encrypted Windows renderer table `t_contents`. |
+| `IWKOKUG8_ANDROID` | Numeric ID anchor table | Raw core matches iOS/Windows; HONMON IDs resolve to Android `IWKOKUG8(Html)` rows by `rowid * 5`. |
 
 For these, the `entries` command skips body extraction by default and reports a
 warning in `summary.json`. Try `fulldb` when `DictList.plist` declares
 `DictFULLDB`; try `rendererdb` when a Windows package has `EXINFO.INI` and an
-encrypted renderer SQLite sidecar such as `vlpljblb`.
+encrypted renderer SQLite sidecar such as `vlpljblb`, or when an Android package
+has the observed `DICTID(Html)` app body table.
 
 This is why the toolkit keeps the dense raw layer in scope. Even when a
 database is required for final body text, raw `HONMON.DIC` and `*INDEX.DIC`
@@ -1337,9 +1359,10 @@ unknown_controls:       0
 
 ### Windows Packages
 
-Three Windows packages have now been checked directly: SINMEI7 Windows, EJJE200,
-and DAIJIRN4 Windows. They share the same SSED/EPWING-like core, but add Windows
-app sidecars around it.
+Windows packages checked directly now include SINMEI7, HAESPJPN, IWKOKUG8,
+EJJE200, and DAIJIRN4. They share the same SSED/EPWING-like core as the mobile
+packages where matching copies are available, but add Windows app sidecars
+around it.
 
 #### SINMEI7 Windows vs iOS
 
@@ -1384,6 +1407,104 @@ Observed platform differences:
   starts at `B221` and has 375 glyph slots; `GA16HALF` has zero glyphs.
 - `PCMDATA.DIC` remains parseable on Windows and contains MP3 records referenced
   by raw HONMON controls.
+
+#### HAESPJPN Windows vs iOS
+
+HAESPJPN Windows and HAESPJPN iOS use byte-identical raw dictionary components:
+
+```text
+HAESPJPN.IDX
+HONMON.DIC
+FKINDEX.DIC / FHINDEX.DIC
+BKINDEX.DIC / BHINDEX.DIC
+COLSCR.DIC
+PCMDATA.DIC
+GA16FULL / GA16HALF
+```
+
+The raw `HONMON.DIC` body stream is therefore fully compatible across the two
+copies. Both expand to 27,979,776 bytes, expose 71,913 common entry markers,
+and the raw index pass finds 79,904 body boundaries. The `entries` command
+extracts coherent bodies from the Windows copy without SQLite; `rendererdb`
+correctly ignores `HAESPJPN.db` because it is a conjugation/search cache with no
+`t_contents` body table.
+
+The differences are packaging and fallback assets:
+
+- Windows has `EXINFO.INI`, `HC013A.DLL`, `Templates/`, `Panel/`, `Panels.xml`,
+  `SPINDEX.DIC`, `HANREI.chm`, HTML help files, and `HAESPJPN.db`.
+- Windows `EXINFO.INI` uses the legacy singleton form `IDXINFO=0000013A.idx`
+  / `IDXTITLE=インデックス`, rather than `IDXCOUNT` / `IDXINFO0`.
+- `0000013A.idx` is a CP932 text tree with virtual selector pointers:
+  `10000000/ffff` = `西和ABC順`, `30000000/ffff` = `和西50音順`, and
+  `60000000/ffff` = `動詞活用表`.
+- Windows image resources live in `Templates/` and include `exam.png`,
+  `sound.png`, and 122 code-shaped gaiji image keys.
+- iOS image resources live in `img/`; its extra `Gaiji.plist` /
+  `GaijiS.plist` fallback mappings raise the observed gaiji map from the
+  Windows `.UNI` count of 60 to 97 combined mappings.
+
+This is the cleanest current example of high raw-core compatibility with
+platform-specific resource wrappers.
+
+#### IWKOKUG8 iOS vs Android vs Windows
+
+IWKOKUG8 has been checked across iOS, Android, and Windows. The raw core is
+byte-identical across all three copies:
+
+```text
+IWKOKUG8.IDX
+HONMON.DIC
+FKTITLE.DIC / FKINDEX.DIC
+FHTITLE.DIC / FHINDEX.DIC
+BKTITLE.DIC / BKINDEX.DIC
+BHTITLE.DIC / BHINDEX.DIC
+GA16FULL / GA16HALF
+IWKOKUG8.uni / IWKOKUG8.UNI
+```
+
+The shared `HONMON.DIC` is not a body stream. It expands to 10,477,568 bytes
+and contains 65,480 numeric ID records in the dense 32-byte anchor-table
+layout. Raw title/index extraction still works: the `*TITLE.DIC` streams expose
+lookup titles, and the index parser finds 65,468 body/index boundary rows.
+
+The platform body payload differs:
+
+| Platform | Body payload | Raw ID relationship |
+| --- | --- | --- |
+| iOS | `DictFULLDB` SQLite `IWKOKUG8.sql`, table `t_contents` | `f_DataId` matches raw HONMON IDs |
+| Android | Plain `IWKOKUG8.db`, table `IWKOKUG8(Html)` | `data_id = rowid * 5` |
+| Windows | Encrypted `vlpljblh`, decrypted SQLite table `t_contents` | `f_DataId` matches raw HONMON IDs |
+
+Observed extraction counts:
+
+```text
+Raw HONMON ID records:       65,480
+iOS t_contents rows:         65,480
+Windows t_contents rows:     65,480
+Android Html rows:           65,468
+Android raw IDs missing:         12
+```
+
+Those 12 missing Android rows correspond to the 12 `f_Type=5` rows present in
+the Windows/iOS `t_contents` payload. The normal dictionary bodies line up by
+raw ID.
+
+The resource wrappers differ:
+
+- iOS uses `img/` and an iOS `DictList.plist` declaration for `DictFULLDB`.
+- Android uses `resource/conf.ini`, `resource/kmkimges/`, `manual/`,
+  `innerdata/`, and a plain app DB. Its `media` table uses
+  `id/name/type/main` columns and stores 345 SVG blobs plus one additional
+  media row.
+- Windows uses `EXINFO.INI`, `HC02D0.dll`, `Templates/`, `HANREI/`,
+  encrypted `vlpljblh`, and two font sidecars: `vlpljblB` is `Noto Sans JP`
+  Regular OpenType/CFF, and `vlpljblN` is `Noto Serif JP` Regular OpenType/CFF.
+  These font files are not encrypted SQLite sidecars.
+
+The `rendererdb` command handles both body-cache shapes while still starting
+from raw HONMON IDs: `t_contents` for Windows renderer DBs and `rowid * 5` for
+the Android `Html` table shape.
 
 #### EJJE200 Windows Encryption
 
@@ -1924,8 +2045,6 @@ global replacement table such as `A126 = é`.
 Observed resources include:
 
 ```text
-Gaiji.plist
-GaijiS.plist
 GA16HALF
 GA16FULL
 GAI16H*
@@ -1933,6 +2052,7 @@ GAI16F*
 *.uni
 *.UNI
 image/icon folders
+iOS Gaiji.plist / GaijiS.plist fallback files
 ```
 
 The current extractor:
@@ -1953,8 +2073,8 @@ if the character has no Unicode equivalent.
 
 #### Image Resources
 
-Some dictionaries ship ready-made PNG resources outside `HONMON.DIC`. HAESPJPN
-has a top-level `img` directory with files such as:
+Some dictionaries ship ready-made PNG resources outside `HONMON.DIC`. The iOS
+HAESPJPN package has a top-level `img` directory with files such as:
 
 ```text
 img/b13d_n.png
@@ -2365,6 +2485,13 @@ The `entries` and `titles` commands do not read SQLite. The `fulldb` command
 does, but only after decoding body IDs from raw HONMON records. The
 `gaiji-report` command reads SQLite as an auxiliary validation source and keeps
 that evidence separate from the raw `.DIC`/`.IDX` extraction path.
+
+Windows renderer DBs and the observed Android body DB shape are related but not
+the same declaration mechanism. They are not `DictFULLDB` entries in
+`DictList.plist`; they are platform body/render caches. The toolkit still treats
+them as raw-ID-assisted body sources, not as replacements for raw parsing:
+`rendererdb` first decodes dense HONMON IDs and then accepts only DB rows that
+match those raw IDs.
 
 ### Outliers
 

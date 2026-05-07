@@ -50,7 +50,14 @@ from logovista_tools.pcmdata import (
     parse_pcmdata_record,
     portable_audio_bytes,
 )
-from logovista_tools.rendererdb import html_to_plain, iter_honmon_id_records, parse_dense_honmon_id
+from logovista_tools.rendererdb import (
+    blob_extension,
+    discover_android_body_databases,
+    html_to_plain,
+    iter_honmon_id_records,
+    media_type_counts,
+    parse_dense_honmon_id,
+)
 from logovista_tools.resources import load_image_resource_profile, relative_image_source
 from logovista_tools.lvcrypto import (
     decrypt_logofont_cipher_bytes,
@@ -58,7 +65,7 @@ from logovista_tools.lvcrypto import (
     logofont_cipher_key_iv,
 )
 from logovista_tools.ssed import SsedInfoElement, load_sseddata_bytes, sseddata_storage_for_bytes
-from logovista_tools.windows import iter_aux_index_specs, parse_aux_index_text, parse_exinfo
+from logovista_tools.windows import discover_renderer_sidecars, iter_aux_index_specs, parse_aux_index_text, parse_exinfo
 
 
 def test_normalize_fullwidth_ascii() -> None:
@@ -775,6 +782,68 @@ def test_parse_windows_exinfo_and_auxiliary_text_idx(tmp_path) -> None:
     assert rows[1].path == ("大辞林 第四版", "季語")
     assert rows[2].path == ("大辞林 第四版", "季語", "春")
     assert rows[1].target["component"] == "HONMON.DIC"
+
+
+def test_parse_windows_exinfo_legacy_single_aux_idx(tmp_path) -> None:
+    exinfo = tmp_path / "EXINFO.INI"
+    exinfo.write_text("[GENERAL]\nIDXINFO=0000013A.idx\nIDXTITLE=インデックス\n", encoding="cp932")
+    idx_text = tmp_path / "0000013A.idx"
+    idx_text.write_text(
+        "00000000\t00000000\tRoot\n"
+        "10000000\t0000FFFF\t\t西和ABC順\n",
+        encoding="cp932",
+    )
+
+    specs = iter_aux_index_specs(parse_exinfo(exinfo))
+    rows = parse_aux_index_text(idx_text, [])
+
+    assert len(specs) == 1
+    assert specs[0].name == "インデックス"
+    assert specs[0].info == "0000013A.idx"
+    assert specs[0].path == tmp_path / "0000013A.idx"
+    assert rows[1].target["kind"] == "virtual-index-selector"
+    assert rows[1].target["selector"] == "1"
+
+
+def test_plain_sqlite_renderer_sidecar_requires_t_contents(tmp_path) -> None:
+    idx = tmp_path / "DICT.IDX"
+    idx.write_bytes(b"")
+    cache = tmp_path / "DICT.db"
+    con = sqlite3.connect(cache)
+    con.execute("create table cache (Title text)")
+    con.commit()
+    con.close()
+
+    assert discover_renderer_sidecars(idx) == []
+
+    con = sqlite3.connect(cache)
+    con.execute("create table t_contents (f_DataId integer primary key, f_Html text)")
+    con.commit()
+    con.close()
+
+    sidecars = discover_renderer_sidecars(idx)
+
+    assert len(sidecars) == 1
+    assert sidecars[0].path == cache.resolve()
+    assert sidecars[0].storage == "plain"
+
+
+def test_discover_android_body_database_and_media_schema(tmp_path) -> None:
+    idx = tmp_path / "DICT.IDX"
+    idx.write_bytes(b"")
+    body_db = tmp_path / "DICT.db"
+    con = sqlite3.connect(body_db)
+    con.execute("create table DICT (Html text)")
+    con.execute("insert into DICT (Html) values ('<p>body</p>')")
+    con.execute("create table media (id integer, name text, type integer, main blob)")
+    con.execute("insert into media values (1, '02766', 4, ?)", (b'<svg id="x"/>',))
+    con.commit()
+
+    assert discover_android_body_databases(idx, "DICT")[0].path == body_db.resolve()
+    assert media_type_counts(con) == {"4": 1}
+    assert blob_extension(b'  <svg id="x"/>') == "svg"
+
+    con.close()
 
 
 def test_parse_dense_honmon_id_record_and_pointer() -> None:

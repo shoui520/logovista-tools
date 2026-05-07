@@ -20,6 +20,7 @@ from .entries import (
 )
 from .gaiji import load_gaiji_profile
 from .indexes import collect_index_body_offsets_for_idx
+from .rendererdb import discover_android_body_databases
 from .ssed import (
     BLOCK_SIZE,
     SsedInfoElement,
@@ -221,6 +222,7 @@ def classify_audit(
     id_records: int,
     dictfulldb: bool,
     rendererdb: bool = False,
+    android_body_db: bool = False,
     title_components: list[dict[str, Any]],
     index_boundaries: int,
 ) -> str:
@@ -234,6 +236,8 @@ def classify_audit(
         return "dense_honmon_token_table_dictfulldb"
     if dense_marker_honmon and rendererdb and id_records:
         return "dense_honmon_id_table_rendererdb"
+    if dense_marker_honmon and android_body_db and id_records:
+        return "dense_honmon_id_table_androiddb"
     if title_components or index_boundaries:
         return "idx_title_only_no_readable_honmon_body"
     return "unreadable_or_empty"
@@ -305,6 +309,7 @@ def audit_source(source: AuditSource, args: argparse.Namespace) -> dict[str, Any
     )
     exinfo = load_exinfo_for_idx(source.idx)
     renderer_sidecars = discover_renderer_sidecars(source.idx, exinfo)
+    android_body_dbs = discover_android_body_databases(source.idx, source.dict_id) if not renderer_sidecars else []
 
     status = classify_audit(
         body_samples=body_samples,
@@ -312,6 +317,7 @@ def audit_source(source: AuditSource, args: argparse.Namespace) -> dict[str, Any
         id_records=id_records,
         dictfulldb=has_dictfulldb(dictlist),
         rendererdb=bool(renderer_sidecars),
+        android_body_db=bool(android_body_dbs),
         title_components=title_components,
         index_boundaries=len(index_boundaries),
     )
@@ -337,6 +343,10 @@ def audit_source(source: AuditSource, args: argparse.Namespace) -> dict[str, Any
         "renderer_sidecars": [
             {"path": str(sidecar.path), "storage": sidecar.storage}
             for sidecar in renderer_sidecars
+        ],
+        "android_body_dbs": [
+            {"path": str(body_db.path), "table": body_db.table}
+            for body_db in android_body_dbs
         ],
         "index_boundary_offsets": len(index_boundaries),
         "index_error": index_error,

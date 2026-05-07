@@ -33,6 +33,14 @@ class HonmonIdRecord:
     marker_offset: int
 
 
+@dataclass(frozen=True)
+class AndroidBodyDb:
+    """An Android app body database keyed by ``rowid * 5`` raw HONMON IDs."""
+
+    path: Path
+    table: str
+
+
 def parse_dense_honmon_id(record: bytes) -> int | None:
     """Return the decimal ID carried by one observed 32-byte HONMON anchor row."""
 
@@ -86,16 +94,20 @@ def honmon_id_record_to_json(record: HonmonIdRecord) -> dict[str, Any]:
     }
 
 
+def quote_identifier(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
 def table_columns(con: sqlite3.Connection, table: str) -> set[str]:
     try:
-        return {row[1] for row in con.execute(f"pragma table_info({table})")}
+        return {row[1] for row in con.execute(f"pragma table_info({quote_identifier(table)})")}
     except sqlite3.DatabaseError:
         return set()
 
 
 def table_count(con: sqlite3.Connection, table: str) -> int | None:
     try:
-        row = con.execute(f"select count(*) from {table}").fetchone()
+        row = con.execute(f"select count(*) from {quote_identifier(table)}").fetchone()
     except sqlite3.DatabaseError:
         return None
     return int(row[0]) if row else None
@@ -107,6 +119,8 @@ def table_exists(con: sqlite3.Connection, table: str) -> bool:
 
 
 def blob_extension(blob: bytes) -> str:
+    if blob.lstrip().lower().startswith(b"<svg"):
+        return "svg"
     if blob.startswith((b"GIF87a", b"GIF89a")):
         return "gif"
     if blob.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -125,6 +139,17 @@ def safe_media_name(number: int, name: str | None, extension: str) -> str:
     return f"{number:05d}_{stem}.{extension}"
 
 
+def media_column_names(con: sqlite3.Connection) -> tuple[str, str, str, str] | None:
+    if not table_exists(con, "media"):
+        return None
+    columns = table_columns(con, "media")
+    if {"No", "f_name", "f_type", "f_main"} <= columns:
+        return ("No", "f_name", "f_type", "f_main")
+    if {"id", "name", "type", "main"} <= columns:
+        return ("id", "name", "type", "main")
+    return None
+
+
 def html_to_plain(value: str) -> str:
     text = re.sub(r"(?i)<br\s*/?>", "\n", value)
     text = re.sub(r"(?is)<[^>]+>", "", text)
@@ -141,10 +166,16 @@ def prepare_sidecar_database(sidecar: RendererSidecar, dict_out: Path, args: arg
 
 
 def write_media_records(con: sqlite3.Connection, media_dir: Path, *, limit: int | None = None) -> dict[str, Any]:
-    if not table_exists(con, "media"):
+    media_columns = media_column_names(con)
+    if media_columns is None:
         return {"media_rows": 0, "media_written": 0, "media_type_counts": {}}
+    number_col, name_col, type_col, blob_col = media_columns
     media_dir.mkdir(parents=True, exist_ok=True)
-    rows = con.execute("select No, f_name, f_type, f_main from media order by No")
+    rows = con.execute(
+        f"select {quote_identifier(number_col)}, {quote_identifier(name_col)}, "
+        f"{quote_identifier(type_col)}, {quote_identifier(blob_col)} "
+        f"from media order by {quote_identifier(number_col)}"
+    )
     type_counts: Counter[int] = Counter()
     written = 0
     for row in rows:
@@ -164,11 +195,16 @@ def write_media_records(con: sqlite3.Connection, media_dir: Path, *, limit: int 
 
 
 def media_type_counts(con: sqlite3.Connection) -> dict[str, int]:
-    if not table_exists(con, "media"):
+    media_columns = media_column_names(con)
+    if media_columns is None:
         return {}
+    _number_col, _name_col, type_col, _blob_col = media_columns
     return {
         str(int(row[0])): int(row[1])
-        for row in con.execute("select f_type, count(*) from media group by f_type order by f_type")
+        for row in con.execute(
+            f"select {quote_identifier(type_col)}, count(*) from media "
+            f"group by {quote_identifier(type_col)} order by {quote_identifier(type_col)}"
+        )
     }
 
 
@@ -177,6 +213,89 @@ def html_media_reference_rows(con: sqlite3.Connection) -> int | None:
         return None
     row = con.execute("select count(*) from t_contents where f_Html like '%class=\"media\"%'").fetchone()
     return int(row[0]) if row else None
+
+
+def is_android_body_database(path: Path, dict_id: str) -> bool:
+    if sqlite_storage_for_path(path) != "plain":
+        return False
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return False
+    try:
+        return table_exists(con, dict_id) and "Html" in table_columns(con, dict_id)
+    finally:
+        con.close()
+
+
+def discover_android_body_databases(idx: Path, dict_id: str) -> list[AndroidBodyDb]:
+    rows: list[AndroidBodyDb] = []
+    for child in sorted(idx.parent.iterdir()):
+        if not child.is_file() or child.suffix.lower() not in {".db", ".sqlite", ".sqlite3"}:
+            continue
+        if is_android_body_database(child, dict_id):
+            rows.append(AndroidBodyDb(path=child.resolve(), table=dict_id))
+    return rows
+
+
+def extract_android_body_database(
+    source: DictionarySource,
+    summary: dict[str, Any],
+    raw_ids: list[HonmonIdRecord],
+    ids_by_data_id: dict[int, HonmonIdRecord],
+    body_db: AndroidBodyDb,
+    dict_out: Path,
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    con = sqlite3.connect(body_db.path)
+    try:
+        con.row_factory = sqlite3.Row
+        emitted = 0
+        matched_ids = 0
+        with (dict_out / "rendererdb_entries.jsonl").open("w", encoding="utf-8") as out:
+            for row in con.execute(f"select rowid as _rowid, Html from {quote_identifier(body_db.table)} order by rowid"):
+                db_rowid = int(row["_rowid"])
+                data_id = db_rowid * 5
+                raw = ids_by_data_id.get(data_id)
+                if raw is None:
+                    continue
+                matched_ids += 1
+                html_value = row["Html"] or ""
+                if args.limit is None or emitted < args.limit:
+                    record = {
+                        "dict_id": source.dict_id,
+                        "dict_title": source.title,
+                        "data_id": data_id,
+                        "raw_honmon": honmon_id_record_to_json(raw),
+                        "android_rowid": db_rowid,
+                        "type": None,
+                        "title": None,
+                        "plain": html_to_plain(html_value),
+                    }
+                    if args.include_html:
+                        record["html"] = html_value
+                    out.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    emitted += 1
+        summary.update(
+            {
+                "status": "ok_android_body_db",
+                "android_body_db": str(body_db.path),
+                "android_body_table": body_db.table,
+                "android_body_id_rule": "data_id = rowid * 5",
+                "android_body_rows": table_count(con, body_db.table),
+                "entries_matched_to_raw_honmon": matched_ids,
+                "entries_emitted": emitted,
+                "raw_honmon_ids_missing_in_db": max(0, len(raw_ids) - matched_ids),
+                "media_rows": table_count(con, "media") if table_exists(con, "media") else None,
+                "media_type_counts": media_type_counts(con),
+                "html_rows_with_media_references": None,
+            }
+        )
+        if args.write_media:
+            summary.update(write_media_records(con, dict_out / "media", limit=args.media_limit))
+        return summary
+    finally:
+        con.close()
 
 
 def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
@@ -192,6 +311,7 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
         sidecars = [RendererSidecar(path=args.decrypted_db, storage=storage or "plain")]
     else:
         sidecars = discover_renderer_sidecars(source.idx, exinfo)
+    android_body_dbs = [] if sidecars else discover_android_body_databases(source.idx, source.dict_id)
 
     summary: dict[str, Any] = {
         "dict_id": source.dict_id,
@@ -204,11 +324,23 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
         "raw_honmon_id_samples": [honmon_id_record_to_json(record) for record in raw_ids[:10]],
         "exinfo": str(exinfo.path) if exinfo else None,
         "sidecars": [{"path": str(row.path), "storage": row.storage} for row in sidecars],
+        "android_body_dbs": [{"path": str(row.path), "table": row.table} for row in android_body_dbs],
         "entries_path": str(dict_out / "rendererdb_entries.jsonl"),
     }
 
     if not sidecars:
-        summary.update({"status": "no_renderer_sqlite_sidecar", "entries_emitted": 0})
+        if android_body_dbs:
+            summary = extract_android_body_database(
+                source,
+                summary,
+                raw_ids,
+                ids_by_data_id,
+                android_body_dbs[0],
+                dict_out,
+                args,
+            )
+        else:
+            summary.update({"status": "no_renderer_sqlite_sidecar", "entries_emitted": 0})
         (dict_out / "rendererdb_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
         return summary
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import configparser
 import html
 import re
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -89,7 +90,25 @@ def iter_aux_index_specs(exinfo: Exinfo) -> list[AuxIndexSpec]:
         info = exinfo.general.get(f"IDXINFO{index}", "")
         path = exinfo.path.parent / info if info else None
         rows.append(AuxIndexSpec(index=index, name=name, info=info, path=path))
+    if not rows and exinfo.general.get("IDXINFO"):
+        info = exinfo.general["IDXINFO"]
+        name = exinfo.general.get("IDXTITLE", "")
+        rows.append(AuxIndexSpec(index=0, name=name, info=info, path=exinfo.path.parent / info))
     return rows
+
+
+def resolve_aux_virtual_target(block: int, offset: int) -> dict[str, Any] | None:
+    if offset != 0xFFFF or block & 0x0FFFFFFF:
+        return None
+    selector = block >> 28
+    if not selector:
+        return None
+    return {
+        "kind": "virtual-index-selector",
+        "selector": f"{selector:x}",
+        "block": f"{block:08x}",
+        "offset": f"{offset:04x}",
+    }
 
 
 def resolve_component_target(block: int, offset: int, elements: list[SsedInfoElement]) -> dict[str, Any] | None:
@@ -106,7 +125,7 @@ def resolve_component_target(block: int, offset: int, elements: list[SsedInfoEle
                 "relative_offset": relative_offset,
                 "offset_in_block": offset,
             }
-    return None
+    return resolve_aux_virtual_target(block, offset)
 
 
 def parse_aux_index_text(path: Path, elements: list[SsedInfoElement] | None = None) -> list[AuxIndexRow]:
@@ -188,6 +207,23 @@ def sqlite_storage_for_path(path: Path) -> str | None:
     return None
 
 
+def sqlite_has_table(path: Path, table_name: str) -> bool:
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return False
+    try:
+        row = con.execute(
+            "select 1 from sqlite_master where type='table' and name=? limit 1",
+            (table_name,),
+        ).fetchone()
+    except sqlite3.Error:
+        return False
+    finally:
+        con.close()
+    return row is not None
+
+
 def discover_renderer_sidecars(idx: Path, exinfo: Exinfo | None = None) -> list[RendererSidecar]:
     """Return sibling files that are plain/encrypted SQLite renderer payloads."""
 
@@ -217,6 +253,8 @@ def discover_renderer_sidecars(idx: Path, exinfo: Exinfo | None = None) -> list[
         seen.add(candidate)
         storage = sqlite_storage_for_path(candidate)
         if storage is None:
+            continue
+        if storage == "plain" and not sqlite_has_table(candidate, "t_contents"):
             continue
         rows.append(RendererSidecar(path=candidate, storage=storage))
     return rows
