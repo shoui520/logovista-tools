@@ -65,6 +65,7 @@ from logovista_tools.lvcrypto import (
     logofont_cipher_key_iv,
 )
 from logovista_tools.ssed import SsedInfoElement, load_sseddata_bytes, sseddata_storage_for_bytes
+from logovista_tools.spindex import parse_spindex_pages, reverse_spindex_key
 from logovista_tools.windows import discover_renderer_sidecars, iter_aux_index_specs, parse_aux_index_text, parse_exinfo
 
 
@@ -861,6 +862,35 @@ def test_parse_dense_honmon_id_record_and_pointer() -> None:
     assert records[0].block == 2
     assert records[0].offset == 32
     assert records[0].marker_offset == 34
+
+
+def test_parse_spindex_internal_pages_and_reversed_keys() -> None:
+    def jis_ascii(value: str, width: int) -> bytes:
+        out = bytearray()
+        for char in value:
+            out.extend((0x23, ord(char)))
+        return bytes(out).ljust(width, b"\x00")
+
+    page = bytearray(2048)
+    page[0:2] = (0x601E).to_bytes(2, "big")
+    page[2:4] = (2).to_bytes(2, "big")
+    page[4:38] = jis_ascii("CITEROHPAID", 30) + (0xD9C9).to_bytes(4, "big")
+    page[38:72] = jis_ascii("DEZIRECREM", 30) + (0xE200).to_bytes(4, "big")
+    rows: list[dict] = []
+
+    pages, child_counts = parse_spindex_pages(
+        bytes(page),
+        start_block=0xD9C8,
+        end_block=0xE101,
+        emit_row=rows.append,
+    )
+
+    assert reverse_spindex_key("CITEROHPAID") == "DIAPHORETIC"
+    assert pages[0].rows_parsed == 2
+    assert rows[0]["key"] == "DIAPHORETIC"
+    assert rows[0]["child_status"] == "missing_from_physical_file"
+    assert rows[1]["child_status"] == "outside_declared_range"
+    assert child_counts == {"missing_from_physical_file": 1, "outside_declared_range": 1}
 
 
 def test_rendererdb_html_to_plain_preserves_line_breaks() -> None:

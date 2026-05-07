@@ -29,7 +29,8 @@ renderer databases are also supported: `extras` parses auxiliary index trees,
 and `rendererdb` follows raw HONMON ID anchors into observed `t_contents`
 renderer SQLite payloads such as DAIJIRN4's `vlpljblb`. Android body databases
 that preserve the same raw HONMON ID relationship are supported as a separate
-app-cache shape.
+app-cache shape. Standalone Windows `SPINDEX.DIC` suffix-index resources can be
+inspected without treating them as dictionary body components.
 
 No dictionary data is included in this repository.
 
@@ -192,6 +193,12 @@ ID anchors:
 
 ```bash
 logovista-tools rendererdb /path/to/LogoVista --dict DAIJIRN4 --out-dir out/rendererdb
+```
+
+Inspect standalone Windows `SPINDEX.DIC` suffix-index resources:
+
+```bash
+logovista-tools spindex /path/to/LogoVista --out-dir out/spindex
 ```
 
 Smoke-test one dictionary:
@@ -548,6 +555,43 @@ Rows include `data_id`, raw HONMON block/offset, type, group id, title,
 search title, keyword text, plain body text, and HTML unless `--no-html` is
 used. `--write-media` exports BLOBs from the sidecar `media` table using magic
 bytes to choose `.gif`, `.png`, `.jpg`, `.bmp`, or `.bin`.
+
+### `spindex`
+
+Inspect standalone `SPINDEX.DIC` resources.
+
+```bash
+logovista-tools spindex /path/to/DICT --out-dir spindex
+logovista-tools spindex /path/to/LogoVista --limit 200 --json
+```
+
+The observed `SPINDEX.DIC` files are not listed in product `SSEDINFO`
+component tables, so this command handles them as separate SSED containers. It
+expands only the compressed chunks that are physically present, parses the
+internal reversed-key index pages, and reports whether child pages are present,
+missing from the physical file, or outside the declared logical range.
+
+Output layout:
+
+```text
+spindex/
+  summary.json
+  DICT_ID/
+    SPINDEX_summary.json
+    SPINDEX_internal_rows.jsonl
+```
+
+Internal row output includes both the stored reversed key and its forward
+spelling:
+
+```json
+{
+  "key_reversed": "CITEROHPAID",
+  "key": "DIAPHORETIC",
+  "child_block": 55753,
+  "child_status": "present_full_page"
+}
+```
 
 ### `gaiji-report`
 
@@ -920,6 +964,8 @@ Known working layers:
   `t_contents` rows, with optional `media` BLOB export.
 - Android body DB extraction through raw HONMON ID anchors and the observed
   `rowid * 5` mapping, with optional SVG/media BLOB export.
+- Standalone `SPINDEX.DIC` inspection for observed Windows suffix-index
+  resources.
 - Structured `MENU.DIC` extraction with menu hierarchy, link labels,
   packed-BCD destination pointers, and named component/body targets.
 - Common `*TITLE.DIC` extraction, including `KWTITLE.DIC` keyword-title
@@ -987,7 +1033,8 @@ That core is the stable part. Platform packages wrap it differently:
 iOS       DictList.plist, Gaiji.plist, GaijiS.plist, resourcesCopy.plist,
           gaijiicon.plist, img/, html/, OTHER/, *.sql
 Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
-Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, *.chm, vlpljbl*
+Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, *.chm, vlpljbl*,
+          sometimes standalone auxiliary SPINDEX.DIC
 ```
 
 `Gaiji.plist` and `GaijiS.plist` are therefore not generic LogoVista files.
@@ -1691,13 +1738,68 @@ GA16FULL:    16x16, start B121, 1,191 glyphs
 Templates:  255 portable resources after PNG/GIF/BMP/SVG discovery
 ```
 
-`SPINDEX.DIC` is present in EJJE200 and SINMEI7 Windows, but it is not listed in
-either product's `SSEDINFO` component table. The observed file is byte-identical
-between those packages. It starts with `SSEDDATA ... SPDATA` and declares 116
-chunks from logical block `0xd9c8` to `0xe101`, but the physical file only
-contains the first two compressed chunks. Those chunks expand to a prefix of a
-reversed-key B-tree. Treat it as auxiliary/plugin metadata, not a standalone
-body component.
+#### SPINDEX.DIC
+
+`SPINDEX.DIC` is a standalone Windows auxiliary file, not a component declared
+inside the product `.IDX`. The local corpus currently contains four copies:
+EJJE200, HAESPJPN Windows, SINMEI7 Windows, and the official Windows browser's
+EJJE200 install copy. All four are byte-identical:
+
+```text
+sha256 aabd6d909fb7bed5d446192fbbf757d18367ca28fb6d72ad69984a842b1a85b9
+size   14349 bytes
+```
+
+The file is still an SSED container. Its header starts with `SSEDDATA`, has the
+submagic bytes `SPDATA`, reports kind byte `0x54`, and declares 116 compressed
+chunks over logical blocks `0xd9c8..0xe101`:
+
+```text
+declared logical blocks:     1,850
+expected expanded bytes:     3,788,800
+physical chunks present:     2 / 116
+expanded bytes present:      38,208
+complete expanded pages:     18
+partial expanded pages:      1
+```
+
+The physical file is therefore only a prefix of the declared SSED stream. The
+chunk table points to later chunk offsets up to roughly `0x206921`, but the
+file ends at `0x380d`. The second physical chunk is incomplete. Generic SSED
+expansion should not assume that every offset in this file is backed by bytes.
+
+The bytes that are present decode cleanly as index branch pages using the same
+page machinery as `FKINDEX.DIC` internal pages:
+
+```text
+root page  logical block 0xd9c8  header word 0x601e  rows 33  slot 34
+page 2     logical block 0xd9c9  header word 0x4020  rows 56  slot 36
+page 3+    logical block 0xd9ca  header word 0x0020  rows 56  slot 36
+```
+
+No leaf/result pages are present in the observed physical file. The 19 parsed
+pages contain 1,022 internal rows. Eighteen child links point to pages present
+in the physical prefix and 1,004 child links point to missing pages.
+
+The keys are stored backward:
+
+```text
+CITEROHPAID       -> DIAPHORETIC
+DEZIRECREM        -> MERCERIZED
+EPATGNITALUSNI    -> INSULATINGTAPE
+GNIFRUSOGE        -> EGOSURFING
+TEEHSNOITANIMAXE  -> EXAMINATIONSHEET
+```
+
+This strongly indicates suffix/backward-search support. The official
+`SSDicLib.dll` also exposes `SDicSupportHore` and `epwing2HtmlSupportHore`
+strings, which is consistent with 後方 search support. The rows visible in
+`SPINDEX.DIC` are separator/fence keys for internal B-tree pages, not
+dictionary hits. Because the observed file has no leaf pages and is identical
+across unrelated dictionaries, it should be treated as common auxiliary
+LogoVista/SSDicLib suffix-search metadata or a bundled search skeleton. It is
+not a product-specific dictionary index and cannot produce body entries by
+itself.
 
 ### Menu Components
 

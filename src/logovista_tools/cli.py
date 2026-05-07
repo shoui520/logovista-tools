@@ -21,6 +21,7 @@ from .menus import extract_menus_for_idx
 from .pcmdata import extract_pcmdata_for_sources
 from .rendererdb import extract_rendererdb_for_sources
 from .resources import ImageResource, load_image_resource_profile
+from .spindex import discover_spindex_files, inspect_spindex
 from .ssed import (
     BLOCK_SIZE,
     expand_sseddata_file,
@@ -663,6 +664,31 @@ def cmd_rendererdb(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_spindex(args: argparse.Namespace) -> int:
+    paths = discover_spindex_files(args.root or [Path(".")])
+    if not paths:
+        print("no SPINDEX.DIC files found", file=sys.stderr)
+        return 1
+
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    summaries = []
+    for path in paths:
+        dict_out = args.out_dir / path.parent.name
+        summary = inspect_spindex(path, out_dir=dict_out, row_limit=args.limit)
+        summaries.append(summary)
+        print(
+            f"{path.parent.name:12s} chunks={summary['chunks_present']:3d}/{summary['declared_chunks']:3d} "
+            f"pages={summary['pages_parsed']:4d} rows={summary['internal_rows']:5d} "
+            f"truncated={'yes' if summary['truncated'] else 'no'}",
+            file=sys.stderr,
+        )
+
+    write_json(args.out_dir / "summary.json", summaries)
+    if args.json:
+        print(json.dumps(summaries, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
     rows = extract_audit_for_sources(args)
     if args.json:
@@ -822,6 +848,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_rendererdb.add_argument("--media-limit", type=int, help="Limit media blobs written.")
     p_rendererdb.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
     p_rendererdb.set_defaults(include_html=True, func=cmd_rendererdb)
+
+    p_spindex = sub.add_parser("spindex", help="Inspect standalone SPINDEX.DIC suffix-index resources.")
+    p_spindex.add_argument("root", type=Path, nargs="*", help="Collection directory or direct SPINDEX.DIC path.")
+    p_spindex.add_argument("--out-dir", type=Path, default=Path("logovista-spindex"))
+    p_spindex.add_argument("--limit", type=int, help="Limit emitted internal rows per SPINDEX.DIC.")
+    p_spindex.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    p_spindex.set_defaults(func=cmd_spindex)
 
     p_audit = sub.add_parser("audit-honmon", help="Audit raw HONMON/IDX readability without SQLite bodies.")
     p_audit.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
