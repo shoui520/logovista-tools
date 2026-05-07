@@ -13,8 +13,19 @@ Text is mostly JIS X 0208 pairs:
 0x21..0x7e 0x21..0x7e
 ```
 
-The decoder wraps these pairs in ISO-2022-JP escape sequences and lets Python
-decode the character.
+The decoder first wraps these pairs in ISO-2022-JP escape sequences. If that
+fails, it converts the 7-bit JIS cell to Shift_JIS and tries CP932, then
+Shift_JIS-2004. That fallback is required for observed extension cells such as:
+
+```text
+2d21 -> ①
+2d54 -> ㎏
+2c29 -> ❾
+233f -> ◦
+```
+
+Without the extension fallback, older Gakken/Houken/Nichigai streams appear to
+contain invalid JIS pairs even though the bytes are displayable symbol cells.
 
 The stream also contains `0x1f` control opcodes. Important controls observed:
 
@@ -30,11 +41,15 @@ The stream also contains `0x1f` control opcodes. Important controls observed:
 1f 0e / 1f 0f     superscript start/end
 1f 10 / 1f 11     italic-ish start/end
 1f 12 / 1f 13     emphasis-ish start/end
+1f 1a xx xx       fixed-argument layout/style control; semantics still neutral
+1f 1c xx xx       fixed-argument layout/style control; observed before media refs
 1f 3b / 1f 5b     URL span start/end
 1f 41 xx xx       headword span start
 1f 61             headword span end
 1f 42             link-ish start
 1f 62 ...         link-ish end with payload
+1f 44 ...         extended link-ish start with a 10-byte payload
+1f 64 ...         extended link-ish end with a 6-byte payload
 1f 4a ...         jump/link/media start with a 16-byte payload
 1f 4d ...         media/reference start with an 18-byte payload
 1f e0 xx xx       bold-ish start
@@ -57,12 +72,54 @@ text.
 `1f 3b` / `1f 5b` are observed as a zero-argument paired URL span in GEN2001.
 The span encloses URL display text and an italicized duplicate URL line.
 
+`1f 1a` and `1f 1c` have two-byte payloads. `1f1a` is common in nihonshi and
+IPHYCHE5 around display runs such as reading/date spans. `1f1c 2000` is common
+in IPHYCHE5 immediately before `1f4d` media references. The renderer semantics
+are still neutral in the toolkit; the important structural fact is that the two
+payload bytes must be consumed.
+
+`1f 44` / `1f 64` are an extended link pair. The start control has a 10-byte
+payload; the end control has a 6-byte payload. ROYALEGR and KQSYNONM use this
+pair. Treating `1f44` as zero-argument leaks binary pointer bytes into the text
+stream and creates false unknown bytes / invalid JIS pairs.
+
 `1f 4a` starts are followed by 16 bytes of binary target metadata before
 visible link text resumes. In PCMDATA dictionaries, the same payload encodes a
 sound/media start and end range. In HAESPJPN, treating this as a 15-byte
 payload leaks one binary byte into the text stream and produces mojibake before
 labels such as `→音声1`. `1f 4d` media starts have an 18-byte payload in the
 same dictionary family.
+
+A bare `0x0a` byte, not introduced by `0x1f`, appears once in the current
+corpus (`NANDOKU1`). It is handled as a legacy line break byte.
+
+## Full HONMON Byte Accounting
+
+The `honmon-bytes` command decodes the entire expanded `HONMON.DIC` stream
+without emitting spans. It is meant to answer a stricter question than entry
+extraction: whether every byte is structurally accounted for.
+
+The current Windows SSED corpus result:
+
+```text
+targets:                    169
+HONMON present/expanded:     161
+missing HONMON files:          8
+expanded HONMON bytes: 3,497,793,539
+bytes covered:         3,497,793,539
+uncovered bytes:                   0
+controls:                460,913,534
+known controls:          460,913,534
+unknown controls:                  0
+unknown bytes:                     0
+invalid JIS cells:                 0
+truncated controls:                1
+```
+
+The one truncated control is `NANDOKU3`, whose expanded HONMON physically ends
+with a lone final `0x1f` byte after the last decoded text cell. The byte is
+covered and reported as a forensic issue. The toolkit does not synthesize an
+opcode for it.
 
 ## Entry Slicing
 

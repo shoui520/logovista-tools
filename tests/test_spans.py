@@ -42,6 +42,33 @@ def test_observed_literal_and_url_controls_are_known_spans() -> None:
     assert decoded.stats["links"] == 1
 
 
+def test_observed_extended_link_controls_are_known_spans() -> None:
+    decoded = decode_lossless_spans(
+        b"\x1f\x44\x00\x01\x00\x00\x00\x71\x00\x00\x04\x88"
+        b"\x1f\x64\x00\x00\x11\x00\x00\x00"
+    )
+
+    assert decoded.stats["unknown_controls"] == 0
+    assert decoded.control_ops == {"44": 1, "64": 1}
+    assert [span.tag for span in decoded.spans] == ["link", "link"]
+    assert decoded.stats["links"] == 1
+
+
+def test_cp932_extension_jis_cells_decode_as_text() -> None:
+    decoded = decode_lossless_spans(b"\x2d\x21\x2d\x54\x2c\x29\x23\x3f")
+
+    assert decoded.stats["invalid_jis_pairs"] == 0
+    assert [span.normalized for span in decoded.spans] == ["①", "㎏", "❾", "◦"]
+
+
+def test_bare_lf_is_a_legacy_break_byte() -> None:
+    decoded = decode_lossless_spans(b"A\x0aB")
+
+    assert [span.kind for span in decoded.spans] == ["ascii", "break", "ascii"]
+    assert decoded.stats["unknown_bytes"] == 0
+    assert decoded.stats["breaks"] == 1
+
+
 def test_lossless_spans_strict_mode_raises() -> None:
     with pytest.raises(LosslessDecodeError):
         decode_lossless_spans(b"\x1f\x99", mode="strict")
@@ -53,3 +80,17 @@ def test_lossless_spans_can_count_padding_without_emitting_it() -> None:
     assert [span.kind for span in decoded.spans] == ["ascii"]
     assert decoded.stats["padding_bytes"] == 2
     assert decoded.stats["bytes_covered"] == 3
+
+
+def test_lossless_spans_can_collect_stats_without_spans() -> None:
+    decoded = decode_lossless_spans(
+        b"\x1f\x09\x00\x01\x00A\x1f\x99",
+        collect_spans=False,
+        max_issues=0,
+    )
+
+    assert decoded.spans == []
+    assert decoded.issues == []
+    assert decoded.issue_counts == {"unknown_control": 1}
+    assert decoded.stats["bytes_covered"] == decoded.stats["bytes_total"]
+    assert decoded.stats["unknown_controls"] == 1

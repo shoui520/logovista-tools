@@ -16,6 +16,7 @@ from .entries import discover_dictionaries, extract_dictionary
 from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
 from .gaiji import UniRecord, parse_ga16_resource, parse_uni_resource, write_ga16_glyph_png
+from .honmon_bytes import extract_honmon_byte_reports_for_args
 from .indexes import extract_indexes_for_idx
 from .ir import extract_ir_for_args
 from .lved import (
@@ -950,6 +951,24 @@ def cmd_profile(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_honmon_bytes(args: argparse.Namespace) -> int:
+    rows = extract_honmon_byte_reports_for_args(args)
+    for row in rows:
+        print(
+            f"{row['dict_id']:12s} status={row['status']:22s} "
+            f"shape={row.get('byte_shape') or '-':32s} "
+            f"bytes={row.get('expanded_bytes', 0):10d} "
+            f"unknown_controls={row.get('unknown_controls', 0):5d} "
+            f"unknown_bytes={row.get('unknown_bytes', 0):5d} "
+            f"invalid_jis={row.get('invalid_jis_pairs', 0):5d} "
+            f"truncated={row.get('truncated_controls', 0) + row.get('truncated_gaiji', 0):3d}",
+            file=sys.stderr,
+        )
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_dump_ir(args: argparse.Namespace) -> int:
     rows = extract_ir_for_args(args)
     for row in rows:
@@ -1203,6 +1222,24 @@ def build_parser() -> argparse.ArgumentParser:
     p_profile.add_argument("--json", action="store_true", help="Also print machine-readable summary JSON.")
     add_jobs_argument(p_profile)
     p_profile.set_defaults(hash_files=True, func=cmd_profile)
+
+    p_honmon_bytes = sub.add_parser(
+        "honmon-bytes",
+        help="Decode every expanded HONMON byte and write redacted coverage reports.",
+    )
+    p_honmon_bytes.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_honmon_bytes.add_argument("--out-dir", type=Path, default=Path("logovista-honmon-bytes"))
+    p_honmon_bytes.add_argument("--dict", action="append", help="Only scan matching dictionary id(s).")
+    p_honmon_bytes.add_argument(
+        "--parse-mode",
+        choices=("lenient", "forensic", "strict"),
+        default="forensic",
+        help="Lossless span parser mode for the full expanded HONMON stream.",
+    )
+    p_honmon_bytes.add_argument("--max-issue-samples", type=int, default=20)
+    p_honmon_bytes.add_argument("--json", action="store_true", help="Also print machine-readable summary JSON.")
+    add_jobs_argument(p_honmon_bytes)
+    p_honmon_bytes.set_defaults(func=cmd_honmon_bytes)
 
     p_dump_ir = sub.add_parser("dump-ir", help="Emit lossless HONMON entry span JSONL.")
     p_dump_ir.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")

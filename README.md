@@ -47,10 +47,12 @@ The current development direction is:
 4. use exporters and writer experiments as views over that model.
 
 See [Project Status and Roadmap](docs/status.md) for the longer capability list.
-The current Windows SSED corpus profile covers 169 packages and, with the
-current opcode table, reports zero sampled unknown text controls, zero unknown
-text bytes, and zero unknown index leaf bytes. See
-[Corpus Findings](docs/corpus-findings.md) for the exact aggregate.
+The current Windows SSED corpus byte scan covers 169 package targets and
+3,497,793,539 expanded `HONMON.DIC` bytes. With the current opcode and text
+cell table, every expanded HONMON byte is accounted for: zero unknown controls,
+zero unknown bytes, zero invalid JIS cells, and one known final truncated
+control byte in `NANDOKU3`. See [Corpus Findings](docs/corpus-findings.md) for
+the exact aggregate.
 
 ## Install
 
@@ -112,6 +114,12 @@ lossless decode metrics:
 
 ```bash
 logovista-tools profile /path/to/LogoVista --jobs 0 --out-dir out/profiles
+```
+
+Decode every expanded `HONMON.DIC` byte and write redacted coverage reports:
+
+```bash
+logovista-tools honmon-bytes /path/to/LogoVista --jobs 0 --out-dir out/honmon-bytes
 ```
 
 Dump lossless span JSONL for entry-level reverse engineering:

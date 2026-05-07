@@ -89,6 +89,8 @@ class SpanDecodeResult:
     control_ops: dict[str, int] = field(default_factory=dict)
     unknown_control_ops: dict[str, int] = field(default_factory=dict)
     issue_counts: dict[str, int] = field(default_factory=dict)
+    collect_spans: bool = True
+    max_issues: int | None = None
 
     def as_dict(
         self,
@@ -152,14 +154,16 @@ def _record_issue(
     message: str,
 ) -> None:
     issue = DecodeIssue(kind=kind, offset=offset, length=len(raw), raw_hex=raw.hex(), message=message)
-    result.issues.append(issue)
     _bump(result.issue_counts, kind)
+    if result.max_issues is None or len(result.issues) < result.max_issues:
+        result.issues.append(issue)
     if mode == "strict":
         raise LosslessDecodeError(f"{kind} at offset {offset}: {message}")
 
 
 def _add_span(result: SpanDecodeResult, span: Span) -> None:
-    result.spans.append(span)
+    if result.collect_spans:
+        result.spans.append(span)
     result.stats["bytes_covered"] += span.end - span.start
 
 
@@ -170,6 +174,8 @@ def decode_lossless_spans(
     image_gaiji_keys: frozenset[str] | set[str] | None = None,
     mode: ParseMode = "forensic",
     include_padding: bool = True,
+    collect_spans: bool = True,
+    max_issues: int | None = None,
 ) -> SpanDecodeResult:
     """Decode expanded text bytes into offset-addressed spans.
 
@@ -183,7 +189,11 @@ def decode_lossless_spans(
 
     gaiji_map = gaiji_map or {}
     image_gaiji_keys = image_gaiji_keys or frozenset()
-    result = SpanDecodeResult(stats=dict(BASE_STATS))
+    result = SpanDecodeResult(
+        stats=dict(BASE_STATS),
+        collect_spans=collect_spans,
+        max_issues=max_issues,
+    )
     result.stats["bytes_total"] = len(data)
     i = 0
     while i < len(data):
@@ -272,7 +282,15 @@ def decode_lossless_spans(
 
             start_tag = control_tag_for_start(op)
             end_tag = control_tag_for_end(op)
-            if start_tag is not None or end_tag is not None or op in (0x00, 0x02, 0x03, 0x04, 0x05):
+            if start_tag is not None or end_tag is not None or op in (
+                0x00,
+                0x02,
+                0x03,
+                0x04,
+                0x05,
+                0x1A,
+                0x1C,
+            ):
                 tag = start_tag or end_tag
                 if start_tag in {"link", "url"}:
                     result.stats["links"] += 1
@@ -307,6 +325,13 @@ def decode_lossless_spans(
                 Span("unknown_control", start, start + length, raw.hex(), op=op_hex, issue="unknown_control"),
             )
             i += length
+            continue
+
+        if b == 0x0A:
+            raw = data[i : i + 1]
+            result.stats["breaks"] += 1
+            _add_span(result, Span("break", i, i + 1, raw.hex()))
+            i += 1
             continue
 
         if i + 1 < len(data) and 0x21 <= b <= 0x7E and 0x21 <= data[i + 1] <= 0x7E:

@@ -33,13 +33,17 @@ ENTRY_MARKER = b"\x1f\x09\x00\x01"
 SPACE_RE = re.compile(r"[ \t\r\f\v]+")
 CONTROL_ARG_LENGTHS = {
     0x09: 2,
+    0x1A: 2,
+    0x1C: 2,
     0x41: 2,
     0x42: 0,
     0x43: 0,
+    0x44: 10,
     0x4A: 16,
     0x4D: 18,
     0x62: 6,
     0x63: 6,
+    0x64: 6,
     0xE0: 2,
     0xE2: 2,
 }
@@ -105,7 +109,32 @@ def decode_jis_pair(pair: bytes) -> str:
     try:
         return (b"\x1b$B" + pair + b"\x1b(B").decode("iso2022_jp")
     except UnicodeDecodeError:
+        pass
+    try:
+        sjis = jis_pair_to_sjis(pair)
+        try:
+            return sjis.decode("cp932")
+        except UnicodeDecodeError:
+            return sjis.decode("shift_jis_2004")
+    except UnicodeDecodeError:
         return ""
+
+
+def jis_pair_to_sjis(pair: bytes) -> bytes:
+    """Convert a 7-bit JIS cell pair to Shift_JIS for CP932 extension rows."""
+
+    row = pair[0] - 0x21
+    cell = pair[1] - 0x21
+    lead = (row >> 1) + 0x81
+    if lead > 0x9F:
+        lead += 0x40
+    if row & 1:
+        trail = cell + 0x9F
+    else:
+        trail = cell + 0x40
+        if trail >= 0x7F:
+            trail += 1
+    return bytes((lead, trail))
 
 
 def normalize_fullwidth_ascii(text: str) -> str:
@@ -146,6 +175,7 @@ def control_tag_for_start(op: int) -> str | None:
         0x41: "head",
         0x42: "link",
         0x43: "link",
+        0x44: "link",
         0x4A: "link",
         0x4D: "media",
         0xE0: "bold",
@@ -164,6 +194,7 @@ def control_tag_for_end(op: int) -> str | None:
         0x61: "head",
         0x62: "link",
         0x63: "link",
+        0x64: "link",
         0x6A: "link",
         0x6D: "media",
         0xE1: "bold",
@@ -202,6 +233,11 @@ def decode_tokens(
             i += 1
             continue
 
+        if b == 0x0A:
+            tokens.append(Break())
+            i += 1
+            continue
+
         if b == 0x1F and i + 1 < len(data):
             op = data[i + 1]
             stats["controls"] += 1
@@ -234,7 +270,7 @@ def decode_tokens(
                     stats["links"] += 1
             elif end_tag is not None:
                 tokens.append(EndTag(end_tag))
-            elif op not in (0x02, 0x03, 0x04, 0x05, 0x00):
+            elif op not in (0x02, 0x03, 0x04, 0x05, 0x00, 0x1A, 0x1C):
                 stats["unknown_controls"] += 1
             i += 2 + CONTROL_ARG_LENGTHS.get(op, 0)
             continue

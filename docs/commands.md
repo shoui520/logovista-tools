@@ -17,7 +17,8 @@ Corpus-scale commands support `--jobs`:
 This applies to commands that operate across many dictionaries or resources:
 `scan`, `entries`, `resources`, `colscr`, `pcmdata`, `extras`, `rendererdb`,
 `spindex`, `audit-honmon`, `gaiji-report`, `ga16`, `titles`, `indexes`,
-`menus`, `fulldb`, `profile`, `dump-ir`, and LVED payload inspection.
+`menus`, `fulldb`, `profile`, `honmon-bytes`, `dump-ir`, and LVED payload
+inspection.
 
 For huge corpora, start with a moderate value such as `--jobs 8` or `--jobs 16`
 when also writing many JSON/media files. `--jobs 0` is useful for CPU-heavy
@@ -277,6 +278,45 @@ profiles/
 source hints, measured unknown totals, and hotspot lists. Each `profile.json`
 contains per-component catalog metadata, `honmon.decode_aggregate`, and
 `indexes.aggregate`.
+
+### `honmon-bytes`
+
+Decode every byte of each expanded `HONMON.DIC` and write redacted byte
+coverage reports. This is the strongest raw text-stream audit command: unlike
+`profile`, it does not sample entry slices.
+
+```bash
+logovista-tools honmon-bytes /path/to/LogoVista --jobs 0 --out-dir honmon-bytes
+logovista-tools honmon-bytes /path/to/LogoVista --dict HAESPJPN --json
+```
+
+Output layout:
+
+```text
+honmon-bytes/
+  summary.json
+  DICT_ID/
+    honmon_bytes.json
+```
+
+Each per-dictionary report records package-relative paths, HONMON storage mode,
+expanded byte count, entry-marker count, byte-shape classification, full-stream
+span statistics, control-opcode census, unknown-control census, issue counts,
+and issue samples with logical block/offset addresses. It does not emit body
+text or spans.
+
+Useful options:
+
+```bash
+--parse-mode forensic                record issues and continue; default
+--parse-mode strict                  treat unknown/unsafe bytes as strict failures
+--max-issue-samples N                forensic issue samples kept per dictionary
+--jobs 0                             use all detected CPU cores
+```
+
+The current Windows SSED corpus run accounts for 3,497,793,539 expanded HONMON
+bytes with zero unknown controls, zero unknown bytes, zero invalid JIS cells,
+and one known truncated final `0x1f` byte in `NANDOKU3`.
 
 ### `dump-ir`
 

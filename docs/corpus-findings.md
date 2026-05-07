@@ -49,6 +49,55 @@ cross-reference, and extra index leaf structures in this corpus. This is still
 an empirical result, not a claim that every LogoVista product ever shipped uses
 only these layouts.
 
+## Full HONMON Byte Scan
+
+The stronger corpus pass scans every expanded `HONMON.DIC` byte, not sampled
+entry slices:
+
+```bash
+logovista-tools honmon-bytes /path/to/LOGOVISTA_SSED_DICTS_WINDOWS \
+  --jobs 0 --max-issue-samples 20 \
+  --out-dir /tmp/lv-honmon-bytes-corpus
+```
+
+Aggregate result with the current decoder:
+
+```text
+targets:                    169
+status:                     161 ok, 8 missing_honmon_file
+HONMON byte shapes:         142 marker_rich_text_stream
+                            18 dense_marker_table
+                             1 text_stream_without_entry_markers
+                             8 none/missing
+storage modes:              135 plain
+                            26 logofont_cipher
+                             8 none/missing
+expanded HONMON bytes: 3,497,793,539
+bytes covered:         3,497,793,539
+uncovered bytes:                   0
+entry markers:            26,656,375
+controls:                460,913,534
+known controls:          460,913,534
+unknown controls:                  0
+unknown bytes:                     0
+invalid JIS cells:                 0
+truncated controls:                1
+truncated gaiji:                   0
+```
+
+The full scan produced several corrections to the text-stream model:
+
+- `1f1a` and `1f1c` are fixed two-byte-argument controls. They are structurally
+  recognized, but their exact renderer semantics remain neutral.
+- `1f44` / `1f64` are an extended link pair with 10-byte and 6-byte payloads.
+- JIS cell decoding needs CP932 and Shift_JIS-2004 fallback after ISO-2022-JP.
+  This accounts for extension symbols such as `①`, `㎏`, `❾`, and `◦`.
+- A bare `0x0a` can occur as a legacy line break byte.
+
+The sole remaining forensic issue is `NANDOKU3`: the expanded stream ends with
+a lone final `0x1f` byte after decoded text. It is covered and reported as a
+truncated control; no opcode is inferred.
+
 ## HONMON/IDX Corpus Audit
 
 The local `LOGOVISTA_ALL` corpus was audited with raw SSED expansion, raw

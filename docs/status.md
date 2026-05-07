@@ -13,6 +13,8 @@ LogoVista dictionary model.
 - `SSEDDATA` `.DIC` expansion.
 - EPWING-like component block composition.
 - JIS X 0208 text decoding.
+- CP932 / Shift_JIS-2004 extension cell fallback for observed JIS-row symbols
+  such as circled numbers, unit glyphs, and dingbat-like markers.
 - Body-stream `HONMON.DIC` extraction for supported dictionaries.
 - Index-derived body boundaries for entries whose first section is not `0001`.
 - Common `*TITLE.DIC` extraction.
@@ -53,12 +55,16 @@ LogoVista dictionary model.
 - Redacted SSED package profiles with component metadata, wrapper/resource
   counts, body-source hints, index parse metrics, control-opcode censuses, and
   lossless sampled decode metrics.
+- Full-stream `HONMON.DIC` byte accounting with redacted per-dictionary reports
+  and corpus summaries.
 - Entry-level lossless span JSONL preserving raw offsets/bytes for controls,
   JIS text, gaiji, media references, padding, and measured problem spans.
 - Strict, forensic, and lenient text-span parsing modes for sampled body
   slices and entry-level IR dumps.
 - Observed `1f0b`/`1f0c` literal/preformatted body spans.
 - Observed `1f3b`/`1f5b` URL body spans.
+- Observed `1f1a`/`1f1c` fixed two-byte-argument controls and
+  `1f44`/`1f64` extended link controls.
 
 ## Experimental / Active Reverse Engineering
 
@@ -84,6 +90,9 @@ LogoVista dictionary model.
   several still have readable raw body streams. Audit the raw layer first.
 - Some control opcodes are structurally recognized with neutral tags, but their
   exact renderer presentation is not fully modeled.
+- The current Windows SSED corpus has one known physical tail anomaly:
+  `NANDOKU3` ends with a lone final `0x1f` byte after the last decoded text
+  cell. It is covered and reported as a truncated control, not guessed.
 - Named UI/style images such as `exam.png` are discovered, but mapping them to
   semantic entry regions is dictionary-specific.
 - `dump-ir` is a lossless span JSONL inspection format. It is not yet the
@@ -104,6 +113,9 @@ Recently landed:
 3. Entry-level lossless span JSONL from `HONMON.DIC`.
 4. Measured unknown controls, bytes, gaiji, media references, and index leaf
    parse coverage.
+5. Full-corpus `HONMON.DIC` byte accounting with zero unknown controls, zero
+   unknown bytes, and zero invalid JIS cells on the 169-target Windows SSED
+   corpus.
 
 Next priorities:
 
