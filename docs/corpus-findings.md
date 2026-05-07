@@ -2,6 +2,53 @@
 
 Observed dictionary behavior. These notes are evidence from the local corpus, not universal claims about every LogoVista product ever shipped.
 
+## Windows SSED Corpus Profile
+
+A later Windows SSED corpus pass profiled 169 packages with raw SSED expansion,
+raw `*INDEX.DIC` scanning, sampled lossless HONMON span decoding, and no
+SQLite body text. The command shape was:
+
+```bash
+logovista-tools profile /path/to/LOGOVISTA_SSED_DICTS_WINDOWS \
+  --jobs 0 --max-slices 25 --max-issue-samples 10 --no-hash \
+  --out-dir /tmp/lv-profile-corpus
+```
+
+Aggregate result:
+
+```text
+profiles:                 169
+package status:           136 ok, 33 incomplete
+HONMON shapes:            110 body_stream_indexed
+                           33 body_stream_marker_sliced
+                           18 dense_marker_table
+                            8 none/missing
+body source hints:        143 honmon
+                           18 honmon_anchor_dereference
+                            8 none
+expanded HONMON bytes:    3,497,793,539
+entry markers counted:    26,656,375
+index body boundaries:    12,370,613
+unknown text controls:    0
+unknown text bytes:       0
+unknown index leaf bytes: 0
+strict span failures:     0
+```
+
+This pass produced two concrete text-stream findings:
+
+- `1f0b` / `1f0c` are zero-argument literal/preformatted spans. ROYALEGR uses
+  them around box-drawing table rows; NKGORIN2 uses them around ASCII numeric
+  character references such as `&#x4E05;`.
+- `1f3b` / `1f5b` are zero-argument URL spans. GEN2001 uses them around URL
+  display blocks.
+
+The `unknown index leaf bytes: 0` result is important. It means the current
+branch/leaf parser consumed all observed forward, backward, keyword,
+cross-reference, and extra index leaf structures in this corpus. This is still
+an empirical result, not a claim that every LogoVista product ever shipped uses
+only these layouts.
+
 ## HONMON/IDX Corpus Audit
 
 The local `LOGOVISTA_ALL` corpus was audited with raw SSED expansion, raw

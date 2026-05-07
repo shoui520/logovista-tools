@@ -138,9 +138,11 @@ def gaiji_text(first: int, second: int, mode: str, gaiji_map: dict[str, str]) ->
 def control_tag_for_start(op: int) -> str | None:
     return {
         0x06: "sub",
+        0x0B: "literal",
         0x0E: "sup",
         0x10: "italic",
         0x12: "em",
+        0x3B: "url",
         0x41: "head",
         0x42: "link",
         0x43: "link",
@@ -154,9 +156,11 @@ def control_tag_for_start(op: int) -> str | None:
 def control_tag_for_end(op: int) -> str | None:
     return {
         0x07: "sub",
+        0x0C: "literal",
         0x0F: "sup",
         0x11: "italic",
         0x13: "em",
+        0x5B: "url",
         0x61: "head",
         0x62: "link",
         0x63: "link",
@@ -226,7 +230,7 @@ def decode_tokens(
             end_tag = control_tag_for_end(op)
             if start_tag is not None:
                 tokens.append(StartTag(start_tag))
-                if start_tag == "link":
+                if start_tag in {"link", "url"}:
                     stats["links"] += 1
             elif end_tag is not None:
                 tokens.append(EndTag(end_tag))
@@ -328,10 +332,14 @@ def tokens_to_html(
         "em": "em",
         "head": "span",
         "color": "span",
+        "literal": "span",
+        "url": "span",
     }
     attrs = {
         "head": ' class="lv-head"',
         "color": ' class="lv-color"',
+        "literal": ' class="lv-literal"',
+        "url": ' class="lv-url"',
     }
 
     for token in tokens:

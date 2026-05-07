@@ -26,9 +26,11 @@ The stream also contains `0x1f` control opcodes. Important controls observed:
 1f 06 / 1f 07     subscript start/end
 1f 09 xx xx       entry marker, commonly 1f 09 00 01
 1f 0a             line break
+1f 0b / 1f 0c     literal/preformatted span start/end
 1f 0e / 1f 0f     superscript start/end
 1f 10 / 1f 11     italic-ish start/end
 1f 12 / 1f 13     emphasis-ish start/end
+1f 3b / 1f 5b     URL span start/end
 1f 41 xx xx       headword span start
 1f 61             headword span end
 1f 42             link-ish start
@@ -44,6 +46,16 @@ The stream also contains `0x1f` control opcodes. Important controls observed:
 The current extractor does not claim full semantic knowledge of every control.
 It uses enough structure to preserve line breaks and avoid mixing payload bytes
 into visible text.
+
+`1f 0b` / `1f 0c` are observed as a zero-argument paired span. The safest
+current label is literal/preformatted. ROYALEGR uses the pair around
+box-drawing table rows, where spacing matters. NKGORIN2 uses it around ASCII
+numeric character references such as `&#x4E05;`, which strongly suggests the
+official renderer treats this region specially instead of as ordinary JIS body
+text.
+
+`1f 3b` / `1f 5b` are observed as a zero-argument paired URL span in GEN2001.
+The span encloses URL display text and an italicized duplicate URL line.
 
 `1f 4a` starts are followed by 16 bytes of binary target metadata before
 visible link text resumes. In PCMDATA dictionaries, the same payload encodes a

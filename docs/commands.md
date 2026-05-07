@@ -17,7 +17,7 @@ Corpus-scale commands support `--jobs`:
 This applies to commands that operate across many dictionaries or resources:
 `scan`, `entries`, `resources`, `colscr`, `pcmdata`, `extras`, `rendererdb`,
 `spindex`, `audit-honmon`, `gaiji-report`, `ga16`, `titles`, `indexes`,
-`menus`, `fulldb`, and LVED payload inspection.
+`menus`, `fulldb`, `profile`, `dump-ir`, and LVED payload inspection.
 
 For huge corpora, start with a moderate value such as `--jobs 8` or `--jobs 16`
 when also writing many JSON/media files. `--jobs 0` is useful for CPU-heavy
@@ -235,6 +235,68 @@ idx_title_only_no_readable_honmon_body
                                     indexes/titles exist, but sampled HONMON bodies do not
 skipped_dbc                         .dbc payload skipped by default
 ```
+
+### `profile`
+
+Write stable, redacted SSED package profiles. Profiles include catalog
+component metadata, wrapper/resource counts, body-source hints, raw
+`*INDEX.DIC` parse metrics, sampled lossless decode metrics, control-opcode
+censuses, unknown-control counts, unknown-byte counts, and forensic issue
+samples without emitting dictionary body text.
+
+```bash
+logovista-tools profile /path/to/LogoVista --jobs 0 --out-dir profiles
+logovista-tools profile /path/to/LogoVista --no-hash --max-slices 25 --jobs 0
+```
+
+Useful options:
+
+```bash
+--parse-mode forensic                record issues and continue; default
+--parse-mode strict                  treat unknown/unsafe text bytes as strict failures
+--max-slices N                       sampled HONMON slices per dictionary; 0 = uncapped
+--max-issue-samples N                forensic issue samples kept per dictionary
+--no-hash                            skip component SHA-256 hashes for faster exploratory runs
+--jobs 0                             use all detected CPU cores
+```
+
+Output layout:
+
+```text
+profiles/
+  summary.json
+  DICT_ID/
+    profile.json
+```
+
+`summary.json` is an aggregate object with corpus-level shape counts, body
+source hints, measured unknown totals, and hotspot lists. Each `profile.json`
+contains per-component catalog metadata, `honmon.decode_aggregate`, and
+`indexes.aggregate`.
+
+### `dump-ir`
+
+Emit entry-level lossless span JSONL from expanded `HONMON.DIC`. This is the
+debug/model path, not a user-facing readable extractor.
+
+```bash
+logovista-tools dump-ir /path/to/LogoVista --dict HAESPJPN --limit 10 --out-dir ir
+```
+
+Each entry row contains:
+
+```text
+schema                              logovista-lossless-entry-v1
+address                             HONMON block/offset and component offset
+stats                               measured byte/control/gaiji/media counts
+unknown_control_ops                 opcode frequency map
+issue_counts                        forensic issue frequency map
+spans                               ordered offset spans with raw bytes
+```
+
+By default padding spans and `raw_hex` are included so the byte stream can be
+audited directly. Use `--no-padding-spans` or `--no-raw` only when the output
+size is too large for the task.
 
 ### `resources`
 

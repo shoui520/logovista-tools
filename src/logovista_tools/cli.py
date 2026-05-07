@@ -17,6 +17,7 @@ from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
 from .gaiji import UniRecord, parse_ga16_resource, parse_uni_resource, write_ga16_glyph_png
 from .indexes import extract_indexes_for_idx
+from .ir import extract_ir_for_args
 from .lved import (
     decrypt_lved_sqlcipher4_to_path,
     derive_lved_sqlcipher_key,
@@ -26,6 +27,7 @@ from .lvcrypto import decrypt_logofont_cipher_file_to_path
 from .menus import extract_menus_for_idx
 from .parallel import add_jobs_argument, parallel_map_ordered, worker_args
 from .pcmdata import extract_pcmdata_for_sources
+from .profiles import extract_profiles_for_args
 from .rendererdb import extract_rendererdb_for_sources
 from .resources import ImageResource, load_image_resource_profile
 from .spindex import discover_spindex_files, inspect_spindex
@@ -933,6 +935,38 @@ def cmd_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_profile(args: argparse.Namespace) -> int:
+    rows = extract_profiles_for_args(args)
+    for row in rows:
+        print(
+            f"{row['dict_id']:12s} status={row['status']:10s} "
+            f"body={row['body_source_hint']:24s} shape={row['honmon_shape'] or '-':32s} "
+            f"unknown_controls={row['unknown_controls']:5d} unknown_bytes={row['unknown_bytes']:5d} "
+            f"idx_unknown={row.get('index_unknown_leaf_bytes', 0):5d}",
+            file=sys.stderr,
+        )
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_dump_ir(args: argparse.Namespace) -> int:
+    rows = extract_ir_for_args(args)
+    for row in rows:
+        aggregate = row.get("aggregate", {})
+        stats = aggregate.get("stats", {})
+        print(
+            f"{row['dict_id']:12s} entries={row['entries_emitted']:5d} "
+            f"strict_failures={row['strict_failures']:4d} "
+            f"unknown_controls={stats.get('unknown_controls', 0):5d} "
+            f"unknown_bytes={stats.get('unknown_bytes', 0):5d}",
+            file=sys.stderr,
+        )
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="logovista-tools",
@@ -1147,6 +1181,57 @@ def build_parser() -> argparse.ArgumentParser:
     p_audit.add_argument("--json", action="store_true", help="Also print machine-readable JSON.")
     add_jobs_argument(p_audit)
     p_audit.set_defaults(skip_dbc=True, index_boundaries=True, func=cmd_audit)
+
+    p_profile = sub.add_parser("profile", help="Write stable redacted SSED package profiles.")
+    p_profile.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_profile.add_argument("--out-dir", type=Path, default=Path("logovista-profiles"))
+    p_profile.add_argument("--dict", action="append", help="Only profile matching dictionary id(s).")
+    p_profile.add_argument(
+        "--parse-mode",
+        choices=("lenient", "forensic", "strict"),
+        default="forensic",
+        help="Lossless span parser mode for sampled HONMON slices.",
+    )
+    p_profile.add_argument(
+        "--max-slices",
+        type=int,
+        default=200,
+        help="Maximum HONMON slices to sample per dictionary for lossless metrics; 0 disables the cap.",
+    )
+    p_profile.add_argument("--max-issue-samples", type=int, default=20)
+    p_profile.add_argument("--no-hash", dest="hash_files", action="store_false", help="Skip component SHA-256 hashes.")
+    p_profile.add_argument("--json", action="store_true", help="Also print machine-readable summary JSON.")
+    add_jobs_argument(p_profile)
+    p_profile.set_defaults(hash_files=True, func=cmd_profile)
+
+    p_dump_ir = sub.add_parser("dump-ir", help="Emit lossless HONMON entry span JSONL.")
+    p_dump_ir.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_dump_ir.add_argument("--out-dir", type=Path, default=Path("logovista-lossless-ir"))
+    p_dump_ir.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
+    p_dump_ir.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        help="Limit entries per dictionary; use 0 to emit every entry.",
+    )
+    p_dump_ir.add_argument(
+        "--parse-mode",
+        choices=("lenient", "forensic", "strict"),
+        default="forensic",
+        help="Lossless span parser mode.",
+    )
+    p_dump_ir.add_argument("--max-issues", type=int, default=50, help="Issue samples kept per emitted entry.")
+    p_dump_ir.add_argument("--no-raw", dest="include_raw", action="store_false", help="Omit raw_hex from spans.")
+    p_dump_ir.add_argument(
+        "--no-padding-spans",
+        dest="include_padding",
+        action="store_false",
+        help="Count NUL padding bytes but do not emit padding spans.",
+    )
+    p_dump_ir.add_argument("--no-index-boundaries", dest="index_boundaries", action="store_false")
+    p_dump_ir.add_argument("--json", action="store_true", help="Also print machine-readable summary JSON.")
+    add_jobs_argument(p_dump_ir)
+    p_dump_ir.set_defaults(include_raw=True, include_padding=True, index_boundaries=True, func=cmd_dump_ir)
 
     p_gaiji_report = sub.add_parser(
         "gaiji-report",

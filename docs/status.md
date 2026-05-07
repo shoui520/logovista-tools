@@ -50,14 +50,22 @@ LogoVista dictionary model.
   for observed OXFPEU4/KQCMPROS packages.
 - `--jobs` process-level parallelism for corpus-scale scanning, extraction,
   audit, gaiji/media reports, LVED inspection, and GA16 rendering.
+- Redacted SSED package profiles with component metadata, wrapper/resource
+  counts, body-source hints, index parse metrics, control-opcode censuses, and
+  lossless sampled decode metrics.
+- Entry-level lossless span JSONL preserving raw offsets/bytes for controls,
+  JIS text, gaiji, media references, padding, and measured problem spans.
+- Strict, forensic, and lenient text-span parsing modes for sampled body
+  slices and entry-level IR dumps.
+- Observed `1f0b`/`1f0c` literal/preformatted body spans.
+- Observed `1f3b`/`1f5b` URL body spans.
 
 ## Experimental / Active Reverse Engineering
 
 - Full `0x1f` control opcode semantics.
-- Lossless entry IR with raw JIS cells, normalized display text, raw controls,
-  gaiji refs, media refs, links, section markers, and typed addresses.
-- Strict and forensic parser modes.
-- Redacted corpus regression profiles.
+- Expanding the first lossless span model into a stable public IR schema for
+  all text, index, link, gaiji, and media layers.
+- Formal private-corpus regression baselines generated from redacted profiles.
 - Official-renderer parity checks.
 - Dictionary-specific semantic profiles for section codes, named images, and
   virtual selectors.
@@ -87,12 +95,20 @@ LogoVista dictionary model.
 
 ## Roadmap
 
-Near term:
+Recently landed:
 
 1. Build a corpus classifier that emits stable, redacted package profiles.
 2. Add strict and forensic parsing modes.
 3. Move low-level decoding toward lossless spans instead of flattened text.
 4. Make unknown controls, pointers, gaiji, media, and unparsed bytes measurable.
+
+Near term:
+
+1. Turn redacted corpus profiles into committed metric baselines.
+2. Promote lossless span JSONL into a documented public IR schema.
+3. Add typed address/component objects shared by all parsers.
+4. Expand renderer-parity checks for literal spans, URL spans, gaiji images,
+   media links, and dense-anchor dereference paths.
 
 Model work:
 
