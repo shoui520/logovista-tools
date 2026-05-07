@@ -29,6 +29,53 @@ records, and short opaque base64-like tokens. Without that filter, dense tables
 can appear to contain entries such as `<section:0001>` or `K0NVOzjh`; those are
 not coherent dictionary bodies.
 
+## LVED SQLCipher Packages
+
+OXFPEU4 and KQCMPROS are not failed SSED/HONMON dictionaries. They are a
+separate LVED/WebView2 package family. The body/search/media data lives in
+SQLCipher payloads named `main.data` on Windows and `*.dbc` in mobile-style
+packages.
+
+Observed OXFPEU4 facts:
+
+```text
+Windows main.data size:    15,937,536 bytes
+4096-byte pages:            3,891
+Windows/iOS payload match:  byte-identical in the local corpus
+decrypted schema:           list, content, media, info, search, FTS backing tables
+list rows:                  2,802
+content rows:                  70
+search rows:                2,802
+```
+
+Observed KQCMPROS facts:
+
+```text
+Windows main.data size:   197,382,144 bytes
+4096-byte pages:           48,189
+decrypted schema:          list, content, media, info, search, FTS backing tables
+list rows:                135,317
+content rows:              64,517
+search rows:              135,317
+```
+
+The Windows viewer ships WebView2 and SQLCipher. Static .NET inspection shows a
+direct `sqlite3_open_v2` -> metadata-derived key -> `sqlite3_key` path. The
+validated database key path uses dictionary id/code metadata, not the product
+serial. The local LVEDVIEWER memory dump also contains plaintext SQLite headers,
+SQL statements, and live key material; this confirms the runtime model, but
+memory dumps and recovered keys are not repository artifacts.
+
+The toolkit therefore treats LVED payloads as a distinct package layer:
+
+```bash
+logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 --json
+logovista-tools lved /path/to/KQCMPROS --dict-id 751 --json
+```
+
+Reports validate the payload without emitting derived, explicit, or recovered
+keys.
+
 ## Non-iOS Body Streams
 
 OUKOKU11 is useful because it is an Android-only package, not part of

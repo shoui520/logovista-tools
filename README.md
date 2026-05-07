@@ -36,7 +36,7 @@ are still allowed to change as more products are tested.
 | `.uni`, `GA16HALF`, `GA16FULL` gaiji resources | Strong for observed variants |
 | `MENU.DIC`, `COLSCR.DIC`, `PCMDATA.DIC` | Supported, still accumulating edge cases |
 | Windows / Android / iOS wrappers | Supported per observed package family |
-| `.dbc` protected payloads | Classified as a separate unresolved family |
+| LVED/WebView2 `main.data` / `.dbc` SQLCipher payloads | Validated for observed OXFPEU4/KQCMPROS packages |
 | LogoVista writer support | Not implemented |
 
 The current development direction is:
@@ -121,6 +121,12 @@ rows:
 logovista-tools rendererdb /path/to/DICT --out-dir out/rendererdb
 ```
 
+Inspect modern LVED/WebView2 SQLCipher packages such as OXFPEU4/KQCMPROS:
+
+```bash
+logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 --json
+```
+
 The full command reference lives in [docs/commands.md](docs/commands.md).
 
 ## Documentation Map
@@ -144,6 +150,7 @@ The full command reference lives in [docs/commands.md](docs/commands.md).
 | [Text Streams and Body Storage](spec/text-streams.md) | `HONMON.DIC`, entry slicing, dense HONMON, `DictFULLDB`, outliers. |
 | [Menus, Titles, and Indexes](spec/menus-titles-indexes.md) | `MENU.DIC`, `*TITLE.DIC`, and `*INDEX.DIC`. |
 | [Gaiji, Images, and Media](spec/gaiji-media.md) | `.uni`, `GA16*`, package images, `COLSCR.DIC`, `PCMDATA.DIC`. |
+| [LVED SQLCipher Packages](spec/lved-main-data.md) | Modern WebView2 `main.data` / `.dbc` package family. |
 | [Confidence Levels](spec/confidence.md) | How reverse-engineered claims are labeled. |
 
 ## Core Model
@@ -168,11 +175,20 @@ Platform packages add their own wrapper material:
 iOS       DictList.plist, Gaiji.plist, GaijiS.plist, img/, html/, *.sql
 Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
 Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, vlpljbl*, 00000xxx.idx
+LVED      main.data / *.dbc, WebView2 viewer files, SQLCipher runtime
 ```
 
 The raw core is the main reverse-engineering target. SQLite databases, renderer
 sidecars, and app caches are useful evidence, but they are not treated as a
 replacement for the raw address/pointer model.
+
+Modern LVED/WebView2 products are a separate package family. In observed
+OXFPEU4/KQCMPROS packages, `main.data` or `.dbc` is a SQLCipher database rather
+than an SSED/HONMON stream. The toolkit classifies and validates those payloads
+separately instead of forcing them into the SSED model. The SQLCipher key
+derivation is documented in [LVED SQLCipher Packages](spec/lved-main-data.md)
+and implemented in code; per-product final keys and serials are not repository
+artifacts.
 
 ## Development
 

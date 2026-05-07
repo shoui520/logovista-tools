@@ -31,6 +31,8 @@ Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
 Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, *.chm, vlpljbl*,
           eight-hex-digit 00000xxx.idx sidecar trees, sometimes standalone
           auxiliary SPINDEX.DIC and sibling *_Sound_Files/ ziptomedia audio
+LVED      main.data or *.dbc, WebView2 viewer files, sqlcipher.dll,
+          plugin DLL/assembly resources
 ```
 
 `Gaiji.plist` and `GaijiS.plist` are therefore not generic LogoVista files.
@@ -47,3 +49,9 @@ The core raw format has two layers:
 The SQLite database, when present, is best understood as an application cache
 or search database. It may contain useful full text, but it is not the only
 raw dictionary source, and using it alone loses format information.
+
+There is now a separately observed LVED/WebView2 package family. These products
+do not expose a normal SSED/HONMON body core. Their `main.data` Windows payload
+or `.dbc` mobile payload is a SQLCipher page database and must be classified as
+that package family, not as a broken SSED dictionary. See
+[LVED SQLCipher Packages](lved-main-data.md).

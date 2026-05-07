@@ -46,6 +46,8 @@ LogoVista dictionary model.
 - SQL/`DictFULLDB`-assisted gaiji validation reports.
 - Standalone `SPINDEX.DIC` inspection for observed Windows suffix-index
   resources.
+- LVED/WebView2 `main.data` / `.dbc` SQLCipher classification and validation
+  for observed OXFPEU4/KQCMPROS packages.
 
 ## Experimental / Active Reverse Engineering
 
@@ -57,7 +59,8 @@ LogoVista dictionary model.
 - Official-renderer parity checks.
 - Dictionary-specific semantic profiles for section codes, named images, and
   virtual selectors.
-- `.dbc` protected payloads such as `OXFPEU4.dbc`.
+- Broader LVED/WebView2 corpus coverage beyond observed OXFPEU4/KQCMPROS
+  packages.
 - LogoVista writer support.
 
 ## Known Limitations
@@ -73,7 +76,9 @@ LogoVista dictionary model.
 - Named UI/style images such as `exam.png` are discovered, but mapping them to
   semantic entry regions is dictionary-specific.
 - Current outputs are inspection/extraction formats, not a stable public IR.
-- `DictFtsDB` `.dbc` payloads are classified but unresolved.
+- `DictFtsDB` `.dbc` payloads now split into at least two families: LVED
+  SQLCipher packages such as OXFPEU4/KQCMPROS, and any future `.dbc` variants
+  that still need independent classification.
 - LogoFontCipher support covers the key schedule observed in tested Windows
   decryptors. Treat unrelated encrypted-looking payloads separately until their
   reader or key schedule is identified.

@@ -54,6 +54,35 @@ decrypt transparently when the optional crypto dependency is installed.
 The command streams input to output, so large sidecars such as DAIJIRN4's
 610 MB `vlpljblb` do not need to be loaded into memory.
 
+### `lved`
+
+Inspect modern LVED/WebView2 packages whose body data lives in SQLCipher
+`main.data` or `.dbc` payloads rather than SSED/HONMON.
+
+```bash
+logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 --json
+logovista-tools lved /path/to/KQCMPROS --dict-id 751 --json
+```
+
+Useful options:
+
+```bash
+--dict-id N                         numeric dictionary id used by the viewer metadata path
+--dict-code CODE                    product/dictionary code when it cannot be inferred
+--key-file PATH                     read an explicit local SQLCipher key; never print it
+--memory-dump PATH                  count/test LVEDVIEWER dump key candidates without printing them
+--write-decrypted PATH              write one plaintext SQLite copy for local analysis
+--json                              emit machine-readable JSON
+```
+
+`--write-decrypted` requires exactly one discovered payload and either
+`--dict-id` or `--key-file`. Memory dumps can validate candidates, but the
+command does not use memory-dump-only recovery to write decrypted output.
+
+Report fields include payload classification, size, SHA-256, sampled entropy,
+inferred dictionary code, and key-validation status. Reports deliberately do
+not emit explicit, derived, or memory-dump-recovered keys.
+
 ### `compose`
 
 Create an EPWING-like image by expanding each component listed by the `.IDX`

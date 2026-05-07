@@ -1,11 +1,13 @@
 # Legal and Data Policy
 
-The repository contains code and reverse-engineering notes only. It does not include proprietary dictionary payloads, generated full-body exports, decrypted databases, vendor binaries, or extracted assets.
+The repository contains code and reverse-engineering notes only. It does not include proprietary dictionary payloads, generated full-body exports, decrypted databases, vendor binaries, memory dumps, serials, recovered keys, or extracted assets.
 
 ## Legal Notes
 
 This repository contains code only. Do not commit proprietary dictionary data,
-expanded book images, generated JSONL extractions, or gaiji image assets.
+expanded book images, generated JSONL extractions, gaiji image assets,
+decrypted SQLCipher databases, LVEDVIEWER memory dumps, product serials, or
+local key material.
 
 You are responsible for ensuring that any dictionary extraction or conversion
 you perform complies with the licenses and laws that apply to your dictionary

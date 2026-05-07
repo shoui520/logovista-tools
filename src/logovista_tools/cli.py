@@ -17,6 +17,11 @@ from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
 from .gaiji import UniRecord, parse_ga16_resource, parse_uni_resource, write_ga16_glyph_png
 from .indexes import extract_indexes_for_idx
+from .lved import (
+    decrypt_lved_sqlcipher4_to_path,
+    derive_lved_sqlcipher_key,
+    inspect_lved_roots,
+)
 from .lvcrypto import decrypt_logofont_cipher_file_to_path
 from .menus import extract_menus_for_idx
 from .pcmdata import extract_pcmdata_for_sources
@@ -146,6 +151,76 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
     written = decrypt_logofont_cipher_file_to_path(args.file, args.out)
     print(f"decrypted {args.file} -> {args.out}")
     print(f"bytes: {written}")
+    return 0
+
+
+def cmd_lved(args: argparse.Namespace) -> int:
+    key = args.key_file.read_text(encoding="utf-8").strip() if args.key_file else None
+    roots = args.root or [Path(".")]
+    report = inspect_lved_roots(
+        roots,
+        dict_id=args.dict_id,
+        dict_code=args.dict_code,
+        key=key,
+        memory_dump=args.memory_dump,
+    )
+
+    if args.write_decrypted:
+        payloads = report["payloads"]
+        if len(payloads) != 1:
+            print(
+                f"--write-decrypted requires exactly one LVED payload; found {len(payloads)}",
+                file=sys.stderr,
+            )
+            return 1
+        decrypt_key = key
+        if decrypt_key is None:
+            if args.dict_id is None:
+                print("--write-decrypted requires --dict-id or --key-file", file=sys.stderr)
+                return 1
+            code = args.dict_code or payloads[0].get("inferred_dict_code")
+            if not code:
+                print("--write-decrypted requires --dict-code when it cannot be inferred", file=sys.stderr)
+                return 1
+            decrypt_key = derive_lved_sqlcipher_key(args.dict_id, code)
+        written = decrypt_lved_sqlcipher4_to_path(
+            Path(payloads[0]["path"]),
+            args.write_decrypted,
+            decrypt_key,
+        )
+        report["decrypted_output"] = {
+            "path": str(args.write_decrypted),
+            "bytes": written,
+        }
+
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0
+
+    print(f"payloads: {len(report['payloads'])}")
+    memory = report["memory_dump"]
+    if memory["path"]:
+        print(
+            f"memory_dump: {memory['path']} "
+            f"candidates={memory['candidate_keys']} lengths={memory['candidate_key_lengths']}"
+        )
+    for row in report["payloads"]:
+        print(
+            f"{row['kind']:9s} {row['classification']:24s} "
+            f"pages={row['pages_4096']:6d} size={row['size']:10d} "
+            f"entropy={row['entropy_sample']:.4f} code={row['inferred_dict_code'] or '-'}"
+        )
+        print(f"  path: {row['path']}")
+        print(f"  sha256: {row['sha256']}")
+        for validation in row["validation"]:
+            status = "valid" if validation.get("valid") else "invalid"
+            source = validation.get("source", "unknown")
+            reason = validation.get("reason")
+            suffix = f" reason={reason}" if reason else ""
+            print(f"  validation[{source}]: {status}{suffix}")
+    if args.write_decrypted and "decrypted_output" in report:
+        out = report["decrypted_output"]
+        print(f"decrypted: {out['path']} bytes={out['bytes']}")
     return 0
 
 
@@ -799,6 +874,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_decrypt.add_argument("file", type=Path)
     p_decrypt.add_argument("out", type=Path)
     p_decrypt.set_defaults(func=cmd_decrypt)
+
+    p_lved = sub.add_parser("lved", help="Inspect LVED/WebView2 SQLCipher main.data/.dbc packages.")
+    p_lved.add_argument("root", type=Path, nargs="*", help="Package root, payload file, or collection root.")
+    p_lved.add_argument("--dict-id", type=int, help="Numeric dictionary id used by the observed LVED key derivation.")
+    p_lved.add_argument("--dict-code", help="Dictionary/product code, e.g. OXFPEU4.")
+    p_lved.add_argument(
+        "--key-file",
+        type=Path,
+        help="Read an explicit SQLCipher key from a local text file. The key is never emitted.",
+    )
+    p_lved.add_argument(
+        "--memory-dump",
+        type=Path,
+        help="Use an LVEDVIEWER memory dump only to count/test candidate keys; keys are not emitted.",
+    )
+    p_lved.add_argument(
+        "--write-decrypted",
+        type=Path,
+        help="Write a plaintext SQLite copy for one payload. Requires --dict-id or --key-file.",
+    )
+    p_lved.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    p_lved.set_defaults(func=cmd_lved)
 
     p_compose = sub.add_parser("compose", help="Compose an EPWING-like book image from one .IDX.")
     p_compose.add_argument("idx", type=Path)
