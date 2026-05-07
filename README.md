@@ -25,9 +25,10 @@ with the common `1f09 0001` marker. The `audit-honmon` command is a raw-only
 corpus probe for checking whether a dictionary's `HONMON.DIC` is a readable body
 stream, a dense raw ID/token table, or an opaque/stub component; it does not read
 SQLite body text. Windows packages with `EXINFO.INI` side panels and encrypted
-renderer databases are also supported: `extras` parses auxiliary index trees,
-and `rendererdb` follows raw HONMON ID anchors into observed `t_contents`
-renderer SQLite payloads such as DAIJIRN4's `vlpljblb`. Android body databases
+renderer databases are also supported: `extras` parses declared auxiliary index
+trees and sibling eight-hex-digit `00000xxx.idx` trees, and `rendererdb` follows
+raw HONMON ID anchors into observed `t_contents` renderer SQLite payloads such
+as DAIJIRN4's `vlpljblb`. Android body databases
 that preserve the same raw HONMON ID relationship are supported as a separate
 app-cache shape. Standalone Windows `SPINDEX.DIC` suffix-index resources can be
 inspected without treating them as dictionary body components.
@@ -507,6 +508,10 @@ auxiliary indexes such as DAIJIRN4's `0000015E.IDX` are parsed as CP932 tab
 trees whose first two columns are eight-digit hexadecimal block/offset
 pointers. Rows are resolved against the `.IDX` component ranges when possible.
 
+The command also scans for sibling eight-hex-digit `*.idx` files such as
+`00000152.idx`, even when `EXINFO.INI` does not reference them. These are
+reported separately as `numeric_indexes` and written as `numeric_*.jsonl`.
+
 Output layout:
 
 ```text
@@ -515,6 +520,7 @@ extras/
   DICT_ID/
     extras_summary.json
     aux_0_0000015E.IDX.jsonl
+    numeric_0000015E.IDX.jsonl
 ```
 
 ### `rendererdb`
@@ -970,7 +976,8 @@ Known working layers:
 - SQL/`DictFULLDB`-assisted gaiji validation reports, including aligned
   `Block`/`Offset` checks where cache tables expose those columns.
 - Optional encrypted Windows renderer sidecar use in gaiji validation reports.
-- Windows `EXINFO.INI` parsing and CP932 auxiliary text-index tree extraction.
+- Windows `EXINFO.INI` parsing and CP932 auxiliary text-index tree extraction,
+  including sibling eight-hex-digit `00000xxx.idx` sidecar trees.
 - Windows renderer SQLite extraction through raw HONMON ID anchors and
   `t_contents` rows, with optional `media` BLOB export.
 - Windows loose `lved.ziptomedia:*` sound reference discovery and optional
@@ -1047,8 +1054,8 @@ iOS       DictList.plist, Gaiji.plist, GaijiS.plist, resourcesCopy.plist,
           gaijiicon.plist, img/, html/, OTHER/, *.sql
 Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
 Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, *.chm, vlpljbl*,
-          sometimes standalone auxiliary SPINDEX.DIC and sibling
-          *_Sound_Files/ ziptomedia audio
+          eight-hex-digit 00000xxx.idx sidecar trees, sometimes standalone
+          auxiliary SPINDEX.DIC and sibling *_Sound_Files/ ziptomedia audio
 ```
 
 `Gaiji.plist` and `GaijiS.plist` are therefore not generic LogoVista files.
@@ -1424,6 +1431,65 @@ Windows packages checked directly now include SINMEI7, HAESPJPN, IWKOKUG8,
 EJJE200, and DAIJIRN4. They share the same SSED/EPWING-like core as the mobile
 packages where matching copies are available, but add Windows app sidecars
 around it.
+
+#### Numeric `00000xxx.idx` Sidecar Trees
+
+The observed eight-hex-digit `*.idx` files are not `SSEDINFO` catalogs and are
+not binary patch files. They are CP932 text sidecar trees used for appendices,
+classification lists, and browser/search selector panels. Windows packages
+usually reference them from `EXINFO.INI`, but they can also appear in mobile
+packages and are not always declared there.
+
+Observed row format:
+
+```text
+00000000<TAB>00000000<TAB>category label
+00000002<TAB>00000002<TAB><TAB>leaf label
+```
+
+The first two columns are eight-digit hexadecimal block/offset values. Leading
+tabs after the pointer columns define tree depth. Labels are CP932 text and may
+contain HTML numeric entities such as `&#xe0;`, which decode to display text
+such as `à`.
+
+Pointer semantics:
+
+- `00000000 00000000` is a non-clickable heading/category row.
+- Normal pointers resolve against the raw component block table, almost always
+  to `HONMON.DIC`.
+- In body-stream dictionaries the pointer is a direct body destination.
+- In dense-HONMON renderer dictionaries the pointer lands on a 32-byte HONMON
+  ID anchor, then that raw ID resolves into `DictFULLDB`, renderer `t_contents`,
+  or an Android body table.
+- Values such as `10000000 0000ffff`, `30000000 0000ffff`, and
+  `60000000 0000ffff` are virtual selector rows. The high nibble is the
+  selector ID; in HAESPJPN these map to `西和ABC順`, `和西50音順`, and
+  `動詞活用表`.
+
+The filename usually matches the product/plugin code and the Windows renderer
+DLL where present: `0000013A.idx` pairs with `HC013A.dll`, `00000135.idx` with
+`HC0135.dll`, `00000152.idx` with `HC0152.dll`, `0000015E.IDX` with
+`HC015E.dll`, and so on. This is a product identifier, not a universal index
+type.
+
+Observed corpus examples:
+
+| Dictionary | File | Rows | Meaning |
+|---|---|---:|---|
+| `HAESPJPN_WIN` | `0000013A.idx` | 4 | Three virtual selector rows for Spanish/Japanese browse modes and verb conjugation. |
+| `SINMEI7_WIN` | `00000135.idx` | 4 | Appendix entries such as accent display and symbol tables. |
+| `HAFRAN` iOS/Windows | `00000152.idx` | 1,084 | A-Z French grammar/topic tree; Windows and iOS files are byte-identical. |
+| `IWKOKUG8_WIN` | `000002D0.IDX` | 14 | Appendix table for word-formation, word-class, and conjugation material. |
+| `DAIJIRN4_WIN` | `0000015E.IDX` | 284 | Field/season-word appendix tree pointing into HONMON ID anchors. |
+| `PROYAL53_WIN` | `0000015F.IDX` | 149 | Important-word and grammar-frame appendix tree. |
+| `JSSAURU2` iOS | `0000015C.IDX` | 10,298 | Large thesaurus classification tree. |
+| `KENROWA` iOS | `0000015B.IDX` | 233 | Abbreviation and topic appendix tree. |
+| `MEIKYOU2` iOS | `0000012d.idx` | 443 | Appendix and column tree. |
+
+For conversion work, these files should be preserved as structured navigation
+metadata. They are not usually the main lookup index, but they can expose
+appendix bodies and topic hierarchies that a plain headword conversion would
+otherwise miss.
 
 #### SINMEI7 Windows vs iOS
 

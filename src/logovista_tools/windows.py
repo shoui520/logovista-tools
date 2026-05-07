@@ -16,6 +16,7 @@ from .ssed import BLOCK_SIZE, SsedInfoElement, find_case_insensitive
 
 SQLITE_MAGIC = b"SQLite format 3\x00"
 HEX_POINTER_RE = re.compile(r"^[0-9A-Fa-f]{8}$")
+NUMERIC_AUX_INDEX_RE = re.compile(r"^[0-9A-Fa-f]{8}\.idx$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -87,13 +88,43 @@ def iter_aux_index_specs(exinfo: Exinfo) -> list[AuxIndexSpec]:
     rows: list[AuxIndexSpec] = []
     for index in range(count):
         name = exinfo.general.get(f"IDXNAME{index}", "")
+        if not name and index == 0:
+            name = exinfo.general.get("IDXTITLE", "")
         info = exinfo.general.get(f"IDXINFO{index}", "")
-        path = exinfo.path.parent / info if info else None
+        path = find_case_insensitive(exinfo.path.parent, info) if info else None
+        if path is None and info:
+            path = exinfo.path.parent / info
         rows.append(AuxIndexSpec(index=index, name=name, info=info, path=path))
     if not rows and exinfo.general.get("IDXINFO"):
         info = exinfo.general["IDXINFO"]
         name = exinfo.general.get("IDXTITLE", "")
-        rows.append(AuxIndexSpec(index=0, name=name, info=info, path=exinfo.path.parent / info))
+        path = find_case_insensitive(exinfo.path.parent, info) or exinfo.path.parent / info
+        rows.append(AuxIndexSpec(index=0, name=name, info=info, path=path))
+    return rows
+
+
+def discover_numeric_aux_indexes(idx: Path) -> list[Path]:
+    """Return sibling eight-hex-digit ``*.idx`` sidecar trees.
+
+    These files are distinct from the main SSEDINFO ``.IDX`` catalog. Windows
+    packages usually reference them from ``EXINFO.INI``; some iOS-style
+    packages also carry them, and a few local packages leave them unreferenced
+    by EXINFO.
+    """
+
+    rows: list[Path] = []
+    seen: set[Path] = set()
+    for child in sorted(idx.parent.iterdir()):
+        if not child.is_file() or not NUMERIC_AUX_INDEX_RE.fullmatch(child.name):
+            continue
+        with child.open("rb") as fh:
+            if fh.read(8) == b"SSEDINFO":
+                continue
+        resolved = child.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        rows.append(resolved)
     return rows
 
 

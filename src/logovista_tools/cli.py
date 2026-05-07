@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +33,13 @@ from .ssed import (
     write_epwing_catalog_header,
 )
 from .titles import extract_titles_for_idx
-from .windows import aux_index_row_to_json, iter_aux_index_specs, load_exinfo_for_idx, parse_aux_index_text
+from .windows import (
+    aux_index_row_to_json,
+    discover_numeric_aux_indexes,
+    iter_aux_index_specs,
+    load_exinfo_for_idx,
+    parse_aux_index_text,
+)
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -591,6 +598,59 @@ def cmd_pcmdata(args: argparse.Namespace) -> int:
     return 0
 
 
+def aux_index_stats(parsed_rows: list[Any]) -> dict[str, Any]:
+    target_counts: Counter[str] = Counter()
+    component_counts: Counter[str] = Counter()
+    depth_counts: Counter[str] = Counter()
+    zero_pointer_rows = 0
+    leaf_like_rows = 0
+    for index, row in enumerate(parsed_rows):
+        depth_counts[str(row.depth)] += 1
+        if row.block == 0 and row.offset == 0:
+            zero_pointer_rows += 1
+        if index + 1 == len(parsed_rows) or parsed_rows[index + 1].depth <= row.depth:
+            leaf_like_rows += 1
+        if row.target is None:
+            target_counts["none"] += 1
+        elif row.target.get("kind"):
+            target_counts[row.target["kind"]] += 1
+        else:
+            target_counts["component"] += 1
+            component_counts[row.target["component"]] += 1
+    return {
+        "depth_counts": dict(sorted(depth_counts.items(), key=lambda item: int(item[0]))),
+        "target_counts": dict(sorted(target_counts.items())),
+        "component_counts": dict(sorted(component_counts.items())),
+        "zero_pointer_rows": zero_pointer_rows,
+        "leaf_like_rows": leaf_like_rows,
+    }
+
+
+def write_aux_index_rows(path: Path, parsed_rows: list[Any], out_path: Path, limit: int) -> dict[str, Any]:
+    with out_path.open("w", encoding="utf-8") as out:
+        for item in parsed_rows:
+            out.write(json.dumps(aux_index_row_to_json(item), ensure_ascii=False) + "\n")
+    row = aux_index_stats(parsed_rows)
+    row.update(
+        {
+            "kind": "text-index",
+            "rows": len(parsed_rows),
+            "rows_path": str(out_path),
+            "sample": [aux_index_row_to_json(item) for item in parsed_rows[:limit]],
+            "bytes": path.stat().st_size,
+        }
+    )
+    return row
+
+
+def comparable_path_key(path: Path) -> str:
+    try:
+        stat = path.stat()
+    except OSError:
+        return str(path.resolve()).casefold()
+    return f"{stat.st_dev}:{stat.st_ino}"
+
+
 def cmd_extras(args: argparse.Namespace) -> int:
     sources = select_sources(args)
     if not sources:
@@ -611,9 +671,13 @@ def cmd_extras(args: argparse.Namespace) -> int:
             "exinfo": str(exinfo.path) if exinfo else None,
             "general": exinfo.general if exinfo else {},
             "aux_indexes": [],
+            "numeric_indexes": [],
         }
+        referenced_aux_paths: set[str] = set()
         if exinfo is not None:
             for spec in iter_aux_index_specs(exinfo):
+                if spec.path is not None:
+                    referenced_aux_paths.add(comparable_path_key(spec.path))
                 spec_row = {
                     "index": spec.index,
                     "name": spec.name,
@@ -631,23 +695,35 @@ def cmd_extras(args: argparse.Namespace) -> int:
                     else:
                         parsed_rows = parse_aux_index_text(spec.path, elements)
                         if parsed_rows:
-                            spec_row["kind"] = "text-index"
-                            spec_row["rows"] = len(parsed_rows)
                             rows_path = dict_out / f"aux_{spec.index}_{spec.path.name}.jsonl"
-                            with rows_path.open("w", encoding="utf-8") as out:
-                                for item in parsed_rows:
-                                    out.write(json.dumps(aux_index_row_to_json(item), ensure_ascii=False) + "\n")
-                            spec_row["rows_path"] = str(rows_path)
-                            spec_row["sample"] = [aux_index_row_to_json(item) for item in parsed_rows[: args.limit]]
+                            spec_row.update(write_aux_index_rows(spec.path, parsed_rows, rows_path, args.limit))
                         else:
                             spec_row["kind"] = "unknown"
                             spec_row["bytes"] = spec.path.stat().st_size
                 row["aux_indexes"].append(spec_row)
+        for path in discover_numeric_aux_indexes(source.idx):
+            parsed_rows = parse_aux_index_text(path, elements)
+            numeric_row = {
+                "path": str(path),
+                "name": path.name,
+                "referenced_by_exinfo": comparable_path_key(path) in referenced_aux_paths,
+                "kind": None,
+                "rows": 0,
+                "rows_path": None,
+                "sample": [],
+            }
+            if parsed_rows:
+                rows_path = dict_out / f"numeric_{path.name}.jsonl"
+                numeric_row.update(write_aux_index_rows(path, parsed_rows, rows_path, args.limit))
+            else:
+                numeric_row["kind"] = "unknown"
+                numeric_row["bytes"] = path.stat().st_size
+            row["numeric_indexes"].append(numeric_row)
         (dict_out / "extras_summary.json").write_text(json.dumps(row, ensure_ascii=False, indent=2), encoding="utf-8")
         summaries.append(row)
         print(
             f"{source.dict_id:12s} exinfo={'yes' if exinfo else 'no':3s} "
-            f"aux={len(row['aux_indexes']):2d}",
+            f"aux={len(row['aux_indexes']):2d} numeric={len(row['numeric_indexes']):2d}",
             file=sys.stderr,
         )
 

@@ -73,7 +73,13 @@ from logovista_tools.lvcrypto import (
 )
 from logovista_tools.ssed import SsedInfoElement, load_sseddata_bytes, sseddata_storage_for_bytes
 from logovista_tools.spindex import parse_spindex_pages, reverse_spindex_key
-from logovista_tools.windows import discover_renderer_sidecars, iter_aux_index_specs, parse_aux_index_text, parse_exinfo
+from logovista_tools.windows import (
+    discover_numeric_aux_indexes,
+    discover_renderer_sidecars,
+    iter_aux_index_specs,
+    parse_aux_index_text,
+    parse_exinfo,
+)
 
 
 def test_normalize_fullwidth_ascii() -> None:
@@ -818,6 +824,34 @@ def test_parse_windows_exinfo_legacy_single_aux_idx(tmp_path) -> None:
     assert specs[0].path == tmp_path / "0000013A.idx"
     assert rows[1].target["kind"] == "virtual-index-selector"
     assert rows[1].target["selector"] == "1"
+
+
+def test_parse_windows_exinfo_count_uses_idxtitle_for_first_aux_idx(tmp_path) -> None:
+    exinfo = tmp_path / "EXINFO.INI"
+    exinfo.write_text(
+        "[GENERAL]\nIDXCOUNT=2\nIDXTITLE=索引\nIDXINFO0=00000152.idx\nIDXNAME1=オプション\nIDXINFO1=select.html\n",
+        encoding="cp932",
+    )
+    aux = tmp_path / "00000152.idx"
+    aux.write_text("00000000\t00000000\tRoot\n", encoding="cp932")
+
+    specs = iter_aux_index_specs(parse_exinfo(exinfo))
+
+    assert specs[0].name == "索引"
+    assert specs[0].path == aux
+    assert specs[1].name == "オプション"
+
+
+def test_discover_numeric_aux_indexes_excludes_main_ssedinfo(tmp_path) -> None:
+    idx = tmp_path / "DICT.IDX"
+    idx.write_bytes(b"SSEDINFO")
+    numeric = tmp_path / "0000015f.idx"
+    numeric.write_text("00000000\t00000000\tRoot\n", encoding="cp932")
+    ssedinfo_named = tmp_path / "00000001.idx"
+    ssedinfo_named.write_bytes(b"SSEDINFO")
+    (tmp_path / "not_numeric.idx").write_text("", encoding="utf-8")
+
+    assert discover_numeric_aux_indexes(idx) == [numeric.resolve()]
 
 
 def test_plain_sqlite_renderer_sidecar_requires_t_contents(tmp_path) -> None:
