@@ -1,0 +1,49 @@
+# Package Layers
+
+High-level package model and platform wrapper differences.
+
+## Big Picture
+
+A typical raw dictionary core looks like:
+
+```text
+DICT.IDX
+HONMON.DIC
+KWTITLE.DIC
+KWINDEX.DIC
+FKTITLE.DIC
+FKINDEX.DIC
+FHTITLE.DIC
+FHINDEX.DIC
+BKTITLE.DIC
+BKINDEX.DIC
+GA16HALF
+GA16FULL
+DICT.uni
+```
+
+That core is the stable part. Platform packages wrap it differently:
+
+```text
+iOS       DictList.plist, Gaiji.plist, GaijiS.plist, resourcesCopy.plist,
+          gaijiicon.plist, img/, html/, OTHER/, *.sql
+Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
+Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, *.chm, vlpljbl*,
+          eight-hex-digit 00000xxx.idx sidecar trees, sometimes standalone
+          auxiliary SPINDEX.DIC and sibling *_Sound_Files/ ziptomedia audio
+```
+
+`Gaiji.plist` and `GaijiS.plist` are therefore not generic LogoVista files.
+They are iOS packaging fallbacks observed in some products. Cross-platform
+gaiji handling should start from the dictionary-local `.uni`/`.UNI` file and
+then use platform-specific image/plist/font assets where present.
+
+The core raw format has two layers:
+
+1. A container/compression layer: `SSEDINFO` + `SSEDDATA`.
+2. An expanded dictionary stream layer: EPWING/JIS-like bytes with text,
+   controls, gaiji, links, and index records.
+
+The SQLite database, when present, is best understood as an application cache
+or search database. It may contain useful full text, but it is not the only
+raw dictionary source, and using it alone loses format information.
