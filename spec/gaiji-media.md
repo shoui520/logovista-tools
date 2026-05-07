@@ -307,10 +307,10 @@ specific dictionary proves otherwise.
 
 Some `Ver2` files contain duplicate gaiji codes across the half and full
 sections. `GENIUSEB.uni`, for example, has both half and full records for
-`A121`, with different display text. The current flattened map preserves the
-previous toolkit behavior: later records override earlier records. The richer
-record parser keeps section information so exporters can make a more precise
-choice later.
+`A121`, with different display text. The compatibility map used by older
+text renderers is still flattened and later records override earlier records.
+The parsed `.uni` records and lossless span output keep half/full space
+information so future exporters can make a more precise choice.
 
 Corpus summary from the local test collection:
 

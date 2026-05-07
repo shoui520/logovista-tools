@@ -118,7 +118,9 @@ The toolkit parses the common `FK/FH/BK/BH` page formats, direct and grouped
 `KWINDEX` rows, and direct and grouped `CRINDEX` rows. The layouts below were
 validated against Japanese, English, Spanish, French, science, medical, and
 collocation dictionaries, including HAESPJPN, GENIUSEB, HAFRAN, NANMED20,
-OUKOKU11, IPHYCHE5, KENCOLLO, KQJCOLLO, and KOJIEN7.
+OUKOKU11, IPHYCHE5, KENCOLLO, KQJCOLLO, and KOJIEN7. The current 169-package
+Windows SSED profile reports `unknown_index_leaf_bytes = 0`, so every observed
+index leaf byte in that corpus is consumed by the parser.
 
 Representative parser coverage from the local corpus:
 

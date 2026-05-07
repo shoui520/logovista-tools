@@ -35,6 +35,8 @@ logovista-tools scan /path/to/LogoVista --json
 
 The scanner looks for `.IDX` / `.idx`, validates the `SSEDINFO` magic, and
 keeps only dictionaries with a discoverable `HONMON.DIC`.
+Use `profile` when you need a redacted inventory that also records incomplete
+packages with missing `HONMON.DIC` or missing declared components.
 
 ### `info`
 
@@ -215,7 +217,8 @@ Useful options:
 --max-slices N                      inspect at most N candidate raw slices per dictionary
 --max-id-records N                  probe at most N 32-byte HONMON records; 0 = full scan
 --no-index-boundaries               sample marker-only slicing
---no-skip-dbc                       include opaque .dbc products in the report
+--no-skip-dbc                       include legacy/mobile .dbc-adjacent SSED
+                                    stubs in this raw HONMON audit
 --json                              also print the JSON report
 ```
 
@@ -233,7 +236,8 @@ dense_honmon_id_table_androiddb     HONMON stores raw numeric IDs that resolve
                                     to an Android app body database
 idx_title_only_no_readable_honmon_body
                                     indexes/titles exist, but sampled HONMON bodies do not
-skipped_dbc                         .dbc payload skipped by default
+skipped_dbc                         .dbc-adjacent package skipped by default;
+                                    use lved for LVED SQLCipher payloads
 ```
 
 ### `profile`

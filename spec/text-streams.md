@@ -194,17 +194,15 @@ them as raw-ID-assisted body sources, not as replacements for raw parsing:
 `rendererdb` first decodes dense HONMON IDs and then accepts only DB rows that
 match those raw IDs.
 
-## Outliers
+## Non-SSED LVED/WebView2 Packages
 
-`OXFPEU4` declares `DictFtsDB` rather than `DictFULLDB`. Its SSED side contains
-only tiny stub data, and `OXFPEU4.dbc` is an opaque 2048-byte-block payload.
-Observed properties:
+OXFPEU4 and KQCMPROS should not be treated as failed `HONMON.DIC` body-stream
+decodes. They are a separate LVED/WebView2 package family. The useful payload
+is `main.data` on Windows or `*.dbc` in mobile-style packages, and the observed
+payloads are SQLCipher 4 databases with 4096-byte pages.
 
-- size is exactly `7782 * 2048` bytes;
-- entropy is effectively maximum at `7.999987` bits per byte;
-- no SQLite, SSED, ZIP, gzip, zlib, HTML, or EPWING marker is present;
-- no repeated 16-byte blocks were observed;
-- fixed XOR and short-period mask probes did not reveal plaintext.
-
-Treat this class as encrypted or otherwise cryptographically packed until a
-reader implementation or documented key schedule is available.
+The high entropy and lack of plaintext `SQLite format 3` headers originally
+made these payloads look opaque. With the Windows viewer path understood, the
+toolkit now classifies and validates them through the `lved` command. Keep
+this family separate from the SSED/HONMON model; there is no normal expanded
+`HONMON.DIC` body stream to slice. See [LVED SQLCipher Packages](lved-main-data.md).

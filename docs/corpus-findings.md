@@ -4,7 +4,7 @@ Observed dictionary behavior. These notes are evidence from the local corpus, no
 
 ## Windows SSED Corpus Profile
 
-A later Windows SSED corpus pass profiled 169 packages with raw SSED expansion,
+The current Windows SSED corpus pass profiled 169 packages with raw SSED expansion,
 raw `*INDEX.DIC` scanning, sampled lossless HONMON span decoding, and no
 SQLite body text. The command shape was:
 
@@ -62,7 +62,6 @@ Valid SSED dictionaries with `HONMON.DIC` fell into these practical groups:
 | --- | --- |
 | Raw HONMON/IDX gives readable body entries | `Dconci98`, `GENIUS53`, `GENIUSEB`, `HAESPJPN`, `HAIKSAIJ`, `HKKIGAK6`, `IBIO5`, `IPHYCHE5`, `KANJIGN5`, `KENCOLLO`, `KQCOLEXP`, `KQEBHOU`, `KQJCOLLO`, `KQLATINO`, `KQNEWEJ6`, `KQNEWJE5`, `KenE7J5`, `LMEDEJ12`, `MEIKYOU2`, `NIHONSHI`, `NKGORIN2`, `OUKOKU11`, `RDRSP2`, `ROYALEGR`, `Readers3`, `SINMEI7`, `Saitoje`, `ZYAKUKOG` |
 | Raw HONMON/IDX exposes IDs, tokens, titles, or search keys, but sampled HONMON bodies are not definitions | `HABGESPA`, `HAFRAN`, `HOUGAKU5`, `IWKOKUG8`, `JSSAURU2`, `KENROWA`, `KOJIEN7`, `NANMED20` |
-| Opaque `.dbc` products skipped by default | `KQCMPROS`, `OXFPEU4` |
 
 Several products in the first group still declare SQL or `DictFULLDB` files.
 That declaration alone is not enough to classify a dictionary as database-body
@@ -70,6 +69,9 @@ only. The raw audit must check the expanded HONMON stream and the raw indexes.
 Conversely, the second group proves that some dictionaries need a database or
 other payload dereference for final body text, but that does not make HONMON or
 IDX irrelevant: they still carry the raw anchor layer.
+
+LVED/WebView2 SQLCipher products such as OXFPEU4 and KQCMPROS are covered as a
+separate package family below. They are not failed raw-HONMON body streams.
 
 The body sampler deliberately filters section-only spans, decimal/hex-only ID
 records, and short opaque base64-like tokens. Without that filter, dense tables

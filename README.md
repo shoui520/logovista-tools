@@ -41,14 +41,14 @@ are still allowed to change as more products are tested.
 
 The current development direction is:
 
-1. classify every observed package;
+1. keep package classification raw-first and evidence-backed;
 2. count and expose unknowns instead of hiding them;
-3. build a lossless IR with raw addresses, controls, gaiji, media, and links;
+3. promote the current lossless span JSONL into a documented, stable IR;
 4. use exporters and writer experiments as views over that model.
 
 See [Project Status and Roadmap](docs/status.md) for the longer capability list.
-The current Windows SSED corpus profile covers 169 packages and, after the
-latest opcode updates, reports zero sampled unknown text controls, zero unknown
+The current Windows SSED corpus profile covers 169 packages and, with the
+current opcode table, reports zero sampled unknown text controls, zero unknown
 text bytes, and zero unknown index leaf bytes. See
 [Corpus Findings](docs/corpus-findings.md) for the exact aggregate.
 
@@ -180,17 +180,19 @@ The full command reference lives in [docs/commands.md](docs/commands.md).
 ## Core Model
 
 The stable idea is that a dictionary package has a raw core and optional
-platform wrappers.
+platform wrappers. Not every product ships every component.
 
 ```text
 DICT.IDX
 HONMON.DIC
+MENU.DIC
 KWTITLE.DIC / KWINDEX.DIC
 FKTITLE.DIC / FKINDEX.DIC
 FHTITLE.DIC / FHINDEX.DIC
 BKTITLE.DIC / BKINDEX.DIC
+COLSCR.DIC / PCMDATA.DIC
 GA16HALF / GA16FULL
-DICT.uni
+DICT.uni / DICT.UNI
 ```
 
 Platform packages add their own wrapper material:
@@ -203,8 +205,9 @@ LVED      main.data / *.dbc, WebView2 viewer files, SQLCipher runtime
 ```
 
 The raw core is the main reverse-engineering target. SQLite databases, renderer
-sidecars, and app caches are useful evidence, but they are not treated as a
-replacement for the raw address/pointer model.
+sidecars, and app caches may be validation evidence, search caches, or full
+body payloads. They are not treated as replacements for the raw
+address/pointer model.
 
 Modern LVED/WebView2 products are a separate package family. In observed
 OXFPEU4/KQCMPROS packages, `main.data` or `.dbc` is a SQLCipher database rather

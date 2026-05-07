@@ -66,6 +66,7 @@ LogoVista dictionary model.
 - Expanding the first lossless span model into a stable public IR schema for
   all text, index, link, gaiji, and media layers.
 - Formal private-corpus regression baselines generated from redacted profiles.
+- Shared typed address/component objects used by every parser and exporter.
 - Official-renderer parity checks.
 - Dictionary-specific semantic profiles for section codes, named images, and
   virtual selectors.
@@ -81,14 +82,15 @@ LogoVista dictionary model.
   text requires dereferencing the sidecar.
 - Not every product that declares `DictFULLDB` has an unreadable `HONMON.DIC`;
   several still have readable raw body streams. Audit the raw layer first.
-- Some control opcodes are recognized only enough to avoid corrupting nearby
-  text.
+- Some control opcodes are structurally recognized with neutral tags, but their
+  exact renderer presentation is not fully modeled.
 - Named UI/style images such as `exam.png` are discovered, but mapping them to
   semantic entry regions is dictionary-specific.
-- Current outputs are inspection/extraction formats, not a stable public IR.
-- `DictFtsDB` `.dbc` payloads now split into at least two families: LVED
-  SQLCipher packages such as OXFPEU4/KQCMPROS, and any future `.dbc` variants
-  that still need independent classification.
+- `dump-ir` is a lossless span JSONL inspection format. It is not yet the
+  stable public IR schema.
+- Observed `DictFtsDB` `.dbc` payloads for OXFPEU4/KQCMPROS are LVED
+  SQLCipher packages. Future `.dbc` variants should still be classified on
+  their own evidence instead of assumed to be SSED or LVED.
 - LogoFontCipher support covers the key schedule observed in tested Windows
   decryptors. Treat unrelated encrypted-looking payloads separately until their
   reader or key schedule is identified.
@@ -97,31 +99,29 @@ LogoVista dictionary model.
 
 Recently landed:
 
-1. Build a corpus classifier that emits stable, redacted package profiles.
-2. Add strict and forensic parsing modes.
-3. Move low-level decoding toward lossless spans instead of flattened text.
-4. Make unknown controls, pointers, gaiji, media, and unparsed bytes measurable.
+1. Redacted SSED package profiles with corpus-level summary metrics.
+2. Strict, forensic, and lenient text-span parsing modes.
+3. Entry-level lossless span JSONL from `HONMON.DIC`.
+4. Measured unknown controls, bytes, gaiji, media references, and index leaf
+   parse coverage.
 
-Near term:
+Next priorities:
 
-1. Turn redacted corpus profiles into committed metric baselines.
-2. Promote lossless span JSONL into a documented public IR schema.
-3. Add typed address/component objects shared by all parsers.
-4. Expand renderer-parity checks for literal spans, URL spans, gaiji images,
-   media links, and dense-anchor dereference paths.
-
-Model work:
-
-1. Introduce typed addresses and component objects.
-2. Preserve raw JIS cells separately from normalized display text.
-3. Keep half-width and full-width gaiji spaces distinct in the IR.
-4. Store media/link/control payloads as structured spans.
-5. Centralize dictionary classification so commands consume the same profile.
-
-Downstream views:
-
-1. Debug HTML with raw addresses and unresolved spans visible.
-2. Lossless JSON IR.
-3. Yomitan structured v3 and MDict export from the IR.
-4. LogoVista writer experiments once the emitted structures are well enough
-   specified.
+1. **Versioned model schema.** Promote `dump-ir` from an inspection JSONL into
+   a documented public IR with typed `Address`, `Component`, `Span`, `Entry`,
+   `IndexRow`, `GaijiOccurrence`, and `MediaReference` records.
+2. **Corpus regression harness.** Commit redacted expected metrics generated
+   from owned corpora, then add a comparison command that flags changed shape
+   counts, unknown counts, parse failures, and dereference coverage without
+   storing dictionary text.
+3. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
+   media extractors, and exporters consume the same classification/profile
+   layer instead of each command rediscovering package shape independently.
+4. **Renderer parity.** Build small local parity fixtures for body text,
+   literal spans, URL spans, gaiji images, named section images, media links,
+   menu destinations, and dense-anchor renderer bodies.
+5. **Exporter layer.** Implement debug HTML first, then Yomitan structured v3
+   and MDict as views over the versioned IR rather than separate parsers.
+6. **Writer research.** Start only after the model can round-trip addresses,
+   indexes, gaiji/media references, and dense-anchor relationships with
+   measurable unknowns near zero on the corpus.
