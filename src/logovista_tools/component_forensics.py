@@ -64,7 +64,7 @@ def component_role(filename: str, component_type: int) -> str | None:
         return "ga16"
     if component_type == 0xD2 or upper == "COLSCR.DIC":
         return "colscr"
-    if component_type == PCMDATA_TYPE or upper in {"PCMDATA.DIC", "PCMSCR.DIC"}:
+    if component_type == PCMDATA_TYPE or upper == "PCMDATA.DIC":
         return "pcmdata"
     return None
 

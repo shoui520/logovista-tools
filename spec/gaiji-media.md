@@ -167,9 +167,7 @@ signature. Width and height are recovered from the IHDR chunk when present.
 ## `PCMDATA.DIC` Audio/Media Resources
 
 `PCMDATA.DIC` is a compressed SSED component, usually listed as component type
-`0xd8`. It is a sequential media store used mainly for audio. No `PCMSCR.DIC`
-file was present in the current SSED corpus; the toolkit classifies that name
-as the same media/audio role if it appears in a future package. The first
+`0xd8`. It is a sequential media store used mainly for audio. The first
 expanded 2048-byte block is a small directory/header area. In all currently
 tested dictionaries it starts with:
 

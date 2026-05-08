@@ -128,10 +128,6 @@ The `missing_file` count reflects incomplete local gathered packages whose
 `SSEDINFO` tables name components that are not physically present. It is not a
 parser failure mode.
 
-No `PCMSCR.DIC` component or file was found in this SSED corpus. The scanner
-recognizes the name as a media/audio role if a future package uses it, but the
-current evidence is all `PCMDATA.DIC`.
-
 Byte-coverage result:
 
 ```text
