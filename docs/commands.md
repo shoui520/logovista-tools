@@ -18,8 +18,8 @@ This applies to commands that operate across many dictionaries or resources:
 `scan`, `entries`, `resources`, `colscr`, `pcmdata`, `extras`, `rendererdb`,
 `spindex`, `audit-honmon`, `gaiji-report`, `gaiji-readiness`, `ga16`,
 `titles`, `indexes`, `menus`, `fulldb`, `profile`, `honmon-bytes`,
-`component-forensics`, `dump-ir`, LVED payload inspection, and LVLMultiView
-law-package inspection.
+`opcode-atlas`, `component-forensics`, `dump-ir`, LVED payload inspection, and
+LVLMultiView law-package inspection.
 `capability-matrix` is also corpus-oriented, but it reads already-generated
 report directories rather than re-scanning raw dictionary files.
 
@@ -416,6 +416,48 @@ Useful options:
 The current Windows SSED corpus run accounts for 3,497,793,539 expanded HONMON
 bytes with zero unknown controls, zero unknown bytes, zero invalid JIS cells,
 and one known truncated final `0x1f` byte in `NANDOKU3`.
+
+### `opcode-atlas`
+
+Build a corpus-wide atlas of `0x1f` text-stream control opcodes from expanded
+SSED text components. The command scans `HONMON.DIC`, `MENU.DIC`,
+`*TITLE.DIC`, and text-like TOC/RIGHT/IDXJUMP/INDEX components. It does not
+scan binary B-tree index pages as text.
+
+```bash
+logovista-tools opcode-atlas /path/to/LogoVista --jobs 0 --out-dir opcode-atlas
+logovista-tools opcode-atlas /path/to/LogoVista --dict KQLATINO --json
+```
+
+Output layout:
+
+```text
+opcode-atlas/
+  opcode_atlas.json
+  opcode_atlas.md
+  per_dictionary/
+    DICT_ID.json
+```
+
+The merged atlas records, for each opcode:
+
+```text
+count
+payload_lengths
+component roles and component types
+dictionary list and dictionary count
+common payload values and prefixes
+previous/next control context
+sample text/control context
+classification family and confidence
+```
+
+The current full corpus pass scanned 547 text-stream components and
+7,026,978,819 expanded bytes. It observed 713,941,069 controls and 40 distinct
+`0x1f` opcodes. All but one opcode occurrence are structurally classified. The
+single unresolved case is `25IGAKU` `FHTITLE.DIC` `1f1f`, a singleton
+zero-payload-looking title-stream control/anomaly that needs official-renderer
+inspection around the title `closed ecological system`.
 
 ### `component-forensics`
 

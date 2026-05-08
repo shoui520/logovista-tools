@@ -41,6 +41,7 @@ from .multiview import (
     inspect_multiview_package,
     write_multiview_report,
 )
+from .opcode_atlas import extract_opcode_atlas_for_args
 from .parallel import add_jobs_argument, parallel_map_ordered, worker_args
 from .pcmdata import extract_pcmdata_for_sources
 from .profiles import extract_profiles_for_args
@@ -1270,6 +1271,21 @@ def cmd_component_forensics(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_opcode_atlas(args: argparse.Namespace) -> int:
+    atlas = extract_opcode_atlas_for_args(args)
+    print(
+        f"packages={atlas.get('packages_scanned', 0)} "
+        f"components={atlas.get('components_scanned', 0)} "
+        f"bytes={atlas.get('bytes_scanned', 0)} "
+        f"controls={atlas.get('total_controls', 0)} "
+        f"opcodes={atlas.get('opcode_count', 0)} "
+        f"unknown_ops={len(atlas.get('unknown_control_ops', {}))}"
+    )
+    if args.json:
+        print(json.dumps(atlas, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_capability_matrix(args: argparse.Namespace) -> int:
     report = extract_capability_matrix_for_args(args)
     print(
@@ -1625,6 +1641,29 @@ def build_parser() -> argparse.ArgumentParser:
     p_component_forensics.add_argument("--json", action="store_true", help="Also print machine-readable summary JSON.")
     add_jobs_argument(p_component_forensics)
     p_component_forensics.set_defaults(func=cmd_component_forensics)
+
+    p_opcode_atlas = sub.add_parser(
+        "opcode-atlas",
+        help="Build a corpus-wide atlas of LogoVista 0x1f text-stream controls.",
+    )
+    p_opcode_atlas.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_opcode_atlas.add_argument("--out-dir", type=Path, default=Path("logovista-opcode-atlas"))
+    p_opcode_atlas.add_argument("--dict", action="append", help="Only scan matching dictionary id(s).")
+    p_opcode_atlas.add_argument(
+        "--max-examples-per-opcode",
+        type=int,
+        default=12,
+        help="Maximum context examples retained per opcode in the merged atlas.",
+    )
+    p_opcode_atlas.add_argument(
+        "--context-bytes",
+        type=int,
+        default=48,
+        help="Raw bytes before/after each sampled control to render as context.",
+    )
+    p_opcode_atlas.add_argument("--json", action="store_true", help="Also print the merged atlas JSON.")
+    add_jobs_argument(p_opcode_atlas)
+    p_opcode_atlas.set_defaults(func=cmd_opcode_atlas)
 
     p_capability = sub.add_parser(
         "capability-matrix",

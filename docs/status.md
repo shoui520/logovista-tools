@@ -79,6 +79,9 @@ LogoVista dictionary model.
 - Redacted SSED package profiles with component metadata, wrapper/resource
   counts, body-source hints, index parse metrics, control-opcode censuses, and
   lossless sampled decode metrics.
+- Corpus-wide `0x1f` opcode atlas with payload lengths, component roles,
+  surrounding context, paired-control behavior, examples, confidence labels,
+  and explicit unresolved opcode reporting.
 - Full-stream `HONMON.DIC` byte accounting with redacted per-dictionary reports
   and corpus summaries.
 - Entry-level lossless span JSONL preserving raw offsets/bytes for controls,
@@ -95,10 +98,13 @@ LogoVista dictionary model.
 - Observed `1f3b`/`1f5b` URL body spans.
 - Observed `1f1a`/`1f1c` fixed two-byte-argument controls and
   `1f44`/`1f64` extended link controls.
+- Full text-stream opcode atlas over 7,026,978,819 expanded bytes, with one
+  unresolved singleton title-stream opcode/anomaly: `25IGAKU` `FHTITLE.DIC`
+  `1f1f`.
 
 ## Experimental / Active Reverse Engineering
 
-- Full `0x1f` control opcode semantics.
+- Full renderer semantics for structurally known `0x1f` controls.
 - Implementing `LV-IR v0` as emitted command output rather than only a draft
   specification.
 - Formal private-corpus regression baselines generated from redacted profiles.
@@ -125,7 +131,7 @@ LogoVista dictionary model.
   cell. It is covered and reported as a truncated control, not guessed.
 - The companion component-forensics pass has narrow residuals outside HONMON:
   `NANDOKU2` has a 3-byte nonzero physical tail after full `FHINDEX.DIC` pages;
-  `25IGAKU` has one title-stream `1f1f` control with unknown renderer
+  `25IGAKU` has one title-stream `1f1f` control/anomaly with unknown renderer
   semantics; `ITALIAN` has one standalone title byte `0x11`; and three `.uni`
   files have small nonzero trailers after all parsed records.
 - `ARCHSIC3` has 235 in-range `PCMDATA.DIC` pointer ranges whose payload bytes

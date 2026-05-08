@@ -626,6 +626,7 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
         "sections": 0,
         "links": 0,
         "jis_pairs": 0,
+        "legacy_controls": 0,
     }
     warnings: list[str] = []
 
@@ -693,7 +694,7 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
                 skipped_empty += 1
                 continue
             for key, value in stats.items():
-                aggregate_stats[key] += value
+                aggregate_stats[key] = aggregate_stats.get(key, 0) + value
             block = source.honmon_start_block + start // BLOCK_SIZE
             offset = start % BLOCK_SIZE
             heading = extract_heading(tokens, body)

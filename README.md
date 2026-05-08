@@ -132,6 +132,13 @@ lossless decode metrics:
 logovista-tools profile /path/to/LogoVista --jobs 0 --out-dir out/profiles
 ```
 
+Build a dedicated corpus-wide `0x1f` control atlas with payload lengths,
+component roles, pairing evidence, examples, and confidence labels:
+
+```bash
+logovista-tools opcode-atlas /path/to/LogoVista --jobs 0 --out-dir out/opcode-atlas
+```
+
 Decode every expanded `HONMON.DIC` byte and write redacted coverage reports:
 
 ```bash

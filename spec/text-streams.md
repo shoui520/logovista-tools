@@ -48,12 +48,16 @@ The stream also contains `0x1f` control opcodes. Important controls observed:
 1f 61             headword span end
 1f 42             link-ish start
 1f 62 ...         link-ish end with payload
+1f 43             menu/text-index link-ish start
+1f 63 ...         menu/text-index link-ish end with payload
 1f 44 ...         extended link-ish start with a 10-byte payload
 1f 49 ...         TOC/internal link start with a 10-byte payload
 1f 64 ...         extended link-ish end with a 6-byte payload
 1f 69             TOC/internal link end
 1f 4a ...         jump/link/media start with a 16-byte payload
+1f 6a             jump/link/media end
 1f 4d ...         media/reference start with an 18-byte payload
+1f 6d             media/reference end
 1f e0 xx xx       bold-ish start
 1f e1             bold-ish end
 1f e2 xx xx       color/style start
@@ -98,6 +102,16 @@ sound/media start and end range. In HAESPJPN, treating this as a 15-byte
 payload leaks one binary byte into the text stream and produces mojibake before
 labels such as `→音声1`. `1f 4d` media starts have an 18-byte payload in the
 same dictionary family.
+
+The corpus-wide `opcode-atlas` command scans expanded text-stream components
+and emits a per-opcode table with payload lengths, component roles, surrounding
+context, pair behavior, examples, and confidence labels. The current full pass
+over the Windows corpus scanned 7,026,978,819 expanded text-stream bytes and
+observed 713,941,069 `0x1f` controls across 40 distinct opcodes. The only
+unclassified opcode occurrence is `25IGAKU` `FHTITLE.DIC` `1f1f`, a singleton
+title-stream anomaly with no observed payload. It appears between bare line
+feeds around the title `closed ecological system (n)【基医`; official-renderer
+inspection is needed before assigning semantics.
 
 A bare `0x0a` byte, not introduced by `0x1f`, appears once in the current
 corpus (`NANDOKU1`). It is handled as a legacy line break byte.

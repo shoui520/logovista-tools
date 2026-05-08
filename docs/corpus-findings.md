@@ -98,6 +98,66 @@ The sole remaining forensic issue is `NANDOKU3`: the expanded stream ends with
 a lone final `0x1f` byte after decoded text. It is covered and reported as a
 truncated control; no opcode is inferred.
 
+## Corpus 0x1f Opcode Atlas
+
+The dedicated opcode atlas pass scans expanded SSED text-stream components:
+`HONMON.DIC`, `MENU.DIC`, `*TITLE.DIC`, and text-like TOC/RIGHT/IDXJUMP/INDEX
+components. Binary B-tree index pages are not scanned as text.
+
+```bash
+logovista-tools opcode-atlas /path/to/LOGOVISTA_SSED_DICTS_WINDOWS \
+  --jobs 0 --out-dir /tmp/lv-opcode-atlas-corpus
+```
+
+Aggregate result:
+
+```text
+text components scanned:   547
+expanded bytes scanned:    7,026,978,819
+controls observed:         713,941,069
+distinct 0x1f opcodes:      40
+unclassified opcodes:        1 occurrence
+```
+
+During this run, several LVLMultiView law packages were still present in the
+local SSED folder. They contributed zero scanned text-stream components, so the
+component/byte/control totals above are the relevant opcode evidence.
+
+Every observed payload length matched the current structural table except one
+singleton title-stream anomaly:
+
+```text
+25IGAKU / FHTITLE.DIC / offset 4980735 / raw 1f1f
+```
+
+The surrounding title stream is:
+
+```text
+closed ecological system (n)【基医
+<1f1f>
+closed ecosystem (n)【基医】
+```
+
+The `1f1f` sequence is only observed once. It is between bare line-feed bytes,
+has no observed payload, and appears in a title component rather than HONMON.
+The toolkit keeps it reportable as an unclassified control until official
+viewer behavior is checked.
+
+Most frequent and structurally important controls from the atlas:
+
+```text
+1f04 / 1f05   generic style/text span pair
+1f09          section/entry marker with 2-byte payload
+1f0a          line break
+1f41 / 1f61   headword/title span pair
+1f42 / 1f62   body/menu link pair; 1f62 has 6-byte pointer payload
+1f43 / 1f63   menu/text-index link pair; 1f63 has 6-byte pointer payload
+1f4a / 1f6a   jump/link/media range pair; 1f4a has 16-byte payload
+1f4d / 1f6d   media/reference pair; 1f4d has 18-byte payload
+1fe0 / 1fe1   bold-ish span pair; 1fe0 has 2-byte payload
+1fe2 / 1fe3   color/style span pair; 1fe2 has 2-byte payload
+```
+
 ## Full Component Forensics Pass
 
 The companion pass accounts for non-HONMON SSED components and adjacent gaiji
@@ -194,8 +254,9 @@ The remaining component anomalies are intentionally small and named:
 
 - `NANDOKU2` `FHINDEX.DIC` has three nonzero physical tail bytes after all full
   2048-byte index pages are parsed.
-- `25IGAKU` `FHTITLE.DIC` has one `1f1f` control. It is structurally covered
-  as a two-byte control span, but renderer semantics are unknown.
+- `25IGAKU` `FHTITLE.DIC` has one `1f1f` control/anomaly. It is a single
+  two-byte raw sequence with no observed payload, but renderer semantics are
+  unknown.
 - `ITALIAN` `FHTITLE.DIC` has one standalone `0x11` byte. It is covered as an
   unknown byte span.
 - `HKDKSR14`, `HKDKSR30`, and `YHOUGO4` have small nonzero `.uni` trailers
