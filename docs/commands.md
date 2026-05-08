@@ -19,7 +19,7 @@ This applies to commands that operate across many dictionaries or resources:
 `spindex`, `audit-honmon`, `gaiji-report`, `gaiji-readiness`, `ga16`,
 `titles`, `indexes`, `menus`, `fulldb`, `profile`, `honmon-bytes`,
 `opcode-atlas`, `component-forensics`, `dump-ir`, LVED payload inspection, and
-LVLMultiView package inspection.
+LVLMultiView/SIZK package inspection.
 `capability-matrix` is also corpus-oriented, but it reads already-generated
 report directories rather than re-scanning raw dictionary files.
 
@@ -179,6 +179,43 @@ jlvbat / jlvdat        subject index table; viewer name hint jiko_sakuin.db
 nlvbat                 law metadata; viewer name hint yroppo.db
 nlvdat                 law metadata; viewer name hint mo6.db
 ```
+
+### `sizk`
+
+Inspect NHK 文学のしずく / SIZK read-aloud packages.
+
+```bash
+logovista-tools sizk /path/to/LOGOVISTA_SSED_DICTS_WINDOWS --jobs 0 --out-dir sizk-audit
+logovista-tools sizk /path/to/_DCT_SIZK0101 --write-playback-jsonl --out-dir sizk-audit
+logovista-tools sizk /path/to/_DCT_SIZK0101 --json
+```
+
+The observed SIZK packages are SSED-backed, but they are not normal
+headword-index dictionaries. Each package has a tiny `HONMON.DIC` with four
+entries. The first gaiji in each entry selects one of four HTML templates:
+
+```text
+b121  overview page
+b122  author page
+b123  narrator page
+b124  playback page
+```
+
+The command resolves:
+
+- `EXINFO.INI` declarations such as `HTMLDLL=HC0190.dll`, `MP3NAME`, and
+  `GAIJI=shizuku.uni`;
+- the tiny HONMON entries, section codes, template selector gaiji, and
+  template paths under `HTMLs/`;
+- the simple12 `shizuku.uni` gaiji file, including blank template-selector
+  records and real mapped records;
+- loose read-aloud sidecars: `shizuku.mp3`, `shizuku_honbun.txt`,
+  `shizuku_time.txt`, and `Templates/honbun.html`;
+- synchronized playback row counts, duration, samples, and mismatch issues.
+
+`--write-playback-jsonl` writes the full aligned time/text rows to
+`DICT_ID/playback.jsonl` and keeps `summary.json` concise by linking to that
+file.
 
 ### `lved`
 

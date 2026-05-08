@@ -719,6 +719,78 @@ Observed export signature variants:
 | 1 | `epwing2HtmlBodydata`<br>`getCustomCharacterDIB`<br>`modifyHeadwordEx` | `IBIO5` |
 | 1 | `epwing2HtmlBodydata`<br>`modifyHeadwordAddr` | `KQSYNONM` |
 
+### SIZK / NHK 文学のしずく Read-Aloud Packages
+
+The corpus contains 30 SIZK packages, `SIZK0101` through `SIZK0605`. These are
+not normal search dictionaries, but they are still classic SSED packages:
+
+```text
+SIZKxxxx.IDX
+HONMON.DIC
+GA16FULL
+GA16HALF
+EXINFO.INI
+HC0190.dll
+HTMLs/b121.html ... b124.html
+Templates/honbun.html
+shizuku.mp3
+shizuku_honbun.txt
+shizuku_time.txt
+shizuku.uni
+```
+
+All 30 share `HC0190.dll`, and `EXINFO.INI` declares:
+
+```ini
+SRCINFO=NHK 文学のしずく
+HTML=1
+HTMLDLL=HC0190.dll
+IDXTITLE=メニュー
+INDEXURL=index.html
+MP3NAME=shizuku.mp3
+GAIJI=shizuku.uni
+```
+
+The `GAIJI=shizuku.uni` declaration matters. The file is not named after the
+main `.IDX` stem, so stem-only gaiji discovery misses it. The file uses the
+simple 12-byte `.uni` layout with zero half-width records and 15 full-width
+records. The observed records include blank `B121`-`B124` template selectors
+and visible mappings such as `B128=〜`, `B129=︱`, `B12A=鷗`, `B12B=—`, and
+`B12C=蟬`.
+
+`HONMON.DIC` is tiny: 29 packages expand to one 2048-byte page, and `SIZK0502`
+uses two declared pages. Each expanded HONMON stream has four entry markers.
+The first full-width gaiji in each entry selects one renderer template:
+
+| Code | Template | Role |
+|---|---|---|
+| `B121` | `HTMLs/b121.html` | overview |
+| `B122` | `HTMLs/b122.html` | author introduction |
+| `B123` | `HTMLs/b123.html` | narrator introduction |
+| `B124` | `HTMLs/b124.html` | read-aloud playback |
+
+The same HONMON entries carry structured section data. Observed section roles:
+
+```text
+0004 work title            0014 author image
+0005 work reading          0015 author image credit
+0006 publication year      0018 author biography
+0007 intro/excerpt line    0021 narrator name
+0008 synopsis              0022 narrator reading
+0011 author name           0023 narrator profile
+0012 author reading        0024 narrator image
+0013 author dates          0028 narrator credits
+0031 audio filename        0032 time filename
+0033 text filename
+```
+
+The read-aloud body is loose package data rather than `PCMDATA.DIC`:
+`shizuku.mp3` plus UTF-16 `shizuku_time.txt` and `shizuku_honbun.txt`.
+`Templates/honbun.html` contains matching vertical-text `<div class="honbun"
+id="...">` rows whose IDs are millisecond timestamps. The `sizk` command
+validated all 30 packages with four HONMON entries, four HTML templates,
+synchronized playback rows, and zero issues.
+
 ### Numeric `00000xxx.idx` Sidecar Trees
 
 The observed eight-hex-digit `*.idx` files are not `SSEDINFO` catalogs and are

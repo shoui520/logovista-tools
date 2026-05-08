@@ -38,6 +38,7 @@ are still allowed to change as more products are tested.
 | Windows / Android / iOS wrappers | Supported per observed package family |
 | LVED/WebView2 `main.data` / `.dbc` SQLCipher payloads | Validated for observed OXFPEU4/KQCMPROS packages |
 | LVLMultiView SQLite packages | Classified for observed ESPRANT2/YROPPO/MOROKU packages |
+| SIZK read-aloud HTML/audio packages | Supported for the observed 30-package NHK set |
 | LogoVista writer support | Not implemented |
 
 The current development direction is:
@@ -235,6 +236,13 @@ Inspect LVLMultiView SQLite packages such as ESPRANT2, YROPPO, and MOROKU:
 logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --jobs 0 --out-dir out/multiview
 ```
 
+Inspect NHK 文学のしずく / SIZK read-aloud packages:
+
+```bash
+logovista-tools sizk /path/to/LogoVista --jobs 0 --out-dir out/sizk
+logovista-tools sizk /path/to/_DCT_SIZK0101 --write-playback-jsonl --out-dir out/sizk
+```
+
 The full command reference lives in [docs/commands.md](docs/commands.md).
 
 ## Documentation Map
@@ -289,6 +297,8 @@ Platform packages add their own wrapper material:
 iOS       DictList.plist, Gaiji.plist, GaijiS.plist, img/, html/, *.sql
 Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
 Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, vlpljbl*, 00000xxx.idx
+SIZK      EXINFO.INI, HC0190.dll, HTMLs/b12*.html, Templates/honbun.html,
+          shizuku.mp3, shizuku_honbun.txt, shizuku_time.txt, shizuku.uni
 LVED      main.data / *.dbc, WebView2 viewer files, SQLCipher runtime
 MultiView SSEDINFO-like *.IDX, menuData.xml, *lvbat/*lvdat, Templates/, Resources/
 ```
@@ -313,6 +323,13 @@ The readable payloads live in LogoFontCipher-encrypted SQLite files. The
 observed law subfamily uses `blvbat`, `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`,
 and `nlvbat`/`nlvdat`; ESPRANT2 uses `blvdat` with a content/search schema and
 numeric `menuData.xml` targets. See [LVLMultiView Packages](spec/multiview.md).
+
+The SIZK / NHK 文学のしずく set is still SSED-backed, but its raw core is a tiny
+four-entry HONMON stream that selects renderer templates. The substantial
+read-aloud content lives in loose sidecars: `HTMLs/b121.html` through
+`b124.html`, `Templates/honbun.html`, `shizuku.mp3`,
+`shizuku_honbun.txt`, `shizuku_time.txt`, and `shizuku.uni`.
+`logovista-tools sizk` resolves those pieces into a structured package report.
 
 ## Development
 

@@ -160,7 +160,42 @@ def candidate_gaiji_paths(idx: Path) -> tuple[list[Path], list[Path]]:
         idx.parent.parent / "GaijiS.plist",
         idx.parent.parent / "Gaiji.plist",
     ]
+    uni_candidates.extend(exinfo_gaiji_paths(idx))
     return uni_candidates, plist_candidates
+
+
+def exinfo_gaiji_paths(idx: Path) -> list[Path]:
+    """Return .uni paths declared by Windows ``EXINFO.INI`` metadata.
+
+    Most SSED packages use a dictionary-stem ``.uni`` file or iOS plist
+    fallbacks. The SIZK read-aloud packages instead declare ``GAIJI=shizuku.uni``
+    in ``EXINFO.INI`` while the main catalog is named ``SIZKxxxx.IDX``. Treating
+    that declaration as a first-class candidate keeps gaiji resolution tied to
+    package metadata rather than filename coincidence.
+    """
+
+    try:
+        from .windows import load_exinfo_for_idx
+
+        exinfo = load_exinfo_for_idx(idx)
+    except Exception:
+        return []
+    if exinfo is None:
+        return []
+
+    paths: list[Path] = []
+    for key, value in exinfo.general.items():
+        if not key.upper().startswith("GAIJI"):
+            continue
+        value = value.strip().strip('"')
+        if not value:
+            continue
+        normalized = value.replace("\\", "/")
+        relative = Path(normalized)
+        if relative.suffix.lower() != ".uni":
+            continue
+        paths.append(relative if relative.is_absolute() else idx.parent / relative)
+    return paths
 
 
 def file_identity(path: Path) -> Hashable:

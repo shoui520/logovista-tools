@@ -32,6 +32,8 @@ iOS Gaiji.plist / GaijiS.plist fallback files
 The current extractor:
 
 - loads primary Unicode mappings from dictionary-local `.uni` / `.UNI` files;
+- also honors Windows `EXINFO.INI` `GAIJI=...` declarations when the gaiji file
+  does not match the `.IDX` stem, as in the SIZK `shizuku.uni` packages;
 - uses `Gaiji.plist` and `GaijiS.plist` only as fallbacks for codes missing
   from `.uni`;
 - parses `GA16HALF` and `GA16FULL` headers, slices individual bitmap glyph
@@ -275,8 +277,9 @@ offset  size  meaning
 ...     ...   full-width records, 12 bytes each
 ```
 
-The simple layout appears in at least `IWKOKUG8` and `KENROWA`. `IWKOKUG8`
-uses a zero half count followed by full-width records.
+The simple layout appears in at least `IWKOKUG8`, `KENROWA`, and the SIZK
+`shizuku.uni` files. `IWKOKUG8` and SIZK use a zero half count followed by
+full-width records.
 
 Each `Ver2` 16-byte record is eight big-endian 16-bit fields:
 
@@ -330,9 +333,17 @@ information so future exporters can make a more precise choice.
 Corpus summary from the local test collection:
 
 ```text
-Ver2 files:    GENIUSEB, HAESPJPN, HAFRAN, KOJIEN7, and most others
-simple12 files: IWKOKUG8, KENROWA
+Ver2 files:      GENIUSEB, HAESPJPN, HAFRAN, KOJIEN7, and most others
+simple12 files:  IWKOKUG8, KENROWA, SIZK shizuku.uni
 ```
+
+In SIZK packages, the same `.uni` file also documents blank full-width gaiji
+records `B121` through `B124`. Those codes are not display characters; the raw
+HONMON stream uses them as renderer-template selectors for `HTMLs/b121.html`
+through `HTMLs/b124.html`. Later records in the same file, such as `B12A`, do
+map to visible Unicode text. This is a useful example of why a gaiji record
+with an empty display sequence should be preserved as structural evidence
+rather than automatically treated as a missing character.
 
 The current Windows SSED component-forensics pass saw 90 `.uni` / `.UNI`
 files. All declared records parse under the two layouts above. The only

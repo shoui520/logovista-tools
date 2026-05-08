@@ -75,6 +75,10 @@ LogoVista dictionary model.
   packages, including SSEDINFO facade parsing, LogoFontCipher SQLite payload
   roles, `menuData.xml` href resolution, static HTML/viewer-file reporting,
   and encrypted PDF resource detection where present.
+- SIZK / NHK 文学のしずく read-aloud package inspection for the observed 30
+  package set, including EXINFO-declared `shizuku.uni`, `HTMLs/b121`-`b124`
+  template selectors, tiny four-entry HONMON streams, loose MP3 files, and
+  synchronized UTF-16 text/time sidecars.
 - `--jobs` process-level parallelism for corpus-scale scanning, extraction,
   audit, gaiji/media reports, LVED inspection, and GA16 rendering.
 - Redacted SSED package profiles with component metadata, wrapper/resource

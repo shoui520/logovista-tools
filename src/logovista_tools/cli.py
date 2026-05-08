@@ -48,6 +48,7 @@ from .profiles import extract_profiles_for_args
 from .rendererdb import extract_rendererdb_for_sources
 from .resources import ImageResource, load_image_resource_profile
 from .spindex import discover_spindex_files, inspect_spindex
+from .sizk import discover_sizk_packages, inspect_sizk_package, write_sizk_report
 from .ssed import (
     BLOCK_SIZE,
     expand_sseddata_file,
@@ -1211,6 +1212,72 @@ def cmd_spindex(args: argparse.Namespace) -> int:
     return 0
 
 
+def _sizk_task(payload: tuple[Path, Path, argparse.Namespace]) -> dict[str, Any]:
+    package_dir, out_dir, args = payload
+    report = inspect_sizk_package(
+        package_dir,
+        include_playback_rows=args.write_playback_jsonl,
+    )
+    return write_sizk_report(report, out_dir, write_playback_jsonl=args.write_playback_jsonl)
+
+
+def cmd_sizk(args: argparse.Namespace) -> int:
+    packages = discover_sizk_packages(args.root or [Path(".")])
+    if args.dict:
+        selected = set(args.dict)
+        packages = [
+            package
+            for package in packages
+            if package.name in selected
+            or package.name.removeprefix("_DCT_") in selected
+            or any(child.stem in selected for child in package.glob("*.IDX"))
+            or any(child.stem in selected for child in package.glob("*.idx"))
+        ]
+    if not packages:
+        print("no SIZK read-aloud packages found", file=sys.stderr)
+        return 1
+
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    task_args = worker_args(args)
+    completed = 0
+    total = len(packages)
+
+    def log_summary(row: dict[str, Any]) -> None:
+        nonlocal completed
+        completed += 1
+        playback = row.get("playback", {})
+        honmon = row.get("honmon", {})
+        print(
+            f"sizk progress {completed:3d}/{total}: {row['dict_id']:12s} "
+            f"entries={len(honmon.get('entries', [])):2d} "
+            f"templates={row['classification']['html_template_count']:2d} "
+            f"playback_rows={playback.get('row_count', 0):4d} "
+            f"sync={'yes' if playback.get('synchronized') else 'no':3s} "
+            f"issues={len(row.get('issues', []))}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    reports = parallel_map_ordered(
+        _sizk_task,
+        [(package, args.out_dir, task_args) for package in packages],
+        jobs=args.jobs,
+        on_result=log_summary,
+    )
+    summary = {
+        "schema": "logovista-sizk-audit-v1",
+        "total": len(reports),
+        "packages_with_issues": sum(1 for row in reports if row.get("issues")),
+        "total_honmon_entries": sum(len(row.get("honmon", {}).get("entries", [])) for row in reports),
+        "total_playback_rows": sum(int(row.get("playback", {}).get("row_count", 0)) for row in reports),
+        "reports": reports,
+    }
+    write_json(args.out_dir / "summary.json", summary)
+    if args.json:
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
     rows = extract_audit_for_sources(args)
     if args.json:
@@ -1565,6 +1632,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_spindex.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
     add_jobs_argument(p_spindex)
     p_spindex.set_defaults(func=cmd_spindex)
+
+    p_sizk = sub.add_parser(
+        "sizk",
+        help="Inspect SIZK/NHK Bungaku no Shizuku read-aloud HTML/audio packages.",
+    )
+    p_sizk.add_argument("root", type=Path, nargs="*", help="Collection root or direct SIZK package directory.")
+    p_sizk.add_argument("--out-dir", type=Path, default=Path("logovista-sizk-audit"))
+    p_sizk.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
+    p_sizk.add_argument(
+        "--write-playback-jsonl",
+        action="store_true",
+        help="Write synchronized shizuku_time/shizuku_honbun rows as playback.jsonl.",
+    )
+    p_sizk.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    add_jobs_argument(p_sizk)
+    p_sizk.set_defaults(func=cmd_sizk)
 
     p_audit = sub.add_parser("audit-honmon", help="Audit raw HONMON/IDX readability without SQLite bodies.")
     p_audit.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")

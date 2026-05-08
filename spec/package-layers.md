@@ -31,6 +31,8 @@ Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
 Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, *.chm, vlpljbl*,
           eight-hex-digit 00000xxx.idx sidecar trees, sometimes standalone
           auxiliary SPINDEX.DIC and sibling *_Sound_Files/ ziptomedia audio
+SIZK      classic SSED catalog plus HC0190.dll, HTMLs/b121-b124 templates,
+          Templates/honbun.html, shizuku.mp3, shizuku_honbun/time sidecars
 LVED      main.data or *.dbc, WebView2 viewer files, sqlcipher.dll,
           plugin DLL/assembly resources
 MultiView SSEDINFO-like *.IDX facade, menuData.xml, LOGOVISTAMULTIVIEW,
@@ -126,3 +128,22 @@ SQLite payloads. The observed law subfamily uses payloads such as `blvbat`,
 `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`, and `nlvbat`/`nlvdat`; ESPRANT2 uses a
 single `blvdat` content/search payload. See
 [LVLMultiView Packages](multiview.md).
+
+The SIZK / NHK 文学のしずく packages are a small SSED-backed read-aloud
+subfamily. Their `.IDX` catalog declares `HONMON.DIC`, `GA16FULL`, and
+`GA16HALF`, but the package is driven by renderer templates rather than by
+normal search indexes. `HONMON.DIC` is a tiny body stream with four entries.
+Each entry begins with a full-width gaiji selector (`b121` through `b124`) that
+chooses a sibling HTML template in `HTMLs/`:
+
+```text
+b121  overview
+b122  author introduction
+b123  narrator introduction
+b124  read-aloud playback
+```
+
+`EXINFO.INI` declares `HTMLDLL=HC0190.dll`, `MP3NAME=shizuku.mp3`, and
+`GAIJI=shizuku.uni`. The actual playback transcript is stored outside SSED as
+UTF-16 text/time files plus `Templates/honbun.html`; all 30 observed packages
+have synchronized time/text/template rows.
