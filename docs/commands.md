@@ -16,11 +16,11 @@ Corpus-scale commands support `--jobs`:
 
 This applies to commands that operate across many dictionaries or resources:
 `scan`, `entries`, `resources`, `colscr`, `pcmdata`, `extras`, `rendererdb`,
-`spindex`, `audit-honmon`, `gaiji-report`, `ga16`, `titles`, `indexes`,
-`menus`, `fulldb`, `profile`, `honmon-bytes`, `component-forensics`,
-`dump-ir`, and LVED payload inspection. `capability-matrix` is also
-corpus-oriented, but it reads already-generated report directories rather than
-re-scanning raw dictionary files.
+`spindex`, `audit-honmon`, `gaiji-report`, `gaiji-readiness`, `ga16`,
+`titles`, `indexes`, `menus`, `fulldb`, `profile`, `honmon-bytes`,
+`component-forensics`, `dump-ir`, and LVED payload inspection.
+`capability-matrix` is also corpus-oriented, but it reads already-generated
+report directories rather than re-scanning raw dictionary files.
 
 For huge corpora, start with a moderate value such as `--jobs 8` or `--jobs 16`
 when also writing many JSON/media files. `--jobs 0` is useful for CPU-heavy
@@ -374,6 +374,18 @@ logovista-tools capability-matrix \
   --profile-dir out/profiles \
   --honmon-bytes-dir out/honmon-bytes \
   --component-forensics-dir out/components \
+  --out-dir out/capability-matrix
+```
+
+If a `gaiji-readiness` report is available, pass it to refine the gaiji column
+from blunt unresolved-span counts into display/search readiness:
+
+```bash
+logovista-tools capability-matrix \
+  --profile-dir out/profiles \
+  --honmon-bytes-dir out/honmon-bytes \
+  --component-forensics-dir out/components \
+  --gaiji-readiness-dir out/gaiji-readiness \
   --out-dir out/capability-matrix
 ```
 
@@ -735,6 +747,62 @@ is not treated as authority because several app caches normalize or flatten
 characters. For example, GENIUSEB validates many IPA/symbol gaiji through SQL,
 but its cache omits some accent display forms that are present in `.uni`.
 
+### `gaiji-readiness`
+
+Classify gaiji display/search readiness from raw SSED resources, without using
+SQLite as the primary source.
+
+```bash
+logovista-tools gaiji-readiness /path/to/LogoVista --jobs 0 --out-dir gaiji-readiness
+logovista-tools gaiji-readiness /path/to/LogoVista --dict GENIUSEB --json
+```
+
+Output layout:
+
+```text
+gaiji-readiness/
+  summary.json
+  gaiji_readiness.csv
+  gaiji_readiness.md
+  DICT_ID/
+    gaiji_readiness.json
+```
+
+The command scans text-bearing SSED components (`HONMON.DIC`, `MENU.DIC`,
+`*TITLE.DIC`, and text-like `INDEX.DIC` outliers), then checks each raw gaiji
+code against dictionary-local `.uni` / plist mappings, GA16 bitmap resources,
+and package image resources.
+
+Per-code buckets:
+
+```text
+unicode_mapped             display text comes from .uni or plist
+bitmap_backed              no Unicode display, but a GA16 glyph is available
+image_backed               no Unicode display, but a package image is available
+formatting_helper          blank bitmap code or full-width unbacked code, treated as a probable renderer helper
+display_unresolved         raw code has no Unicode, bitmap, image, or helper evidence
+unused_mapping             mapping exists but was not seen in scanned raw text
+unused_bitmap              bitmap exists but was not seen in scanned raw text
+unused_image_asset         image asset exists but was not seen in scanned raw text
+```
+
+Flags are separate from display buckets. `raw_occurrence_unmapped` means the
+raw code has no Unicode text mapping even if it can render as a bitmap/image.
+`search_fallback_missing` means `.uni` has display text but no fallback/search
+sequence for a character where exporters may want one. It does not make the
+code display-unresolved.
+
+The GA16 coverage model uses both observed addressing views:
+
+- sequential header range: `start_code + glyph_index`;
+- `.uni` record order: for many Windows packages, glyph slot `n` corresponds
+  to `.uni` half/full record `n`, even when the record's code field is sparse
+  or non-sequential.
+
+This distinction is required for GENIUSEB/RDRSP2-style packages where raw codes
+such as `A430` are bitmap-backed by GAI16 resources even though they are not in
+the simple sequential range.
+
 ### `uni`
 
 Inspect LogoVista `.uni` / `.UNI` gaiji mapping files.
@@ -773,7 +841,7 @@ Useful options:
 
 ```bash
 --code A126                         render only one code; may be repeated
---limit N                           render at most N glyphs per resource
+--limit N                           render at most N glyphs per resource; 0 means uncapped
 --variants                          write black _n.png and white _w.png variants
 --foreground RRGGBB[AA]             ink color for single-variant output
 --background RRGGBB[AA]             background color for single-variant output
@@ -784,6 +852,11 @@ Useful options:
 Default output is black ink on transparent background. `--variants` mirrors
 the theme pattern used by packaged image resources such as `b13d_n.png` and
 `b13d_w.png`.
+
+When a `.uni` / `.UNI` sidecar is present next to a GA16 file, `ga16` uses the
+`.uni` record order as the preferred filename code for each glyph slot. That is
+why `--code A430` can render a GENIUSEB glyph even though the GAI16 header's
+sequential range starts at `A121`.
 
 ### `titles`
 

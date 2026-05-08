@@ -78,6 +78,11 @@ class Ga16Resource:
         index = code - self.start_code
         if index < 0 or index >= self.count:
             return None
+        return self.glyph_for_index(data, index)
+
+    def glyph_for_index(self, data: bytes, index: int) -> bytes | None:
+        if index < 0 or index >= self.count:
+            return None
         start = self.data_offset + index * self.glyph_bytes
         end = start + self.glyph_bytes
         if end > len(data):
@@ -90,6 +95,54 @@ class Ga16Resource:
             glyph = self.glyph_for_code(data, code)
             if glyph is not None:
                 yield code, glyph
+
+
+def ga16_section_for_path(path: Path) -> str | None:
+    name = path.name.upper()
+    if "HALF" in name or "16H" in name:
+        return "half"
+    if "FULL" in name or "16F" in name:
+        return "full"
+    return None
+
+
+def ga16_preferred_code_for_index(
+    resource: Ga16Resource,
+    index: int,
+    uni_resource: UniResource | None = None,
+) -> tuple[str, str]:
+    section = ga16_section_for_path(resource.path)
+    if section is not None and uni_resource is not None:
+        records = [record for record in uni_resource.records if record.section == section]
+        if index < len(records):
+            return records[index].code, "uni_record_order"
+    return f"{resource.code_for_index(index):04x}", "sequential"
+
+
+def iter_ga16_code_sources(
+    resource: Ga16Resource,
+    uni_resource: UniResource | None = None,
+) -> Iterable[tuple[str, int, str]]:
+    """Yield gaiji codes covered by a GA16 resource.
+
+    Older tooling treated the code range as strictly ``start_code + index``.
+    That is correct for many resources, but not all. In several Windows
+    packages the GA16 glyph slots also align with dictionary-local ``.uni``
+    record order; the record's code field is the raw body code, even when the
+    code sequence is sparse or non-monotonic. We yield both views so callers
+    can resolve raw codes without losing compatibility with sequential
+    resources.
+    """
+
+    for index in range(resource.count):
+        yield f"{resource.code_for_index(index):04x}", index, "sequential"
+
+    section = ga16_section_for_path(resource.path)
+    if section is None or uni_resource is None:
+        return
+    records = [record for record in uni_resource.records if record.section == section]
+    for index, record in enumerate(records[: resource.count]):
+        yield record.code, index, "uni_record_order"
 
 
 def candidate_gaiji_paths(idx: Path) -> tuple[list[Path], list[Path]]:

@@ -102,6 +102,91 @@ def test_capability_matrix_classifies_green_raw_body(tmp_path):
     assert row["writer_repacker_status"] == "green"
 
 
+def test_capability_matrix_uses_gaiji_readiness_override(tmp_path):
+    profile_dir = tmp_path / "profiles"
+    honmon_dir = tmp_path / "honmon"
+    component_dir = tmp_path / "components"
+    gaiji_dir = tmp_path / "gaiji"
+    write_json(
+        profile_dir / "summary.json",
+        {
+            "profiles": [
+                {
+                    "dict_id": "GAIJI",
+                    "title": "Gaiji",
+                    "status": "ok",
+                    "body_source_hint": "honmon",
+                    "honmon_shape": "body_stream_indexed",
+                    "index_unknown_leaf_bytes": 0,
+                    "index_boundary_offsets": 1,
+                }
+            ]
+        },
+    )
+    write_json(profile_dir / "GAIJI" / "profile.json", {"classification": {"status": "ok", "missing_components": []}})
+    write_json(honmon_dir / "summary.json", {"profiles": [{"dict_id": "GAIJI", "title": "Gaiji", "status": "ok"}]})
+    write_json(
+        honmon_dir / "GAIJI" / "honmon_bytes.json",
+        {
+            "decode": {
+                "stats": {
+                    "gaiji": 10,
+                    "gaiji_unresolved": 10,
+                    "unknown_controls": 0,
+                    "unknown_bytes": 0,
+                    "truncated_controls": 0,
+                    "truncated_gaiji": 0,
+                    "invalid_jis_pairs": 0,
+                }
+            }
+        },
+    )
+    write_json(
+        component_dir / "summary.json",
+        {
+            "profiles": [
+                {
+                    "dict_id": "GAIJI",
+                    "title": "Gaiji",
+                    "component_counts": {"index": 1},
+                    "totals": {
+                        "index_nonzero_residual_bytes": 0,
+                        "index_trailing_component_nonzero": 0,
+                    },
+                }
+            ]
+        },
+    )
+    write_json(component_dir / "GAIJI" / "component_forensics.json", {"components": [{"role": "index", "status": "ok"}]})
+    write_json(
+        gaiji_dir / "summary.json",
+        {
+            "rows": [
+                {
+                    "dict_id": "GAIJI",
+                    "readiness_status": "yes",
+                    "raw_occurrences": 10,
+                    "display_unresolved_occurrences": 0,
+                    "formatting_helper_candidate_occurrences": 4,
+                    "search_fallback_missing_occurrences": 2,
+                }
+            ]
+        },
+    )
+
+    report = build_capability_matrix(
+        profile_dir=profile_dir,
+        honmon_bytes_dir=honmon_dir,
+        component_forensics_dir=component_dir,
+        gaiji_readiness_dir=gaiji_dir,
+    )
+
+    row = report["rows"][0]
+    assert row["gaiji_fully_resolved"] == "yes"
+    assert row["gaiji_unresolved"] == 0
+    assert "gaiji_readiness=yes" in row["gaiji_reason"]
+
+
 def test_capability_matrix_names_writer_blockers(tmp_path):
     profile_dir = tmp_path / "profiles"
     honmon_dir = tmp_path / "honmon"

@@ -24,7 +24,8 @@ LogoVista dictionary model.
 - Dictionary-local `.uni` gaiji mapping, including UTF-16 surrogate-pair
   sequences, older 12-byte `.uni` files, and explicit trailer accounting.
 - `GA16HALF` / `GA16FULL` bitmap header parsing, glyph slicing, and PNG
-  rendering.
+  rendering, including packages where glyph slots are addressed by `.uni`
+  record order rather than only by the sequential header range.
 - Full-corpus byte accounting for observed `MENU.DIC`, `*TITLE.DIC`,
   `*INDEX.DIC`, `.uni`, `GA16*`, `COLSCR.DIC`, and `PCMDATA.DIC`
   components.
@@ -51,6 +52,9 @@ LogoVista dictionary model.
 - Package image discovery from iOS `img`, Windows `Templates` / `HANREI/img`,
   and Android resource folders.
 - SQL/`DictFULLDB`-assisted gaiji validation reports.
+- Raw-resource gaiji readiness reports that separate Unicode mappings,
+  bitmap-backed glyphs, image-backed glyphs, probable formatting helpers,
+  missing search fallbacks, and true display-unresolved codes.
 - Standalone `SPINDEX.DIC` inspection for observed Windows suffix-index
   resources.
 - LVED/WebView2 `main.data` / `.dbc` SQLCipher classification and validation
@@ -68,7 +72,8 @@ LogoVista dictionary model.
   entry/span/control/gaiji/media/index/title/menu/issue records future
   exporters and writer experiments should consume.
 - Corpus capability matrix generation from redacted `profile`,
-  `honmon-bytes`, and `component-forensics` outputs.
+  `honmon-bytes`, `component-forensics`, and optional `gaiji-readiness`
+  outputs.
 - Strict, forensic, and lenient text-span parsing modes for sampled body
   slices and entry-level IR dumps.
 - Observed `1f0b`/`1f0c` literal/preformatted body spans.
@@ -112,6 +117,9 @@ LogoVista dictionary model.
   are accounted for but whose audio codec/container is not yet classified.
 - Named UI/style images such as `exam.png` are discovered, but mapping them to
   semantic entry regions is dictionary-specific.
+- The raw-resource gaiji readiness pass still has 11 dictionaries with true
+  display-unresolved gaiji under current evidence. `NGYOKTUK` has raw gaiji but
+  no `.uni`, plist, GA16, or package image resources in the SSED package.
 - `dump-ir` is still a lossless entry-span JSONL inspection format. It covers
   one LV-IR slice, but it is not yet a full `LV-IR v0` package export.
 - Observed `DictFtsDB` `.dbc` payloads for OXFPEU4/KQCMPROS are LVED
@@ -136,6 +144,8 @@ Recently landed:
 6. Full-corpus component forensics for menu/title/index/gaiji/media resources,
    including new index variants, wrapped PNG `COLSCR.DIC` records, GA16 byte
    coverage, `.uni` trailer accounting, and raw `PCMDATA.DIC` range coverage.
+7. Full-corpus gaiji readiness reporting, including the `.uni` record-order
+   GA16/GAI16 addressing correction and refined capability-matrix gaiji status.
 
 Next priorities:
 
@@ -143,21 +153,24 @@ Next priorities:
    described in `spec/lv-ir-v0.md`, starting with components, entries,
    titles, indexes, menus, gaiji, media references, media records, issues, and
    metrics.
-2. **Corpus capability matrix refinement.** Use matrix output to separate
-   writer-v0 blockers from lossless-repacker blockers, then tighten gaiji and
-   media readiness rules as the IR implementation lands.
-3. **Corpus regression harness.** Commit redacted expected metrics generated
+2. **Remaining gaiji edge cases.** Investigate the 11 dictionaries that still
+   have display-unresolved gaiji under raw-resource evidence, especially
+   `NGYOKTUK`, `ARCHSIC3`, `LMEDEJ12`, and `MEIKYOU`.
+3. **Corpus capability matrix refinement.** Use matrix output to separate
+   writer-v0 blockers from lossless-repacker blockers, then tighten media and
+   menu readiness rules as the IR implementation lands.
+4. **Corpus regression harness.** Commit redacted expected metrics generated
    from owned corpora, then add a comparison command that flags changed shape
    counts, unknown counts, parse failures, and dereference coverage without
    storing dictionary text.
-4. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
+5. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
    media extractors, and exporters consume the same classification/profile
    layer instead of each command rediscovering package shape independently.
-5. **Renderer parity.** Build small local parity fixtures for body text,
+6. **Renderer parity.** Build small local parity fixtures for body text,
    literal spans, URL spans, gaiji images, named section images, media links,
    menu destinations, and dense-anchor renderer bodies.
-6. **Exporter layer.** Implement debug HTML first, then Yomitan structured v3
+7. **Exporter layer.** Implement debug HTML first, then Yomitan structured v3
    and MDict as views over the versioned IR rather than separate parsers.
-7. **Writer research.** Start only after the model can round-trip addresses,
+8. **Writer research.** Start only after the model can round-trip addresses,
    indexes, gaiji/media references, and dense-anchor relationships with
    measurable unknowns near zero on the corpus.

@@ -184,16 +184,74 @@ The remaining component anomalies are intentionally small and named:
   covered, but whose payloads are not RIFF/WAVE, native ID3/MP3, or the
   currently classified MPEG-in-WAVE shape.
 
+## Corpus Gaiji Readiness
+
+The gaiji readiness pass separates display failures from Unicode-mapped gaiji,
+bitmap/image-backed gaiji, probable formatting helpers, and missing
+search/fallback text:
+
+```bash
+logovista-tools gaiji-readiness /path/to/LOGOVISTA_SSED_DICTS_WINDOWS \
+  --jobs 0 --out-dir /tmp/lv-gaiji-readiness-corpus
+```
+
+Aggregate result:
+
+```text
+dictionaries:              169
+readiness status:          133 yes
+                             25 n/a
+                             10 partial
+                              1 no
+raw gaiji occurrences:  34,854,621
+unicode-mapped occ.:   15,135,023
+bitmap-backed occ.:     8,533,880
+image-backed occ.:     10,280,015
+formatting-helper occ.:   783,070
+display-unresolved occ.:  122,633
+search-fallback-missing occ.: 7,989,069
+```
+
+The key correction from this pass is that GA16 resources are not always
+addressed only by `start_code + glyph_index`. In several Windows packages,
+GA16/GAI16 glyph slot `n` aligns with `.uni` half/full record `n`; the `.uni`
+record's code field is the raw body code. This resolves many apparent missing
+gaiji in GENIUSEB, RDRSP2, Readers3, RPLUSREV, KENE7J5, KQNEWEJ6, KQNEWJE5,
+and related packages.
+
+Remaining display-unresolved dictionaries after the `.uni`-order GA16 fix:
+
+```text
+ARCHSIC3   101 codes, 57,788 occurrences
+NGYOKTUK   146 codes, 33,164 occurrences
+LMEDEJ12    68 codes, 20,978 occurrences
+MEIKYOU    374 codes,  7,419 occurrences
+NANDOKU4    45 codes,    939 occurrences
+Dconci87     1 code,     823 occurrences
+NANDOKU3    52 codes,    735 occurrences
+Bri2019P   105 codes,    676 occurrences
+KQBIZEJ      9 codes,     72 occurrences
+IBIO4        6 codes,     36 occurrences
+IBIO4VRS     1 code,       3 occurrences
+```
+
+`NGYOKTUK` has raw gaiji but no `.uni`, plist, GA16, or package image evidence
+in the SSED package; it remains the only `no` result under this raw-resource
+policy. It ships renderer sidecars, so those may still provide display HTML or
+application-level substitution, but that is not treated as raw gaiji evidence.
+
 ## Capability Matrix
 
 The first writer/exporter capability matrix combines three redacted report
-families:
+families. With `gaiji-readiness`, the gaiji status is refined from raw
+unresolved-span counts into display readiness:
 
 ```bash
 logovista-tools capability-matrix \
   --profile-dir /tmp/lv-profile-corpus4 \
   --honmon-bytes-dir /tmp/lv-honmon-bytes-corpus-v3 \
   --component-forensics-dir /tmp/lv-component-forensics-corpus-v4 \
+  --gaiji-readiness-dir /tmp/lv-gaiji-readiness-corpus \
   --out-dir /tmp/lv-capability-matrix-corpus
 ```
 
@@ -207,7 +265,7 @@ Capability counts:
 raw HONMON body:       yes 143, no 26
 indexes fully parsed: yes 123, partial 1, no 11, n/a 34
 titles fully parsed:  yes 79, partial 2, no 4, n/a 84
-gaiji fully resolved: yes 17, partial 132, no 14, n/a 6
+gaiji fully resolved: yes 133, partial 10, no 1, n/a 25
 media refs resolved:  yes 62, partial 1, no 1, n/a 105
 menu pointers:        yes 63, partial 12, no 9, n/a 85
 ```
@@ -215,46 +273,25 @@ menu pointers:        yes 63, partial 12, no 9, n/a 85
 Writer/repacker planning status:
 
 ```text
-legacy writer v0:   green 13, yellow 124, red 32
-lossless repacker:  green 13, yellow 93,  red 63
-combined worst:     green 13, yellow 93,  red 63
+legacy writer v0:   green 108, yellow 29, red 32
+lossless repacker:  green 100, yellow 6,  red 63
+combined worst:     green 100, yellow 6,  red 63
 ```
 
-The 13 green dictionaries under the conservative rules are:
-
-```text
-BMANNAR
-EJJE200
-GKBUSINE
-GKKANYOK
-Gen2010
-Gen2011
-Gen2012
-Gen2013
-HKBYOIN4
-JOTSU05
-JSSAURUS
-SPEECH
-TEGAMI
-```
-
-The green count is intentionally conservative. In particular,
-`gaiji_fully_resolved` currently requires all observed gaiji occurrences to
-resolve under the present Unicode/image/bitmap policy. It therefore marks many
-otherwise well-understood dictionaries yellow because they contain formatting
-helpers, unresolved display gaiji, or codes whose eventual writer policy is
-not settled. That is useful pressure on the gaiji model; it is not a claim that
-those dictionaries cannot be exported.
+The green count changed because most dictionaries previously marked
+`gaiji_not_fully_resolved` were actually display-ready once bitmap/image-backed
+gaiji, `.uni` record-order GA16 glyphs, and formatting-helper candidates were
+separated from true display failures.
 
 Top blocker counts:
 
 ```text
-gaiji_not_fully_resolved:          146
 missing_declared_components:        33
 body_requires_sidecar_or_is_missing: 26
 menu_not_fully_resolved:            21
 raw_body_not_self_contained:        18
 indexes_not_fully_parsed:           12
+gaiji_not_fully_resolved:           11
 titles_not_fully_parsed:             6
 unknown_or_structural_text_issues:   3
 media_not_fully_resolved:            2
@@ -262,8 +299,8 @@ media_not_fully_resolved:            2
 
 The matrix makes the next reverse-engineering priorities more concrete:
 
-- tighten gaiji readiness by distinguishing harmless formatting helpers from
-  true unresolved display glyphs;
+- investigate the 11 dictionaries that still have true display-unresolved
+  gaiji under raw-resource evidence;
 - improve menu destination resolution for packages with partial menu coverage;
 - decide whether missing declared components in locally incomplete packages
   should be excluded from writer-readiness scoring;

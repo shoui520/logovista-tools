@@ -61,6 +61,13 @@ and explicitly reported: one 3-byte physical index tail, one unknown title
 control, one unknown title byte, a few `.uni` trailer bytes, and one dictionary
 with in-range but still-unclassified raw audio payloads.
 
+The gaiji readiness pass now separates display fidelity from search fallback
+quality. Across the same corpus, 133 packages are display-ready, 25 have no raw
+gaiji occurrences, 10 have partial raw-resource coverage, and one has no raw
+gaiji resources. The pass also corrected the GA16 model: some Windows GAI16
+glyphs are addressed by `.uni` record order, not only by header
+`start_code + glyph_index`.
+
 ## Install
 
 Use Python 3.10 or newer.
@@ -136,6 +143,12 @@ components:
 logovista-tools component-forensics /path/to/LogoVista --jobs 0 --out-dir out/components
 ```
 
+Classify gaiji display/search readiness from raw resources:
+
+```bash
+logovista-tools gaiji-readiness /path/to/LogoVista --jobs 0 --out-dir out/gaiji-readiness
+```
+
 Turn those redacted reports into a writer/exporter capability table:
 
 ```bash
@@ -143,6 +156,7 @@ logovista-tools capability-matrix \
   --profile-dir out/profiles \
   --honmon-bytes-dir out/honmon-bytes \
   --component-forensics-dir out/components \
+  --gaiji-readiness-dir out/gaiji-readiness \
   --out-dir out/capability-matrix
 ```
 

@@ -17,7 +17,15 @@ from .component_forensics import extract_component_forensics_for_args
 from .entries import discover_dictionaries, extract_dictionary
 from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
-from .gaiji import UniRecord, parse_ga16_resource, parse_uni_resource, write_ga16_glyph_png
+from .gaiji import (
+    UniRecord,
+    file_identity,
+    ga16_preferred_code_for_index,
+    parse_ga16_resource,
+    parse_uni_resource,
+    write_ga16_glyph_png,
+)
+from .gaiji_readiness import extract_gaiji_readiness_for_args
 from .honmon_bytes import extract_honmon_byte_reports_for_args
 from .indexes import extract_indexes_for_idx
 from .ir import extract_ir_for_args
@@ -489,6 +497,20 @@ def ga16_prefix_for_path(path: Path, override: str) -> str:
     return "g"
 
 
+def ga16_sidecar_uni_resource(path: Path):
+    seen: set[Any] = set()
+    for pattern in ("*.uni", "*.UNI"):
+        for candidate in sorted(path.parent.glob(pattern)):
+            identity = file_identity(candidate)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            resource = parse_uni_resource(candidate)
+            if resource is not None:
+                return resource
+    return None
+
+
 def parse_hex_color(value: str) -> tuple[int, int, int, int]:
     cleaned = value.strip().removeprefix("#")
     if len(cleaned) not in (6, 8) or any(ch not in "0123456789abcdefABCDEF" for ch in cleaned):
@@ -523,16 +545,25 @@ def _ga16_task(payload: tuple[Path, argparse.Namespace, bool]) -> dict[str, Any]
 
     selected_codes = set(args.code or [])
     prefix = ga16_prefix_for_path(path, args.prefix)
+    uni_resource = ga16_sidecar_uni_resource(path)
     target_dir = args.out_dir / path.parent.name if group_by_dict else args.out_dir
     target_dir.mkdir(parents=True, exist_ok=True)
 
     written = 0
     considered = 0
-    for code, glyph in resource.iter_glyphs(data):
-        if selected_codes and code not in selected_codes:
+    code_sources: Counter[str] = Counter()
+    for index in range(resource.count):
+        preferred_code, code_source = ga16_preferred_code_for_index(resource, index, uni_resource)
+        code_sources[code_source] += 1
+        direct_code = resource.code_for_index(index)
+        glyph = resource.glyph_for_code(data, direct_code)
+        if glyph is None:
+            continue
+        selected_candidates = {direct_code, int(preferred_code, 16)}
+        if selected_codes and not selected_codes.intersection(selected_candidates):
             continue
         considered += 1
-        base_name = f"{prefix}{code:04X}"
+        base_name = f"{prefix}{preferred_code.upper()}"
         if args.variants:
             write_ga16_glyph_png(
                 target_dir / f"{base_name}_n.png",
@@ -561,7 +592,7 @@ def _ga16_task(payload: tuple[Path, argparse.Namespace, bool]) -> dict[str, Any]
                 background=args.background,
             )
             written += 1
-        if args.limit is not None and considered >= args.limit:
+        if args.limit is not None and args.limit > 0 and considered >= args.limit:
             break
 
     return {
@@ -573,6 +604,7 @@ def _ga16_task(payload: tuple[Path, argparse.Namespace, bool]) -> dict[str, Any]
         "start_code": f"{resource.start_code:04X}",
         "count": resource.count,
         "glyph_bytes": resource.glyph_bytes,
+        "code_sources": dict(sorted(code_sources.items())),
         "glyphs_selected": considered,
         "png_files_written": written,
     }
@@ -722,6 +754,19 @@ def cmd_gaiji_report(args: argparse.Namespace) -> int:
             f"aligned_misses={summary['aligned_misses']:6d}",
             file=sys.stderr,
         )
+    return 0
+
+
+def cmd_gaiji_readiness(args: argparse.Namespace) -> int:
+    report = extract_gaiji_readiness_for_args(args)
+    print(
+        f"gaiji readiness: dictionaries={report['total']} "
+        f"status={report['readiness_status_counts']} "
+        f"out={args.out_dir}",
+        file=sys.stderr,
+    )
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -1317,6 +1362,11 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Directory produced by the component-forensics command.",
     )
+    p_capability.add_argument(
+        "--gaiji-readiness-dir",
+        type=Path,
+        help="Optional directory produced by gaiji-readiness; refines gaiji capability status.",
+    )
     p_capability.add_argument("--out-dir", type=Path, default=Path("logovista-capability-matrix"))
     p_capability.add_argument("--dict", action="append", help="Only include matching dictionary id(s).")
     p_capability.add_argument("--json", action="store_true", help="Also print the full matrix JSON.")
@@ -1393,6 +1443,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_jobs_argument(p_gaiji_report)
     p_gaiji_report.set_defaults(func=cmd_gaiji_report)
+
+    p_gaiji_readiness = sub.add_parser(
+        "gaiji-readiness",
+        help="Classify gaiji display/search readiness from raw SSED resources.",
+    )
+    p_gaiji_readiness.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_gaiji_readiness.add_argument("--out-dir", type=Path, default=Path("logovista-gaiji-readiness"))
+    p_gaiji_readiness.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
+    p_gaiji_readiness.add_argument("--json", action="store_true", help="Also print machine-readable summary JSON.")
+    add_jobs_argument(p_gaiji_readiness)
+    p_gaiji_readiness.set_defaults(func=cmd_gaiji_readiness)
 
     p_uni = sub.add_parser("uni", help="Inspect a LogoVista .uni/UNI gaiji mapping file.")
     p_uni.add_argument("path", type=Path)

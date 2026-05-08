@@ -30,6 +30,17 @@ def load_summary_map(report_dir: Path) -> dict[str, dict[str, Any]]:
     return {str(row["dict_id"]): row for row in rows if isinstance(row, dict) and row.get("dict_id")}
 
 
+def load_gaiji_readiness_map(report_dir: Path | None) -> dict[str, dict[str, Any]]:
+    if report_dir is None:
+        return {}
+    summary_path = report_dir / "summary.json"
+    if not summary_path.exists():
+        return {}
+    summary = read_json(summary_path)
+    rows = summary.get("rows", []) if isinstance(summary, dict) else []
+    return {str(row["dict_id"]): row for row in rows if isinstance(row, dict) and row.get("dict_id")}
+
+
 def detail_path(report_dir: Path, summary_row: dict[str, Any] | None, filename: str, dict_id: str) -> Path | None:
     if summary_row:
         raw = summary_row.get("profile") or summary_row.get("report")
@@ -154,7 +165,23 @@ def title_status(component: dict[str, Any]) -> tuple[str, str]:
     return "yes", f"title_components={len(titles)}"
 
 
-def gaiji_status(honmon_detail: dict[str, Any], component: dict[str, Any]) -> tuple[str, str, int, int]:
+def gaiji_status(
+    honmon_detail: dict[str, Any],
+    component: dict[str, Any],
+    readiness: dict[str, Any] | None = None,
+) -> tuple[str, str, int, int]:
+    if readiness:
+        status = str(readiness.get("readiness_status") or "unknown")
+        raw_occurrences = as_int(readiness.get("raw_occurrences"))
+        display_unresolved = as_int(readiness.get("display_unresolved_occurrences"))
+        reason = (
+            f"gaiji_readiness={status}; raw={raw_occurrences}; "
+            f"display_unresolved={display_unresolved}; "
+            f"formatting_helper_candidates={as_int(readiness.get('formatting_helper_candidate_occurrences'))}; "
+            f"search_fallback_missing={as_int(readiness.get('search_fallback_missing_occurrences'))}"
+        )
+        return status, reason, raw_occurrences, display_unresolved
+
     honmon_stats = honmon_detail.get("decode", {}).get("stats", {})
     text_stats = sum_text_stats(component, {"menu", "title", "text_index"})
     gaiji_total = as_int(honmon_stats.get("gaiji")) + text_stats["gaiji"]
@@ -329,6 +356,7 @@ def matrix_row(
     profile_detail: dict[str, Any],
     honmon_detail: dict[str, Any],
     component_detail: dict[str, Any],
+    gaiji_readiness_row: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     component_view = dict(component_row)
     for key in ("components", "uni_files"):
@@ -337,7 +365,11 @@ def matrix_row(
     raw_status, raw_reason = raw_honmon_status(profile_row, honmon_row)
     index_state, index_reason = index_status(profile_row, component_view)
     title_state, title_reason = title_status(component_view)
-    gaiji_state, gaiji_reason, gaiji_total, gaiji_unresolved = gaiji_status(honmon_detail, component_view)
+    gaiji_state, gaiji_reason, gaiji_total, gaiji_unresolved = gaiji_status(
+        honmon_detail,
+        component_view,
+        gaiji_readiness_row,
+    )
     media_state, media_reason = media_status(component_view)
     menu_state, menu_reason = menu_status(component_view)
     unknown_controls, unknown_bytes, structural_issues = unknown_text_counts(honmon_detail, component_view)
@@ -398,12 +430,14 @@ def build_capability_matrix(
     profile_dir: Path,
     honmon_bytes_dir: Path,
     component_forensics_dir: Path,
+    gaiji_readiness_dir: Path | None = None,
     selected: set[str] | None = None,
 ) -> dict[str, Any]:
     profiles = load_summary_map(profile_dir)
     honmon = load_summary_map(honmon_bytes_dir)
     components = load_summary_map(component_forensics_dir)
-    dict_ids = sorted(set(profiles) | set(honmon) | set(components))
+    gaiji_readiness = load_gaiji_readiness_map(gaiji_readiness_dir)
+    dict_ids = sorted(set(profiles) | set(honmon) | set(components) | set(gaiji_readiness))
     if selected:
         dict_ids = [dict_id for dict_id in dict_ids if dict_id in selected]
 
@@ -424,6 +458,7 @@ def build_capability_matrix(
                 profile_detail,
                 honmon_detail,
                 component_detail,
+                gaiji_readiness.get(dict_id),
             )
         )
 
@@ -445,6 +480,7 @@ def build_capability_matrix(
             "profile_dir": str(profile_dir),
             "honmon_bytes_dir": str(honmon_bytes_dir),
             "component_forensics_dir": str(component_forensics_dir),
+            "gaiji_readiness_dir": str(gaiji_readiness_dir) if gaiji_readiness_dir else None,
         },
         "total": len(rows),
         "capability_counts": capability_counts,
@@ -521,6 +557,7 @@ def extract_capability_matrix_for_args(args: argparse.Namespace) -> dict[str, An
         profile_dir=args.profile_dir,
         honmon_bytes_dir=args.honmon_bytes_dir,
         component_forensics_dir=args.component_forensics_dir,
+        gaiji_readiness_dir=getattr(args, "gaiji_readiness_dir", None),
         selected=selected,
     )
     (args.out_dir / "capability_matrix.json").write_text(

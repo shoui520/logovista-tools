@@ -387,14 +387,33 @@ GA16FULL  width=16  height=16  glyph bytes=32
 Bitmap data is a dense run of 1bpp glyphs:
 
 ```text
-glyph_offset = 0x800 + (code - first_code) * glyph_bytes
 row_bytes    = ceil(width / 8)
 glyph_bytes  = row_bytes * height
+glyph_offset = 0x800 + glyph_index * glyph_bytes
 ```
 
 Rows are stored top-to-bottom. Bits inside each row are MSB-first, and set bits
 are ink pixels. In HAESPJPN, this renders `A126` as `é` and `A138` as `ñ`,
 matching EBWin and the `.uni` text mapping.
+
+Two code-addressing views are observed:
+
+```text
+sequential range       code = header.start_code + glyph_index
+.uni record order      code = matching half/full .uni record[glyph_index].code
+```
+
+Many dictionaries work with the sequential range alone. Several Windows
+packages do not. GENIUSEB, RDRSP2, Readers3, RPLUSREV, KENE7J5, KQNEWEJ6,
+KQNEWJE5, and related packages have GA16 glyph slots that align with `.uni`
+record order. Their `.uni` records can contain sparse/non-sequential codes
+such as `A430`; the matching bitmap exists at that record index even though the
+GAI16 header range starts at `A121`.
+
+For extraction and readiness checks, use both views. For rendering a GA16 dump
+to stable filenames, prefer `.uni` record-order codes when a matching `.uni`
+sidecar is present, then fall back to the sequential header range for glyph
+slots beyond the parsed record table.
 
 Some resources are valid headers with zero glyphs. For example, an empty
 `GA16HALF` may declare width, height, and start code but have count `0`. The
@@ -425,6 +444,43 @@ hA126_w.png  white ink on transparent background
 These images can be copied into Yomitan, MDict, or HTML output packages and
 referenced with normal inline `<img>` tags for gaiji that have no usable
 Unicode mapping.
+
+## Gaiji Readiness Buckets
+
+`gaiji-readiness` separates display readiness from search/fallback readiness.
+It scans raw text-bearing SSED components and classifies each dictionary-local
+code into one primary display bucket:
+
+```text
+unicode_mapped       .uni or plist provides display text
+bitmap_backed        GA16/GAI16 glyph exists, but no Unicode display text
+image_backed         package image exists, but no Unicode display text
+formatting_helper    blank bitmap code or unbacked full-width code, treated as probable renderer-only helper
+display_unresolved   raw occurrence with no Unicode/image/bitmap/helper evidence
+unused_mapping       mapping exists but raw scans did not see it
+unused_bitmap        bitmap exists but raw scans did not see it
+unused_image_asset   image exists but raw scans did not see it
+```
+
+The `formatting_helper` bucket is corpus-inferred, not a universal rule. It is
+used for raw codes whose only bitmap evidence is a blank glyph, and for raw
+full-width codes with no mapping, no bitmap, and no package image. Prior
+observed packages use those codes as blank/style helpers. Real display glyphs
+normally have nonblank `.uni`, GA16, or image backing.
+
+Flags are orthogonal:
+
+```text
+raw_occurrence_unmapped     raw code has no Unicode display text
+search_fallback_missing     display text exists, but .uni fallback/search text is absent
+formatting_helper_candidate formatting-helper heuristic was applied
+display_unresolved          primary bucket is display_unresolved
+```
+
+`search_fallback_missing` is a lookup/export quality signal. It does not block
+display fidelity because the display text is already known. For example,
+accented Latin gaiji in HAESPJPN display correctly from `.uni`, but many lack
+ASCII fallback text such as `e` for `é`.
 
 ## SQL/DictFULLDB Validation
 

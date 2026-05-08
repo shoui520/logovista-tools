@@ -22,9 +22,11 @@ from .fulldb import find_fulldb
 from .gaiji import (
     candidate_gaiji_paths,
     file_identity,
+    iter_ga16_code_sources,
     load_plist_gaiji_map_from_paths,
     load_uni_gaiji_map,
     parse_ga16_resource,
+    parse_uni_resource,
 )
 from .lvcrypto import decrypt_logofont_cipher_file_to_path
 from .parallel import parallel_map_ordered, worker_args
@@ -285,19 +287,48 @@ def load_mapping_sources(source: DictionarySource) -> dict[str, Any]:
 
 def bitmap_gaiji_codes(source: DictionarySource) -> dict[str, Any]:
     codes: dict[str, Any] = {}
+    uni_candidates, _plist_candidates = candidate_gaiji_paths(source.idx)
+    uni_resource = None
+    seen_uni: set[Any] = set()
+    for path in uni_candidates:
+        if not path.exists():
+            continue
+        identity = file_identity(path)
+        if identity in seen_uni:
+            continue
+        seen_uni.add(identity)
+        uni_resource = parse_uni_resource(path)
+        if uni_resource is not None:
+            break
     for path in sorted(source.idx.parent.iterdir()):
         if not path.is_file() or not is_ga16_resource_name(path):
             continue
         resource = parse_ga16_resource(path)
         if resource is None:
             continue
-        for index in range(resource.count):
-            code = f"{resource.code_for_index(index):04x}"
-            codes[code] = {
+        data = path.read_bytes()
+        for code, index, code_source in iter_ga16_code_sources(resource, uni_resource):
+            glyph = resource.glyph_for_index(data, index)
+            blank = glyph is not None and not any(glyph)
+            row = {
                 "resource": path.name,
                 "width": resource.width,
                 "height": resource.height,
+                "glyph_index": index,
+                "code_source": code_source,
+                "blank": blank,
             }
+            existing = codes.get(code)
+            if (
+                existing is None
+                or (existing.get("blank") and not blank)
+                or (
+                    code_source == "uni_record_order"
+                    and existing.get("code_source") == "sequential"
+                    and bool(existing.get("blank")) == blank
+                )
+            ):
+                codes[code] = row
     return codes
 
 
