@@ -78,11 +78,15 @@ from logovista_tools.lvcrypto import (
 from logovista_tools.ssed import SsedInfoElement, load_sseddata_bytes, sseddata_storage_for_bytes
 from logovista_tools.spindex import parse_spindex_pages, reverse_spindex_key
 from logovista_tools.windows import (
+    classify_vlpljbl_file,
     discover_numeric_aux_indexes,
     discover_renderer_sidecars,
+    file_magic_kind,
     iter_aux_index_specs,
     parse_aux_index_text,
     parse_exinfo,
+    sqlite_role_for_tables,
+    vlpljbl_suffix,
 )
 
 
@@ -927,6 +931,33 @@ def test_plain_sqlite_renderer_sidecar_accepts_honbun(tmp_path) -> None:
     assert len(sidecars) == 1
     assert sidecars[0].path == cache.resolve()
     assert sidecars[0].storage == "plain"
+
+
+def test_vlpljbl_classifier_identifies_plain_sqlite_role(tmp_path) -> None:
+    path = tmp_path / "vlpljblF"
+    con = sqlite3.connect(path)
+    con.execute("create table t_contents (f_DataId integer primary key, f_Html text, f_Plane text)")
+    con.commit()
+    con.close()
+
+    row = classify_vlpljbl_file(path, inspect_sqlite=True, compute_hash=False)
+
+    assert vlpljbl_suffix(path) == "F"
+    assert row.storage == "plain"
+    assert row.content_kind == "sqlite"
+    assert row.role == "sqlite_renderer_body"
+    assert row.sqlite_tables[0]["name"] == "t_contents"
+
+
+def test_vlpljbl_magic_and_sqlite_roles() -> None:
+    assert file_magic_kind(b"MZ" + b"\x00" * 20) == "pe_executable"
+    assert file_magic_kind(b"OTTO" + b"\x00" * 20) == "opentype_cff"
+    assert sqlite_role_for_tables(({"name": "t_media", "columns": ["f_name", "f_blob"]},)) == "sqlite_media_store"
+    assert (
+        sqlite_role_for_tables(({"name": "HONBUN", "columns": ["ID", "Title_UTF8", "Contents_HTML_box"]},))
+        == "sqlite_row_ordered_honbun_renderer_body"
+    )
+    assert sqlite_role_for_tables(({"name": "MAIN", "columns": ["Block", "Offset", "Body"]},)) == "sqlite_block_offset_body"
 
 
 def test_discover_android_body_database_and_media_schema(tmp_path) -> None:

@@ -37,6 +37,10 @@ LogoVista dictionary model.
   dereference paths.
 - Observed Windows LogoFontCipher AES-CBC decryption for encrypted
   `HONMON.DIC` and sidecars, including large streaming sidecars.
+- Corpus-wide `vlpljbl*` classification by suffix, raw/decrypted magic,
+  SQLite schema, and inferred role. Observed roles include decryptor binaries,
+  fonts, renderer body DBs, media stores, search indexes, row-ordered `HONBUN`,
+  and block/offset body DBs.
 - Windows `EXINFO.INI` parsing and CP932 auxiliary text-index extraction,
   including sibling eight-hex-digit `00000xxx.idx` sidecar trees.
 - Windows renderer SQLite extraction through raw HONMON ID anchors and
@@ -130,6 +134,9 @@ LogoVista dictionary model.
 - LogoFontCipher support covers the key schedule observed in tested Windows
   decryptors. Treat unrelated encrypted-looking payloads separately until their
   reader or key schedule is identified.
+- `vlpljbl*` classification is broader than extraction. Some roles are
+  identified but not yet fully exported as entries, especially block/offset
+  SQLite bodies and search/index-only stores.
 
 ## Roadmap
 

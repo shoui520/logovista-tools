@@ -35,6 +35,22 @@ LVED      main.data or *.dbc, WebView2 viewer files, sqlcipher.dll,
           plugin DLL/assembly resources
 ```
 
+Observed Windows `vlpljbl*` names are not one format. Content classification
+is required before interpreting them:
+
+```text
+vlpljbl.bin / vlpljbl.exe   PE Crypto++ LogoFontCipher decryptor binaries
+vlpljblB                    usually plain Noto Sans JP OpenType/CFF
+vlpljblN                    usually plain Noto Serif JP OpenType/CFF
+vlpljblM                    observed plain SQLite media stores
+vlpljblF                    observed LogoFontCipher SQLite; role varies
+vlpljblb / vlpljblh         observed LogoFontCipher renderer body/media SQLite
+vlpljblS                    overloaded: font or search/index SQLite
+vlpljbl                     overloaded: font or block/offset body SQLite
+```
+
+The stable rule is magic/schema first, suffix second.
+
 `Gaiji.plist` and `GaijiS.plist` are therefore not generic LogoVista files.
 They are iOS packaging fallbacks observed in some products. Cross-platform
 gaiji handling should start from the dictionary-local `.uni`/`.UNI` file and

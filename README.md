@@ -192,6 +192,13 @@ Inspect Windows side panels, `EXINFO.INI`, and numeric `00000xxx.idx` trees:
 logovista-tools extras /path/to/DICT --out-dir out/extras
 ```
 
+Classify every Windows `vlpljbl*` sibling by suffix, storage, magic, SQLite
+schema, and inferred role:
+
+```bash
+logovista-tools vlpljbl /path/to/LogoVista --jobs 0 --out-dir out/vlpljbl
+```
+
 For dense-HONMON renderer packages, follow raw HONMON IDs into renderer/app DB
 rows. The same command also handles row-ordered `HONBUN` renderer databases
 such as `NGYOKTUK`:

@@ -54,10 +54,13 @@ from .ssed import (
 from .titles import extract_titles_for_idx
 from .windows import (
     aux_index_row_to_json,
+    classify_vlpljbl_file,
     discover_numeric_aux_indexes,
+    discover_vlpljbl_files,
     iter_aux_index_specs,
     load_exinfo_for_idx,
     parse_aux_index_text,
+    vlpljbl_classification_to_json,
 )
 
 
@@ -943,6 +946,56 @@ def cmd_rendererdb(args: argparse.Namespace) -> int:
     return 0
 
 
+def _vlpljbl_task(payload: tuple[Path, argparse.Namespace]) -> dict[str, Any]:
+    path, args = payload
+    row = classify_vlpljbl_file(
+        path,
+        inspect_sqlite=not args.no_sqlite_schema,
+        compute_hash=not args.no_hash,
+    )
+    return vlpljbl_classification_to_json(row)
+
+
+def cmd_vlpljbl(args: argparse.Namespace) -> int:
+    paths = discover_vlpljbl_files(args.root or [Path(".")])
+    if not paths:
+        print("no vlpljbl* files found", file=sys.stderr)
+        return 1
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    task_args = worker_args(args)
+
+    def log_summary(row: dict[str, Any]) -> None:
+        print(
+            f"{row['dict_dir']:12s} {row['name']:12s} "
+            f"storage={row['storage']:16s} kind={row['content_kind']:14s} role={row['role']}",
+            file=sys.stderr,
+        )
+
+    rows = parallel_map_ordered(
+        _vlpljbl_task,
+        [(path, task_args) for path in paths],
+        jobs=args.jobs,
+        on_result=log_summary,
+    )
+    suffix_counts = Counter(str(row["suffix"]) for row in rows)
+    role_counts = Counter(str(row["role"]) for row in rows)
+    storage_counts = Counter((str(row["storage"]), str(row["content_kind"])) for row in rows)
+    hash_counts = Counter(str(row["sha256"]) for row in rows if row.get("sha256"))
+    summary = {
+        "schema": "logovista-vlpljbl-audit-v1",
+        "total": len(rows),
+        "suffix_counts": dict(sorted(suffix_counts.items())),
+        "role_counts": dict(sorted(role_counts.items())),
+        "storage_content_counts": {f"{storage}/{kind}": count for (storage, kind), count in sorted(storage_counts.items())},
+        "duplicate_hash_groups": sum(1 for count in hash_counts.values() if count > 1),
+        "rows": rows,
+    }
+    write_json(args.out_dir / "summary.json", summary)
+    if args.json:
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
+
+
 def _spindex_task(payload: tuple[Path, Path, int | None]) -> dict[str, Any]:
     path, out_dir, limit = payload
     dict_out = out_dir / path.parent.name
@@ -1257,6 +1310,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_rendererdb.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
     add_jobs_argument(p_rendererdb)
     p_rendererdb.set_defaults(include_html=True, write_ziptomedia=False, ziptomedia_limit=None, func=cmd_rendererdb)
+
+    p_vlpljbl = sub.add_parser(
+        "vlpljbl",
+        help="Classify Windows vlpljbl* sidecars, decryptor binaries, fonts, and SQLite payloads.",
+    )
+    p_vlpljbl.add_argument("root", type=Path, nargs="*", help="Collection root, dictionary directory, or vlpljbl* file.")
+    p_vlpljbl.add_argument("--out-dir", type=Path, default=Path("logovista-vlpljbl-audit"))
+    p_vlpljbl.add_argument(
+        "--no-sqlite-schema",
+        action="store_true",
+        help="Classify SQLite by magic only; skip full decrypt/open.",
+    )
+    p_vlpljbl.add_argument("--no-hash", action="store_true", help="Skip SHA-256 calculation for faster lightweight scans.")
+    p_vlpljbl.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    add_jobs_argument(p_vlpljbl)
+    p_vlpljbl.set_defaults(func=cmd_vlpljbl)
 
     p_spindex = sub.add_parser("spindex", help="Inspect standalone SPINDEX.DIC suffix-index resources.")
     p_spindex.add_argument("root", type=Path, nargs="*", help="Collection directory or direct SPINDEX.DIC path.")

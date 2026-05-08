@@ -646,6 +646,65 @@ The `rendererdb` command handles both body-cache shapes while still starting
 from raw HONMON IDs: `t_contents` for Windows renderer DBs and `rowid * 5` for
 the Android `Html` table shape.
 
+### Corpus-Wide `vlpljbl*` Audit
+
+The current Windows SSED corpus contains 98 `vlpljbl*` files. Every observed
+file is now classified by raw magic, LogoFontCipher-decrypted magic when
+needed, SQLite schema when applicable, and inferred role.
+
+Suffix counts:
+
+```text
+.bin      49
+.exe      12
+<none>     4
+B          3
+F         14
+M          3
+N          3
+S          5
+b          4
+h          1
+```
+
+Role counts:
+
+```text
+logofont_decryptor_binary                 61
+font                                      12
+sqlite_renderer_body                       7
+sqlite_renderer_body_with_media            8
+sqlite_row_ordered_honbun_renderer_body    1
+sqlite_honbun_data_id_body                 1
+sqlite_block_offset_body                   2
+sqlite_media_store                         3
+sqlite_search_index                        1
+sqlite_category_search_index               1
+sqlite_block_offset_title_index            1
+```
+
+The suffixes are meaningful but not globally one-to-one:
+
+- `.bin` / `.exe` are PE Crypto++ decryptor programs. The two filename
+  extensions carry product-generation/package differences, not data role.
+- `B` is plain OpenType/CFF `Noto Sans JP` in the observed packages.
+- `N` is plain OpenType/CFF `Noto Serif JP` in the observed packages.
+- `M` is plain SQLite media-only storage.
+- lowercase `b` is LogoFontCipher SQLite renderer body storage with media in
+  DAIJIRN4, SINJIGEN, YHOUGO5, and YUPSYCHO.
+- lowercase `h` is the IWKOKUG8 LogoFontCipher SQLite renderer body/media
+  store.
+- uppercase `F` is always LogoFontCipher SQLite in the observed corpus, but
+  its role varies: normal renderer body, body with media, row-ordered `HONBUN`,
+  data-id `HONBUN`, block/offset body rows, or KWIT category search.
+- `S` is overloaded: it can be a font, a plain SQLite search/index DB, or an
+  encrypted font depending on dictionary generation.
+- no suffix is also overloaded: observed files include fonts and encrypted
+  block/offset body SQLite.
+
+The rule is content-first classification. The toolkit must not infer
+body/media/font behavior from suffix alone.
+
 ### EJJE200 Windows Encryption
 
 EJJE200 is the first observed Windows package with encrypted primary body data.

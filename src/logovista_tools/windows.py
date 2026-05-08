@@ -3,20 +3,28 @@
 from __future__ import annotations
 
 import configparser
+import hashlib
 import html
 import re
 import sqlite3
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .lvcrypto import LogoVistaCryptoError, LogoVistaCryptoUnavailable, decrypt_logofont_cipher_prefix
+from .lvcrypto import (
+    LogoVistaCryptoError,
+    LogoVistaCryptoUnavailable,
+    decrypt_logofont_cipher_file_to_path,
+    decrypt_logofont_cipher_prefix,
+)
 from .ssed import BLOCK_SIZE, SsedInfoElement, find_case_insensitive
 
 
 SQLITE_MAGIC = b"SQLite format 3\x00"
 HEX_POINTER_RE = re.compile(r"^[0-9A-Fa-f]{8}$")
 NUMERIC_AUX_INDEX_RE = re.compile(r"^[0-9A-Fa-f]{8}\.idx$", re.IGNORECASE)
+VLPLJBL_RE = re.compile(r"^vlpljbl(?:$|[A-Za-z]$|\.(?:bin|exe)$)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -56,6 +64,21 @@ class RendererSidecar:
 
     path: Path
     storage: str
+
+
+@dataclass(frozen=True)
+class VlpljblClassification:
+    """Forensic classification for one observed ``vlpljbl*`` sibling."""
+
+    path: Path
+    suffix: str
+    size: int
+    sha256: str | None
+    storage: str
+    content_kind: str
+    role: str
+    decrypt_prefix_kind: str | None = None
+    sqlite_tables: tuple[dict[str, Any], ...] = ()
 
 
 def exinfo_path_for_idx(idx: Path) -> Path | None:
@@ -236,6 +259,202 @@ def sqlite_storage_for_path(path: Path) -> str | None:
     except (LogoVistaCryptoError, LogoVistaCryptoUnavailable, ValueError):
         return None
     return None
+
+
+def quote_identifier(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def vlpljbl_suffix(path: Path) -> str:
+    name = path.name
+    if name.lower() == "vlpljbl":
+        return "<none>"
+    if name.lower().startswith("vlpljbl."):
+        return name[len("vlpljbl") :]
+    return name[len("vlpljbl") :]
+
+
+def is_vlpljbl_path(path: Path) -> bool:
+    return path.is_file() and VLPLJBL_RE.fullmatch(path.name) is not None
+
+
+def file_magic_kind(data: bytes) -> str:
+    if data.startswith(SQLITE_MAGIC):
+        return "sqlite"
+    if data.startswith(b"MZ"):
+        return "pe_executable"
+    if data.startswith(b"OTTO"):
+        return "opentype_cff"
+    if data.startswith(b"\x00\x01\x00\x00"):
+        return "opentype_ttf"
+    if data.startswith(b"SSEDDATA"):
+        return "sseddata"
+    if data.startswith(b"PK\x03\x04"):
+        return "zip"
+    if data.startswith(b"RIFF"):
+        return "riff"
+    return "unknown"
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as infile:
+        for chunk in iter(lambda: infile.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def sqlite_table_summaries(db_path: Path) -> tuple[dict[str, Any], ...]:
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        rows: list[dict[str, Any]] = []
+        for name, sql in con.execute("select name, sql from sqlite_master where type='table' order by name"):
+            columns = [row[1] for row in con.execute(f"pragma table_info({quote_identifier(name)})")]
+            try:
+                count = int(con.execute(f"select count(*) from {quote_identifier(name)}").fetchone()[0])
+            except sqlite3.Error:
+                count = None
+            rows.append({"name": name, "rows": count, "columns": columns, "sql": sql})
+        return tuple(rows)
+    finally:
+        con.close()
+
+
+def _column_sets(tables: tuple[dict[str, Any], ...]) -> dict[str, set[str]]:
+    return {
+        str(table["name"]).lower(): {str(column).lower() for column in table.get("columns", [])}
+        for table in tables
+    }
+
+
+def sqlite_role_for_tables(tables: tuple[dict[str, Any], ...]) -> str:
+    """Return an evidence-backed role for a ``vlpljbl*`` SQLite payload."""
+
+    columns = _column_sets(tables)
+    names = set(columns)
+    if not names:
+        return "sqlite_empty"
+    if names <= {"media", "t_media"}:
+        return "sqlite_media_store"
+    if names and all(name.startswith("t_search_") for name in names):
+        return "sqlite_category_search_index"
+    if names == {"t_index"}:
+        return "sqlite_search_index"
+    if "honbun" in names:
+        honbun = columns["honbun"]
+        if {"id", "title_utf8", "contents_html_box"} <= honbun:
+            return "sqlite_row_ordered_honbun_renderer_body"
+        if {"f_data_id", "f_honbun"} <= honbun or {"f_data_id", "f_contents"} <= honbun:
+            return "sqlite_honbun_data_id_body"
+        return "sqlite_honbun"
+    if any({"block", "offset", "body"} <= cols for cols in columns.values()):
+        return "sqlite_block_offset_body"
+    if "t_contents" in names:
+        cols = columns["t_contents"]
+        body_columns = {
+            "f_html",
+            "f_plane",
+            "f_contents",
+            "f_media",
+            "f_html_text",
+            "f_plane_text",
+            "f_body",
+        }
+        if cols & body_columns:
+            if {"media", "t_media"} & names:
+                return "sqlite_renderer_body_with_media"
+            return "sqlite_renderer_body"
+    if any({"block", "offset", "title"} <= cols for cols in columns.values()):
+        return "sqlite_block_offset_title_index"
+    if {"t_search", "t_zenbun"} & names:
+        return "sqlite_search_or_fulltext"
+    return "sqlite_unclassified"
+
+
+def vlpljbl_role_for_content(content_kind: str, suffix: str, tables: tuple[dict[str, Any], ...]) -> str:
+    if suffix in {".bin", ".exe"} and content_kind == "pe_executable":
+        return "logofont_decryptor_binary"
+    if content_kind in {"opentype_cff", "opentype_ttf"}:
+        return "font"
+    if content_kind == "sqlite":
+        return sqlite_role_for_tables(tables)
+    return content_kind
+
+
+def classify_vlpljbl_file(path: Path, *, inspect_sqlite: bool = True, compute_hash: bool = True) -> VlpljblClassification:
+    """Classify one ``vlpljbl*`` file by magic and optional SQLite schema."""
+
+    prefix = path.read_bytes()[:4096]
+    suffix = vlpljbl_suffix(path)
+    plain_kind = file_magic_kind(prefix)
+    storage = "plain"
+    content_kind = plain_kind
+    decrypt_prefix_kind: str | None = None
+    if plain_kind == "unknown" and path.stat().st_size % 16 == 0:
+        try:
+            decrypted_prefix = decrypt_logofont_cipher_prefix(prefix, size=4096)
+            decrypt_prefix_kind = file_magic_kind(decrypted_prefix)
+            if decrypt_prefix_kind != "unknown":
+                storage = "logofont_cipher"
+                content_kind = decrypt_prefix_kind
+        except (LogoVistaCryptoError, LogoVistaCryptoUnavailable, ValueError) as exc:
+            decrypt_prefix_kind = f"decrypt_error:{type(exc).__name__}"
+
+    sqlite_tables: tuple[dict[str, Any], ...] = ()
+    if inspect_sqlite and content_kind == "sqlite":
+        if storage == "plain":
+            sqlite_tables = sqlite_table_summaries(path)
+        else:
+            with tempfile.TemporaryDirectory(prefix="lv-vlpljbl-") as tmp:
+                db_path = Path(tmp) / f"{path.name}.sqlite"
+                decrypt_logofont_cipher_file_to_path(path, db_path)
+                sqlite_tables = sqlite_table_summaries(db_path)
+
+    return VlpljblClassification(
+        path=path.resolve(),
+        suffix=suffix,
+        size=path.stat().st_size,
+        sha256=sha256_file(path) if compute_hash else None,
+        storage=storage,
+        content_kind=content_kind,
+        decrypt_prefix_kind=decrypt_prefix_kind,
+        role=vlpljbl_role_for_content(content_kind, suffix, sqlite_tables),
+        sqlite_tables=sqlite_tables,
+    )
+
+
+def vlpljbl_classification_to_json(row: VlpljblClassification) -> dict[str, Any]:
+    return {
+        "path": str(row.path),
+        "dict_dir": row.path.parent.name,
+        "name": row.path.name,
+        "suffix": row.suffix,
+        "size": row.size,
+        "sha256": row.sha256,
+        "storage": row.storage,
+        "content_kind": row.content_kind,
+        "decrypt_prefix_kind": row.decrypt_prefix_kind,
+        "role": row.role,
+        "sqlite_tables": list(row.sqlite_tables),
+    }
+
+
+def discover_vlpljbl_files(roots: list[Path]) -> list[Path]:
+    if not roots:
+        roots = [Path(".")]
+    rows: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        candidates = [root] if root.is_file() else sorted(root.rglob("vlpljbl*"))
+        for candidate in candidates:
+            if not is_vlpljbl_path(candidate):
+                continue
+            resolved = candidate.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            rows.append(resolved)
+    return rows
 
 
 def sqlite_has_table(path: Path, table_name: str) -> bool:

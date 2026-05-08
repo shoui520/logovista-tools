@@ -79,6 +79,33 @@ decrypt transparently when the optional crypto dependency is installed.
 The command streams input to output, so large sidecars such as DAIJIRN4's
 610 MB `vlpljblb` do not need to be loaded into memory.
 
+### `vlpljbl`
+
+Classify Windows `vlpljbl*` siblings across a package or corpus:
+
+```bash
+logovista-tools vlpljbl /path/to/LogoVista --jobs 0 --out-dir vlpljbl-audit
+logovista-tools vlpljbl /path/to/DICT/vlpljblF --json
+```
+
+The command tests raw magic and LogoFontCipher-decrypted magic, optionally
+opens SQLite payloads to report table names/columns/row counts, and writes a
+redacted `summary.json`. It does not keep decrypted sidecars. Current role
+labels include:
+
+```text
+logofont_decryptor_binary       PE decryptor program, usually vlpljbl.bin/.exe
+font                            OpenType/CFF font, plain or LogoFontCipher
+sqlite_renderer_body            body/searchable renderer rows
+sqlite_renderer_body_with_media body rows plus media tables
+sqlite_row_ordered_honbun_renderer_body
+sqlite_honbun_data_id_body
+sqlite_block_offset_body        SQLite rows carry raw Block/Offset/Body
+sqlite_media_store              media-only store
+sqlite_search_index             search/title index only
+sqlite_category_search_index    KWIT category search tables
+```
+
 ### `lved`
 
 Inspect modern LVED/WebView2 packages whose body data lives in SQLCipher
