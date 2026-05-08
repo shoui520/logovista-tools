@@ -425,6 +425,57 @@ def gaiji_resources(source: DictionarySource) -> dict[str, Any]:
     return gaiji_resources_for_idx(source.idx)
 
 
+def static_package_resources_for_idx(idx: Path, sample_limit: int = 50) -> dict[str, Any]:
+    package = idx.parent
+    resource_dirs = []
+    for name in ("HANREI", "Help", "HTMLs", "Templates"):
+        path = package / name
+        if path.is_dir():
+            resource_dirs.append(path)
+
+    root_files = [
+        path
+        for path in package.iterdir()
+        if path.is_file() and path.suffix.lower() in {".html", ".htm", ".css", ".js", ".gif", ".png", ".jpg", ".jpeg", ".svg"}
+    ]
+    files = list(root_files)
+    for directory in resource_dirs:
+        files.extend(path for path in directory.rglob("*") if path.is_file())
+
+    extension_counts: dict[str, int] = {}
+    total_bytes = 0
+    samples = []
+    for path in sorted(files):
+        suffix = path.suffix.lower() or "<none>"
+        extension_counts[suffix] = extension_counts.get(suffix, 0) + 1
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        total_bytes += size
+        if len(samples) < sample_limit:
+            samples.append(
+                {
+                    "path": str(path.relative_to(package)),
+                    "bytes": size,
+                    "extension": suffix,
+                }
+            )
+
+    return {
+        "root_files": [str(path.relative_to(package)) for path in sorted(root_files)],
+        "directories": [str(path.relative_to(package)) for path in resource_dirs],
+        "file_count": len(files),
+        "total_bytes": total_bytes,
+        "extension_counts": dict(sorted(extension_counts.items())),
+        "samples": samples,
+    }
+
+
+def static_package_resources(source: DictionarySource, args: argparse.Namespace) -> dict[str, Any]:
+    return static_package_resources_for_idx(source.idx, sample_limit=args.sample_limit)
+
+
 def media_summaries(source: DictionarySource, args: argparse.Namespace) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="lv-model-media-") as tmp:
         common = {
@@ -571,7 +622,10 @@ def dump_package_model(source: DictionarySource, args: argparse.Namespace) -> di
         "indexes": rows["indexes"],
         "menus": rows["menus"],
         "gaiji": gaiji_resources(source),
-        "resources": profile.get("resources", {}),
+        "resources": {
+            **profile.get("resources", {}),
+            "static_sidecars": static_package_resources(source, args),
+        },
         "media": media_summaries(source, args),
         "sidecars": windows_sidecars(source, args),
         "families": families,
@@ -621,7 +675,10 @@ def dump_incomplete_package_model(idx: Path, args: argparse.Namespace, reason: s
         "indexes": rows["indexes"],
         "menus": rows["menus"],
         "gaiji": gaiji_resources_for_idx(idx),
-        "resources": profile.get("resources", {}),
+        "resources": {
+            **profile.get("resources", {}),
+            "static_sidecars": static_package_resources_for_idx(idx, sample_limit=args.sample_limit),
+        },
         "media": {
             "colscr": {"status": "not_scanned", "warnings": ["HONMON.DIC is missing; media references cannot be collected."]},
             "pcmdata": {"status": "not_scanned", "warnings": ["HONMON.DIC is missing; audio references cannot be collected."]},

@@ -149,3 +149,5 @@ def test_dump_package_model_embeds_sizk_family(tmp_path) -> None:
     assert model["entry_spans"]["entries_emitted"] == 1
     assert model["families"]["sizk"]["playback"]["row_count"] == 1
     assert model["gaiji"]["profile"]["uni_entries"] == 1
+    assert model["resources"]["static_sidecars"]["file_count"] >= 2
+    assert "HTMLs" in model["resources"]["static_sidecars"]["directories"]

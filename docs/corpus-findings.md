@@ -413,6 +413,102 @@ records, and short opaque base64-like tokens. Without that filter, dense tables
 can appear to contain entries such as `<section:0001>` or `K0NVOzjh`; those are
 not coherent dictionary bodies.
 
+### KENROWA Focused Pass
+
+KENROWA is a useful stress case for the decoded model because the SSED layer is
+complete but the readable body is renderer-sidecar backed.
+
+Observed package shape:
+
+```text
+dict title:       研究社露和・和露辞典
+platform:         Windows SSED
+HONMON shape:     dense_marker_table
+body source:      honmon_anchor_dereference
+main sidecar:     vlpljblF, LogoFontCipher SQLite
+renderer DLL:     HC015B.dll
+auxiliary index:  0000015B.IDX
+menu component:   none
+media components: none
+static HTML:      select.html, select2.html, HANREI/
+```
+
+Raw byte coverage:
+
+```text
+expanded HONMON bytes:       51,398,656
+HONMON entry markers:         1,606,160
+bytes covered:               51,398,656
+unknown controls/bytes:               0
+invalid JIS cells:                    0
+component-forensics issues:            0
+```
+
+The raw `HONMON.DIC` is not definition text. It is a dense anchor table. Each
+32-byte row contains the usual head-span scaffolding around blank JIS cells.
+Real renderer body IDs point to the marker two bytes into the row:
+
+```text
+body pointer -> HONMON relative offset
+anchor id    -> floor(relative_offset / 32) + 1
+renderer ids -> multiples of 10
+```
+
+The decrypted `vlpljblF` SQLite sidecar contains the final entry bodies:
+
+```text
+t_contents rows:                160,616
+t_contents f_Type values:       2 only
+matched raw HONMON IDs:         160,616 / 160,616
+db rows without HONMON anchor:  0
+HONMON anchors without db row:  0
+t_seikuyourei rows:             230,561
+```
+
+`t_contents` carries `f_Title`, `f_Title_SS`, `f_Keyword`, `f_sakuin`,
+`f_Html`, and `f_Plane`. The HC renderer contains SQL snippets that query
+`t_contents` by `f_DataId` and query `t_seikuyourei` for example/idiom search.
+This strongly confirms the raw-HONMON anchor plus renderer-SQLite model for
+this product.
+
+Raw title and index components are still meaningful and parse completely:
+
+```text
+title rows emitted:  799,004
+index leaf rows:     799,004
+index internal rows:  14,577
+unknown leaf bytes:       0
+```
+
+Every index body pointer observed in the full KENROWA index dump points to
+`relative_offset % 32 == 2`, i.e. to the marker inside a dense HONMON row. Every
+derived anchor ID is `anchor_id % 10 == 0`, matching the renderer DB's
+`f_DataID` convention.
+
+Gaiji handling is display-complete:
+
+```text
+.UNI format:               simple12
+.UNI records:              376
+mapped records:            162
+GA16FULL glyphs:           265
+GA16HALF glyphs:            97
+image resources:           115
+raw gaiji occurrences: 571,720
+display unresolved:          0
+```
+
+Most raw gaiji occurrences in the title streams are image-backed dictionary
+symbols. Two mapped symbols (`b17d` -> `°`, `b17b` -> `©`) currently report
+missing search fallbacks, which is an exporter/search-normalization concern,
+not a display blocker.
+
+The package also contains static presentation resources that are not SSED
+components: root helper pages `select.html` and `select2.html`, a `HANREI/`
+help/front-matter tree, and many `Templates/*.png` / `Templates/*.svg` images.
+Converters should preserve these as package resources/navigation material
+instead of treating them as dictionary body entries.
+
 ## LVED SQLCipher Packages
 
 OXFPEU4 and KQCMPROS are not failed SSED/HONMON dictionaries. They are a

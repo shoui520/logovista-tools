@@ -646,6 +646,40 @@ For lossless body spans, occurrence data can be embedded in the span as
 `gaiji_ref`. Corpus-level gaiji reports may store occurrences separately to
 avoid huge entry payloads.
 
+## Static Package Resources
+
+Static resource records describe package files that are not SSED components but
+are still part of the product presentation: HTML help/front matter, CSS, JavaScript,
+template images, and helper pages declared by `EXINFO.INI`.
+
+```json
+{
+  "resources": {
+    "static_sidecars": {
+      "root_files": ["select.html", "select2.html"],
+      "directories": ["HANREI", "Templates"],
+      "file_count": 294,
+      "total_bytes": 1234567,
+      "extension_counts": {
+        ".html": 180,
+        ".css": 2,
+        ".js": 1,
+        ".png": 90,
+        ".svg": 90
+      },
+      "samples": [
+        {"path": "HANREI/index.html", "bytes": 413, "extension": ".html"}
+      ]
+    }
+  }
+}
+```
+
+These resources should be preserved by converters even when they are not part
+of the main lookup body. For example, KENROWA has a renderer DB for entries,
+an auxiliary `0000015B.IDX` navigation tree, root helper pages for Russian
+keyboard/example search, and `HANREI/` static HTML front matter.
+
 ## Media Reference
 
 Media references are controls or renderer links that point to media records.
