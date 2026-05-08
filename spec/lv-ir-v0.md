@@ -100,6 +100,7 @@ inside a larger collection.
 ```text
 ssed              SSEDINFO/SSEDDATA package with HONMON-style components
 lved_sqlcipher    modern LVED/WebView2 SQLCipher payload family
+multiview_law     LVLMultiView law package with SSEDINFO facade + SQLite bodies
 mixed             package has both raw SSED anchors and renderer/database bodies
 unknown           classified enough to report, not enough to decode
 ```
@@ -128,6 +129,7 @@ dictfulldb
 rendererdb
 androiddb
 lved_sqlcipher
+multiview_sqlite
 none
 unknown
 ```

@@ -77,7 +77,13 @@ from logovista_tools.lvcrypto import (
     decrypt_logofont_cipher_file_to_path,
     logofont_cipher_key_iv,
 )
-from logovista_tools.ssed import SsedInfoElement, load_sseddata_bytes, sseddata_storage_for_bytes
+from logovista_tools.ssed import (
+    SsedInfoElement,
+    load_sseddata_bytes,
+    parse_ssedinfo,
+    parse_ssedinfo_with_layout,
+    sseddata_storage_for_bytes,
+)
 from logovista_tools.spindex import parse_spindex_pages, reverse_spindex_key
 from logovista_tools.windows import (
     classify_vlpljbl_file,
@@ -139,6 +145,48 @@ def test_logofont_cipher_stream_decrypts_to_path(tmp_path) -> None:
 
     assert written == len(plaintext)
     assert decrypted_path.read_bytes() == plaintext
+
+
+def _ssedinfo_record(
+    *,
+    type_byte: int,
+    start: int,
+    end: int,
+    data: bytes,
+    filename: bytes,
+) -> bytes:
+    record = bytearray(0x30)
+    record[3] = type_byte
+    record[4:8] = start.to_bytes(4, "big")
+    record[8:12] = end.to_bytes(4, "big")
+    record[12:16] = data
+    record[16] = len(filename)
+    record[17 : 17 + len(filename)] = filename
+    return bytes(record)
+
+
+def test_parse_ssedinfo_supports_shifted_multiview_catalog(tmp_path) -> None:
+    title = "模範六法".encode("cp932")
+    header = bytearray(0x7F)
+    header[:8] = b"SSEDINFO"
+    header[12] = len(title)
+    header[13 : 13 + len(title)] = title
+    header[0x4C] = 2
+    data = bytes(header)
+    data += _ssedinfo_record(type_byte=0x00, start=2, end=2, data=b"\x02\x00\x00\x00", filename=b"HONMON.DIC")
+    data += _ssedinfo_record(type_byte=0x90, start=3, end=4, data=b"\x02\x01\x55\x40", filename=b"FKINDEX.DIC")
+    data += b"tail"
+    path = tmp_path / "MOROKU26.IDX"
+    path.write_bytes(data)
+
+    parsed_title, elements, layout = parse_ssedinfo_with_layout(path)
+
+    assert parsed_title == "模範六法"
+    assert layout.component_count_offset == 0x4C
+    assert layout.record_start == 0x7F
+    assert layout.trailing_bytes == 4
+    assert [element.filename for element in elements] == ["HONMON.DIC", "FKINDEX.DIC"]
+    assert parse_ssedinfo(path)[1][1].type == 0x90
 
 
 def test_decode_jis_pair_and_line_break() -> None:

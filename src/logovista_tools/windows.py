@@ -349,6 +349,12 @@ def file_magic_kind(data: bytes) -> str:
         return "sseddata"
     if data.startswith(b"PK\x03\x04"):
         return "zip"
+    if data.startswith(b"%PDF"):
+        return "pdf"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if data.startswith(b"<!DOCTYPE html") or data.startswith(b"<html"):
+        return "html"
     if data.startswith(b"RIFF"):
         return "riff"
     return "unknown"

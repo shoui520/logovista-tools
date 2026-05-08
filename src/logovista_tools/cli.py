@@ -36,6 +36,11 @@ from .lved import (
 )
 from .lvcrypto import decrypt_logofont_cipher_file_to_path
 from .menus import extract_menus_for_idx
+from .multiview import (
+    discover_multiview_packages,
+    inspect_multiview_package,
+    write_multiview_report,
+)
 from .parallel import add_jobs_argument, parallel_map_ordered, worker_args
 from .pcmdata import extract_pcmdata_for_sources
 from .profiles import extract_profiles_for_args
@@ -49,6 +54,7 @@ from .ssed import (
     find_case_insensitive,
     parse_sseddata_header,
     parse_ssedinfo,
+    parse_ssedinfo_with_layout,
     write_epwing_catalog_header,
 )
 from .titles import extract_titles_for_idx
@@ -74,9 +80,13 @@ def write_json(path: Path, data: Any) -> None:
 def cmd_info(args: argparse.Namespace) -> int:
     data = args.path.read_bytes()[:8]
     if data == b"SSEDINFO":
-        title, elements = parse_ssedinfo(args.path)
+        title, elements, layout = parse_ssedinfo_with_layout(args.path)
         print(f"title: {title}")
         print(f"elements: {len(elements)}")
+        print(
+            f"layout: count_offset={layout.component_count_offset:#x} "
+            f"record_start={layout.record_start:#x} trailing_bytes={layout.trailing_bytes}"
+        )
         for element in elements:
             if args.all or element.start:
                 print(
@@ -1081,6 +1091,90 @@ def cmd_hc(args: argparse.Namespace) -> int:
     return 0
 
 
+def _multiview_task(payload: tuple[Path, Path, argparse.Namespace]) -> dict[str, Any]:
+    package_dir, out_dir, args = payload
+    decrypted_dir = out_dir / package_dir.name / "decrypted" if args.write_decrypted else None
+    report = inspect_multiview_package(
+        package_dir,
+        decrypted_dir=decrypted_dir,
+        write_resources=args.write_decrypted_resources,
+    )
+    write_multiview_report(out_dir / package_dir.name / "multiview.json", report)
+    return {
+        "dict_id": report["dict_id"],
+        "path": report["path"],
+        "report": str(out_dir / package_dir.name / "multiview.json"),
+        "payloads": [
+            {
+                "name": row["name"],
+                "storage": row["storage"],
+                "role": row["role"],
+                "tables": row["table_count"],
+                "rows": row["row_count"],
+            }
+            for row in report["payloads"]
+        ],
+        "menu_resolution": report["menu"]["resolution_counts"] if report.get("menu") else {},
+        "menu_unresolved": report["menu"]["unresolved_count"] if report.get("menu") else None,
+        "idx_layout": report["idx"]["layout"] if report.get("idx") else None,
+        "idx_missing_declared_components": [
+            row["filename"]
+            for row in (report["idx"]["components"] if report.get("idx") else [])
+            if not row["physical_file_present"]
+        ],
+        "resources": [
+            {
+                "name": row["name"],
+                "storage": row["storage"],
+                "content_kind": row["content_kind"],
+            }
+            for row in report["resources"]
+        ],
+    }
+
+
+def cmd_multiview(args: argparse.Namespace) -> int:
+    for root in args.root or [Path(".")]:
+        print(f"multiview discovery: scanning {root}", file=sys.stderr, flush=True)
+    packages = discover_multiview_packages(args.root or [Path(".")])
+    if not packages:
+        print("no LVLMultiView law packages found", file=sys.stderr)
+        return 1
+    print(f"multiview discovery: found {len(packages)} package(s)", file=sys.stderr, flush=True)
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    task_args = worker_args(args)
+    completed = 0
+    total = len(packages)
+
+    def log_summary(row: dict[str, Any]) -> None:
+        nonlocal completed
+        completed += 1
+        roles = ",".join(f"{item['name']}:{item['role']}" for item in row["payloads"])
+        print(
+            f"multiview progress {completed:3d}/{total}: {row['dict_id']:12s} "
+            f"payloads={len(row['payloads'])} menu_unresolved={row['menu_unresolved']} "
+            f"roles={roles}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    summaries = parallel_map_ordered(
+        _multiview_task,
+        [(package, args.out_dir, task_args) for package in packages],
+        jobs=args.jobs,
+        on_result=log_summary,
+    )
+    summary = {
+        "schema": "logovista-multiview-audit-v1",
+        "total": len(summaries),
+        "packages": summaries,
+    }
+    write_json(args.out_dir / "summary.json", summary)
+    if args.json:
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
+
+
 def _spindex_task(payload: tuple[Path, Path, int | None]) -> dict[str, Any]:
     path, out_dir, limit = payload
     dict_out = out_dir / path.parent.name
@@ -1422,6 +1516,31 @@ def build_parser() -> argparse.ArgumentParser:
     p_hc.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
     add_jobs_argument(p_hc)
     p_hc.set_defaults(func=cmd_hc)
+
+    p_multiview = sub.add_parser(
+        "multiview",
+        help="Inspect LVLMultiView law packages with SSEDINFO facades and encrypted SQLite payloads.",
+    )
+    p_multiview.add_argument(
+        "root",
+        type=Path,
+        nargs="*",
+        help="Collection root or direct _DCT_* LVLMultiView dictionary directory.",
+    )
+    p_multiview.add_argument("--out-dir", type=Path, default=Path("logovista-multiview-audit"))
+    p_multiview.add_argument(
+        "--write-decrypted",
+        action="store_true",
+        help="Keep decrypted SQLite payload copies under the output directory.",
+    )
+    p_multiview.add_argument(
+        "--write-decrypted-resources",
+        action="store_true",
+        help="With --write-decrypted, also write decrypted Resources/* assets such as PDF files.",
+    )
+    p_multiview.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    add_jobs_argument(p_multiview)
+    p_multiview.set_defaults(write_decrypted=False, write_decrypted_resources=False, func=cmd_multiview)
 
     p_spindex = sub.add_parser("spindex", help="Inspect standalone SPINDEX.DIC suffix-index resources.")
     p_spindex.add_argument("root", type=Path, nargs="*", help="Collection directory or direct SPINDEX.DIC path.")

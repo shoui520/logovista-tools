@@ -1,5 +1,7 @@
 from pathlib import Path
+import sqlite3
 
+from logovista_tools.multiview import discover_multiview_packages, inspect_multiview_package
 from logovista_tools.windows import (
     classify_hc_renderer_file,
     expected_numeric_index_for_hc_code,
@@ -40,3 +42,50 @@ def test_parse_pe_summary_reports_non_pe_kind(tmp_path) -> None:
 
     assert summary.kind == "sseddata"
     assert summary.exports == ()
+
+
+def test_multiview_package_resolves_menu_to_plain_sqlite_payload(tmp_path) -> None:
+    package = tmp_path / "_DCT_TESTLAW"
+    package.mkdir()
+    (package / "menuData.xml").write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<list>
+  <item label="Root" href="" />
+  <item label="Law" href="M010" />
+  <item label="Article" href="M010_HON-j1" />
+  <item label="Index" href="index:jikou_01_001" />
+</list>
+""",
+        encoding="utf-8",
+    )
+
+    body = package / "blvbat"
+    con = sqlite3.connect(body)
+    con.execute(
+        "create table t_M010 ("
+        "f_hore_code text, f_rec_id integer, f_anchor text, "
+        "f_text text, f_text_plane text)"
+    )
+    con.execute(
+        "insert into t_M010 values "
+        "('M010', 10000, 'M010_HON-j1', '<div>本文</div>', '本文')"
+    )
+    con.commit()
+    con.close()
+
+    index = package / "ilvdat"
+    con = sqlite3.connect(index)
+    con.execute("create table t_index (f_hore_code text, f_title_no text, f_title_sub text, f_text text)")
+    con.execute("insert into t_index values ('jikou_01_001', '事項', '見出し', '<div>索引</div>')")
+    con.commit()
+    con.close()
+
+    assert discover_multiview_packages([tmp_path]) == [package.resolve()]
+
+    report = inspect_multiview_package(package)
+
+    assert report["payloads"][0]["role"] == "sqlite_law_body_table_store"
+    assert report["menu"]["resolution_counts"]["hore_code"] == 1
+    assert report["menu"]["resolution_counts"]["anchor_exact"] == 1
+    assert report["menu"]["resolution_counts"]["index_row"] == 1
+    assert report["menu"]["unresolved_count"] == 0

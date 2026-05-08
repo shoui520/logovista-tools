@@ -41,6 +41,17 @@ class SsedInfoElement:
         return self.end - self.start + 1
 
 
+@dataclass(frozen=True)
+class SsedInfoLayout:
+    """Physical layout details for an observed ``SSEDINFO`` catalog."""
+
+    component_count_offset: int
+    record_start: int
+    record_size: int
+    component_count: int
+    trailing_bytes: int
+
+
 def be16(data: bytes, offset: int) -> int:
     return int.from_bytes(data[offset : offset + 2], "big")
 
@@ -49,20 +60,49 @@ def be32(data: bytes, offset: int) -> int:
     return int.from_bytes(data[offset : offset + 4], "big")
 
 
-def parse_ssedinfo(path: Path) -> tuple[str, list[SsedInfoElement]]:
-    data = path.read_bytes()
-    if data[:8] != SSEDINFO_MAGIC:
-        raise ValueError(f"not SSEDINFO: {path}")
+def _is_ascii_filename(data: bytes) -> bool:
+    if not data:
+        return False
+    return all(0x20 <= value < 0x7F for value in data)
 
-    title_len = data[12]
-    title = data[13 : 13 + title_len].split(b"\x00", 1)[0].decode("cp932", errors="replace")
-    n_element = data[0x4D]
+
+def _decode_ssedinfo_filename(rec: bytes) -> tuple[str, bool]:
+    if len(rec) < 0x11:
+        return "", False
+    length = rec[0x10]
+    if 0 < length <= len(rec) - 0x11:
+        raw = rec[0x11 : 0x11 + length]
+        if _is_ascii_filename(raw):
+            return raw.decode("ascii", errors="replace"), True
+    raw = rec[0x11:].split(b"\x00", 1)[0]
+    if _is_ascii_filename(raw):
+        return raw.decode("ascii", errors="replace"), True
+    return raw.decode("ascii", errors="replace"), False
+
+
+def _parse_ssedinfo_records(
+    data: bytes,
+    *,
+    component_count_offset: int,
+    record_start: int,
+    record_size: int = 0x30,
+) -> tuple[list[SsedInfoElement], SsedInfoLayout, int]:
+    if component_count_offset >= len(data):
+        raise ValueError("component count offset outside SSEDINFO")
+    n_element = data[component_count_offset]
+    end = record_start + n_element * record_size
+    if n_element == 0 or record_start < 0 or end > len(data):
+        raise ValueError("component records outside SSEDINFO")
+
     elements: list[SsedInfoElement] = []
-    pos = 0x80
+    valid_filenames = 0
     for index in range(n_element):
-        rec = data[pos : pos + 0x30]
-        pos += 0x30
-        filename = rec[17:].split(b"\x00", 1)[0].decode("ascii", errors="replace")
+        pos = record_start + index * record_size
+        rec = data[pos : pos + record_size]
+        if len(rec) != record_size:
+            raise ValueError("short SSEDINFO component record")
+        filename, valid_filename = _decode_ssedinfo_filename(rec)
+        valid_filenames += int(valid_filename)
         elements.append(
             SsedInfoElement(
                 index=index,
@@ -74,6 +114,56 @@ def parse_ssedinfo(path: Path) -> tuple[str, list[SsedInfoElement]]:
                 filename=filename,
             )
         )
+
+    layout = SsedInfoLayout(
+        component_count_offset=component_count_offset,
+        record_start=record_start,
+        record_size=record_size,
+        component_count=n_element,
+        trailing_bytes=len(data) - end,
+    )
+    return elements, layout, valid_filenames
+
+
+def parse_ssedinfo_with_layout(path: Path) -> tuple[str, list[SsedInfoElement], SsedInfoLayout]:
+    data = path.read_bytes()
+    if data[:8] != SSEDINFO_MAGIC:
+        raise ValueError(f"not SSEDINFO: {path}")
+
+    title_len = data[12]
+    title = data[13 : 13 + title_len].split(b"\x00", 1)[0].decode("cp932", errors="replace")
+    candidates = (
+        (0x4D, 0x80),
+        # Observed in LVLMultiView law packages: the header/record table is
+        # shifted left by one byte, but the record body layout is unchanged.
+        (0x4C, 0x7F),
+        (0x4C, 0x80),
+        (0x4D, 0x7F),
+    )
+    parsed: list[tuple[int, int, list[SsedInfoElement], SsedInfoLayout]] = []
+    for component_count_offset, record_start in candidates:
+        try:
+            elements, layout, score = _parse_ssedinfo_records(
+                data,
+                component_count_offset=component_count_offset,
+                record_start=record_start,
+            )
+        except ValueError:
+            continue
+        parsed.append((score, int(component_count_offset == 0x4D and record_start == 0x80), elements, layout))
+
+    if not parsed:
+        raise ValueError(f"could not parse SSEDINFO component records: {path}")
+
+    parsed.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    _score, _preferred, elements, layout = parsed[0]
+    if _score != layout.component_count:
+        raise ValueError(f"could not identify SSEDINFO component filename layout: {path}")
+    return title, elements, layout
+
+
+def parse_ssedinfo(path: Path) -> tuple[str, list[SsedInfoElement]]:
+    title, elements, _layout = parse_ssedinfo_with_layout(path)
     return title, elements
 
 

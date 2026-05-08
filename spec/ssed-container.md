@@ -24,7 +24,8 @@ record offset  size  meaning
 0x04           4     start logical block, big endian
 0x08           4     end logical block, big endian
 0x0c           4     component metadata bytes
-0x11           var   NUL-terminated ASCII filename
+0x10           1     filename byte length
+0x11           var   ASCII filename bytes, followed by NUL padding
 ```
 
 The logical block size is 2048 bytes. If a component starts at logical block
@@ -33,6 +34,13 @@ The logical block size is 2048 bytes. If a component starts at logical block
 ```text
 (N - 1) * 2048
 ```
+
+Observed LVLMultiView law packages have an SSEDINFO-like facade variant where
+the component count byte is at `0x4c` and the component record table starts at
+`0x7f`. The record body layout is unchanged. This variant currently appears in
+packages whose declared component files are absent and whose readable body data
+lives in LogoFontCipher-encrypted SQLite payloads; see
+[LVLMultiView Law Packages](multiview-law.md).
 
 Component types observed so far:
 

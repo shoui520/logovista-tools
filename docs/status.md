@@ -71,6 +71,9 @@ LogoVista dictionary model.
   resources.
 - LVED/WebView2 `main.data` / `.dbc` SQLCipher classification and validation
   for observed OXFPEU4/KQCMPROS packages.
+- LVLMultiView law-package classification for observed YROPPO08/MOROKU26
+  packages, including SSEDINFO facade parsing, LogoFontCipher SQLite payload
+  roles, `menuData.xml` href resolution, and encrypted PDF resource detection.
 - `--jobs` process-level parallelism for corpus-scale scanning, extraction,
   audit, gaiji/media reports, LVED inspection, and GA16 rendering.
 - Redacted SSED package profiles with component metadata, wrapper/resource

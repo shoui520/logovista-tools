@@ -18,7 +18,8 @@ This applies to commands that operate across many dictionaries or resources:
 `scan`, `entries`, `resources`, `colscr`, `pcmdata`, `extras`, `rendererdb`,
 `spindex`, `audit-honmon`, `gaiji-report`, `gaiji-readiness`, `ga16`,
 `titles`, `indexes`, `menus`, `fulldb`, `profile`, `honmon-bytes`,
-`component-forensics`, `dump-ir`, and LVED payload inspection.
+`component-forensics`, `dump-ir`, LVED payload inspection, and LVLMultiView
+law-package inspection.
 `capability-matrix` is also corpus-oriented, but it reads already-generated
 report directories rather than re-scanning raw dictionary files.
 
@@ -133,6 +134,47 @@ report:
 `hc` emits discovery and per-file progress to stderr. Its JSON output is
 redacted: it includes names, hashes, import/export names, and short embedded
 format strings, but not dictionary body data.
+
+### `multiview`
+
+Inspect LogoVista `LVLMultiView` law packages such as YROPPO08/MOROKU26. These
+packages have an SSEDINFO-like `.IDX` facade and `menuData.xml`, but the
+readable bodies are LogoFontCipher-encrypted SQLite payloads named
+`blvbat`, `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`, and `nlvbat`/`nlvdat`.
+
+```bash
+logovista-tools multiview /path/to/Unclassified_win --jobs 0 --out-dir multiview-audit
+logovista-tools multiview /path/to/_DCT_YROPPO08 --json
+```
+
+Report fields include:
+
+- the parsed `.IDX` facade layout and declared component records;
+- missing declared component files;
+- payload storage (`plain` or `logofont_cipher`);
+- SQLite schema role, table families, row counts, and index counts;
+- `menuData.xml` tag/attribute counts and `href` resolution status;
+- LogoFontCipher-encrypted `Resources/*` assets such as PDFs.
+
+Useful options:
+
+```bash
+--write-decrypted                 keep decrypted SQLite payload copies under out-dir
+--write-decrypted-resources       with --write-decrypted, also decrypt Resources/* assets
+--jobs N                          inspect packages in parallel; 0 means all CPUs
+--json                            emit machine-readable summary
+```
+
+Observed payload roles:
+
+```text
+blvbat                 law body tables; viewer name hint hore_body.db
+hlvbat                 case digest/body table; viewer name hint hanrei_youshi.db
+ilvbat / ilvdat        HTML index table; viewer name hint index.db
+jlvbat / jlvdat        subject index table; viewer name hint jiko_sakuin.db
+nlvbat                 law metadata; viewer name hint yroppo.db
+nlvdat                 law metadata; viewer name hint mo6.db
+```
 
 ### `lved`
 

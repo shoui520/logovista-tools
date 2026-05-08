@@ -37,6 +37,7 @@ are still allowed to change as more products are tested.
 | `MENU.DIC`, `COLSCR.DIC`, `PCMDATA.DIC` | High byte coverage for the current SSED corpus |
 | Windows / Android / iOS wrappers | Supported per observed package family |
 | LVED/WebView2 `main.data` / `.dbc` SQLCipher payloads | Validated for observed OXFPEU4/KQCMPROS packages |
+| LVLMultiView law packages | Classified for observed YROPPO08/MOROKU26 packages |
 | LogoVista writer support | Not implemented |
 
 The current development direction is:
@@ -221,6 +222,12 @@ Inspect modern LVED/WebView2 SQLCipher packages such as OXFPEU4/KQCMPROS:
 logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 --json
 ```
 
+Inspect LVLMultiView law packages such as YROPPO08/MOROKU26:
+
+```bash
+logovista-tools multiview /path/to/Unclassified_win --jobs 0 --out-dir out/multiview
+```
+
 The full command reference lives in [docs/commands.md](docs/commands.md).
 
 ## Documentation Map
@@ -246,6 +253,7 @@ The full command reference lives in [docs/commands.md](docs/commands.md).
 | [Menus, Titles, and Indexes](spec/menus-titles-indexes.md) | `MENU.DIC`, `*TITLE.DIC`, and `*INDEX.DIC`. |
 | [Gaiji, Images, and Media](spec/gaiji-media.md) | `.uni`, `GA16*`, package images, `COLSCR.DIC`, `PCMDATA.DIC`. |
 | [LVED SQLCipher Packages](spec/lved-main-data.md) | Modern WebView2 `main.data` / `.dbc` package family. |
+| [LVLMultiView Law Packages](spec/multiview-law.md) | Law products with SSEDINFO facade catalogs and LogoFontCipher SQLite bodies. |
 | [Confidence Levels](spec/confidence.md) | How reverse-engineered claims are labeled. |
 
 ## Core Model
@@ -275,6 +283,7 @@ iOS       DictList.plist, Gaiji.plist, GaijiS.plist, img/, html/, *.sql
 Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
 Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, vlpljbl*, 00000xxx.idx
 LVED      main.data / *.dbc, WebView2 viewer files, SQLCipher runtime
+MultiView SSEDINFO-like *.IDX, menuData.xml, *lvbat/*lvdat, Templates/, Resources/
 ```
 
 The raw core is the main reverse-engineering target. SQLite databases, renderer
@@ -289,6 +298,13 @@ separately instead of forcing them into the SSED model. The SQLCipher key
 derivation is documented in [LVED SQLCipher Packages](spec/lved-main-data.md)
 and implemented in code; per-product final keys and serials are not repository
 artifacts.
+
+Observed LVLMultiView law products are also separate from classic SSED body
+streams. They ship a small SSEDINFO-like `.IDX` facade naming familiar
+components such as `HONMON.DIC` and `FKINDEX.DIC`, but the physical component
+files are absent. Body, index, and law metadata live in LogoFontCipher-encrypted
+SQLite payloads such as `blvbat`, `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`, and
+`nlvbat`/`nlvdat`. See [LVLMultiView Law Packages](spec/multiview-law.md).
 
 ## Development
 

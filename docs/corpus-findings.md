@@ -399,6 +399,63 @@ logovista-tools lved /path/to/KQCMPROS --dict-id 751 --json
 Reports validate the payload without emitting derived, explicit, or recovered
 keys.
 
+## LVLMultiView Law Packages
+
+YROPPO08 and MOROKU26 are not classic SSED/HONMON packages, but they are also
+not LVED SQLCipher packages. They ship `LOGOVISTAMULTIVIEW/LVLMultiView.exe`,
+`menuData.xml`, a small SSEDINFO-magic `.IDX` facade, and LogoFontCipher
+payloads named `blvbat`, `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`, and
+`nlvbat`/`nlvdat`.
+
+The `.IDX` facade declares seven familiar component records:
+
+```text
+HONMON.DIC, FKINDEX.DIC, FHINDEX.DIC, BKINDEX.DIC, BHINDEX.DIC,
+GA16FULL, GA16HALF
+```
+
+The declared component files are absent. Body data comes from encrypted SQLite,
+not from `SSEDDATA` components. MOROKU26 uses a shifted SSEDINFO facade layout
+with the component count byte at `0x4c` and records starting at `0x7f`.
+YROPPO08 uses the normal count/record offsets (`0x4d`, `0x80`). Both observed
+facades have 632 trailing bytes after the seven records.
+
+Observed payload classification:
+
+| Product | Payload | Storage | Role | Tables | Rows |
+|---|---|---|---|---:|---:|
+| MOROKU26 | `blvbat` | LogoFontCipher SQLite | law body tables | 374 | 54,812 |
+| MOROKU26 | `hlvbat` | LogoFontCipher SQLite | case digest/body | 1 | 24,424 |
+| MOROKU26 | `ilvdat` | LogoFontCipher SQLite | HTML index | 1 | 3,040 |
+| MOROKU26 | `nlvdat` | LogoFontCipher SQLite | law metadata | 3 | 362 |
+| YROPPO08 | `blvbat` | LogoFontCipher SQLite | law body tables | 382 | 67,395 |
+| YROPPO08 | `hlvbat` | LogoFontCipher SQLite | case digest/body | 5 | 43,202 |
+| YROPPO08 | `ilvbat` | LogoFontCipher SQLite | HTML index | 1 | 8 |
+| YROPPO08 | `jlvbat` | LogoFontCipher SQLite | subject index | 1 | 17,833 |
+| YROPPO08 | `nlvbat` | LogoFontCipher SQLite | law metadata | 4 | 416 |
+
+`LVLMultiView.exe` contains UTF-16 strings naming decrypted cache targets:
+`hore_body.db`, `hanrei_youshi.db`, `index.db`, `jiko_sakuin.db`,
+`yroppo.db`, and `mo6.db`.
+
+`menuData.xml` is a real navigation tree. After resolving `href` values against
+SQLite `f_anchor`, `f_hore_code`, and `t_index.f_hore_code`, both observed
+packages have zero unresolved menu links:
+
+```text
+MOROKU26: 5,569 anchors, 2,559 index rows, 702 law codes, 4 viewer-special
+YROPPO08: 7,826 anchors,     8 index rows, 207 law codes
+```
+
+MOROKU26 also ships extensionless `Resources/inshizei`, `Resources/minji`, and
+`Resources/zeihou`; each decrypts with LogoFontCipher to a PDF 1.6 document.
+
+Toolkit command:
+
+```bash
+logovista-tools multiview /path/to/Unclassified_win --jobs 0 --out-dir out/multiview
+```
+
 ## Non-iOS Body Streams
 
 OUKOKU11 is useful because it is an Android-only package, not part of
