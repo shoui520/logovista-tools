@@ -365,7 +365,9 @@ silently skipped.
 ### `dump-ir`
 
 Emit entry-level lossless span JSONL from expanded `HONMON.DIC`. This is the
-debug/model path, not a user-facing readable extractor.
+debug/model path, not a user-facing readable extractor. It is an entry-span
+subset of the draft [LV-IR v0](../spec/lv-ir-v0.md) model, not the full
+package-level IR export.
 
 ```bash
 logovista-tools dump-ir /path/to/LogoVista --dict HAESPJPN --limit 10 --out-dir ir

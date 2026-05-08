@@ -9,6 +9,7 @@ from platform packaging observations and product-specific behavior.
 | Page | Layer |
 |---|---|
 | [Package Layers](package-layers.md) | Raw core files and iOS/Android/Windows wrappers. |
+| [LV-IR v0 Draft](lv-ir-v0.md) | Versioned decoded dictionary model for components, addresses, entries, spans, gaiji, media, indexes, titles, menus, and issues. |
 | [SSED Container](ssed-container.md) | `SSEDINFO`, `SSEDDATA`, compression, encryption, and component composition. |
 | [Text Streams and Body Storage](text-streams.md) | Expanded `HONMON.DIC`, controls, body boundaries, dense HONMON, and database-backed bodies. |
 | [Menus, Titles, and Indexes](menus-titles-indexes.md) | `MENU.DIC`, `*TITLE.DIC`, `*INDEX.DIC`, branch pages, and leaf rows. |

@@ -192,6 +192,7 @@ The full command reference lives in [docs/commands.md](docs/commands.md).
 |---|---|
 | [Format Notes Index](spec/README.md) | Overview of the spec-style notes. |
 | [Package Layers](spec/package-layers.md) | Raw core files and iOS/Android/Windows wrappers. |
+| [LV-IR v0 Draft](spec/lv-ir-v0.md) | Versioned decoded dictionary model for writer/exporter work. |
 | [SSED Container](spec/ssed-container.md) | `SSEDINFO`, `SSEDDATA`, encryption, and expansion. |
 | [Text Streams and Body Storage](spec/text-streams.md) | `HONMON.DIC`, entry slicing, dense HONMON, `DictFULLDB`, outliers. |
 | [Menus, Titles, and Indexes](spec/menus-titles-indexes.md) | `MENU.DIC`, `*TITLE.DIC`, and `*INDEX.DIC`. |

@@ -64,6 +64,9 @@ LogoVista dictionary model.
   and corpus summaries.
 - Entry-level lossless span JSONL preserving raw offsets/bytes for controls,
   JIS text, gaiji, media references, padding, and measured problem spans.
+- Draft `LV-IR v0` model that names the shared package/component/address/
+  entry/span/control/gaiji/media/index/title/menu/issue records future
+  exporters and writer experiments should consume.
 - Strict, forensic, and lenient text-span parsing modes for sampled body
   slices and entry-level IR dumps.
 - Observed `1f0b`/`1f0c` literal/preformatted body spans.
@@ -74,8 +77,8 @@ LogoVista dictionary model.
 ## Experimental / Active Reverse Engineering
 
 - Full `0x1f` control opcode semantics.
-- Expanding the first lossless span model into a stable public IR schema for
-  all text, index, link, gaiji, and media layers.
+- Implementing `LV-IR v0` as emitted command output rather than only a draft
+  specification.
 - Formal private-corpus regression baselines generated from redacted profiles.
 - Shared typed address/component objects used by every parser and exporter.
 - Official-renderer parity checks.
@@ -107,8 +110,8 @@ LogoVista dictionary model.
   are accounted for but whose audio codec/container is not yet classified.
 - Named UI/style images such as `exam.png` are discovered, but mapping them to
   semantic entry regions is dictionary-specific.
-- `dump-ir` is a lossless span JSONL inspection format. It is not yet the
-  stable public IR schema.
+- `dump-ir` is still a lossless entry-span JSONL inspection format. It covers
+  one LV-IR slice, but it is not yet a full `LV-IR v0` package export.
 - Observed `DictFtsDB` `.dbc` payloads for OXFPEU4/KQCMPROS are LVED
   SQLCipher packages. Future `.dbc` variants should still be classified on
   their own evidence instead of assumed to be SSED or LVED.
@@ -134,21 +137,25 @@ Recently landed:
 
 Next priorities:
 
-1. **Versioned model schema.** Promote `dump-ir` from an inspection JSONL into
-   a documented public IR with typed `Address`, `Component`, `Span`, `Entry`,
-   `IndexRow`, `GaijiOccurrence`, and `MediaReference` records.
-2. **Corpus regression harness.** Commit redacted expected metrics generated
+1. **LV-IR implementation.** Make a command emit the `LV-IR v0` package layout
+   described in `spec/lv-ir-v0.md`, starting with components, entries,
+   titles, indexes, menus, gaiji, media references, media records, issues, and
+   metrics.
+2. **Corpus capability matrix.** Use the full corpus to report which
+   dictionaries can be represented as full LV-IR, which require sidecar body
+   dereference, and which fields block writer/exporter work.
+3. **Corpus regression harness.** Commit redacted expected metrics generated
    from owned corpora, then add a comparison command that flags changed shape
    counts, unknown counts, parse failures, and dereference coverage without
    storing dictionary text.
-3. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
+4. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
    media extractors, and exporters consume the same classification/profile
    layer instead of each command rediscovering package shape independently.
-4. **Renderer parity.** Build small local parity fixtures for body text,
+5. **Renderer parity.** Build small local parity fixtures for body text,
    literal spans, URL spans, gaiji images, named section images, media links,
    menu destinations, and dense-anchor renderer bodies.
-5. **Exporter layer.** Implement debug HTML first, then Yomitan structured v3
+6. **Exporter layer.** Implement debug HTML first, then Yomitan structured v3
    and MDict as views over the versioned IR rather than separate parsers.
-6. **Writer research.** Start only after the model can round-trip addresses,
+7. **Writer research.** Start only after the model can round-trip addresses,
    indexes, gaiji/media references, and dense-anchor relationships with
    measurable unknowns near zero on the corpus.
