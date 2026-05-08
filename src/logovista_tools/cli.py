@@ -11,6 +11,7 @@ from typing import Any
 
 from . import __version__
 from .audit import extract_audit_for_sources
+from .capability import extract_capability_matrix_for_args
 from .colscr import extract_colscr_for_sources
 from .component_forensics import extract_component_forensics_for_args
 from .entries import discover_dictionaries, extract_dictionary
@@ -990,6 +991,20 @@ def cmd_component_forensics(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_capability_matrix(args: argparse.Namespace) -> int:
+    report = extract_capability_matrix_for_args(args)
+    print(
+        f"capability matrix: dictionaries={report['total']} "
+        f"writer_v0={report['legacy_writer_v0_status_counts']} "
+        f"repacker={report['lossless_repacker_status_counts']} "
+        f"out={args.out_dir}",
+        file=sys.stderr,
+    )
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_dump_ir(args: argparse.Namespace) -> int:
     rows = extract_ir_for_args(args)
     for row in rows:
@@ -1279,6 +1294,33 @@ def build_parser() -> argparse.ArgumentParser:
     p_component_forensics.add_argument("--json", action="store_true", help="Also print machine-readable summary JSON.")
     add_jobs_argument(p_component_forensics)
     p_component_forensics.set_defaults(func=cmd_component_forensics)
+
+    p_capability = sub.add_parser(
+        "capability-matrix",
+        help="Build a writer/exporter capability matrix from redacted corpus reports.",
+    )
+    p_capability.add_argument(
+        "--profile-dir",
+        type=Path,
+        required=True,
+        help="Directory produced by the profile command.",
+    )
+    p_capability.add_argument(
+        "--honmon-bytes-dir",
+        type=Path,
+        required=True,
+        help="Directory produced by the honmon-bytes command.",
+    )
+    p_capability.add_argument(
+        "--component-forensics-dir",
+        type=Path,
+        required=True,
+        help="Directory produced by the component-forensics command.",
+    )
+    p_capability.add_argument("--out-dir", type=Path, default=Path("logovista-capability-matrix"))
+    p_capability.add_argument("--dict", action="append", help="Only include matching dictionary id(s).")
+    p_capability.add_argument("--json", action="store_true", help="Also print the full matrix JSON.")
+    p_capability.set_defaults(func=cmd_capability_matrix)
 
     p_dump_ir = sub.add_parser("dump-ir", help="Emit lossless HONMON entry span JSONL.")
     p_dump_ir.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")

@@ -67,6 +67,8 @@ LogoVista dictionary model.
 - Draft `LV-IR v0` model that names the shared package/component/address/
   entry/span/control/gaiji/media/index/title/menu/issue records future
   exporters and writer experiments should consume.
+- Corpus capability matrix generation from redacted `profile`,
+  `honmon-bytes`, and `component-forensics` outputs.
 - Strict, forensic, and lenient text-span parsing modes for sampled body
   slices and entry-level IR dumps.
 - Observed `1f0b`/`1f0c` literal/preformatted body spans.
@@ -141,9 +143,9 @@ Next priorities:
    described in `spec/lv-ir-v0.md`, starting with components, entries,
    titles, indexes, menus, gaiji, media references, media records, issues, and
    metrics.
-2. **Corpus capability matrix.** Use the full corpus to report which
-   dictionaries can be represented as full LV-IR, which require sidecar body
-   dereference, and which fields block writer/exporter work.
+2. **Corpus capability matrix refinement.** Use matrix output to separate
+   writer-v0 blockers from lossless-repacker blockers, then tighten gaiji and
+   media readiness rules as the IR implementation lands.
 3. **Corpus regression harness.** Commit redacted expected metrics generated
    from owned corpora, then add a comparison command that flags changed shape
    counts, unknown counts, parse failures, and dereference coverage without

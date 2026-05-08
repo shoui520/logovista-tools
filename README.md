@@ -136,6 +136,16 @@ components:
 logovista-tools component-forensics /path/to/LogoVista --jobs 0 --out-dir out/components
 ```
 
+Turn those redacted reports into a writer/exporter capability table:
+
+```bash
+logovista-tools capability-matrix \
+  --profile-dir out/profiles \
+  --honmon-bytes-dir out/honmon-bytes \
+  --component-forensics-dir out/components \
+  --out-dir out/capability-matrix
+```
+
 Dump lossless span JSONL for entry-level reverse engineering:
 
 ```bash

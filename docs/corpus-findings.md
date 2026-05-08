@@ -184,6 +184,93 @@ The remaining component anomalies are intentionally small and named:
   covered, but whose payloads are not RIFF/WAVE, native ID3/MP3, or the
   currently classified MPEG-in-WAVE shape.
 
+## Capability Matrix
+
+The first writer/exporter capability matrix combines three redacted report
+families:
+
+```bash
+logovista-tools capability-matrix \
+  --profile-dir /tmp/lv-profile-corpus4 \
+  --honmon-bytes-dir /tmp/lv-honmon-bytes-corpus-v3 \
+  --component-forensics-dir /tmp/lv-component-forensics-corpus-v4 \
+  --out-dir /tmp/lv-capability-matrix-corpus
+```
+
+This command does not inspect dictionary payloads directly. It classifies each
+dictionary from existing raw-first reports. The current matrix covers 169 SSED
+targets.
+
+Capability counts:
+
+```text
+raw HONMON body:       yes 143, no 26
+indexes fully parsed: yes 123, partial 1, no 11, n/a 34
+titles fully parsed:  yes 79, partial 2, no 4, n/a 84
+gaiji fully resolved: yes 17, partial 132, no 14, n/a 6
+media refs resolved:  yes 62, partial 1, no 1, n/a 105
+menu pointers:        yes 63, partial 12, no 9, n/a 85
+```
+
+Writer/repacker planning status:
+
+```text
+legacy writer v0:   green 13, yellow 124, red 32
+lossless repacker:  green 13, yellow 93,  red 63
+combined worst:     green 13, yellow 93,  red 63
+```
+
+The 13 green dictionaries under the conservative rules are:
+
+```text
+BMANNAR
+EJJE200
+GKBUSINE
+GKKANYOK
+Gen2010
+Gen2011
+Gen2012
+Gen2013
+HKBYOIN4
+JOTSU05
+JSSAURUS
+SPEECH
+TEGAMI
+```
+
+The green count is intentionally conservative. In particular,
+`gaiji_fully_resolved` currently requires all observed gaiji occurrences to
+resolve under the present Unicode/image/bitmap policy. It therefore marks many
+otherwise well-understood dictionaries yellow because they contain formatting
+helpers, unresolved display gaiji, or codes whose eventual writer policy is
+not settled. That is useful pressure on the gaiji model; it is not a claim that
+those dictionaries cannot be exported.
+
+Top blocker counts:
+
+```text
+gaiji_not_fully_resolved:          146
+missing_declared_components:        33
+body_requires_sidecar_or_is_missing: 26
+menu_not_fully_resolved:            21
+raw_body_not_self_contained:        18
+indexes_not_fully_parsed:           12
+titles_not_fully_parsed:             6
+unknown_or_structural_text_issues:   3
+media_not_fully_resolved:            2
+```
+
+The matrix makes the next reverse-engineering priorities more concrete:
+
+- tighten gaiji readiness by distinguishing harmless formatting helpers from
+  true unresolved display glyphs;
+- improve menu destination resolution for packages with partial menu coverage;
+- decide whether missing declared components in locally incomplete packages
+  should be excluded from writer-readiness scoring;
+- resolve the remaining title/text anomalies (`25IGAKU`, `ITALIAN`,
+  `NANDOKU3`);
+- classify `ARCHSIC3`'s raw `PCMDATA.DIC` payloads.
+
 ## HONMON/IDX Corpus Audit
 
 The local `LOGOVISTA_ALL` corpus was audited with raw SSED expansion, raw

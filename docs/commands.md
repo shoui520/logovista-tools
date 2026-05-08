@@ -18,7 +18,9 @@ This applies to commands that operate across many dictionaries or resources:
 `scan`, `entries`, `resources`, `colscr`, `pcmdata`, `extras`, `rendererdb`,
 `spindex`, `audit-honmon`, `gaiji-report`, `ga16`, `titles`, `indexes`,
 `menus`, `fulldb`, `profile`, `honmon-bytes`, `component-forensics`,
-`dump-ir`, and LVED payload inspection.
+`dump-ir`, and LVED payload inspection. `capability-matrix` is also
+corpus-oriented, but it reads already-generated report directories rather than
+re-scanning raw dictionary files.
 
 For huge corpora, start with a moderate value such as `--jobs 8` or `--jobs 16`
 when also writing many JSON/media files. `--jobs 0` is useful for CPU-heavy
@@ -361,6 +363,67 @@ The current Windows SSED corpus component pass covers 1,231 present components:
 `INDEX.DIC`, 314 GA16 resources, 59 `COLSCR.DIC`, and 12 `PCMDATA.DIC`.
 Remaining residuals are reported by exact dictionary/component instead of
 silently skipped.
+
+### `capability-matrix`
+
+Build a writer/exporter capability matrix from the redacted outputs of
+`profile`, `honmon-bytes`, and `component-forensics`.
+
+```bash
+logovista-tools capability-matrix \
+  --profile-dir out/profiles \
+  --honmon-bytes-dir out/honmon-bytes \
+  --component-forensics-dir out/components \
+  --out-dir out/capability-matrix
+```
+
+Output layout:
+
+```text
+capability-matrix/
+  summary.json
+  capability_matrix.json
+  capability_matrix.csv
+  capability_matrix.md
+```
+
+The matrix records one row per dictionary:
+
+```text
+raw_honmon_body
+indexes_fully_parsed
+titles_fully_parsed
+gaiji_fully_resolved
+media_refs_resolved
+menu_pointers_resolved
+unknown_controls
+unknown_bytes
+structural_text_issues
+legacy_writer_v0_status
+legacy_writer_v0_blockers
+lossless_repacker_status
+lossless_repacker_blockers
+writer_repacker_status
+writer_repacker_blockers
+```
+
+Status values are `yes`, `partial`, `no`, `n/a`, or `unknown`.
+The writer/repacker statuses are planning signals:
+
+```text
+green   no obvious blocker for the conservative raw-body writer/exporter subset
+yellow  usable with degradation or dictionary-specific rules
+red     blocked by missing data, sidecar-only bodies, parser residuals, or unknown text bytes/controls
+```
+
+`legacy_writer_v0_status` asks whether the dictionary shape is suitable for a
+conservative raw-body writer/exporter subset. `lossless_repacker_status` is
+stricter about missing declared files and unresolved menu/media/title
+structures. `writer_repacker_status` is the combined worst of those two.
+
+This command does not inspect proprietary payloads directly. It combines
+previous redacted reports, so it is fast and reproducible once the expensive
+corpus audits have been run.
 
 ### `dump-ir`
 
