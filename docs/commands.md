@@ -106,6 +106,34 @@ sqlite_search_index             search/title index only
 sqlite_category_search_index    KWIT category search tables
 ```
 
+### `hc`
+
+Inspect Windows `HC????.dll` HTML renderer plugins:
+
+```bash
+logovista-tools hc /path/to/LogoVista --jobs 0 --out-dir hc-audit
+logovista-tools hc /path/to/DICT/HC014F.dll --json
+```
+
+The command parses enough PE metadata without third-party dependencies to
+report:
+
+- exported renderer hooks such as `epwing2HtmlBodydata`,
+  `epwing2HtmlBodydataVertical`, `initializeSQL`, `pluginFunction`, and
+  `getCustomCharacterDIB`;
+- imported `SSDicLib.dll` APIs such as `SDicGetBodyData`,
+  `SDicGetPictureData`, `SDicGetCustomCharacterBitmap`, and
+  `SDicGetCustomCharacterUincode`;
+- the `EXINFO.INI` `HTMLDLL` declaration;
+- sibling eight-hex-digit numeric indexes and whether one matches the HC code;
+- sibling `vlpljbl*` resources;
+- embedded renderer evidence such as `DIC????` tokens, `vlpljbl*` sidecar
+  names, SQL snippets, HTML path templates, and image templates.
+
+`hc` emits discovery and per-file progress to stderr. Its JSON output is
+redacted: it includes names, hashes, import/export names, and short embedded
+format strings, but not dictionary body data.
+
 ### `lved`
 
 Inspect modern LVED/WebView2 packages whose body data lives in SQLCipher
@@ -350,7 +378,8 @@ and one known truncated final `0x1f` byte in `NANDOKU3`.
 ### `component-forensics`
 
 Forensically account for non-HONMON core components: `MENU.DIC`,
-`*TITLE.DIC`, structured `*INDEX.DIC`, text-like `INDEX.DIC` outliers,
+`*TITLE.DIC`, structured `*INDEX.DIC`, `MULTI*.DIC` selector descriptors,
+text-like `RIGHT.DIC` / `TOC.DIC` / `IDXJUMP.DIC` / `INDEX.DIC` outliers,
 `.uni` / `.UNI`, `GA16HALF` / `GA16FULL` / `GAI16*`, `COLSCR.DIC`, and
 `PCMDATA.DIC`.
 
@@ -370,8 +399,9 @@ component-forensics/
 
 Each report records declared component status, expanded byte sizes, structural
 coverage, residual nonzero bytes, unknown text controls/bytes, index page
-coverage, `.uni` record/trailer counts, GA16 glyph byte coverage, `COLSCR`
-media record coverage, and `PCMDATA` referenced-range coverage. It does not
+coverage, MULTI selector references, `.uni` record/trailer counts, GA16 glyph
+byte coverage, `COLSCR` media record coverage, and `PCMDATA` referenced-range
+coverage. It does not
 emit dictionary body text, media payloads, gaiji bitmaps, or proprietary data.
 
 Useful options:
@@ -385,11 +415,9 @@ Useful options:
 --json                              also print the aggregate JSON summary
 ```
 
-The current Windows SSED corpus component pass covers 1,231 present components:
-84 `MENU.DIC`, 307 `*TITLE.DIC`, 536 structured `*INDEX.DIC`, one text-like
-`INDEX.DIC`, 314 GA16 resources, 59 `COLSCR.DIC`, and 12 `PCMDATA.DIC`.
-Remaining residuals are reported by exact dictionary/component instead of
-silently skipped.
+The component pass prints progress as each dictionary finishes, which matters
+for large multi-core corpus runs. Remaining residuals are reported by exact
+dictionary/component instead of silently skipped.
 
 ### `capability-matrix`
 

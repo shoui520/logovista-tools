@@ -49,7 +49,9 @@ The stream also contains `0x1f` control opcodes. Important controls observed:
 1f 42             link-ish start
 1f 62 ...         link-ish end with payload
 1f 44 ...         extended link-ish start with a 10-byte payload
+1f 49 ...         TOC/internal link start with a 10-byte payload
 1f 64 ...         extended link-ish end with a 6-byte payload
+1f 69             TOC/internal link end
 1f 4a ...         jump/link/media start with a 16-byte payload
 1f 4d ...         media/reference start with an 18-byte payload
 1f e0 xx xx       bold-ish start
@@ -83,6 +85,13 @@ payload; the end control has a 6-byte payload. ROYALEGR and KQSYNONM use this
 pair. Treating `1f44` as zero-argument leaks binary pointer bytes into the text
 stream and creates false unknown bytes / invalid JIS pairs.
 
+`1f 49` / `1f 69` are a table-of-contents/internal link pair observed in
+IBIO4VRS `TOC.DIC`. The start control has a 10-byte payload. The first four
+bytes behave like outline/path or level bytes; the final six bytes are a
+standard big-endian body pointer (`block`, `offset`). For example,
+`1f49 00010203 00000004 0130` wraps a visible TOC label and points to block
+`4`, offset `0x0130`. The closing `1f69` has no payload.
+
 `1f 4a` starts are followed by 16 bytes of binary target metadata before
 visible link text resumes. In PCMDATA dictionaries, the same payload encodes a
 sound/media start and end range. In HAESPJPN, treating this as a 15-byte
@@ -92,6 +101,13 @@ same dictionary family.
 
 A bare `0x0a` byte, not introduced by `0x1f`, appears once in the current
 corpus (`NANDOKU1`). It is handled as a legacy line break byte.
+
+The exact bare two-byte sequence `11 03` appears as a nonprinting separator in
+KQNEWEJ6 `0x0d` multi-title streams. It occurs between otherwise readable
+title lines, for example around phrase titles such as `have ...` and
+`a precious stone`. The toolkit accounts for this exact sequence as a legacy
+title separator. A lone `0x11` outside this sequence is still reported as an
+unknown byte; this keeps the earlier ITALIAN `FHTITLE.DIC` anomaly visible.
 
 ## Full HONMON Byte Accounting
 

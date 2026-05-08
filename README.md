@@ -199,6 +199,14 @@ schema, and inferred role:
 logovista-tools vlpljbl /path/to/LogoVista --jobs 0 --out-dir out/vlpljbl
 ```
 
+Inspect Windows `HC????.dll` renderer plugins and correlate them with
+`EXINFO.INI`, numeric sidecars, `vlpljbl*`, imports, exports, and embedded
+renderer strings:
+
+```bash
+logovista-tools hc /path/to/LogoVista --jobs 0 --out-dir out/hc
+```
+
 For dense-HONMON renderer packages, follow raw HONMON IDs into renderer/app DB
 rows. The same command also handles row-ordered `HONBUN` renderer databases
 such as `NGYOKTUK`:
@@ -253,6 +261,8 @@ KWTITLE.DIC / KWINDEX.DIC
 FKTITLE.DIC / FKINDEX.DIC
 FHTITLE.DIC / FHINDEX.DIC
 BKTITLE.DIC / BKINDEX.DIC
+TOC.DIC / RIGHT.DIC / IDXJUMP.DIC
+MULTI*.DIC / MUL*.DIC
 COLSCR.DIC / PCMDATA.DIC
 GA16HALF / GA16FULL
 DICT.uni / DICT.UNI

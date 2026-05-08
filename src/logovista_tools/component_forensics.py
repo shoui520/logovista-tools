@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from .indexes import (
     CR_LEAF_TYPES,
     INDEX_TYPES,
     KW_LEAF_TYPES,
+    MULTI_LEAF_TYPES,
     SIMPLE_LEAF_TYPES,
     TAGGED_LEAF_TYPES,
     be16,
@@ -31,6 +33,7 @@ from .indexes import (
     is_leaf_page,
 )
 from .menus import MENU_TYPE, parse_menu_stream, resolve_menu_record_destinations
+from .multi import parse_multi_descriptor
 from .parallel import parallel_map_ordered, worker_args
 from .pcmdata import (
     PCMDATA_DIRECTORY_BYTES,
@@ -43,7 +46,7 @@ from .pcmdata import (
     unreferenced_gaps,
 )
 from .profiles import ProfileTarget, discover_profile_targets, safe_relative
-from .ssed import BLOCK_SIZE, SsedRandomReader, expand_sseddata_file, find_case_insensitive
+from .ssed import BLOCK_SIZE, SsedInfoElement, SsedRandomReader, expand_sseddata_file, find_case_insensitive, parse_sseddata_header
 from .titles import TITLE_TYPES
 
 
@@ -58,6 +61,10 @@ def component_role(filename: str, component_type: int) -> str | None:
         return "title"
     if component_type in INDEX_TYPES:
         return "index"
+    if component_type == 0xFF or upper.startswith("MULTI"):
+        return "multi"
+    if component_type in {0x02, 0x20, 0x28} or upper in {"RIGHT.DIC", "TOC.DIC", "IDXJUMP.DIC"}:
+        return "text"
     if upper.endswith("INDEX.DIC"):
         return "text_index"
     if component_type in {0xF1, 0xF2} or upper in GA16_RESOURCE_NAMES or upper.startswith(("GAI16H", "GAI16F")):
@@ -313,6 +320,7 @@ def span_text_report(
         "unknown_bytes": 0,
         "truncated_controls": 0,
         "truncated_gaiji": 0,
+        "legacy_controls": 0,
     }
     control_ops: Counter[str] = Counter()
     unknown_control_ops: Counter[str] = Counter()
@@ -392,6 +400,15 @@ def span_text_report(
                 issue("unknown_control", start, raw, f"unknown control opcode 1f{op_hex}; argument length is not known")
             stats["bytes_covered"] += length
             i += length
+            continue
+
+        if i + 1 < len(data) and data[i : i + 2] == b"\x11\x03":
+            stats["controls"] += 1
+            stats["known_controls"] += 1
+            stats["legacy_controls"] += 1
+            stats["bytes_covered"] += 2
+            control_ops["bare_1103"] += 1
+            i += 2
             continue
 
         if b == 0x0A:
@@ -682,6 +699,42 @@ def kw_leaf_consumption(page: bytes) -> tuple[int, str | None]:
     return pos, None
 
 
+def multi_leaf_consumption(page: bytes) -> tuple[int, str | None]:
+    count = be16(page, 2)
+    pos = 4
+    subrecord = 0
+    while subrecord < count and pos < len(page):
+        tag = page[pos]
+        if tag == 0 and (pos + 1 >= len(page) or page[pos + 1] == 0):
+            return pos, None
+        if tag == 0x00:
+            if pos + 2 > len(page):
+                return pos, "truncated_multi_direct"
+            key_len = page[pos + 1]
+            if pos + 2 + key_len + 12 > len(page):
+                return pos, "truncated_multi_direct"
+            pos += 2 + key_len + 12
+            subrecord += 1
+            continue
+        if tag == 0x80:
+            if pos + 6 > len(page):
+                return pos, "truncated_multi_group"
+            key_len = page[pos + 1]
+            if pos + 6 + key_len > len(page):
+                return pos, "truncated_multi_group"
+            pos += 6 + key_len
+            subrecord += 1
+            continue
+        if tag == 0xC0:
+            if pos + 13 > len(page):
+                return pos, "truncated_multi_target"
+            pos += 13
+            subrecord += 1
+            continue
+        return pos, f"unknown_tag_{tag:02x}"
+    return pos, None
+
+
 def index_page_counts(component_type: int, page: bytes) -> tuple[int, int, int]:
     """Return internal_rows, leaf_rows, search_groups without decoding keys."""
 
@@ -782,6 +835,24 @@ def index_page_counts(component_type: int, page: bytes) -> tuple[int, int, int]:
                 pos += 7
             else:
                 break
+        elif component_type in MULTI_LEAF_TYPES:
+            if tag == 0x00:
+                if key_len == 0 or pos + 2 + key_len + 12 > len(page):
+                    break
+                leaf_rows += 1
+                pos += 2 + key_len + 12
+            elif tag == 0x80:
+                if pos + 6 + key_len > len(page):
+                    break
+                groups += 1
+                pos += 6 + key_len
+            elif tag == 0xC0:
+                if pos + 13 > len(page):
+                    break
+                leaf_rows += 1
+                pos += 13
+            else:
+                break
         else:
             break
         subrecord += 1
@@ -811,6 +882,8 @@ def index_page_consumption(component_type: int, page: bytes) -> tuple[str, int, 
         pos, issue = kw_leaf_consumption(page)
     elif component_type in CR_LEAF_TYPES:
         pos, issue = cr_leaf_consumption(page)
+    elif component_type in MULTI_LEAF_TYPES:
+        pos, issue = multi_leaf_consumption(page)
     else:
         pos, issue = 4, "unknown_index_component_type"
     return "leaf", pos, issue
@@ -945,6 +1018,19 @@ def ga16_report(roots: list[Path], element: Any, source: Path) -> dict[str, Any]
         }
     )
     return row
+
+
+def multi_report(roots: list[Path], element: Any, source: Path, data: bytes, gaiji_profile: Any) -> dict[str, Any]:
+    descriptor = parse_multi_descriptor(data, gaiji="h-placeholder", gaiji_map=gaiji_profile.map)
+    return {
+        "filename": element.filename,
+        "role": "multi",
+        "type": f"{element.type:02x}",
+        "start_block": element.start,
+        "path": safe_relative(source, roots),
+        "expanded_bytes": len(data),
+        "descriptor": descriptor.as_dict(),
+    }
 
 
 def uni_report(path: Path, roots: list[Path]) -> dict[str, Any]:
@@ -1157,7 +1243,9 @@ def component_forensics_for_target(
     gaiji_profile = load_gaiji_profile(target.idx)
     components: list[dict[str, Any]] = []
     honmon_cache: bytes | None = None
+    seen_component_names: set[str] = set()
     for element in target.elements:
+        seen_component_names.add(element.filename.upper())
         role = component_role(element.filename, element.type)
         if role is None:
             continue
@@ -1175,14 +1263,16 @@ def component_forensics_for_target(
             )
             continue
         try:
-            if role in {"menu", "title", "text_index", "index"}:
+            if role in {"menu", "title", "text", "text_index", "index", "multi"}:
                 data = expand_sseddata_file(source)
             else:
                 data = b""
-            if role in {"menu", "title", "text_index"}:
+            if role in {"menu", "title", "text", "text_index"}:
                 row = text_component_report(target, roots, element, source, data, args, gaiji_profile)
             elif role == "index":
                 row = index_component_report(roots, element, source, data, gaiji_profile)
+            elif role == "multi":
+                row = multi_report(roots, element, source, data, gaiji_profile)
             elif role == "ga16":
                 row = ga16_report(roots, element, source)
             elif role == "colscr":
@@ -1204,6 +1294,40 @@ def component_forensics_for_target(
                     "role": role,
                     "type": f"{element.type:02x}",
                     "status": "parse_error",
+                    "error": str(exc),
+                }
+            )
+
+    for loose_name in ("RIGHT.DIC", "TOC.DIC", "IDXJUMP.DIC"):
+        if loose_name in seen_component_names:
+            continue
+        source = find_case_insensitive(target.idx.parent, loose_name)
+        if source is None:
+            continue
+        try:
+            header = parse_sseddata_header(source)
+            fake_element = SsedInfoElement(
+                index=-1,
+                multi=0,
+                type=int(header["kind"]),
+                start=int(header["start_block"]),
+                end=int(header["end_block"]),
+                data=b"",
+                filename=source.name,
+            )
+            data = expand_sseddata_file(source)
+            row = text_component_report(target, roots, fake_element, source, data, args, gaiji_profile)
+            row["status"] = "ok"
+            row["declared_in_ssedinfo"] = False
+            components.append(row)
+        except Exception as exc:
+            components.append(
+                {
+                    "filename": source.name,
+                    "role": component_role(source.name, 0x02) or "text",
+                    "type": "unknown",
+                    "status": "parse_error",
+                    "declared_in_ssedinfo": False,
                     "error": str(exc),
                 }
             )
@@ -1254,7 +1378,7 @@ def summarize_report(report: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         if component.get("status") != "ok":
             issue_components.append({"component": component.get("filename"), "role": role, "status": component.get("status")})
             continue
-        if role in {"menu", "title", "text_index"}:
+        if role in {"menu", "title", "text", "text_index"}:
             coverage = component.get("coverage", {})
             for key in (
                 "uncovered_bytes",
@@ -1265,6 +1389,10 @@ def summarize_report(report: dict[str, Any], out_dir: Path) -> dict[str, Any]:
                 "truncated_gaiji",
             ):
                 totals[f"text_{key}"] += int(coverage.get(key, 0) or 0)
+        elif role == "multi":
+            descriptor = component.get("descriptor", {})
+            totals["multi_records"] += int(descriptor.get("record_count", 0) or 0)
+            totals["multi_trailing_nonzero_bytes"] += int(descriptor.get("trailing_nonzero_bytes", 0) or 0)
         elif role == "index":
             totals["index_nonzero_residual_bytes"] += int(component.get("nonzero_residual_bytes", 0) or 0)
             totals["index_trailing_component_nonzero"] += int(component.get("trailing_component_nonzero", 0) or 0)
@@ -1351,10 +1479,23 @@ def extract_component_forensics_for_args(args: argparse.Namespace) -> list[dict[
         targets = [target for target in targets if target.dict_id in selected or target.idx.stem in selected]
     args.out_dir.mkdir(parents=True, exist_ok=True)
     task_args = worker_args(args)
+    completed = 0
+    total = len(targets)
+
+    def on_result(report: dict[str, Any]) -> None:
+        nonlocal completed
+        completed += 1
+        print(
+            f"component-forensics progress {completed}/{total}: {report.get('dict_id', '?')}",
+            file=sys.stderr,
+            flush=True,
+        )
+
     reports = parallel_map_ordered(
         _forensics_task,
         [(target, roots, args.out_dir, task_args) for target in targets],
         jobs=getattr(args, "jobs", 1),
+        on_result=on_result,
     )
     (args.out_dir / "summary.json").write_text(
         json.dumps(corpus_component_forensics_summary(reports, args.out_dir), ensure_ascii=False, indent=2),

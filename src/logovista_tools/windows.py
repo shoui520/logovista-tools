@@ -5,8 +5,10 @@ from __future__ import annotations
 import configparser
 import hashlib
 import html
+import os
 import re
 import sqlite3
+import struct
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +27,8 @@ SQLITE_MAGIC = b"SQLite format 3\x00"
 HEX_POINTER_RE = re.compile(r"^[0-9A-Fa-f]{8}$")
 NUMERIC_AUX_INDEX_RE = re.compile(r"^[0-9A-Fa-f]{8}\.idx$", re.IGNORECASE)
 VLPLJBL_RE = re.compile(r"^vlpljbl(?:$|[A-Za-z]$|\.(?:bin|exe)$)", re.IGNORECASE)
+HC_RENDERER_RE = re.compile(r"^HC([0-9A-Fa-f]{4})(?:\..*)?$", re.IGNORECASE)
+ASCII_STRING_RE = re.compile(rb"[\x20-\x7e]{5,}")
 
 
 @dataclass(frozen=True)
@@ -79,6 +83,60 @@ class VlpljblClassification:
     role: str
     decrypt_prefix_kind: str | None = None
     sqlite_tables: tuple[dict[str, Any], ...] = ()
+
+
+@dataclass(frozen=True)
+class PeImport:
+    """One imported PE function, by name or ordinal."""
+
+    name: str | None
+    ordinal: int | None = None
+
+
+@dataclass(frozen=True)
+class PeImportDll:
+    """One imported DLL and its imported functions."""
+
+    dll: str
+    functions: tuple[PeImport, ...]
+
+
+@dataclass(frozen=True)
+class PeSummary:
+    """Small PE summary extracted without optional third-party dependencies."""
+
+    kind: str
+    machine: str | None = None
+    pe_kind: str | None = None
+    timestamp: int | None = None
+    section_names: tuple[str, ...] = ()
+    export_dll_name: str | None = None
+    exports: tuple[str, ...] = ()
+    imports: tuple[PeImportDll, ...] = ()
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class HcRendererClassification:
+    """Forensic classification for one Windows ``HC????.dll`` HTML renderer."""
+
+    path: Path
+    code: str
+    expected_numeric_index: str
+    size: int
+    sha256: str | None
+    pe: PeSummary
+    exinfo_html_dll: str | None
+    exinfo_declares_this: bool | None
+    numeric_indexes: tuple[str, ...]
+    expected_numeric_index_present: bool
+    vlpljbl_siblings: tuple[str, ...]
+    dic_tokens: tuple[str, ...]
+    vlpljbl_tokens: tuple[str, ...]
+    html_templates: tuple[str, ...]
+    sql_snippets: tuple[str, ...]
+    image_templates: tuple[str, ...]
+    features: dict[str, bool]
 
 
 def exinfo_path_for_idx(idx: Path) -> Path | None:
@@ -296,12 +354,402 @@ def file_magic_kind(data: bytes) -> str:
     return "unknown"
 
 
+def hc_code_from_name(path: Path) -> str | None:
+    """Return the four-hex product/plugin code from an ``HC????`` filename."""
+
+    match = HC_RENDERER_RE.fullmatch(path.name)
+    if match is None:
+        return None
+    return match.group(1).upper()
+
+
+def expected_numeric_index_for_hc_code(code: str) -> str:
+    """Return the conventional eight-hex auxiliary index filename for HC code."""
+
+    return f"{int(code, 16):08X}.idx"
+
+
+def is_hc_renderer_path(path: Path) -> bool:
+    return path.is_file() and hc_code_from_name(path) is not None
+
+
+def _read_c_string(data: bytes, offset: int | None) -> str | None:
+    if offset is None or offset < 0 or offset >= len(data):
+        return None
+    end = data.find(b"\x00", offset)
+    if end < 0:
+        return None
+    return data[offset:end].decode("ascii", errors="replace")
+
+
+def _rva_to_offset(sections: list[dict[str, int | str]], rva: int) -> int | None:
+    for section in sections:
+        start = int(section["virtual_address"])
+        size = max(int(section["virtual_size"]), int(section["raw_size"]))
+        if start <= rva < start + size and int(section["raw_pointer"]):
+            return int(section["raw_pointer"]) + (rva - start)
+    return None
+
+
+def parse_pe_summary(path: Path) -> PeSummary:
+    """Parse enough PE metadata for renderer forensics.
+
+    This intentionally avoids a third-party PE dependency. It covers the normal
+    PE32 files observed in LogoVista Windows packages and reports parse errors
+    instead of raising when a future file is malformed or uses another shape.
+    """
+
+    data = path.read_bytes()
+    if not data.startswith(b"MZ"):
+        return PeSummary(kind=file_magic_kind(data[:64]))
+    try:
+        if len(data) < 0x40:
+            return PeSummary(kind="pe", error="short_mz_header")
+        pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
+        if pe_offset + 24 > len(data) or data[pe_offset : pe_offset + 4] != b"PE\x00\x00":
+            return PeSummary(kind="pe", error="missing_pe_signature")
+
+        machine, section_count, timestamp, _ptrsym, _nsym, optional_size, _chars = struct.unpack_from(
+            "<HHIIIHH", data, pe_offset + 4
+        )
+        optional_offset = pe_offset + 24
+        optional_magic = struct.unpack_from("<H", data, optional_offset)[0]
+        is_pe64 = optional_magic == 0x20B
+        if optional_magic not in {0x10B, 0x20B}:
+            return PeSummary(
+                kind="pe",
+                machine=f"{machine:04X}",
+                timestamp=timestamp,
+                error=f"unsupported_optional_header:{optional_magic:04X}",
+            )
+
+        data_dir_offset = optional_offset + (112 if is_pe64 else 96)
+        data_dirs: list[tuple[int, int]] = []
+        if data_dir_offset + 16 * 8 <= len(data):
+            for index in range(16):
+                data_dirs.append(struct.unpack_from("<II", data, data_dir_offset + index * 8))
+        else:
+            data_dirs = [(0, 0)] * 16
+
+        section_offset = pe_offset + 24 + optional_size
+        sections: list[dict[str, int | str]] = []
+        for index in range(section_count):
+            offset = section_offset + index * 40
+            if offset + 40 > len(data):
+                break
+            name = data[offset : offset + 8].split(b"\x00", 1)[0].decode("ascii", errors="replace")
+            virtual_size, virtual_address, raw_size, raw_pointer = struct.unpack_from("<IIII", data, offset + 8)
+            sections.append(
+                {
+                    "name": name,
+                    "virtual_size": virtual_size,
+                    "virtual_address": virtual_address,
+                    "raw_size": raw_size,
+                    "raw_pointer": raw_pointer,
+                }
+            )
+
+        export_dll_name: str | None = None
+        exports: list[str] = []
+        export_rva, _export_size = data_dirs[0]
+        if export_rva:
+            export_offset = _rva_to_offset(sections, export_rva)
+            if export_offset is not None and export_offset + 40 <= len(data):
+                (
+                    _characteristics,
+                    _export_timestamp,
+                    _major,
+                    _minor,
+                    export_name_rva,
+                    _base,
+                    _function_count,
+                    name_count,
+                    _address_functions,
+                    address_names,
+                    _address_ordinals,
+                ) = struct.unpack_from("<IIHHIIIIIII", data, export_offset)
+                export_dll_name = _read_c_string(data, _rva_to_offset(sections, export_name_rva))
+                name_pointer_offset = _rva_to_offset(sections, address_names)
+                if name_pointer_offset is not None:
+                    for index in range(min(name_count, 4096)):
+                        item_offset = name_pointer_offset + index * 4
+                        if item_offset + 4 > len(data):
+                            break
+                        name_rva = struct.unpack_from("<I", data, item_offset)[0]
+                        name = _read_c_string(data, _rva_to_offset(sections, name_rva))
+                        if name:
+                            exports.append(name)
+
+        imports: list[PeImportDll] = []
+        import_rva, _import_size = data_dirs[1]
+        if import_rva:
+            descriptor_offset = _rva_to_offset(sections, import_rva)
+            if descriptor_offset is not None:
+                while descriptor_offset + 20 <= len(data):
+                    original_first_thunk, _stamp, _chain, name_rva, first_thunk = struct.unpack_from(
+                        "<IIIII", data, descriptor_offset
+                    )
+                    if not any((original_first_thunk, _stamp, _chain, name_rva, first_thunk)):
+                        break
+                    dll = _read_c_string(data, _rva_to_offset(sections, name_rva)) or "<unknown>"
+                    thunk_rva = original_first_thunk or first_thunk
+                    thunk_offset = _rva_to_offset(sections, thunk_rva)
+                    functions: list[PeImport] = []
+                    if thunk_offset is not None:
+                        index = 0
+                        thunk_size = 8 if is_pe64 else 4
+                        ordinal_flag = 0x8000000000000000 if is_pe64 else 0x80000000
+                        unpack = "<Q" if is_pe64 else "<I"
+                        while thunk_offset + index * thunk_size + thunk_size <= len(data):
+                            value = struct.unpack_from(unpack, data, thunk_offset + index * thunk_size)[0]
+                            if value == 0:
+                                break
+                            if value & ordinal_flag:
+                                functions.append(PeImport(name=None, ordinal=int(value & 0xFFFF)))
+                            else:
+                                import_name_offset = _rva_to_offset(sections, int(value))
+                                functions.append(
+                                    PeImport(
+                                        name=_read_c_string(
+                                            data,
+                                            import_name_offset + 2 if import_name_offset is not None else None,
+                                        )
+                                    )
+                                )
+                            index += 1
+                            if index > 8192:
+                                break
+                    imports.append(PeImportDll(dll=dll, functions=tuple(functions)))
+                    descriptor_offset += 20
+
+        return PeSummary(
+            kind="pe",
+            machine={0x014C: "i386", 0x8664: "x86_64"}.get(machine, f"{machine:04X}"),
+            pe_kind="PE32+" if is_pe64 else "PE32",
+            timestamp=timestamp,
+            section_names=tuple(str(section["name"]) for section in sections),
+            export_dll_name=export_dll_name,
+            exports=tuple(exports),
+            imports=tuple(imports),
+        )
+    except (struct.error, ValueError, OSError) as exc:
+        return PeSummary(kind="pe", error=f"{type(exc).__name__}:{exc}")
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as infile:
         for chunk in iter(lambda: infile.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def pe_import_to_json(row: PeImport) -> dict[str, Any]:
+    return {"name": row.name, "ordinal": row.ordinal}
+
+
+def pe_import_dll_to_json(row: PeImportDll) -> dict[str, Any]:
+    return {"dll": row.dll, "functions": [pe_import_to_json(function) for function in row.functions]}
+
+
+def pe_summary_to_json(row: PeSummary) -> dict[str, Any]:
+    return {
+        "kind": row.kind,
+        "machine": row.machine,
+        "pe_kind": row.pe_kind,
+        "timestamp": row.timestamp,
+        "section_names": list(row.section_names),
+        "export_dll_name": row.export_dll_name,
+        "exports": list(row.exports),
+        "imports": [pe_import_dll_to_json(item) for item in row.imports],
+        "error": row.error,
+    }
+
+
+def _dedupe_preserve_order(values: list[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    rows: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        rows.append(value)
+    return tuple(rows)
+
+
+def _interesting_hc_strings(path: Path) -> dict[str, tuple[str, ...]]:
+    data = path.read_bytes()
+    strings = [match.group().decode("ascii", errors="replace") for match in ASCII_STRING_RE.finditer(data)]
+    all_text = "\n".join(strings)
+    dic_tokens = _dedupe_preserve_order(re.findall(r"\bDIC[0-9A-Fa-f]{4}\w*\b", all_text))
+    vlpljbl_tokens = _dedupe_preserve_order(re.findall(r"\bvlpljbl[A-Za-z.]*\b", all_text))
+    html_templates = _dedupe_preserve_order(
+        [
+            value
+            for value in strings
+            if "%s" in value and any(marker in value for marker in ("HTMLs", "body", "fix", "Media"))
+        ]
+    )
+    sql_snippets = _dedupe_preserve_order(
+        [
+            value
+            for value in strings
+            if value.upper().startswith("SELECT ")
+            and not any(
+                sqlite_internal in value
+                for sqlite_internal in (
+                    "sqlite_master",
+                    "sqlite_temp_master",
+                    "vacuum_db",
+                    "sqlite_stat1",
+                    "sqlite_sequence",
+                )
+            )
+        ]
+    )
+    image_templates = _dedupe_preserve_order(
+        [value for value in strings if "<img " in value.lower() or value.lower().startswith("<img")]
+    )
+    return {
+        "dic_tokens": dic_tokens,
+        "vlpljbl_tokens": vlpljbl_tokens,
+        "html_templates": html_templates,
+        "sql_snippets": sql_snippets,
+        "image_templates": image_templates,
+    }
+
+
+def _imported_function_names(pe: PeSummary, dll_name: str) -> set[str]:
+    wanted = dll_name.lower()
+    rows: set[str] = set()
+    for imported in pe.imports:
+        if imported.dll.lower() != wanted:
+            continue
+        for function in imported.functions:
+            if function.name:
+                rows.add(function.name)
+            elif function.ordinal is not None:
+                rows.add(f"#{function.ordinal}")
+    return rows
+
+
+def _hc_features(pe: PeSummary, sidecar_strings: dict[str, tuple[str, ...]]) -> dict[str, bool]:
+    exports = set(pe.exports)
+    ssdic_imports = _imported_function_names(pe, "SSDicLib.dll")
+    return {
+        "html_body_renderer": "epwing2HtmlBodydata" in exports,
+        "vertical_renderer": "epwing2HtmlBodydataVertical" in exports,
+        "lvelib_renderer": "epwing2HtmlBodydataLVELib" in exports,
+        "custom_gaiji_dib": "getCustomCharacterDIB" in exports,
+        "headword_modifier": any(name.startswith("modifyHeadword") for name in exports),
+        "panel_hooks": bool({"initializePanel", "finalizePanel"} & exports),
+        "sql_hooks": bool({"initializeSQL", "finalizeSQL"} & exports)
+        or bool({"SDicSQLSearchAndHtml", "SDicSQLSearchAndHtmlEx", "SDicExecSQLSearch"} & ssdic_imports),
+        "plugin_hooks": any(name.startswith("pluginFunction") for name in exports),
+        "user_data_hooks": bool({"openUserData", "closeUserData"} & exports),
+        "dictionary_original_search": any(name.startswith("execDicOrgSearch") for name in exports),
+        "fulltext_search": "execDicZenbunSearch" in exports,
+        "zip_media_export": "createMediaFileFromZip" in exports,
+        "uses_body_api": "SDicGetBodyData" in ssdic_imports,
+        "uses_picture_api": "SDicGetPictureData" in ssdic_imports,
+        "uses_gaiji_unicode_api": "SDicGetCustomCharacterUincode" in ssdic_imports,
+        "uses_gaiji_bitmap_api": "SDicGetCustomCharacterBitmap" in ssdic_imports,
+        "uses_menu_api": "SDicGetMenuData" in ssdic_imports,
+        "mentions_vlpljbl": bool(sidecar_strings["vlpljbl_tokens"]),
+    }
+
+
+def discover_hc_renderer_files(roots: list[Path]) -> list[Path]:
+    if not roots:
+        roots = [Path(".")]
+    rows: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        if root.is_file():
+            candidates = [root]
+        else:
+            candidates = []
+            for current_root, _dirs, filenames in os.walk(root):
+                for filename in filenames:
+                    if HC_RENDERER_RE.fullmatch(filename):
+                        candidates.append(Path(current_root) / filename)
+        for candidate in sorted(candidates):
+            if not is_hc_renderer_path(candidate):
+                continue
+            resolved = candidate.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            rows.append(resolved)
+    return rows
+
+
+def classify_hc_renderer_file(path: Path, *, compute_hash: bool = True) -> HcRendererClassification:
+    code = hc_code_from_name(path)
+    if code is None:
+        raise ValueError(f"not an HC renderer filename: {path}")
+    expected_numeric_index = expected_numeric_index_for_hc_code(code)
+    exinfo = exinfo_path_for_idx(path.parent / f"{path.parent.name.removeprefix('_DCT_')}.IDX")
+    parsed_exinfo = parse_exinfo(exinfo) if exinfo is not None else None
+    html_dll = parsed_exinfo.general.get("HTMLDLL") if parsed_exinfo is not None else None
+    # The sidecar rule here is simply sibling eight-hex-digit .idx files. Some
+    # packages declare them in EXINFO, some leave them unreferenced, and some HC
+    # renderers have no numeric sidecar at all.
+    numeric_indexes = tuple(
+        child.name
+        for child in sorted(path.parent.iterdir())
+        if child.is_file() and NUMERIC_AUX_INDEX_RE.fullmatch(child.name)
+    )
+    vlpljbl_siblings = tuple(
+        child.name for child in sorted(path.parent.iterdir()) if child.is_file() and is_vlpljbl_path(child)
+    )
+    pe = parse_pe_summary(path)
+    strings = _interesting_hc_strings(path)
+    return HcRendererClassification(
+        path=path.resolve(),
+        code=code,
+        expected_numeric_index=expected_numeric_index,
+        size=path.stat().st_size,
+        sha256=sha256_file(path) if compute_hash else None,
+        pe=pe,
+        exinfo_html_dll=html_dll,
+        exinfo_declares_this=(html_dll.lower() == path.name.lower()) if html_dll is not None else None,
+        numeric_indexes=numeric_indexes,
+        expected_numeric_index_present=expected_numeric_index.lower() in {name.lower() for name in numeric_indexes},
+        vlpljbl_siblings=vlpljbl_siblings,
+        dic_tokens=strings["dic_tokens"],
+        vlpljbl_tokens=strings["vlpljbl_tokens"],
+        html_templates=strings["html_templates"],
+        sql_snippets=strings["sql_snippets"],
+        image_templates=strings["image_templates"],
+        features=_hc_features(pe, strings),
+    )
+
+
+def hc_renderer_classification_to_json(row: HcRendererClassification) -> dict[str, Any]:
+    return {
+        "path": str(row.path),
+        "dict_dir": row.path.parent.name,
+        "name": row.path.name,
+        "code": row.code,
+        "expected_numeric_index": row.expected_numeric_index,
+        "size": row.size,
+        "sha256": row.sha256,
+        "pe": pe_summary_to_json(row.pe),
+        "exports": list(row.pe.exports),
+        "ssdic_imports": sorted(_imported_function_names(row.pe, "SSDicLib.dll")),
+        "exinfo_html_dll": row.exinfo_html_dll,
+        "exinfo_declares_this": row.exinfo_declares_this,
+        "numeric_indexes": list(row.numeric_indexes),
+        "expected_numeric_index_present": row.expected_numeric_index_present,
+        "vlpljbl_siblings": list(row.vlpljbl_siblings),
+        "dic_tokens": list(row.dic_tokens),
+        "vlpljbl_tokens": list(row.vlpljbl_tokens),
+        "html_templates": list(row.html_templates),
+        "sql_snippets": list(row.sql_snippets),
+        "image_templates": list(row.image_templates),
+        "features": row.features,
+    }
 
 
 def sqlite_table_summaries(db_path: Path) -> tuple[dict[str, Any], ...]:

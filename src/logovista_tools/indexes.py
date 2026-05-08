@@ -18,13 +18,14 @@ from .gaiji import load_gaiji_profile
 from .ssed import BLOCK_SIZE, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 
 
-INDEX_TYPES = {0x30, 0x60, 0x70, 0x71, 0x72, 0x80, 0x81, 0x90, 0x91, 0x92}
+INDEX_TYPES = {0x30, 0x60, 0x70, 0x71, 0x72, 0x80, 0x81, 0x90, 0x91, 0x92, 0xA1}
 BODY_ONLY_TAGGED_LEAF_TYPES = {0x30}
 BODY_ONLY_SIMPLE_LEAF_TYPES = {0x60}
 TAGGED_LEAF_TYPES = {0x70, 0x90}
 KW_LEAF_TYPES = {0x80}
 CR_LEAF_TYPES = {0x81}
 SIMPLE_LEAF_TYPES = {0x71, 0x72, 0x91, 0x92}
+MULTI_LEAF_TYPES = {0xA1}
 
 
 @dataclass(frozen=True)
@@ -692,6 +693,113 @@ def parse_kw_leaf_page(
     return rows, current_key, current_title, current_count_hint, groups, unknown
 
 
+def parse_multi_leaf_page(
+    component: str,
+    page: bytes,
+    page_index: int,
+    logical_block: int,
+    *,
+    current_key: str | None,
+    current_count_hint: int | None,
+    gaiji: str,
+    gaiji_map: dict[str, str],
+) -> tuple[list[LeafRow], str | None, int | None, int, int]:
+    """Parse type-0xa1 MULTI leaf pages.
+
+    This family is used by MULTI/MUL side indexes. Internal pages use the same
+    slot grammar as other index components. Leaf pages use tagged rows:
+
+    - ``00 len`` direct rows carry key bytes plus body/title pointer pair;
+    - ``80 len`` group rows carry a 4-byte target count and a shared key;
+    - ``c0`` target rows carry only a body/title pointer pair.
+    """
+
+    count = be16(page, 2)
+    pos = 4
+    rows: list[LeafRow] = []
+    groups = 0
+    unknown = 0
+    subrecord = 0
+
+    while subrecord < count and pos < len(page):
+        tag = page[pos]
+        if tag == 0 and (pos + 1 >= len(page) or page[pos + 1] == 0):
+            break
+
+        if tag == 0x00:
+            if pos + 2 > len(page):
+                unknown += 1
+                break
+            key_len = page[pos + 1]
+            if pos + 2 + key_len + 12 > len(page):
+                unknown += 1
+                break
+            key = decode_index_key(page[pos + 2 : pos + 2 + key_len], gaiji=gaiji, gaiji_map=gaiji_map)
+            pos += 2 + key_len
+            body, title = read_pointer_pair(page, pos)
+            pos += 12
+            rows.append(
+                LeafRow(
+                    component=component,
+                    page_index=page_index,
+                    logical_block=logical_block,
+                    row_index=len(rows) + 1,
+                    key=key,
+                    target_key=key,
+                    body=body,
+                    title=title,
+                    tagged=False,
+                )
+            )
+            subrecord += 1
+            continue
+
+        if tag == 0x80:
+            if pos + 6 > len(page):
+                unknown += 1
+                break
+            key_len = page[pos + 1]
+            if pos + 6 + key_len > len(page):
+                unknown += 1
+                break
+            current_count_hint = be32(page, pos + 2)
+            current_key = decode_index_key(page[pos + 6 : pos + 6 + key_len], gaiji=gaiji, gaiji_map=gaiji_map)
+            pos += 6 + key_len
+            groups += 1
+            subrecord += 1
+            continue
+
+        if tag == 0xC0:
+            if pos + 13 > len(page):
+                unknown += 1
+                break
+            body, title = read_pointer_pair(page, pos + 1)
+            key = current_key or ""
+            rows.append(
+                LeafRow(
+                    component=component,
+                    page_index=page_index,
+                    logical_block=logical_block,
+                    row_index=len(rows) + 1,
+                    key=key,
+                    target_key=key,
+                    body=body,
+                    title=title,
+                    tagged=True,
+                    target_count_hint=current_count_hint,
+                    continued_group=current_key is None,
+                )
+            )
+            pos += 13
+            subrecord += 1
+            continue
+
+        unknown += 1
+        break
+
+    return rows, current_key, current_count_hint, groups, unknown
+
+
 def scan_index_component(
     component_name: str,
     component_type: int,
@@ -809,6 +917,19 @@ def scan_index_component(
                 logical_block,
                 current_key=current_key,
                 current_title=current_title,
+                current_count_hint=current_count_hint,
+                gaiji=gaiji,
+                gaiji_map=gaiji_map,
+            )
+            result.search_groups += groups
+            result.unknown_leaf_bytes += unknown
+        elif component_type in MULTI_LEAF_TYPES:
+            leaf_rows, current_key, current_count_hint, groups, unknown = parse_multi_leaf_page(
+                component_name,
+                page,
+                page_index,
+                logical_block,
+                current_key=current_key,
                 current_count_hint=current_count_hint,
                 gaiji=gaiji,
                 gaiji_map=gaiji_map,

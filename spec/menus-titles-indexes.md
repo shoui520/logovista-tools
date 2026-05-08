@@ -77,6 +77,8 @@ The paired title/index roles observed so far are:
 0x07 BHTITLE.DIC  title stream for BHINDEX backward simple lookup rows
 0x03 KWTITLE.DIC  title stream for KWINDEX keyword groups/direct rows
 0x0a CRTITLE.DIC  title stream for CRINDEX cross-reference groups/direct rows
+0x09 BATITLE.DIC  alternate title stream observed in IGOSHO
+0x0d MUL*.DIC     title stream paired with 0xa1 MULTI selector indexes
 ```
 
 These are not full definitions, but they are important for search/index
@@ -116,16 +118,27 @@ Component types observed in `SSEDINFO`:
 0x72  BAINDEX.DIC  backward alternate/simple index
 0x80  KWINDEX.DIC  keyword index
 0x81  CRINDEX.DIC  cross-reference index
+0xa1  MUL*.DIC     MULTI selector index
 ```
 
-One observed `INDEX.DIC` outlier is not a B-tree index component:
-`KQSYNONM` declares component type `0x27` and its `INDEX.DIC` expands to a
-text-like stream. It is handled as a text component, not as a structured index
-page tree.
+Observed text-like sidecars and index-navigation helpers are not B-tree index
+components:
+
+```text
+0x02  RIGHT.DIC     rights/copyright text stream
+0x20  TOC.DIC       table-of-contents text stream
+0x28  IDXJUMP.DIC   index-jump text stream
+```
+
+KQSYNONM also declares a type-`0x27` `INDEX.DIC` outlier that expands to a
+text-like stream. These are handled as text components, not as structured index
+page trees. KCOMPEJ2 has a loose `RIGHT.DIC` `SSEDDATA` file that is not listed
+in its main `SSEDINFO` catalog.
 
 The toolkit parses the common `FK/FH/BK/BH` page formats, direct and grouped
 `KWINDEX` rows, direct and grouped `CRINDEX` rows, the body-only `0x30`/`0x60`
-variants, and simple alternate `0x72`/`0x92` pages. The layouts below were
+variants, simple alternate `0x72`/`0x92` pages, and the `0xa1` MULTI selector
+index variant. The layouts below were
 validated against Japanese, English, Spanish, French, science, medical, and
 collocation dictionaries, including HAESPJPN, GENIUSEB, HAFRAN, NANMED20,
 OUKOKU11, IPHYCHE5, KENCOLLO, KQJCOLLO, KOJIEN7, 45KAGAKU, and KQSYNONM.
@@ -237,6 +250,105 @@ offset  size  meaning
 This shape appears in 45KAGAKU `MUL2_1_2.DIC` / `MUL2_2_2.DIC`. The pointer
 rows are structurally complete; the one-byte flag is preserved as an observed
 field until renderer behavior gives it a stronger name.
+
+### MULTI Descriptor Components
+
+`MULTI*.DIC` components have type `0xff`. They are one-block selector
+descriptors for additional search modes, not text streams and not B-tree pages.
+They point at the associated `MUL*` title/index/menu components by type,
+logical start block, and block count.
+
+The descriptor header is:
+
+```text
+offset  size  meaning
+0x00    2     selector record count, big endian
+0x02    14    reserved/zero in observed files
+0x10    ...   selector records
+```
+
+Each selector record is variable length:
+
+```text
+offset  size  meaning
+0x00    1     component-reference count
+0x01    1     record subtype/reserved, observed 0x00
+0x02    30    null-padded JIS/gaiji selector label
+0x20    16*n  component references
+```
+
+Each 16-byte component reference is:
+
+```text
+offset  size  meaning
+0x00    1     component type
+0x01    1     subtype/reserved, observed 0x00
+0x02    4     component logical start block, big endian
+0x06    4     component block count, big endian
+0x0a    6     flags / selector metadata, preserved as raw hex
+```
+
+Across the observed 19 `MULTI*.DIC` files, all references match a declared
+`SSEDINFO` element by component type, start block, and block count, and all
+trailing bytes after the declared selector records are zero. Examples:
+
+```text
+GENIUSEB MULTI1  labels 単語1(成句)..単語4(成句)
+                 refs 0x0d MUL1_1_1.DIC + 0xa1 MUL1_1_2.DIC
+KQNEWEJ6 MULTI2  labels 成句1..成句4
+                 refs 0xa1 MUL2_1_1.DIC + 0x0d MUL2_1_2.DIC
+EJJE100  MULTI1  label 分類
+                 refs 0x01 MUL1_1_1.DIC + 0x05 MUL1_1_2.DIC + 0x91 MUL1_1_3.DIC
+```
+
+The same descriptor can point multiple selector labels at the same component
+pair. That appears to model multi-field search UI slots, for example
+`単語1(成句)` through `単語4(成句)`.
+
+### MULTI Selector Index Pages
+
+Type `0xa1` `MUL*.DIC` files are B-tree indexes used by `MULTI*.DIC`
+selectors. Branch pages use the normal index branch slot grammar. Leaf pages
+use tagged rows that differ from `0x90`/`0x70`: target rows do not carry target
+key text, only body/title pointer pairs.
+
+Direct rows:
+
+```text
+offset  size  meaning
+0x00    1     tag 0x00
+0x01    1     key byte length
+0x02    n     JIS/gaiji key bytes
+...     4     body logical block, big endian
+...     2     body offset in block, big endian
+...     4     title logical block, big endian
+...     2     title offset in block, big endian
+```
+
+Grouped rows:
+
+```text
+offset  size  meaning
+0x00    1     tag 0x80
+0x01    1     key byte length
+0x02    4     target count hint, big endian
+0x06    n     JIS/gaiji search key bytes
+```
+
+Target rows:
+
+```text
+offset  size  meaning
+0x00    1     tag 0xc0
+0x01    4     body logical block, big endian
+0x05    2     body offset in block, big endian
+0x07    4     title logical block, big endian
+0x0b    2     title offset in block, big endian
+```
+
+Pure target-continuation pages often start with page word `0x9000`; mixed
+group/direct pages often start with `0xd000`. The parser carries the current
+group key across pages, just like the tagged and keyword families.
 
 ### Tagged Leaf Pages
 

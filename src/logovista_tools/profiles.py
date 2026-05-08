@@ -93,6 +93,10 @@ def component_role(element: SsedInfoElement) -> str:
         return "index"
     if upper == "MENU.DIC" or element.type == MENU_TYPE:
         return "menu"
+    if element.type == 0xFF or upper.startswith("MULTI"):
+        return "multi_descriptor"
+    if element.type in {0x02, 0x20, 0x28} or upper in {"RIGHT.DIC", "TOC.DIC", "IDXJUMP.DIC"}:
+        return "text"
     if upper == "COLSCR.DIC" or element.type == COLSCR_TYPE:
         return "colscr"
     if upper == "PCMDATA.DIC" or element.type == PCMDATA_TYPE:

@@ -39,11 +39,13 @@ CONTROL_ARG_LENGTHS = {
     0x42: 0,
     0x43: 0,
     0x44: 10,
+    0x49: 10,
     0x4A: 16,
     0x4D: 18,
     0x62: 6,
     0x63: 6,
     0x64: 6,
+    0x69: 0,
     0xE0: 2,
     0xE2: 2,
 }
@@ -176,6 +178,7 @@ def control_tag_for_start(op: int) -> str | None:
         0x42: "link",
         0x43: "link",
         0x44: "link",
+        0x49: "link",
         0x4A: "link",
         0x4D: "media",
         0xE0: "bold",
@@ -195,6 +198,7 @@ def control_tag_for_end(op: int) -> str | None:
         0x62: "link",
         0x63: "link",
         0x64: "link",
+        0x69: "link",
         0x6A: "link",
         0x6D: "media",
         0xE1: "bold",
@@ -224,6 +228,7 @@ def decode_tokens(
         "sections": 0,
         "links": 0,
         "jis_pairs": 0,
+        "legacy_controls": 0,
     }
     i = 0
     while i < len(data):
@@ -236,6 +241,11 @@ def decode_tokens(
         if b == 0x0A:
             tokens.append(Break())
             i += 1
+            continue
+
+        if i + 1 < len(data) and data[i : i + 2] == b"\x11\x03":
+            stats["legacy_controls"] += 1
+            i += 2
             continue
 
         if b == 0x1F and i + 1 < len(data):

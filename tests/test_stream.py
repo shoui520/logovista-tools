@@ -43,10 +43,12 @@ from logovista_tools.indexes import (
     parse_cr_leaf_page,
     parse_internal_page,
     parse_kw_leaf_page,
+    parse_multi_leaf_page,
     parse_simple_leaf_page,
     parse_tagged_leaf_page,
 )
 from logovista_tools.menus import build_menu_tree, parse_menu_destination, parse_menu_stream, resolve_menu_destination
+from logovista_tools.multi import parse_multi_descriptor
 from logovista_tools.pcmdata import (
     make_riff_wave,
     parse_pcm_pointer,
@@ -215,6 +217,22 @@ def test_media_control_uses_18_byte_payload() -> None:
 
     assert tokens_to_text(tokens) == f"<media:{payload.hex()}>あ"
     assert stats["media"] == 1
+
+
+def test_toc_link_control_uses_10_byte_payload() -> None:
+    payload = bytes.fromhex("00010203000000040130")
+    tokens, stats = decode_tokens(b"\x1f\x49" + payload + bytes.fromhex("2422") + b"\x1f\x69")
+
+    assert tokens_to_text(tokens) == "あ"
+    assert stats["links"] == 1
+    assert stats["unknown_controls"] == 0
+
+
+def test_bare_title_separator_1103_is_nonprinting() -> None:
+    tokens, stats = decode_tokens(bytes.fromhex("242211032424"))
+
+    assert tokens_to_text(tokens) == "あい"
+    assert stats["legacy_controls"] == 1
 
 
 def test_link_start_uses_16_byte_payload_then_visible_text() -> None:
@@ -1338,3 +1356,82 @@ def test_parse_kw_leaf_page_direct_row() -> None:
     assert rows[0].key == "あ"
     assert rows[0].body == IndexPointer(1, 2)
     assert rows[0].title == IndexPointer(3, 4)
+
+
+def test_parse_multi_leaf_page_group_and_body_title_targets() -> None:
+    page = bytearray(2048)
+    page[0:2] = bytes.fromhex("d000")
+    page[2:4] = (3).to_bytes(2, "big")
+    page[4:12] = bytes.fromhex("8002000000022422")
+    page[12:25] = bytes.fromhex("c0000000100020000000030004")
+    page[25:38] = bytes.fromhex("c0000000110030000000040005")
+
+    rows, current_key, hint, groups, unknown = parse_multi_leaf_page(
+        "MUL1_1_2.DIC",
+        bytes(page),
+        1,
+        100,
+        current_key=None,
+        current_count_hint=None,
+        gaiji_map={},
+        gaiji="drop",
+    )
+
+    assert unknown == 0
+    assert groups == 1
+    assert hint == 2
+    assert current_key == "あ"
+    assert [row.key for row in rows] == ["あ", "あ"]
+    assert rows[0].body == IndexPointer(0x10, 0x20)
+    assert rows[0].title == IndexPointer(3, 4)
+    assert rows[1].body == IndexPointer(0x11, 0x30)
+    assert rows[1].title == IndexPointer(4, 5)
+
+
+def test_parse_multi_leaf_page_direct_row() -> None:
+    page = bytearray(2048)
+    page[0:2] = bytes.fromhex("d000")
+    page[2:4] = (1).to_bytes(2, "big")
+    page[4:8] = bytes.fromhex("00022422")
+    page[8:20] = bytes.fromhex("000000010002000000030004")
+
+    rows, current_key, hint, groups, unknown = parse_multi_leaf_page(
+        "MUL1_1_2.DIC",
+        bytes(page),
+        1,
+        100,
+        current_key=None,
+        current_count_hint=None,
+        gaiji_map={},
+        gaiji="drop",
+    )
+
+    assert unknown == 0
+    assert groups == 0
+    assert hint is None
+    assert current_key is None
+    assert rows[0].key == "あ"
+    assert rows[0].body == IndexPointer(1, 2)
+    assert rows[0].title == IndexPointer(3, 4)
+
+
+def test_parse_multi_descriptor_records_and_component_refs() -> None:
+    data = bytearray(2048)
+    data[0:2] = (1).to_bytes(2, "big")
+    data[0x10:0x12] = bytes.fromhex("0200")
+    data[0x12:0x18] = bytes.fromhex("4331386c2331")  # 単語1
+    data[0x30:0x40] = bytes.fromhex("0d000000542800001026010000000000")
+    data[0x40:0x50] = bytes.fromhex("a10000001bc30000021e010000000003")
+
+    descriptor = parse_multi_descriptor(bytes(data), gaiji="drop")
+
+    assert descriptor.record_count == 1
+    assert descriptor.trailing_nonzero_bytes == 0
+    assert descriptor.records[0].component_count == 2
+    assert descriptor.records[0].subtype == 0
+    assert descriptor.records[0].label == "単語1"
+    assert descriptor.records[0].refs[0].component_type == 0x0D
+    assert descriptor.records[0].refs[0].start_block == 0x5428
+    assert descriptor.records[0].refs[0].block_count == 0x1026
+    assert descriptor.records[0].refs[1].component_type == 0xA1
+    assert descriptor.records[0].refs[1].flags.hex() == "010000000003"

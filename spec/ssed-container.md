@@ -44,7 +44,11 @@ Component types observed so far:
 0x05  FHTITLE.DIC
 0x06  BKTITLE.DIC
 0x07  BHTITLE.DIC
+0x09  BATITLE.DIC alternate title stream
 0x0a  CRTITLE.DIC
+0x0d  MUL* title stream used by MULTI selectors
+0x20  TOC.DIC table-of-contents text stream
+0x28  IDXJUMP.DIC index-jump text stream
 0x30  KINDEX.DIC body-only tagged index
 0x60  HINDEX.DIC body-only simple index
 0x70  BKINDEX.DIC
@@ -55,11 +59,17 @@ Component types observed so far:
 0x90  FKINDEX.DIC
 0x91  FHINDEX.DIC
 0x92  FAINDEX.DIC alternate/simple forward index
+0xa1  MUL* multi-selector index
 0xd2  COLSCR.DIC media/image resource stream
 0xd8  PCMDATA.DIC audio/media resource stream
 0xf1  GA16FULL resource
 0xf2  GA16HALF resource
+0xff  MULTI*.DIC selector descriptor
 ```
+
+`RIGHT.DIC` is a text/copyright stream. It is observed both as declared
+component type `0x02` and, in KCOMPEJ2, as a loose one-block `SSEDDATA`
+sidecar that is not listed in the main `SSEDINFO` catalog.
 
 The exact semantic names vary by dictionary, but the broad pattern is stable:
 title components store readable headword/title streams, index components store

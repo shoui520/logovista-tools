@@ -54,9 +54,12 @@ from .ssed import (
 from .titles import extract_titles_for_idx
 from .windows import (
     aux_index_row_to_json,
+    classify_hc_renderer_file,
     classify_vlpljbl_file,
+    discover_hc_renderer_files,
     discover_numeric_aux_indexes,
     discover_vlpljbl_files,
+    hc_renderer_classification_to_json,
     iter_aux_index_specs,
     load_exinfo_for_idx,
     parse_aux_index_text,
@@ -996,6 +999,88 @@ def cmd_vlpljbl(args: argparse.Namespace) -> int:
     return 0
 
 
+def _hc_task(payload: tuple[Path, argparse.Namespace]) -> dict[str, Any]:
+    path, args = payload
+    row = classify_hc_renderer_file(path, compute_hash=not args.no_hash)
+    return hc_renderer_classification_to_json(row)
+
+
+def cmd_hc(args: argparse.Namespace) -> int:
+    for root in args.root or [Path(".")]:
+        print(f"hc discovery: scanning {root}", file=sys.stderr, flush=True)
+    paths = discover_hc_renderer_files(args.root or [Path(".")])
+    if not paths:
+        print("no HC???? renderer files found", file=sys.stderr)
+        return 1
+    print(f"hc discovery: found {len(paths)} renderer file(s)", file=sys.stderr, flush=True)
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    task_args = worker_args(args)
+    completed = 0
+    total = len(paths)
+
+    def log_summary(row: dict[str, Any]) -> None:
+        nonlocal completed
+        completed += 1
+        features = row["features"]
+        active = ",".join(
+            name
+            for name in (
+                "vertical_renderer",
+                "sql_hooks",
+                "panel_hooks",
+                "plugin_hooks",
+                "dictionary_original_search",
+                "fulltext_search",
+                "zip_media_export",
+            )
+            if features.get(name)
+        )
+        print(
+            f"hc progress {completed:3d}/{total}: {row['dict_dir']:12s} {row['name']:10s} "
+            f"exports={len(row['exports']):2d} numeric={'yes' if row['expected_numeric_index_present'] else 'no':3s} "
+            f"features={active or '-'}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    rows = parallel_map_ordered(
+        _hc_task,
+        [(path, task_args) for path in paths],
+        jobs=args.jobs,
+        on_result=log_summary,
+    )
+    hash_counts = Counter(str(row["sha256"]) for row in rows if row.get("sha256"))
+    export_signature_counts = Counter(tuple(row["exports"]) for row in rows)
+    name_counts = Counter(str(row["name"]) for row in rows)
+    feature_counts = Counter(
+        feature
+        for row in rows
+        for feature, enabled in row["features"].items()
+        if enabled
+    )
+    summary = {
+        "schema": "logovista-hc-renderer-audit-v1",
+        "total": len(rows),
+        "unique_hashes": len(hash_counts),
+        "duplicate_hash_groups": sum(1 for count in hash_counts.values() if count > 1),
+        "name_counts": dict(sorted(name_counts.items())),
+        "feature_counts": dict(sorted(feature_counts.items())),
+        "export_signature_counts": [
+            {"exports": list(exports), "count": count}
+            for exports, count in export_signature_counts.most_common()
+        ],
+        "with_expected_numeric_index": sum(1 for row in rows if row["expected_numeric_index_present"]),
+        "with_any_numeric_index": sum(1 for row in rows if row["numeric_indexes"]),
+        "with_vlpljbl_siblings": sum(1 for row in rows if row["vlpljbl_siblings"]),
+        "exinfo_declares_this": sum(1 for row in rows if row["exinfo_declares_this"] is True),
+        "rows": rows,
+    }
+    write_json(args.out_dir / "summary.json", summary)
+    if args.json:
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
+
+
 def _spindex_task(payload: tuple[Path, Path, int | None]) -> dict[str, Any]:
     path, out_dir, limit = payload
     dict_out = out_dir / path.parent.name
@@ -1326,6 +1411,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_vlpljbl.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
     add_jobs_argument(p_vlpljbl)
     p_vlpljbl.set_defaults(func=cmd_vlpljbl)
+
+    p_hc = sub.add_parser(
+        "hc",
+        help="Inspect Windows HC????.dll HTML renderer plugins and their sidecars.",
+    )
+    p_hc.add_argument("root", type=Path, nargs="*", help="Collection root, dictionary directory, or direct HC????.dll file.")
+    p_hc.add_argument("--out-dir", type=Path, default=Path("logovista-hc-audit"))
+    p_hc.add_argument("--no-hash", action="store_true", help="Skip SHA-256 calculation for faster lightweight scans.")
+    p_hc.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    add_jobs_argument(p_hc)
+    p_hc.set_defaults(func=cmd_hc)
 
     p_spindex = sub.add_parser("spindex", help="Inspect standalone SPINDEX.DIC suffix-index resources.")
     p_spindex.add_argument("root", type=Path, nargs="*", help="Collection directory or direct SPINDEX.DIC path.")

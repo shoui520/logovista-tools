@@ -160,6 +160,26 @@ The pass added several concrete format details:
   `80`/`c0` rows.
 - Some simple leaf pages are keyless 13-byte pointer tables: 6-byte body
   pointer, one flag byte, and 6-byte title pointer.
+- `0xa1` `MUL*.DIC` files are MULTI selector indexes. Branch pages use the
+  normal index branch grammar; leaf pages use `00` direct rows, `80` grouped
+  rows with a 4-byte target count, and compact `c0` target rows carrying only
+  body/title pointer pairs. All seven observed `0xa1` files parse with zero
+  nonzero residual bytes.
+- `0xff` `MULTI*.DIC` files are selector descriptor tables. The corpus has 19
+  observed files and 58 selector records; every component reference matched a
+  declared `SSEDINFO` element by type, start block, and block count, and every
+  descriptor had zero nonzero trailing bytes.
+- `0x09` `BATITLE.DIC` and `0x0d` `MUL*.DIC` are additional title stream
+  component types. They decode as the same JIS/control text-stream family as
+  the common `0x03`..`0x0a` title streams.
+- `0x02` `RIGHT.DIC`, `0x20` `TOC.DIC`, and `0x28` `IDXJUMP.DIC` are text-like
+  sidecar streams. KCOMPEJ2 also has a loose `RIGHT.DIC` that is valid
+  one-block `SSEDDATA` but is not declared in the main SSEDINFO catalog.
+- IBIO4VRS `TOC.DIC` uses a `1f49` / `1f69` internal-link pair. `1f49` carries
+  10 bytes: four outline/path bytes followed by a six-byte body pointer.
+- KQNEWEJ6 `0x0d` multi-title streams use a bare `11 03` nonprinting separator
+  between title rows. The exact two-byte sequence is now accounted for as a
+  legacy title separator; lone `0x11` bytes remain reportable anomalies.
 - Branch-page slot size uses the full low byte:
   `slot_size = (page_word & 0xff) + 4`. The upper byte/bits are page flags, and
   valid observed slots include 6-byte rows.
@@ -440,10 +460,124 @@ unknown_controls:       0
 
 ## Windows Packages
 
-Windows packages checked directly now include SINMEI7, HAESPJPN, IWKOKUG8,
-EJJE200, and DAIJIRN4. They share the same SSED/EPWING-like core as the mobile
-packages where matching copies are available, but add Windows app sidecars
-around it.
+Windows packages share the same SSED/EPWING-like core as the mobile packages
+where matching copies are available, but add Windows app sidecars around it.
+The current Windows SSED corpus is broad enough to separate general wrapper
+rules from one-off product behavior.
+
+### Windows `HC????.dll` HTML Renderer Plugins
+
+Windows SSED packages usually set `HTML=1` and declare a product renderer in
+`EXINFO.INI` with `HTMLDLL=HC????.dll`. The `HC` suffix is a four-hex product or
+plugin code. The official viewer also ships replacement renderers under
+`fix/<eight-hex-id>/HC????.dll`; for example the OXFPEU4/EJJE200 install has
+`fix/00000020/HC0020.dll` and other legacy renderers alongside the product
+`DIC/EJJE200/HC014F.dll`.
+
+Corpus audit over `/mnt/j/Agents/CodexMaxJ/LOGOVISTA_SSED_DICTS_WINDOWS` found:
+
+```text
+HC files:                         145
+unique SHA-256 binaries:          105
+EXINFO HTMLDLL exact declarations: 137
+PE architecture:                  all PE32 / Intel i386 DLLs
+imports shared by every HC DLL:   SSDicLib.dll, MSVCP60.dll, MSVCRT.dll, KERNEL32.dll
+exports shared by every HC DLL:   epwing2HtmlBodydata
+```
+
+The missing `EXINFO` cases in this corpus are incomplete/shared GEN2002-GEN2009
+copies that still carry `HC009B.dll`. Every `EXINFO.INI` that declares
+`HTMLDLL` in the corpus points at the sibling HC DLL exactly.
+
+The HC DLL is not the raw dictionary container. It is a product-specific HTML
+renderer plugin loaded by the Windows browser. Static evidence from the official
+viewer binaries supports this:
+
+- `Dic.dll` and `HtmlConvert.dll` import `LoadLibraryA`/`GetProcAddress`.
+- `SSDicLib.dll` exports plugin bridge functions `SDicPluginFunction`,
+  `SDicPluginFunction2nd`, and `SDicPluginFunction3rd`.
+- `SSDicLib.dll` exports the raw services the HC plugins import, including
+  `SDicGetBodyData`, `SDicGetPictureData`, `SDicGetCustomCharacterBitmap`,
+  `SDicGetCustomCharacterUincode`, `SDicGetMenuData`, `SDicExecIndexSearch`,
+  `SDicSQLSearchAndHtml`, and `SDicSQLSearchAndHtmlEx`.
+
+Observed HC plugin feature counts:
+
+```text
+html_body_renderer             145   epwing2HtmlBodydata
+vertical_renderer              115   epwing2HtmlBodydataVertical
+uses_gaiji_unicode_api         124   SDicGetCustomCharacterUincode
+uses_gaiji_bitmap_api          120   SDicGetCustomCharacterBitmap
+uses_body_api                   96   SDicGetBodyData
+uses_picture_api                87   SDicGetPictureData
+headword_modifier               68   modifyHeadword / modifyHeadwordEx / modifyHeadwordAddr
+custom_gaiji_dib                66   getCustomCharacterDIB
+sql_hooks                       44   initializeSQL/finalizeSQL or SQL search API imports
+dictionary_original_search      29   execDicOrgSearch / execDicOrgSearchEx
+plugin_hooks                    22   pluginFunction* exports
+user_data_hooks                 22   openUserData/closeUserData
+fulltext_search                 16   execDicZenbunSearch
+panel_hooks                     12   initializePanel/finalizePanel
+uses_menu_api                    2   SDicGetMenuData
+zip_media_export                 1   createMediaFileFromZip, observed in PROYAL53
+lvelib_renderer                  1   epwing2HtmlBodydataLVELib, observed in GENIUSEB
+```
+
+Shared binaries are real. The largest duplicate groups are:
+
+| Count | HC DLL | Meaning |
+|---:|---|---|
+| 30 | `HC0190.dll` | Shared by the `SIZK0101` through `SIZK0605` package set. |
+| 10 | `HC009B.dll` | Shared by `GEN2001` through `GEN2010`. |
+| 2 | `HC00A0.dll` | Shared by `GKBUSINE` and `GKTRAVEL`. |
+| 2 | `HC0048.dll` | Shared by `SPEECH` and `TEGAMI`. |
+
+Observed export signature variants:
+
+| Count | Export signature | Representative dictionaries |
+|---:|---|---|
+| 54 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical` | `BMANNER`, `GEN2001`, `GEN2002`, `GEN2003`, `GEN2004`, `GEN2005`, `GEN2006`, `GEN2007`, ... (54 total) |
+| 17 | `epwing2HtmlBodydata` | `GKCEREMO`, `GKGOGEN`, `GKKEIGO`, `GKSAHOU`, `GKTISIKI`, `HKDKSR10`, `HKEBMBOK`, `HKKIGAKU`, ... (17 total) |
+| 15 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`getCustomCharacterDIB`<br>`modifyHeadword` | `GEN2015`, `GEN2016`, `GEN2018`, `GEN2019`, `GEN2020`, `GEN2021`, `GENMEM1`, `GENMEM2`, ... (15 total) |
+| 5 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearchEx`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`getDicOrgFontEx`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction2nd` | `DAIJIRN4`, `IWKOKUG8`, `SINJIGEN`, `YHOUGO5`, `YUPSYCHO` |
+| 4 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadword` | `KQEBHOU`, `NKGORIN2`, `Readers3`, `SINMEI7` |
+| 4 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`getCustomCharacterDIB` | `Dconci87`, `GKKANAN3`, `GKKANYOK`, `KANJIGN5` |
+| 2 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction` | `HAFRAN`, `NANMED20` |
+| 2 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearchEx`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`getDicOrgFont`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction2nd` | `KENROWA`, `KOJIEN7` |
+| 2 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction2nd` | `CJJC160`, `KJJK100` |
+| 2 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`openUserData`<br>`pluginFunction` | `GKBUSINE`, `GKTRAVEL` |
+| 2 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx` | `RDRSP2`, `RPLUSREV` |
+| 2 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearchEx`<br>`finalizePanel`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializePanel`<br>`initializeSQL`<br>`modifyHeadwordEx` | `HAESPJPN`, `PROYAL43` |
+| 2 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`finalizePanel`<br>`getCustomCharacterDIB`<br>`initializePanel`<br>`modifyHeadword` | `YUCOGPSY`, `YUECONO5` |
+| 2 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`finalizePanel`<br>`getCustomCharacterDIB`<br>`initializePanel`<br>`modifyHeadwordEx` | `KQCOLEXP`, `KQJCOLLO` |
+| 2 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`getCustomCharacterDIB`<br>`modifyHeadwordEx` | `DCONCI98`, `STEDMAN6` |
+| 2 | `epwing2HtmlBodydata`<br>`modifyHeadwordEx` | `KENE7J5`, `KQNEWJE5` |
+| 1 | `closeUserData`<br>`createMediaFileFromZip`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearchEx`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`getDicOrgFont`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction2nd` | `PROYAL53` |
+| 1 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData` | `HOUGAKU5` |
+| 1 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction` | `BRINEN15` |
+| 1 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearchEx`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData` | `HABGESPA` |
+| 1 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearchEx`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction2nd` | `JSSAURU2` |
+| 1 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearchEx`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction2nd`<br>`pluginFunction3rd` | `ISUGAKU4` |
+| 1 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction` | `PRMEDAB7` |
+| 1 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadword`<br>`openUserData`<br>`pluginFunction` | `GKKNJPZL` |
+| 1 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction` | `NGYOKTUK` |
+| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataLVELib`<br>`execDicOrgSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx` | `GENIUSEB` |
+| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`finalizePanel`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializePanel`<br>`initializeSQL`<br>`modifyHeadword` | `KQDENTAL` |
+| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`finalizePanel`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializePanel`<br>`initializeSQL`<br>`modifyHeadwordEx` | `KQLATINO` |
+| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`getDicOrgFont`<br>`initializeSQL`<br>`modifyHeadwordEx` | `ARCHSIC4` |
+| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadword`<br>`pluginFunction` | `MEIKYOU2` |
+| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx` | `GENKANA5` |
+| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`finalizePanel`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`getDicOrgFont`<br>`initializePanel`<br>`initializeSQL`<br>`modifyHeadwordEx` | `ZYAKUKOG` |
+| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`getDicOrgFont`<br>`initializeSQL`<br>`modifyHeadword` | `IWKOKU7N` |
+| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`modifyHeadword` | `Gen2014` |
+| 1 | `epwing2HtmlBodydata`<br>`execDicOrgSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadword` | `GENIUS43` |
+| 1 | `epwing2HtmlBodydata`<br>`finalizePanel`<br>`getCustomCharacterDIB`<br>`initializePanel`<br>`modifyHeadwordEx` | `BRI2019P` |
+| 1 | `epwing2HtmlBodydata`<br>`finalizePanel`<br>`initializePanel`<br>`modifyHeadword` | `BRI2014` |
+| 1 | `epwing2HtmlBodydata`<br>`finalizePanel`<br>`initializePanel`<br>`modifyHeadwordEx` | `BRI2016` |
+| 1 | `epwing2HtmlBodydata`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`getDicOrgFont`<br>`initializeSQL`<br>`modifyHeadwordEx` | `ZUKAIHO4` |
+| 1 | `epwing2HtmlBodydata`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`pluginFunction` | `EJJE200` |
+| 1 | `epwing2HtmlBodydata`<br>`getCustomCharacterDIB`<br>`modifyHeadwordEx` | `IBIO5` |
+| 1 | `epwing2HtmlBodydata`<br>`modifyHeadwordAddr` | `KQSYNONM` |
 
 ### Numeric `00000xxx.idx` Sidecar Trees
 
@@ -479,11 +613,15 @@ Pointer semantics:
   selector ID; in HAESPJPN these map to `西和ABC順`, `和西50音順`, and
   `動詞活用表`.
 
-The filename usually matches the product/plugin code and the Windows renderer
-DLL where present: `0000013A.idx` pairs with `HC013A.dll`, `00000135.idx` with
-`HC0135.dll`, `00000152.idx` with `HC0152.dll`, `0000015E.IDX` with
-`HC015E.dll`, and so on. This is a product identifier, not a universal index
-type.
+The filename often matches the product/plugin code used by the Windows renderer
+DLL, but this is a convention rather than a requirement. In the current Windows
+SSED corpus, 82 of 145 HC-bearing packages have at least one sibling numeric
+index and 78 have the exact expected name, computed as the HC code padded to
+eight hex digits (`HC013A.dll` -> `0000013A.idx`). Four packages carry a numeric
+index whose code differs from the HC DLL (`GEN2001`, `GEN2009`, `GKBUSINE`, and
+`SPEECH`), and 63 packages have no numeric sidecar at all. `EXINFO.INI`
+`HTMLDLL`, not the numeric index filename, is the authoritative HC renderer
+link.
 
 Observed corpus examples:
 

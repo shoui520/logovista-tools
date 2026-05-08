@@ -331,6 +331,19 @@ def decode_lossless_spans(
             i += length
             continue
 
+        if i + 1 < len(data) and data[i : i + 2] == b"\x11\x03":
+            raw = data[i : i + 2]
+            result.stats["controls"] += 1
+            result.stats["known_controls"] += 1
+            result.stats["legacy_controls"] += 1
+            _bump(result.control_ops, "bare_1103")
+            _add_span(
+                result,
+                Span("control", i, i + 2, _span_raw_hex(result, raw), op="bare_1103", tag="title-separator"),
+            )
+            i += 2
+            continue
+
         if b == 0x0A:
             raw = data[i : i + 1]
             result.stats["breaks"] += 1

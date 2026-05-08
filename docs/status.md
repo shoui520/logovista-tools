@@ -20,7 +20,11 @@ LogoVista dictionary model.
 - Common `*TITLE.DIC` extraction.
 - Observed `*INDEX.DIC` branch-page and leaf-row parsing for forward,
   backward, keyword, cross-reference, body-only, alternate, and text-like
-  index components.
+  index components, including `0xa1` MULTI selector indexes.
+- `MULTI*.DIC` selector descriptor parsing and cross-checking against declared
+  `SSEDINFO` component records.
+- Text-like `RIGHT.DIC`, `TOC.DIC`, and `IDXJUMP.DIC` sidecar decoding,
+  including the `1f49` / `1f69` TOC link control pair.
 - Dictionary-local `.uni` gaiji mapping, including UTF-16 surrogate-pair
   sequences, older 12-byte `.uni` files, and explicit trailer accounting.
 - `GA16HALF` / `GA16FULL` bitmap header parsing, glyph slicing, and PNG
@@ -43,6 +47,10 @@ LogoVista dictionary model.
   and block/offset body DBs.
 - Windows `EXINFO.INI` parsing and CP932 auxiliary text-index extraction,
   including sibling eight-hex-digit `00000xxx.idx` sidecar trees.
+- Windows `HC????.dll` renderer plugin classification, including PE
+  import/export extraction, `SSDicLib.dll` API usage, `EXINFO` `HTMLDLL`
+  correlation, numeric-index correlation, `vlpljbl*` companion names, and
+  embedded SQL/HTML/image template strings.
 - Windows renderer SQLite extraction through raw HONMON ID anchors and
   `t_contents` rows, with optional `media` BLOB export.
 - Android body DB extraction through raw HONMON ID anchors and the observed

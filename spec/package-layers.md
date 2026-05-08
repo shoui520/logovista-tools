@@ -35,6 +35,51 @@ LVED      main.data or *.dbc, WebView2 viewer files, sqlcipher.dll,
           plugin DLL/assembly resources
 ```
 
+## Windows HC Renderer Plugins
+
+Windows SSED packages usually declare an HTML renderer in `EXINFO.INI`:
+
+```ini
+[GENERAL]
+HTML=1
+HTMLDLL=HC014F.dll
+```
+
+`HC????.dll` files are PE32/i386 product renderer plugins, not dictionary
+containers. The official Windows browser loads them through the generic
+renderer/bridge layer: `Dic.dll` and `HtmlConvert.dll` import
+`LoadLibraryA`/`GetProcAddress`, while `SSDicLib.dll` exports bridge functions
+such as `SDicPluginFunction`, `SDicPluginFunction2nd`, and
+`SDicPluginFunction3rd`.
+
+The stable entrypoint is `epwing2HtmlBodydata`, exported by every HC plugin
+observed in the Windows SSED corpus. Other exports are optional feature hooks:
+
+```text
+epwing2HtmlBodydataVertical   vertical HTML rendering
+getCustomCharacterDIB         renderer-side gaiji bitmap generation
+modifyHeadword*               headword/display-key rewrite hooks
+initializeSQL/finalizeSQL     renderer/app SQLite setup
+execDicOrgSearch*             dictionary-specific search UI
+execDicZenbunSearch           full-text search UI
+initializePanel/finalizePanel panel UI
+pluginFunction*               product-specific bridge hooks
+openUserData/closeUserData    sidecar/user-data lifecycle
+createMediaFileFromZip        ziptomedia extraction, observed in PROYAL53
+```
+
+HC plugins import raw services from `SSDicLib.dll`, commonly
+`SDicGetBodyData`, `SDicGetPictureData`, `SDicGetCustomCharacterBitmap`,
+`SDicGetCustomCharacterUincode`, and `SDicGetDictPath`. This makes them useful
+renderer-behavior evidence: embedded strings reveal the HTML/CSS/image templates
+the official browser used, and imports show which raw APIs a product needed.
+They are not, however, a substitute for parsing HONMON/INDEX/TITLE resources.
+
+Numeric sidecar names often share the HC product code
+(`HC013A.dll` -> `0000013A.idx`), but this is a convention. `EXINFO.INI`
+`HTMLDLL` is the authoritative renderer link; some HC-bearing packages have no
+numeric index and a few have a numeric index whose code differs from the HC DLL.
+
 Observed Windows `vlpljbl*` names are not one format. Content classification
 is required before interpreting them:
 
