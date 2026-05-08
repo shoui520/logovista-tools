@@ -14,6 +14,7 @@ from .audit import extract_audit_for_sources
 from .capability import extract_capability_matrix_for_args
 from .colscr import extract_colscr_for_sources
 from .component_forensics import extract_component_forensics_for_args
+from .decoded_model import dump_package_model_for_path, write_package_model
 from .entries import discover_dictionaries, extract_dictionary
 from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
@@ -1278,6 +1279,23 @@ def cmd_sizk(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dump_package_model(args: argparse.Namespace) -> int:
+    model = dump_package_model_for_path(args.root, args)
+    out_path = write_package_model(model, args.out_dir)
+    print(
+        f"{model['package']['dict_id']:12s} "
+        f"family={model['classification'].get('package_family')} "
+        f"platform={model['classification'].get('platform')} "
+        f"honmon={model['classification'].get('honmon_shape')} "
+        f"issues={len(model.get('inconsistencies', []))} "
+        f"out={out_path}",
+        file=sys.stderr,
+    )
+    if args.json:
+        print(json.dumps(model, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
     rows = extract_audit_for_sources(args)
     if args.json:
@@ -1648,6 +1666,71 @@ def build_parser() -> argparse.ArgumentParser:
     p_sizk.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
     add_jobs_argument(p_sizk)
     p_sizk.set_defaults(func=cmd_sizk)
+
+    p_model = sub.add_parser(
+        "dump-package-model",
+        help="Emit one Decoded LogoVista Model v0 JSON report for one dictionary package.",
+    )
+    p_model.add_argument("root", type=Path, help="Dictionary directory or direct .IDX path.")
+    p_model.add_argument("--dict", help="Dictionary id to select when root contains multiple dictionaries.")
+    p_model.add_argument("--out-dir", type=Path, default=Path("logovista-package-model"))
+    p_model.add_argument(
+        "--parse-mode",
+        choices=("lenient", "forensic", "strict"),
+        default="forensic",
+        help="Lossless span parser mode for HONMON entry samples.",
+    )
+    p_model.add_argument(
+        "--entry-limit",
+        type=int,
+        default=25,
+        help="Number of HONMON entries with spans to embed; use 0 for all entries.",
+    )
+    p_model.add_argument(
+        "--profile-max-slices",
+        type=int,
+        default=200,
+        help="Number of HONMON slices sampled for profile aggregate metrics; use 0 for all.",
+    )
+    p_model.add_argument("--title-limit", type=int, default=200, help="Title rows emitted into the model sample pass; 0 = all.")
+    p_model.add_argument("--index-limit", type=int, default=200, help="Index rows emitted into the model sample pass; 0 = all.")
+    p_model.add_argument("--menu-limit", type=int, default=200, help="Menu rows emitted into the model sample pass; 0 = all.")
+    p_model.add_argument("--media-limit", type=int, default=0, help="COLSCR/PCMDATA refs scanned; 0 = all.")
+    p_model.add_argument("--sample-limit", type=int, default=20, help="Rows embedded from title/index/menu JSONL outputs.")
+    p_model.add_argument("--sidecar-sample-limit", type=int, default=20, help="Rows embedded from Windows auxiliary sidecars.")
+    p_model.add_argument("--max-issue-samples", type=int, default=50)
+    p_model.add_argument("--no-spans", dest="include_spans", action="store_false", help="Omit entry span arrays.")
+    p_model.add_argument("--no-raw", dest="include_raw", action="store_false", help="Omit raw_hex from embedded spans.")
+    p_model.add_argument(
+        "--no-padding-spans",
+        dest="include_padding_spans",
+        action="store_false",
+        help="Count NUL padding but omit padding spans from entry samples.",
+    )
+    p_model.add_argument(
+        "--include-internal-indexes",
+        action="store_true",
+        help="Include binary-search internal index rows in index samples.",
+    )
+    p_model.add_argument(
+        "--deep-sidecars",
+        action="store_true",
+        help="Open/decrypt vlpljbl SQLite sidecars for schema roles. Can be slow on huge Windows packages.",
+    )
+    p_model.add_argument(
+        "--include-playback-rows",
+        action="store_true",
+        help="Embed SIZK playback rows instead of summary-only playback metadata.",
+    )
+    p_model.add_argument("--no-hash", action="store_true", help="Skip component/sidecar SHA-256 hashing.")
+    p_model.add_argument("--json", action="store_true", help="Also print the full model JSON.")
+    p_model.set_defaults(
+        include_spans=True,
+        include_raw=True,
+        include_padding_spans=True,
+        include_internal_indexes=False,
+        func=cmd_dump_package_model,
+    )
 
     p_audit = sub.add_parser("audit-honmon", help="Audit raw HONMON/IDX readability without SQLite bodies.")
     p_audit.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")

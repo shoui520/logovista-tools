@@ -183,6 +183,12 @@ Dump lossless span JSONL for entry-level reverse engineering:
 logovista-tools dump-ir /path/to/LogoVista --dict HAESPJPN --limit 10 --out-dir out/ir
 ```
 
+Dump one package-level decoded model report:
+
+```bash
+logovista-tools dump-package-model /path/to/_DCT_HAESPJPN --out-dir out/package-model
+```
+
 Extract readable body-stream entries:
 
 ```bash
@@ -262,7 +268,7 @@ The full command reference lives in [docs/commands.md](docs/commands.md).
 |---|---|
 | [Format Notes Index](spec/README.md) | Overview of the spec-style notes. |
 | [Package Layers](spec/package-layers.md) | Raw core files and iOS/Android/Windows wrappers. |
-| [LV-IR v0 Draft](spec/lv-ir-v0.md) | Versioned decoded dictionary model for writer/exporter work. |
+| [Decoded LogoVista Model v0](spec/decoded-model-v0.md) | Draft package-level model for components, addresses, entries, spans, gaiji, media, indexes, titles, menus, sidecars, and issues. |
 | [SSED Container](spec/ssed-container.md) | `SSEDINFO`, `SSEDDATA`, encryption, and expansion. |
 | [Text Streams and Body Storage](spec/text-streams.md) | `HONMON.DIC`, entry slicing, dense HONMON, `DictFULLDB`, outliers. |
 | [Menus, Titles, and Indexes](spec/menus-titles-indexes.md) | `MENU.DIC`, `*TITLE.DIC`, and `*INDEX.DIC`. |

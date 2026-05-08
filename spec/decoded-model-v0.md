@@ -1,11 +1,11 @@
-# LV-IR v0 Draft
+# Decoded LogoVista Model v0 Draft
 
-`LV-IR v0` is the draft intermediate representation for decoded
+The Decoded LogoVista Model v0 is the draft internal model for decoded
 LogoVista/SystemSoft dictionaries.
 
-The goal is not to invent a new interchange format yet. The goal is to give
-parsers, validators, exporters, and future writer experiments one shared model
-for the facts recovered from a package.
+The goal is not to invent a new interchange format. The goal is to give
+parsers, validators, corpus audits, future exporters, and future writer
+experiments one shared model for the facts recovered from a package.
 
 This page is a draft contract. It is allowed to change while marked `v0`, but
 new parser/exporter work should target this model rather than command-specific
@@ -14,9 +14,9 @@ JSON shapes.
 ## Status
 
 ```text
-name:        LV-IR
+name:        Decoded LogoVista Model
 version:     0 draft
-scope:       decoded LogoVista/SSED and LVED dictionary packages
+scope:       decoded LogoVista dictionary packages and related package families
 stability:   draft; not frozen
 encoding:    JSON-compatible data model, UTF-8 when serialized
 principle:   preserve raw provenance before renderer interpretation
@@ -24,7 +24,7 @@ principle:   preserve raw provenance before renderer interpretation
 
 Current command outputs map into parts of this model:
 
-| Current command | LV-IR coverage |
+| Current command | Model coverage |
 | --- | --- |
 | `profile` | package, component, body-source, index summary, decode metrics |
 | `honmon-bytes` | text-stream coverage and issue metrics |
@@ -37,8 +37,8 @@ Current command outputs map into parts of this model:
 | `colscr` / `pcmdata` | media references and media records |
 | `fulldb` / `rendererdb` / `lved` | dereferenced body records from sidecar stores |
 
-`dump-ir` currently emits `logovista-lossless-entry-v1`. Treat that as an
-entry-span subset of LV-IR, not as the full model.
+`dump-ir` emits `logovista-lossless-entry-v1`. Treat that as an entry-span
+subset of this package model, not as the full decoded package model.
 
 ## Design Rules
 
@@ -46,7 +46,7 @@ entry-span subset of LV-IR, not as the full model.
    enough provenance to find those bytes again: component, block/offset, byte
    offset, length, and raw bytes when the output mode allows them.
 2. **Lossless before pretty.** Rendering decisions belong in renderers and
-   exporters. The IR stores raw controls, decoded fields, confidence, and
+   exporters. The model stores raw controls, decoded fields, confidence, and
    optional display hints.
 3. **No irreversible normalization in core records.** Keep original JIS bytes,
    decoded text, and normalized/search text as separate fields.
@@ -59,39 +59,50 @@ entry-span subset of LV-IR, not as the full model.
    DB-row, and virtual-selector references should be converted into typed
    addresses instead of loose integer pairs.
 7. **Dereference is layered.** Raw HONMON, title/index components, sidecar DBs,
-   renderer DBs, and LVED payloads are different sources. The IR can connect
+   renderer DBs, and LVED payloads are different sources. The model can connect
    them, but should not pretend they are the same file.
-8. **Writer/exporter views are derived.** Yomitan, MDict, debug HTML, and a
-   future writer should consume LV-IR. They should not re-parse raw bytes.
+8. **Writer/exporter views are derived.** Future exporters and writer
+   experiments should consume this model. They should not re-parse raw bytes.
 
 ## Top-Level Package
 
-An LV-IR package describes one dictionary package or one dictionary target
-inside a larger collection.
+A decoded package model describes one dictionary package or one dictionary
+target inside a larger collection.
 
 ```json
 {
-  "schema": "lv-ir-package-v0",
-  "ir_version": 0,
-  "dict_id": "SYNTH",
-  "title": "Synthetic Dictionary",
-  "package_family": "ssed",
-  "platform": "windows",
+  "schema": "logovista-decoded-model-v0",
+  "model_version": 0,
+  "stability": "research-draft",
+  "package": {
+    "dict_id": "SYNTH",
+    "title": "Synthetic Dictionary",
+    "path": "/dict/SYNTH",
+    "idx": "/dict/SYNTH/SYNTH.IDX",
+    "honmon": "/dict/SYNTH/HONMON.DIC"
+  },
+  "wrapper": {
+    "package_family": "ssed",
+    "platform": "windows",
+    "markers": {}
+  },
   "classification": {
-    "raw_core": "ssed",
+    "package_family": "ssed",
+    "platform": "windows",
     "honmon_shape": "body_stream_indexed",
-    "body_source": "honmon",
-    "confidence": "proven"
+    "body_source_hint": "honmon"
   },
   "components": [],
-  "entries": [],
-  "titles": [],
-  "indexes": [],
-  "menus": [],
-  "gaiji": [],
-  "media": [],
-  "dereferences": [],
-  "issues": []
+  "entry_spans": {},
+  "titles": {},
+  "indexes": {},
+  "menus": {},
+  "gaiji": {},
+  "media": {},
+  "sidecars": {},
+  "families": {},
+  "notes": [],
+  "inconsistencies": []
 }
 ```
 
@@ -100,7 +111,8 @@ inside a larger collection.
 ```text
 ssed              SSEDINFO/SSEDDATA package with HONMON-style components
 lved_sqlcipher    modern LVED/WebView2 SQLCipher payload family
-multiview_sqlite  LVLMultiView package with SSEDINFO facade + SQLite bodies
+ssed-sizk-read-aloud  SIZK SSED package with loose read-aloud sidecars
+multiview_sqlite      LVLMultiView package with SSEDINFO facade + SQLite bodies
 mixed             package has both raw SSED anchors and renderer/database bodies
 unknown           classified enough to report, not enough to decode
 ```
@@ -361,10 +373,10 @@ Fields:
 | `confidence` | Confidence level from `spec/confidence.md`. |
 | `target` | Resolved address for link/media/menu controls when known. |
 
-Unknown or not-yet-semantic controls are still valid IR records. For example,
+Unknown or not-yet-semantic controls are still valid model records. For example,
 `1f1a` and `1f1c` currently have fixed two-byte payloads and neutral tags; the
-IR should preserve them without naming them `bold`, `color`, or `layout` until
-renderer evidence supports that.
+model should preserve them without naming them `bold`, `color`, or `layout`
+until renderer evidence supports that.
 
 ## Entry
 
@@ -612,7 +624,7 @@ Mapping source priority for display:
 4. GA16 bitmap asset;
 5. unresolved placeholder.
 
-This priority is for display fallback only. The IR keeps every source, even
+This priority is for display fallback only. The model keeps every source, even
 when lower-priority sources are not used by default.
 
 ## Gaiji Occurrence
@@ -785,8 +797,8 @@ text, while retaining their raw anchor relationship.
 }
 ```
 
-Sidecar bodies are allowed in LV-IR. A legacy SSED writer v0 does not need to
-emit them.
+Sidecar bodies are allowed in the model as evidence. A future legacy SSED
+writer subset may decide not to emit them.
 
 ## Issue
 
@@ -827,6 +839,7 @@ unresolved_media
 unclassified_payload
 unparsed_nonzero_bytes
 component_missing
+missing_component
 component_tail
 db_anchor_mismatch
 renderer_semantics_unknown
@@ -864,7 +877,8 @@ package      component counts, missing files, body-source classification
 
 ## Writer Readiness Fields
 
-LV-IR should expose writer-readiness without committing to writer behavior.
+The decoded model should expose writer-readiness without committing to writer
+behavior.
 
 ```json
 {
@@ -892,13 +906,13 @@ This is not a format claim. It is planning metadata for writer/exporter work.
 
 ## Serialization Shape
 
-For large dictionaries, LV-IR should support chunked JSONL files rather than a
-single massive JSON document.
+For large dictionaries, the model should support chunked JSONL files rather
+than a single massive JSON document.
 
 Recommended directory layout:
 
 ```text
-lv-ir/
+decoded-model/
   package.json
   components.jsonl
   entries.jsonl
@@ -917,29 +931,28 @@ lv-ir/
 contain one object per record. Small synthetic fixtures may inline everything
 into one JSON document for test convenience.
 
-## Relationship to Future Formats
+## Relationship to Future Work
 
-LV-IR is not the proposed future open successor format. It is the model used to
-understand existing packages and drive conversions.
+This is not a new dictionary format. It is the model used to understand
+existing LogoVista packages and drive future tooling.
 
 Potential future layers:
 
 ```text
-LogoVista/SSED raw bytes  -> LV-IR -> debug HTML
-LogoVista/SSED raw bytes  -> LV-IR -> Yomitan / MDict
-LogoVista/SSED raw bytes  -> LV-IR -> writer-readiness report
-Yomitan / authored data   -> LV-IR -> legacy SSED writer subset
-Yomitan / authored data   -> LV-IR -> future LVEX/SSEDX package
+LogoVista/SSED raw bytes  -> decoded model -> debug HTML
+LogoVista/SSED raw bytes  -> decoded model -> writer-readiness report
+LogoVista/SSED raw bytes  -> decoded model -> future exporter
+LogoVista/SSED raw bytes  -> decoded model -> future legacy SSED writer subset
+decoded model spec        -> future Rust reimplementation
 ```
 
-A future LVEX/SSEDX format should be designed separately. It can use LV-IR as
-an input model, but should not inherit legacy SSED constraints such as JIS-only
-text, fixed-size unknown controls, packed-BCD pointers, or 16x16 monochrome
-gaiji unless compatibility specifically requires them.
+The Python toolkit is allowed to remain exploratory. The later Rust core should
+be a clean reimplementation of the stabilized model and format specification,
+not a direct port of Python probes.
 
 ## Current Gaps
 
-LV-IR v0 intentionally names gaps instead of hiding them:
+Decoded Model v0 intentionally names gaps instead of hiding them:
 
 - Some control opcodes are structurally known but renderer-neutral.
 - Some media payloads are byte-addressed but not codec-classified.
@@ -949,5 +962,5 @@ LV-IR v0 intentionally names gaps instead of hiding them:
 - Writer generation requires additional rules for collation, page splitting,
   control selection, and generated gaiji allocation.
 
-These gaps do not block the IR draft. They define the work that must happen
+These gaps do not block the model draft. They define the work that must happen
 before exporter and writer output can claim higher compatibility.

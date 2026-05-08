@@ -1,5 +1,7 @@
+from argparse import Namespace
 from pathlib import Path
 
+from logovista_tools.decoded_model import dump_package_model_for_path
 from logovista_tools.gaiji import load_gaiji_profile
 from logovista_tools.sizk import discover_sizk_packages, inspect_sizk_package
 
@@ -115,3 +117,35 @@ def test_inspect_sizk_package_links_honmon_templates_and_playback(tmp_path) -> N
     assert report["playback"]["synchronized"]
     assert report["playback"]["rows"][0]["time_ms"] == 1000
     assert discover_sizk_packages([tmp_path]) == [package.resolve()]
+
+
+def test_dump_package_model_embeds_sizk_family(tmp_path) -> None:
+    package = make_sizk_package(tmp_path)
+    args = Namespace(
+        dict=None,
+        parse_mode="forensic",
+        entry_limit=2,
+        profile_max_slices=2,
+        title_limit=10,
+        index_limit=10,
+        menu_limit=10,
+        media_limit=10,
+        sample_limit=5,
+        sidecar_sample_limit=5,
+        max_issue_samples=10,
+        include_spans=True,
+        include_raw=False,
+        include_padding_spans=False,
+        include_internal_indexes=False,
+        deep_sidecars=False,
+        include_playback_rows=False,
+        no_hash=True,
+    )
+
+    model = dump_package_model_for_path(package, args)
+
+    assert model["schema"] == "logovista-decoded-model-v0"
+    assert model["classification"]["package_family"] == "ssed-sizk-read-aloud"
+    assert model["entry_spans"]["entries_emitted"] == 1
+    assert model["families"]["sizk"]["playback"]["row_count"] == 1
+    assert model["gaiji"]["profile"]["uni_entries"] == 1

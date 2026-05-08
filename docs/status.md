@@ -91,9 +91,13 @@ LogoVista dictionary model.
   and corpus summaries.
 - Entry-level lossless span JSONL preserving raw offsets/bytes for controls,
   JIS text, gaiji, media references, padding, and measured problem spans.
-- Draft `LV-IR v0` model that names the shared package/component/address/
-  entry/span/control/gaiji/media/index/title/menu/issue records future
-  exporters and writer experiments should consume.
+- Draft Decoded LogoVista Model v0 that names the shared package/component/
+  address/entry/span/control/gaiji/media/index/title/menu/sidecar/issue records
+  future exporters and writer experiments should consume.
+- `dump-package-model`, a package-level JSON report that gathers SSEDINFO,
+  HONMON/body-source classification, entry spans, title/index/menu summaries,
+  gaiji/media resources, Windows sidecar evidence, family notes, and
+  inconsistencies into one decoded model object.
 - Corpus capability matrix generation from redacted `profile`,
   `honmon-bytes`, `component-forensics`, and optional `gaiji-readiness`
   outputs.
@@ -110,8 +114,8 @@ LogoVista dictionary model.
 ## Experimental / Active Reverse Engineering
 
 - Full renderer semantics for structurally known `0x1f` controls.
-- Implementing `LV-IR v0` as emitted command output rather than only a draft
-  specification.
+- Tightening Decoded LogoVista Model v0 from a first emitted package report
+  into a stable schema that every parser/exporter/writer experiment can target.
 - Formal private-corpus regression baselines generated from redacted profiles.
 - Shared typed address/component objects used by every parser and exporter.
 - Official-renderer parity checks.
@@ -148,8 +152,11 @@ LogoVista dictionary model.
   row-ordered `HONBUN` renderer database that matches raw HONMON entry slices,
   so `gaiji-readiness --renderer-sidecars` can recover entry-level display.
   This is contextual renderer evidence, not a dictionary-global gaiji map.
-- `dump-ir` is still a lossless entry-span JSONL inspection format. It covers
-  one LV-IR slice, but it is not yet a full `LV-IR v0` package export.
+- `dump-package-model` is the first package-level Decoded LogoVista Model v0
+  emitter. It embeds sampled rows by default so normal runs stay manageable;
+  use zero-valued limits for exhaustive per-package inspection.
+- `dump-ir` remains a narrower lossless entry-span JSONL inspection command for
+  HONMON-specific debugging.
 - Observed `DictFtsDB` `.dbc` payloads for OXFPEU4/KQCMPROS are LVED
   SQLCipher packages. Future `.dbc` variants should still be classified on
   their own evidence instead of assumed to be SSED or LVED.
@@ -181,10 +188,10 @@ Recently landed:
 
 Next priorities:
 
-1. **LV-IR implementation.** Make a command emit the `LV-IR v0` package layout
-   described in `spec/lv-ir-v0.md`, starting with components, entries,
-   titles, indexes, menus, gaiji, media references, media records, issues, and
-   metrics.
+1. **Decoded model stabilization.** Use `dump-package-model` on representative
+   and corpus-wide packages, remove command-specific shape drift, tighten field
+   names, and keep unresolved bytes/pointers/controls measurable in one shared
+   object.
 2. **NGYOKTUK renderer-backed gaiji.** Keep `NGYOKTUK` as the named
    raw-resource exception: its display is recoverable through row-aligned
    `HONBUN` HTML, but a lossless IR/exporter must preserve raw gaiji
@@ -202,8 +209,9 @@ Next priorities:
 6. **Renderer parity.** Build small local parity fixtures for body text,
    literal spans, URL spans, gaiji images, named section images, media links,
    menu destinations, and dense-anchor renderer bodies.
-7. **Exporter layer.** Implement debug HTML first, then Yomitan structured v3
-   and MDict as views over the versioned IR rather than separate parsers.
+7. **Exporter layer.** After the decoded model stabilizes, implement debug HTML
+   first, then Yomitan structured v3 and MDict as views over the same model
+   rather than separate parsers.
 8. **Writer research.** Start only after the model can round-trip addresses,
    indexes, gaiji/media references, and dense-anchor relationships with
    measurable unknowns near zero on the corpus.

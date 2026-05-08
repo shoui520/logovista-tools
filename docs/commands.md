@@ -621,8 +621,8 @@ corpus audits have been run.
 
 Emit entry-level lossless span JSONL from expanded `HONMON.DIC`. This is the
 debug/model path, not a user-facing readable extractor. It is an entry-span
-subset of the draft [LV-IR v0](../spec/lv-ir-v0.md) model, not the full
-package-level IR export.
+subset of the draft [Decoded LogoVista Model v0](../spec/decoded-model-v0.md),
+not the full package-level model.
 
 ```bash
 logovista-tools dump-ir /path/to/LogoVista --dict HAESPJPN --limit 10 --out-dir ir
@@ -642,6 +642,48 @@ spans                               ordered offset spans with raw bytes
 By default padding spans and `raw_hex` are included so the byte stream can be
 audited directly. Use `--no-padding-spans` or `--no-raw` only when the output
 size is too large for the task.
+
+### `dump-package-model`
+
+Emit one package-level [Decoded LogoVista Model v0](../spec/decoded-model-v0.md)
+JSON report for one dictionary. This is the consolidation command for reverse
+engineering: it gathers the current component table, wrapper evidence, HONMON
+classification, entry spans, title/index/menu summaries, gaiji resources,
+media resources, Windows sidecars, package-family notes, and inconsistencies
+into one object.
+
+```bash
+logovista-tools dump-package-model /path/to/_DCT_HAESPJPN --out-dir package-model
+logovista-tools dump-package-model /path/to/LogoVista --dict HAESPJPN --no-raw --out-dir package-model
+```
+
+The output file is:
+
+```text
+package-model/
+  DICT_ID_decoded_model_v0.json
+```
+
+Important options:
+
+```bash
+--entry-limit N                    sample N HONMON entry spans; use 0 for all
+--profile-max-slices N             sample N body slices for package profiling; use 0 for all
+--title-limit N                    sample N title rows; use 0 for all
+--index-limit N                    sample N index rows; use 0 for all
+--menu-limit N                     sample N menu nodes; use 0 for all
+--media-limit N                    inspect N COLSCR/PCMDATA references; use 0 for all
+--deep-sidecars                    inspect HC/vlpljbl sidecars more deeply
+--no-raw                           omit raw_hex from embedded entry spans
+--no-padding-spans                 omit padding spans from embedded entry spans
+--include-internal-indexes         include internal/auxiliary index files
+--json                             print the model JSON to stdout as well
+```
+
+The command is intentionally not pretty. It is a contradiction finder. Missing
+declared components, empty raw-body packages, unresolved menu targets, raw
+gaiji gaps, sidecar-only body evidence, and sampled decode failures are emitted
+as `inconsistencies` records rather than hidden behind command-specific output.
 
 ### `resources`
 
