@@ -35,12 +35,12 @@ The logical block size is 2048 bytes. If a component starts at logical block
 (N - 1) * 2048
 ```
 
-Observed LVLMultiView law packages have an SSEDINFO-like facade variant where
+Observed LVLMultiView packages may have an SSEDINFO-like facade variant where
 the component count byte is at `0x4c` and the component record table starts at
-`0x7f`. The record body layout is unchanged. This variant currently appears in
-packages whose declared component files are absent and whose readable body data
-lives in LogoFontCipher-encrypted SQLite payloads; see
-[LVLMultiView Law Packages](multiview-law.md).
+`0x7f`; the normal `0x4d` / `0x80` layout is also observed. The record body
+layout is unchanged. These packages have absent declared component files and
+readable data in LogoFontCipher-encrypted SQLite payloads; see
+[LVLMultiView Packages](multiview.md).
 
 Component types observed so far:
 

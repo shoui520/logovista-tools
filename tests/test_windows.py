@@ -89,3 +89,43 @@ def test_multiview_package_resolves_menu_to_plain_sqlite_payload(tmp_path) -> No
     assert report["menu"]["resolution_counts"]["anchor_exact"] == 1
     assert report["menu"]["resolution_counts"]["index_row"] == 1
     assert report["menu"]["unresolved_count"] == 0
+
+
+def test_multiview_content_search_payload_resolves_numeric_menu_ids(tmp_path) -> None:
+    package = tmp_path / "_DCT_TESTCONTENT"
+    package.mkdir()
+    (package / "menuData.xml").write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<list>
+  <item label="Root">
+    <item label="Intro" href="000001" />
+  </item>
+</list>
+""",
+        encoding="utf-8",
+    )
+    static = package / "HANREI"
+    static.mkdir()
+    (static / "index.html").write_text("<html></html>", encoding="utf-8")
+    (static / "menu.html").write_text("<html></html>", encoding="utf-8")
+
+    body = package / "blvdat"
+    con = sqlite3.connect(body)
+    con.execute("create table t_contents (f_ID integer primary key, f_Title text, f_Body text)")
+    con.execute(
+        "create table t_search ("
+        "f_No integer primary key, f_ID integer, f_Anchor integer, f_KeyWord text, "
+        "f_MainFlag integer, f_Level integer, f_TitleMain text, f_TitleSub text, f_All text)"
+    )
+    con.execute("insert into t_contents values (1, '<b>Intro</b>', '<p>Body</p>')")
+    con.execute("insert into t_search values (1, 1, 1, 'intro', 1, 0, '<b>Intro</b>', '', 'intro body')")
+    con.commit()
+    con.close()
+
+    report = inspect_multiview_package(package)
+
+    assert report["payloads"][0]["name_hint"] == "content_search_body"
+    assert report["payloads"][0]["role"] == "sqlite_content_search_body"
+    assert report["menu"]["resolution_counts"]["content_id"] == 1
+    assert report["menu"]["unresolved_count"] == 0
+    assert report["html_dirs"][0]["name"] == "HANREI"

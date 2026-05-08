@@ -19,7 +19,7 @@ This applies to commands that operate across many dictionaries or resources:
 `spindex`, `audit-honmon`, `gaiji-report`, `gaiji-readiness`, `ga16`,
 `titles`, `indexes`, `menus`, `fulldb`, `profile`, `honmon-bytes`,
 `opcode-atlas`, `component-forensics`, `dump-ir`, LVED payload inspection, and
-LVLMultiView law-package inspection.
+LVLMultiView package inspection.
 `capability-matrix` is also corpus-oriented, but it reads already-generated
 report directories rather than re-scanning raw dictionary files.
 
@@ -137,14 +137,16 @@ format strings, but not dictionary body data.
 
 ### `multiview`
 
-Inspect LogoVista `LVLMultiView` law packages such as YROPPO08/MOROKU26. These
-packages have an SSEDINFO-like `.IDX` facade and `menuData.xml`, but the
-readable bodies are LogoFontCipher-encrypted SQLite payloads named
-`blvbat`, `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`, and `nlvbat`/`nlvdat`.
+Inspect LogoVista `LVLMultiView` packages such as ESPRANT2, YROPPO, and
+MOROKU. These packages have an SSEDINFO-like `.IDX` facade and `menuData.xml`,
+but the readable bodies are LogoFontCipher-encrypted SQLite payloads. The
+observed law subfamily uses `blvbat`, `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`,
+and `nlvbat`/`nlvdat`; ESPRANT2 uses `blvdat`.
 
 ```bash
-logovista-tools multiview /path/to/Unclassified_win --jobs 0 --out-dir multiview-audit
+logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --jobs 0 --out-dir multiview-audit
 logovista-tools multiview /path/to/_DCT_YROPPO08 --json
+logovista-tools multiview /path/to/_DCT_ESPRANT2 --json
 ```
 
 Report fields include:
@@ -154,6 +156,7 @@ Report fields include:
 - payload storage (`plain` or `logofont_cipher`);
 - SQLite schema role, table families, row counts, and index counts;
 - `menuData.xml` tag/attribute counts and `href` resolution status;
+- bundled static HTML directories and dedicated viewer executable/DLL files;
 - LogoFontCipher-encrypted `Resources/*` assets such as PDFs.
 
 Useful options:
@@ -168,6 +171,7 @@ Useful options:
 Observed payload roles:
 
 ```text
+blvdat                 content/search body; t_contents + t_search schema
 blvbat                 law body tables; viewer name hint hore_body.db
 hlvbat                 case digest/body table; viewer name hint hanrei_youshi.db
 ilvbat / ilvdat        HTML index table; viewer name hint index.db

@@ -1139,7 +1139,7 @@ def cmd_multiview(args: argparse.Namespace) -> int:
         print(f"multiview discovery: scanning {root}", file=sys.stderr, flush=True)
     packages = discover_multiview_packages(args.root or [Path(".")])
     if not packages:
-        print("no LVLMultiView law packages found", file=sys.stderr)
+        print("no LVLMultiView packages found", file=sys.stderr)
         return 1
     print(f"multiview discovery: found {len(packages)} package(s)", file=sys.stderr, flush=True)
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -1535,7 +1535,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_multiview = sub.add_parser(
         "multiview",
-        help="Inspect LVLMultiView law packages with SSEDINFO facades and encrypted SQLite payloads.",
+        help="Inspect LVLMultiView packages with SSEDINFO facades and encrypted SQLite payloads.",
     )
     p_multiview.add_argument(
         "root",

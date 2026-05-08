@@ -119,9 +119,10 @@ or `.dbc` mobile payload is a SQLCipher page database and must be classified as
 that package family, not as a broken SSED dictionary. See
 [LVED SQLCipher Packages](lved-main-data.md).
 
-There is also an observed LVLMultiView law package family. These packages expose
-an SSEDINFO-magic `.IDX` facade that declares normal-looking components, but
-the declared files are absent and the body/index data decrypts from
-LogoFontCipher SQLite payloads such as `blvbat`, `hlvbat`, `ilvbat`/`ilvdat`,
-`jlvbat`, and `nlvbat`/`nlvdat`. See
-[LVLMultiView Law Packages](multiview-law.md).
+There is also an observed LVLMultiView package family. These packages expose an
+SSEDINFO-magic `.IDX` facade that declares normal-looking components, but the
+declared files are absent and the readable data decrypts from LogoFontCipher
+SQLite payloads. The observed law subfamily uses payloads such as `blvbat`,
+`hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`, and `nlvbat`/`nlvdat`; ESPRANT2 uses a
+single `blvdat` content/search payload. See
+[LVLMultiView Packages](multiview.md).

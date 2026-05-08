@@ -119,8 +119,8 @@ distinct 0x1f opcodes:      40
 unclassified opcodes:        1 occurrence
 ```
 
-During this run, several LVLMultiView law packages were still present in the
-local SSED folder. They contributed zero scanned text-stream components, so the
+During this run, several LVLMultiView packages were still present in the local
+SSED folder. They contributed zero scanned text-stream components, so the
 component/byte/control totals above are the relevant opcode evidence.
 
 Every observed payload length matched the current structural table except one
@@ -460,61 +460,83 @@ logovista-tools lved /path/to/KQCMPROS --dict-id 751 --json
 Reports validate the payload without emitting derived, explicit, or recovered
 keys.
 
-## LVLMultiView Law Packages
+## LVLMultiView Packages
 
-YROPPO08 and MOROKU26 are not classic SSED/HONMON packages, but they are also
-not LVED SQLCipher packages. They ship `LOGOVISTAMULTIVIEW/LVLMultiView.exe`,
-`menuData.xml`, a small SSEDINFO-magic `.IDX` facade, and LogoFontCipher
-payloads named `blvbat`, `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`, and
-`nlvbat`/`nlvdat`.
+The current LVLMultiView corpus has 14 packages: ESPRANT2, MOROKU21 through
+MOROKU26, and YROPPO02/03/04/5/06/07/08. These are not classic SSED/HONMON
+packages and are not LVED SQLCipher packages. They ship `menuData.xml`, a small
+SSEDINFO-magic `.IDX` facade, and LogoFontCipher SQLite payloads.
 
-The `.IDX` facade declares seven familiar component records:
+The law subfamily declares seven familiar component records:
 
 ```text
 HONMON.DIC, FKINDEX.DIC, FHINDEX.DIC, BKINDEX.DIC, BHINDEX.DIC,
 GA16FULL, GA16HALF
 ```
 
-The declared component files are absent. Body data comes from encrypted SQLite,
-not from `SSEDDATA` components. MOROKU26 uses a shifted SSEDINFO facade layout
-with the component count byte at `0x4c` and records starting at `0x7f`.
-YROPPO08 uses the normal count/record offsets (`0x4d`, `0x80`). Both observed
-facades have 632 trailing bytes after the seven records.
+ESPRANT2 declares six records and omits `GA16FULL`. In every observed package,
+the declared component files are absent; readable data comes from encrypted
+SQLite, not from `SSEDDATA` components.
 
-Observed payload classification:
-
-| Product | Payload | Storage | Role | Tables | Rows |
-|---|---|---|---|---:|---:|
-| MOROKU26 | `blvbat` | LogoFontCipher SQLite | law body tables | 374 | 54,812 |
-| MOROKU26 | `hlvbat` | LogoFontCipher SQLite | case digest/body | 1 | 24,424 |
-| MOROKU26 | `ilvdat` | LogoFontCipher SQLite | HTML index | 1 | 3,040 |
-| MOROKU26 | `nlvdat` | LogoFontCipher SQLite | law metadata | 3 | 362 |
-| YROPPO08 | `blvbat` | LogoFontCipher SQLite | law body tables | 382 | 67,395 |
-| YROPPO08 | `hlvbat` | LogoFontCipher SQLite | case digest/body | 5 | 43,202 |
-| YROPPO08 | `ilvbat` | LogoFontCipher SQLite | HTML index | 1 | 8 |
-| YROPPO08 | `jlvbat` | LogoFontCipher SQLite | subject index | 1 | 17,833 |
-| YROPPO08 | `nlvbat` | LogoFontCipher SQLite | law metadata | 4 | 416 |
-
-`LVLMultiView.exe` contains UTF-16 strings naming decrypted cache targets:
-`hore_body.db`, `hanrei_youshi.db`, `index.db`, `jiko_sakuin.db`,
-`yroppo.db`, and `mo6.db`.
-
-`menuData.xml` is a real navigation tree. After resolving `href` values against
-SQLite `f_anchor`, `f_hore_code`, and `t_index.f_hore_code`, both observed
-packages have zero unresolved menu links:
+Observed facade layouts:
 
 ```text
-MOROKU26: 5,569 anchors, 2,559 index rows, 702 law codes, 4 viewer-special
-YROPPO08: 7,826 anchors,     8 index rows, 207 law codes
+7 YROPPO packages:  count byte 0x4d, record start 0x80, 7 components
+6 MOROKU packages:  count byte 0x4c, record start 0x7f, 7 components
+1 ESPRANT2 package: count byte 0x4d, record start 0x80, 6 components
 ```
 
-MOROKU26 also ships extensionless `Resources/inshizei`, `Resources/minji`, and
-`Resources/zeihou`; each decrypts with LogoFontCipher to a PDF 1.6 document.
+Observed payload classification across the 14 packages:
+
+| Payload | Count | Storage | Role |
+|---|---:|---|---|
+| `blvdat` | 1 | LogoFontCipher SQLite | content/search body |
+| `blvbat` | 13 | LogoFontCipher SQLite | law body tables |
+| `hlvbat` | 13 | LogoFontCipher SQLite | case digest/body |
+| `ilvbat` | 7 | LogoFontCipher SQLite | HTML index |
+| `ilvdat` | 6 | LogoFontCipher SQLite | HTML index |
+| `jlvbat` | 7 | LogoFontCipher SQLite | subject index |
+| `nlvbat` | 7 | LogoFontCipher SQLite | law metadata |
+| `nlvdat` | 6 | LogoFontCipher SQLite | law metadata |
+
+ESPRANT2 is the non-law variant observed so far. It has one `blvdat` payload
+with `t_contents(f_ID, f_Title, f_Body)` and `t_search(...)` tables, plus
+`t_dummy`. The decrypted database has 18,203 content rows and 44,477 search
+rows. Its `menuData.xml` hrefs are six-digit numeric content IDs such as
+`000001`, all resolving to `t_contents.f_ID`.
+
+The bundled ESPRANT2 viewer is dedicated to this product rather than the shared
+law viewer: `LV_Viwer_ESPRANT2/LVEDESPRANT2.exe` is a .NET/MSHTML/System.Data
+SQLite application. Its UTF-16 strings include `blvdat`, `lved.dataid:`, and
+SQL against `t_contents` and `t_search`. ESPRANT2 also ships a `HANREI/` static
+HTML directory with 15 HTML files; this appears to be a browsable
+example/help-style appendix rather than the primary body store.
+
+Across all 14 packages, `menuData.xml` is a real navigation tree. Current menu
+resolution totals are:
+
+```text
+85,472 anchor_exact
+17,997 index_row
+ 5,750 hore_code
+    24 viewer_special
+    18 content_id
+     0 unresolved
+```
+
+Law viewer binaries contain UTF-16 strings naming decrypted cache targets:
+`hore_body.db`, `hanrei_youshi.db`, `index.db`, `jiko_sakuin.db`, `yroppo.db`,
+and `mo6.db`.
+
+Most law-package `Resources/*` entries decrypt with LogoFontCipher to PDF
+assets. MOROKU23 has three resource files that remain plain/unknown under the
+current resource classifier; they are reported as opaque rather than forced
+into the PDF model.
 
 Toolkit command:
 
 ```bash
-logovista-tools multiview /path/to/Unclassified_win --jobs 0 --out-dir out/multiview
+logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --jobs 0 --out-dir out/multiview
 ```
 
 ## Non-iOS Body Streams

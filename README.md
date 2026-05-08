@@ -37,7 +37,7 @@ are still allowed to change as more products are tested.
 | `MENU.DIC`, `COLSCR.DIC`, `PCMDATA.DIC` | High byte coverage for the current SSED corpus |
 | Windows / Android / iOS wrappers | Supported per observed package family |
 | LVED/WebView2 `main.data` / `.dbc` SQLCipher payloads | Validated for observed OXFPEU4/KQCMPROS packages |
-| LVLMultiView law packages | Classified for observed YROPPO08/MOROKU26 packages |
+| LVLMultiView SQLite packages | Classified for observed ESPRANT2/YROPPO/MOROKU packages |
 | LogoVista writer support | Not implemented |
 
 The current development direction is:
@@ -229,10 +229,10 @@ Inspect modern LVED/WebView2 SQLCipher packages such as OXFPEU4/KQCMPROS:
 logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 --json
 ```
 
-Inspect LVLMultiView law packages such as YROPPO08/MOROKU26:
+Inspect LVLMultiView SQLite packages such as ESPRANT2, YROPPO, and MOROKU:
 
 ```bash
-logovista-tools multiview /path/to/Unclassified_win --jobs 0 --out-dir out/multiview
+logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --jobs 0 --out-dir out/multiview
 ```
 
 The full command reference lives in [docs/commands.md](docs/commands.md).
@@ -260,7 +260,7 @@ The full command reference lives in [docs/commands.md](docs/commands.md).
 | [Menus, Titles, and Indexes](spec/menus-titles-indexes.md) | `MENU.DIC`, `*TITLE.DIC`, and `*INDEX.DIC`. |
 | [Gaiji, Images, and Media](spec/gaiji-media.md) | `.uni`, `GA16*`, package images, `COLSCR.DIC`, `PCMDATA.DIC`. |
 | [LVED SQLCipher Packages](spec/lved-main-data.md) | Modern WebView2 `main.data` / `.dbc` package family. |
-| [LVLMultiView Law Packages](spec/multiview-law.md) | Law products with SSEDINFO facade catalogs and LogoFontCipher SQLite bodies. |
+| [LVLMultiView Packages](spec/multiview.md) | Products with SSEDINFO facade catalogs and LogoFontCipher SQLite payloads. |
 | [Confidence Levels](spec/confidence.md) | How reverse-engineered claims are labeled. |
 
 ## Core Model
@@ -306,12 +306,13 @@ derivation is documented in [LVED SQLCipher Packages](spec/lved-main-data.md)
 and implemented in code; per-product final keys and serials are not repository
 artifacts.
 
-Observed LVLMultiView law products are also separate from classic SSED body
-streams. They ship a small SSEDINFO-like `.IDX` facade naming familiar
-components such as `HONMON.DIC` and `FKINDEX.DIC`, but the physical component
-files are absent. Body, index, and law metadata live in LogoFontCipher-encrypted
-SQLite payloads such as `blvbat`, `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`, and
-`nlvbat`/`nlvdat`. See [LVLMultiView Law Packages](spec/multiview-law.md).
+Observed LVLMultiView products are also separate from classic SSED body streams.
+They ship a small SSEDINFO-like `.IDX` facade naming familiar components such
+as `HONMON.DIC` and `FKINDEX.DIC`, but the physical component files are absent.
+The readable payloads live in LogoFontCipher-encrypted SQLite files. The
+observed law subfamily uses `blvbat`, `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`,
+and `nlvbat`/`nlvdat`; ESPRANT2 uses `blvdat` with a content/search schema and
+numeric `menuData.xml` targets. See [LVLMultiView Packages](spec/multiview.md).
 
 ## Development
 

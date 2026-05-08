@@ -1,4 +1,4 @@
-"""LogoVista LVLMultiView law-package forensics."""
+"""LogoVista LVLMultiView package forensics."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from .windows import file_magic_kind, quote_identifier
 MULTIVIEW_PAYLOAD_RE = re.compile(r"^[a-z]lv(?:bat|dat)$", re.IGNORECASE)
 
 PAYLOAD_NAME_HINTS = {
+    "blvdat": "content_search_body",
     "blvbat": "law_body",
     "hlvbat": "case_digest_body",
     "nlvbat": "law_metadata_yroppo",
@@ -143,6 +144,15 @@ def multiview_sqlite_role(tables: list[dict[str, Any]]) -> str:
     names = set(columns)
     if not names:
         return "sqlite_empty"
+    if {"t_contents", "t_search"} <= names:
+        if {"f_id", "f_title", "f_body"} <= columns["t_contents"] and {
+            "f_id",
+            "f_anchor",
+            "f_keyword",
+            "f_titlemain",
+            "f_all",
+        } <= columns["t_search"]:
+            return "sqlite_content_search_body"
     if "t_index" in names and {"f_hore_code", "f_text"} <= columns["t_index"]:
         return "sqlite_html_index"
     if "t_hore" in names:
@@ -263,11 +273,21 @@ def inspect_menu(path: Path, db_paths: dict[str, Path]) -> dict[str, Any]:
     anchors: set[str] = set()
     codes: set[str] = set()
     index_codes: set[str] = set()
+    content_ids: set[str] = set()
     for db_path in db_paths.values():
         con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         try:
             for (table,) in con.execute("select name from sqlite_master where type='table'"):
                 columns = [row[1] for row in con.execute(f"pragma table_info({quote_identifier(table)})")]
+                lowered_columns = {column.lower() for column in columns}
+                if table.lower() == "t_contents" and "f_id" in lowered_columns:
+                    content_ids.update(
+                        f"{int(row[0]):06d}"
+                        for row in con.execute(
+                            f"select f_ID from {quote_identifier(table)} "
+                            "where f_ID is not null"
+                        )
+                    )
                 if "f_anchor" in columns:
                     anchors.update(
                         row[0]
@@ -291,6 +311,8 @@ def inspect_menu(path: Path, db_paths: dict[str, Path]) -> dict[str, Any]:
             con.close()
 
     def classify_href(href: str) -> str:
+        if href in content_ids:
+            return "content_id"
         if href in anchors:
             return "anchor_exact"
         if href.startswith("index:") and href[6:] in index_codes:
@@ -393,6 +415,8 @@ def inspect_multiview_package(
             "resources": resources,
             "templates": _file_listing(package_dir / "Templates", with_kind=True),
             "help_files": _file_listing(package_dir / "Help", with_kind=False),
+            "html_dirs": _html_directory_summaries(package_dir),
+            "viewer_files": _viewer_file_listing(package_dir),
         }
     finally:
         if temp_context is not None:
@@ -415,4 +439,51 @@ def _file_listing(path: Path, *, with_kind: bool) -> list[dict[str, Any]]:
         if with_kind:
             row["kind"] = file_magic_kind(child.read_bytes()[:64])
         rows.append(row)
+    return rows
+
+
+def _html_directory_summaries(package_dir: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for child in sorted(package_dir.iterdir()):
+        if not child.is_dir() or child.name in {"Templates", "Help", "Resources"}:
+            continue
+        html_files = sorted(
+            path
+            for path in child.rglob("*")
+            if path.is_file() and path.suffix.lower() in {".html", ".htm"}
+        )
+        if not html_files and not (child / "index.html").is_file():
+            continue
+        rows.append(
+            {
+                "name": child.name,
+                "path": str(child),
+                "html_files": len(html_files),
+                "total_bytes": sum(path.stat().st_size for path in html_files),
+                "root_files": [
+                    grandchild.name
+                    for grandchild in sorted(child.iterdir())
+                    if grandchild.is_file()
+                ][:40],
+                "sample_html_files": [str(path.relative_to(child)) for path in html_files[:40]],
+            }
+        )
+    return rows
+
+
+def _viewer_file_listing(package_dir: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for path in sorted(package_dir.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in {".exe", ".dll"}:
+            continue
+        rows.append(
+            {
+                "name": path.name,
+                "path": str(path),
+                "relative_path": str(path.relative_to(package_dir)),
+                "size": path.stat().st_size,
+                "sha256": sha256_file(path),
+                "kind": file_magic_kind(path.read_bytes()[:64]),
+            }
+        )
     return rows

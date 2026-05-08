@@ -134,7 +134,7 @@ def parse_ssedinfo_with_layout(path: Path) -> tuple[str, list[SsedInfoElement], 
     title = data[13 : 13 + title_len].split(b"\x00", 1)[0].decode("cp932", errors="replace")
     candidates = (
         (0x4D, 0x80),
-        # Observed in LVLMultiView law packages: the header/record table is
+        # Observed in LVLMultiView packages: the header/record table is
         # shifted left by one byte, but the record body layout is unchanged.
         (0x4C, 0x7F),
         (0x4C, 0x80),
