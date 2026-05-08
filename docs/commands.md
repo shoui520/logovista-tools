@@ -617,6 +617,12 @@ table, not a body stream. It still starts from raw HONMON:
 5. For the observed Android body DB shape, query the `DICTID(Html)` table and
    emit rows where `rowid * 5` exists in raw HONMON.
 
+It also handles the observed row-ordered `HONBUN` renderer database shape used
+by `NGYOKTUK`: `vlpljblF` decrypts with LogoFontCipher to a SQLite database
+whose `HONBUN` rows are ordered exactly like raw HONMON entry slices. In that
+case output records carry the renderer `ID`, raw HONMON entry offset, title,
+plain text, and HTML.
+
 Output layout:
 
 ```text
@@ -632,8 +638,10 @@ rendererdb/
       000010.wav
 ```
 
-Rows include `data_id`, raw HONMON block/offset, type, group id, title HTML,
-plain title, search title, keyword text, plain body text, and HTML unless
+For `t_contents`, rows include `data_id`, raw HONMON block/offset, type, group
+id, title HTML, plain title, search title, keyword text, plain body text, and
+HTML unless `--no-html` is used. For row-ordered `HONBUN`, rows include
+renderer `ID`, raw HONMON entry offset, title, plain body text, and HTML unless
 `--no-html` is used. `--write-media` exports BLOBs from `media` or `t_media` using magic bytes
 to choose `.gif`, `.png`, `.jpg`, `.bmp`, or `.bin`; filenames are preserved
 when the renderer HTML already references the original media name. Some Windows
@@ -755,6 +763,7 @@ SQLite as the primary source.
 ```bash
 logovista-tools gaiji-readiness /path/to/LogoVista --jobs 0 --out-dir gaiji-readiness
 logovista-tools gaiji-readiness /path/to/LogoVista --dict GENIUSEB --json
+logovista-tools gaiji-readiness /path/to/LogoVista --dict NGYOKTUK --renderer-sidecars
 ```
 
 Output layout:
@@ -771,7 +780,7 @@ gaiji-readiness/
 The command scans text-bearing SSED components (`HONMON.DIC`, `MENU.DIC`,
 `*TITLE.DIC`, and text-like `INDEX.DIC` outliers), then checks each raw gaiji
 code against dictionary-local `.uni` / plist mappings, GA16 bitmap resources,
-and package image resources.
+package image resources, and optional Windows renderer `HONBUN` sidecars.
 
 Per-code buckets:
 
@@ -780,6 +789,7 @@ unicode_mapped             display text comes from .uni or plist
 bitmap_backed              no Unicode display, but a GA16 glyph is available
 image_backed               no Unicode display, but a package image is available
 formatting_helper          blank bitmap code or full-width unbacked code, treated as a probable renderer helper
+renderer_entry_backed      raw code has no direct resource, but matched HONBUN HTML exists
 display_unresolved         raw code has no Unicode, bitmap, image, or helper evidence
 unused_mapping             mapping exists but was not seen in scanned raw text
 unused_bitmap              bitmap exists but was not seen in scanned raw text
@@ -794,14 +804,22 @@ code display-unresolved.
 
 The GA16 coverage model uses both observed addressing views:
 
-- sequential header range: `start_code + glyph_index`;
+- JIS-grid header range: `A121..A17E`, then `A221..A27E`, etc.;
 - `.uni` record order: for many Windows packages, glyph slot `n` corresponds
   to `.uni` half/full record `n`, even when the record's code field is sparse
   or non-sequential.
 
-This distinction is required for GENIUSEB/RDRSP2-style packages where raw codes
-such as `A430` are bitmap-backed by GAI16 resources even though they are not in
-the simple sequential range.
+The JIS-grid correction resolves raw codes such as `A322`, `A65C`, and `AC3D`
+that looked outside the old flat `start_code + index` range. The `.uni`
+record-order view is still required for GENIUSEB/RDRSP2-style packages where
+raw codes such as `A430` are bitmap-backed by GAI16 resources even though they
+are not in the header grid range.
+
+`--renderer-sidecars` is intentionally separate from the default raw-resource
+policy. It can classify entry-level display as recovered when renderer rows
+align to raw HONMON entries. `NGYOKTUK` needs this: the same raw gaiji code can
+render as different Unicode characters in different entry contexts, so it
+cannot be represented as one dictionary-global `code -> Unicode` map.
 
 ### `uni`
 
@@ -822,6 +840,7 @@ Render LogoVista bitmap gaiji resources to portable PNG files.
 
 ```bash
 logovista-tools ga16 /path/to/DICT/GA16HALF out/gaiji
+logovista-tools ga16 /path/to/DICT/DICT.IDX out/gaiji
 logovista-tools ga16 /path/to/DICT out/gaiji --variants
 logovista-tools ga16 /path/to/LogoVista out/gaiji --limit 10 --json
 ```
@@ -856,7 +875,7 @@ the theme pattern used by packaged image resources such as `b13d_n.png` and
 When a `.uni` / `.UNI` sidecar is present next to a GA16 file, `ga16` uses the
 `.uni` record order as the preferred filename code for each glyph slot. That is
 why `--code A430` can render a GENIUSEB glyph even though the GAI16 header's
-sequential range starts at `A121`.
+grid range starts at `A121`.
 
 ### `titles`
 

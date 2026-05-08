@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import re
 import sqlite3
@@ -11,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from .entries import DictionarySource, discover_dictionaries
+from .entries import DictionarySource, discover_dictionaries, iter_entry_slices_with_boundaries
 from .lvcrypto import decrypt_logofont_cipher_bytes, decrypt_logofont_cipher_file_to_path
 from .parallel import parallel_map_ordered, worker_args
 from .ssed import BLOCK_SIZE, expand_sseddata_file_with_storage
@@ -269,6 +270,7 @@ def media_table_name(con: sqlite3.Connection) -> str | None:
 def html_to_plain(value: str) -> str:
     text = re.sub(r"(?i)<br\s*/?>", "\n", value)
     text = re.sub(r"(?is)<[^>]+>", "", text)
+    text = html.unescape(text)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
@@ -339,6 +341,21 @@ def t_contents_columns(con: sqlite3.Connection) -> dict[str, str]:
         "f_Html",
         "f_Keyword",
         "f_Plane",
+    ]
+    return {canonical: columns[canonical.lower()] for canonical in wanted if canonical.lower() in columns}
+
+
+def honbun_columns(con: sqlite3.Connection) -> dict[str, str]:
+    columns = table_column_map(con, "HONBUN")
+    wanted = [
+        "ID",
+        "Title_UTF8",
+        "Title_SJIS",
+        "Contents_HTML_box",
+        "Contents_HTML_list",
+        "LEVEL1",
+        "LEVEL2",
+        "LEVEL3",
     ]
     return {canonical: columns[canonical.lower()] for canonical in wanted if canonical.lower() in columns}
 
@@ -447,6 +464,106 @@ def extract_android_body_database(
         con.close()
 
 
+def extract_honbun_ordered_database(
+    source: DictionarySource,
+    summary: dict[str, Any],
+    expanded: bytes,
+    db_path: Path,
+    con: sqlite3.Connection,
+    dict_out: Path,
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    columns = honbun_columns(con)
+    id_col = columns.get("ID")
+    title_col = columns.get("Title_UTF8")
+    html_box_col = columns.get("Contents_HTML_box")
+    html_list_col = columns.get("Contents_HTML_list")
+    if id_col is None or title_col is None or html_box_col is None:
+        summary.update({"status": "unsupported_honbun_schema", "entries_emitted": 0})
+        return summary
+
+    raw_slices = list(iter_entry_slices_with_boundaries(expanded))
+    select_parts = [
+        f"{quote_identifier(actual)} as {quote_identifier(canonical)}"
+        for canonical, actual in columns.items()
+    ]
+    query = f"select {', '.join(select_parts)} from HONBUN order by {quote_identifier(id_col)}"
+    emitted = 0
+    row_count = 0
+    ziptomedia_refs: Counter[str] = Counter()
+    with (dict_out / "rendererdb_entries.jsonl").open("w", encoding="utf-8") as out:
+        for row_count, ((start, end), row) in enumerate(zip(raw_slices, con.execute(query)), start=1):
+            row_keys = row.keys()
+            html_value = row["Contents_HTML_box"] if "Contents_HTML_box" in row_keys else None
+            html_list = row["Contents_HTML_list"] if "Contents_HTML_list" in row_keys else None
+            title_value = row["Title_UTF8"] if "Title_UTF8" in row_keys else None
+            html_for_plain = html_value or html_list or ""
+            ziptomedia_refs.update(ziptomedia_reference_names(html_for_plain))
+            if args.limit is None or emitted < args.limit:
+                record = {
+                    "dict_id": source.dict_id,
+                    "dict_title": source.title,
+                    "id": row["ID"] if "ID" in row_keys else None,
+                    "raw_honmon": {
+                        "entry_index": row_count,
+                        "start_offset": start,
+                        "end_offset": end,
+                        "start_block": source.honmon_start_block + start // BLOCK_SIZE,
+                        "start_block_offset": start % BLOCK_SIZE,
+                    },
+                    "type": "HONBUN",
+                    "title": title_value,
+                    "title_search": row["Title_SJIS"] if "Title_SJIS" in row_keys else None,
+                    "levels": [
+                        row[column]
+                        for column in ("LEVEL1", "LEVEL2", "LEVEL3")
+                        if column in row_keys and row[column]
+                    ],
+                    "plain": html_to_plain(html_for_plain),
+                }
+                if args.include_html:
+                    record["html"] = html_value
+                    if html_list is not None:
+                        record["html_list"] = html_list
+                out.write(json.dumps(record, ensure_ascii=False) + "\n")
+                emitted += 1
+
+    content_rows = table_count(con, "HONBUN") or 0
+    ziptomedia_summary = summarize_ziptomedia_refs(source.idx, ziptomedia_refs)
+    summary.update(
+        {
+            "status": "ok_honbun_ordered",
+            "sqlite_path": str(db_path),
+            "honbun_rows": content_rows,
+            "raw_honmon_entry_slices": len(raw_slices),
+            "row_order_matches_raw_entries": content_rows == len(raw_slices),
+            "entries_matched_to_raw_honmon": min(content_rows, len(raw_slices)),
+            "entries_emitted": emitted,
+            "db_rows_without_raw_honmon_entry": max(0, content_rows - len(raw_slices)),
+            "raw_honmon_entries_missing_in_db": max(0, len(raw_slices) - content_rows),
+            "media_table": media_table_name(con),
+            "media_rows": table_count(con, media_table_name(con)) if media_table_name(con) else None,
+            "media_type_counts": media_type_counts(con),
+            "html_rows_with_media_references": None,
+            "html_rows_with_ziptomedia_references": None,
+            **ziptomedia_summary,
+        }
+    )
+    if args.write_media:
+        summary.update(write_media_records(con, dict_out / "media", limit=args.media_limit))
+    if args.write_ziptomedia:
+        sound_dir = Path(ziptomedia_summary["ziptomedia_dir"]) if ziptomedia_summary["ziptomedia_dir"] else None
+        summary.update(
+            write_ziptomedia_records(
+                sound_dir,
+                ziptomedia_refs,
+                dict_out / "ziptomedia",
+                limit=args.ziptomedia_limit,
+            )
+        )
+    return summary
+
+
 def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
     dict_out = out_dir / source.dict_id
     dict_out.mkdir(parents=True, exist_ok=True)
@@ -500,13 +617,28 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
     try:
         con.row_factory = sqlite3.Row
         if not table_exists(con, "t_contents"):
+            if table_exists(con, "HONBUN"):
+                summary = extract_honbun_ordered_database(source, summary, expanded, db_path, con, dict_out, args)
+                (dict_out / "rendererdb_summary.json").write_text(
+                    json.dumps(summary, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                return summary
             summary.update({"status": "missing_t_contents", "entries_emitted": 0})
+            (dict_out / "rendererdb_summary.json").write_text(
+                json.dumps(summary, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
             return summary
 
         columns = t_contents_columns(con)
         data_id_col = columns.get("f_DataId")
         if data_id_col is None:
             summary.update({"status": "missing_t_contents_data_id", "entries_emitted": 0})
+            (dict_out / "rendererdb_summary.json").write_text(
+                json.dumps(summary, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
             return summary
         select_columns = [
             f"{quote_identifier(actual)} as {quote_identifier(canonical)}"

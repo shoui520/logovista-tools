@@ -72,10 +72,10 @@ class Ga16Resource:
     data_offset: int = 2048
 
     def code_for_index(self, index: int) -> int:
-        return self.start_code + index
+        return gaiji_grid_code_for_index(self.start_code, index)
 
     def glyph_for_code(self, data: bytes, code: int) -> bytes | None:
-        index = code - self.start_code
+        index = gaiji_grid_index_for_code(self.start_code, code)
         if index < 0 or index >= self.count:
             return None
         return self.glyph_for_index(data, index)
@@ -116,7 +116,7 @@ def ga16_preferred_code_for_index(
         records = [record for record in uni_resource.records if record.section == section]
         if index < len(records):
             return records[index].code, "uni_record_order"
-    return f"{resource.code_for_index(index):04x}", "sequential"
+    return f"{resource.code_for_index(index):04x}", "jis_grid"
 
 
 def iter_ga16_code_sources(
@@ -125,17 +125,16 @@ def iter_ga16_code_sources(
 ) -> Iterable[tuple[str, int, str]]:
     """Yield gaiji codes covered by a GA16 resource.
 
-    Older tooling treated the code range as strictly ``start_code + index``.
-    That is correct for many resources, but not all. In several Windows
-    packages the GA16 glyph slots also align with dictionary-local ``.uni``
-    record order; the record's code field is the raw body code, even when the
-    code sequence is sparse or non-monotonic. We yield both views so callers
-    can resolve raw codes without losing compatibility with sequential
-    resources.
+    The header range advances in JIS row/cell order, not as a flat 16-bit
+    integer: ``A121..A17E`` is followed by ``A221``. Several Windows packages
+    also align GA16 glyph slots with dictionary-local ``.uni`` record order;
+    the record's code field is the raw body code, even when the code sequence
+    is sparse or non-monotonic. We yield both views so callers can resolve raw
+    codes without losing compatibility with record-order resources.
     """
 
     for index in range(resource.count):
-        yield f"{resource.code_for_index(index):04x}", index, "sequential"
+        yield f"{resource.code_for_index(index):04x}", index, "jis_grid"
 
     section = ga16_section_for_path(resource.path)
     if section is None or uni_resource is None:
@@ -419,6 +418,39 @@ def parse_ga16_resource(path: Path) -> Ga16Resource | None:
         count=count,
         glyph_bytes=glyph_bytes,
     )
+
+
+def gaiji_grid_code_for_index(start_code: int, index: int) -> int:
+    """Return the gaiji code at *index* in a JIS row/cell grid.
+
+    GA16 headers store a starting gaiji cell such as ``A121`` plus a glyph
+    count. The range is not a flat integer range: valid cells are ``0x21`` to
+    ``0x7e`` in each row, so the code after ``A17E`` is ``A221``.
+    """
+
+    if index < 0:
+        raise ValueError("gaiji glyph index must be non-negative")
+    row = (start_code >> 8) & 0xFF
+    cell = start_code & 0xFF
+    if not (0x21 <= cell <= 0x7E):
+        # Keep malformed headers deterministic for forensic output.
+        return start_code + index
+    cell_index = (cell - 0x21) + index
+    row += cell_index // 0x5E
+    cell = 0x21 + (cell_index % 0x5E)
+    return (row << 8) | cell
+
+
+def gaiji_grid_index_for_code(start_code: int, code: int) -> int:
+    """Return the glyph index for *code* in a JIS row/cell grid."""
+
+    start_row = (start_code >> 8) & 0xFF
+    start_cell = start_code & 0xFF
+    row = (code >> 8) & 0xFF
+    cell = code & 0xFF
+    if not (0x21 <= start_cell <= 0x7E and 0x21 <= cell <= 0x7E):
+        return code - start_code
+    return ((row - start_row) * 0x5E) + (cell - start_cell)
 
 
 def ga16_row_size(width: int) -> int:

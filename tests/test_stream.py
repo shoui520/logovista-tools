@@ -60,6 +60,7 @@ from logovista_tools.rendererdb import (
     html_media_reference_rows,
     html_to_plain,
     html_ziptomedia_reference_rows,
+    honbun_columns,
     iter_honmon_id_records,
     media_type_counts,
     parse_dense_honmon_id,
@@ -621,6 +622,24 @@ def test_parse_ga16_resource_header_and_glyph(tmp_path) -> None:
     assert resource.glyph_for_code(path.read_bytes(), 0xA122) == glyph1
 
 
+def test_ga16_resource_glyph_lookup_uses_jis_grid(tmp_path) -> None:
+    path = tmp_path / "GA16HALF"
+    header = bytearray(2048)
+    header[0] = 1
+    header[8] = 8
+    header[9] = 16
+    header[10:12] = bytes.fromhex("a121")
+    header[12:14] = (95).to_bytes(2, "big")
+    glyphs = [bytes([index]) * 16 for index in range(95)]
+    path.write_bytes(bytes(header) + b"".join(glyphs))
+
+    resource = parse_ga16_resource(path)
+
+    assert resource is not None
+    assert resource.glyph_for_code(path.read_bytes(), 0xA17E) == glyphs[93]
+    assert resource.glyph_for_code(path.read_bytes(), 0xA221) == glyphs[94]
+
+
 def test_parse_ga16_resource_accepts_empty_bitmap_resource(tmp_path) -> None:
     path = tmp_path / "GA16FULL"
     header = bytearray(2048)
@@ -894,6 +913,22 @@ def test_plain_sqlite_renderer_sidecar_requires_t_contents(tmp_path) -> None:
     assert sidecars[0].storage == "plain"
 
 
+def test_plain_sqlite_renderer_sidecar_accepts_honbun(tmp_path) -> None:
+    idx = tmp_path / "DICT.IDX"
+    idx.write_bytes(b"")
+    cache = tmp_path / "DICT.db"
+    con = sqlite3.connect(cache)
+    con.execute("create table HONBUN (ID text primary key, Title_UTF8 text, Contents_HTML_box text)")
+    con.commit()
+    con.close()
+
+    sidecars = discover_renderer_sidecars(idx)
+
+    assert len(sidecars) == 1
+    assert sidecars[0].path == cache.resolve()
+    assert sidecars[0].storage == "plain"
+
+
 def test_discover_android_body_database_and_media_schema(tmp_path) -> None:
     idx = tmp_path / "DICT.IDX"
     idx.write_bytes(b"")
@@ -928,6 +963,19 @@ def test_rendererdb_lowercase_content_and_t_media_schema(tmp_path) -> None:
     assert html_ziptomedia_reference_rows(con) == 1
     assert html_media_reference_rows(con) == 1
     assert media_type_counts(con) == {"2": 1}
+
+    con.close()
+
+
+def test_rendererdb_honbun_columns_are_case_insensitive() -> None:
+    con = sqlite3.connect(":memory:")
+    con.execute("create table HONBUN (id text primary key, title_utf8 text, contents_html_box text)")
+
+    columns = honbun_columns(con)
+
+    assert columns["ID"] == "id"
+    assert columns["Title_UTF8"] == "title_utf8"
+    assert columns["Contents_HTML_box"] == "contents_html_box"
 
     con.close()
 
@@ -1005,6 +1053,7 @@ def test_parse_spindex_internal_pages_and_reversed_keys() -> None:
 
 def test_rendererdb_html_to_plain_preserves_line_breaks() -> None:
     assert html_to_plain("<div>あ<br />い<br>う</div>") == "あ\nい\nう"
+    assert html_to_plain("<span>Abb&eacute;</span>") == "Abbé"
 
 
 def test_parse_internal_index_page_uses_32bit_child() -> None:

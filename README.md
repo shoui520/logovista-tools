@@ -62,11 +62,12 @@ control, one unknown title byte, a few `.uni` trailer bytes, and one dictionary
 with in-range but still-unclassified raw audio payloads.
 
 The gaiji readiness pass now separates display fidelity from search fallback
-quality. Across the same corpus, 133 packages are display-ready, 25 have no raw
-gaiji occurrences, 10 have partial raw-resource coverage, and one has no raw
-gaiji resources. The pass also corrected the GA16 model: some Windows GAI16
-glyphs are addressed by `.uni` record order, not only by header
-`start_code + glyph_index`.
+quality. Across the same corpus, 143 packages are display-ready from raw
+resources, 25 have no raw gaiji occurrences, and one package (`NGYOKTUK`)
+requires its LogoFontCipher renderer sidecar for gaiji display. The pass also
+corrected the GA16 model: header ranges advance by JIS row/cell order
+(`A121..A17E`, then `A221`), and some Windows GAI16 glyphs are additionally
+addressed by `.uni` record order.
 
 ## Install
 
@@ -149,6 +150,13 @@ Classify gaiji display/search readiness from raw resources:
 logovista-tools gaiji-readiness /path/to/LogoVista --jobs 0 --out-dir out/gaiji-readiness
 ```
 
+Include Windows renderer `HONBUN` sidecars as entry-level display evidence when
+raw gaiji resources are absent:
+
+```bash
+logovista-tools gaiji-readiness /path/to/LogoVista --renderer-sidecars --jobs 0 --out-dir out/gaiji-readiness
+```
+
 Turn those redacted reports into a writer/exporter capability table:
 
 ```bash
@@ -185,7 +193,8 @@ logovista-tools extras /path/to/DICT --out-dir out/extras
 ```
 
 For dense-HONMON renderer packages, follow raw HONMON IDs into renderer/app DB
-rows:
+rows. The same command also handles row-ordered `HONBUN` renderer databases
+such as `NGYOKTUK`:
 
 ```bash
 logovista-tools rendererdb /path/to/DICT --out-dir out/rendererdb

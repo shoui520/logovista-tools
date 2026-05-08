@@ -324,7 +324,7 @@ def bitmap_gaiji_codes(source: DictionarySource) -> dict[str, Any]:
                 or (existing.get("blank") and not blank)
                 or (
                     code_source == "uni_record_order"
-                    and existing.get("code_source") == "sequential"
+                    and existing.get("code_source") == "jis_grid"
                     and bool(existing.get("blank")) == blank
                 )
             ):

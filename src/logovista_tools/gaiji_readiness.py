@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import difflib
 import json
+import re
+import sqlite3
 import sys
 import unicodedata
 from collections import Counter, defaultdict
@@ -23,7 +26,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .component_forensics import component_role
-from .entries import CONTROL_ARG_LENGTHS
+from .entries import CONTROL_ARG_LENGTHS, decode_tokens, iter_entry_slices_with_boundaries, tokens_to_text
 from .gaiji import (
     UniRecord,
     candidate_gaiji_paths,
@@ -37,10 +40,13 @@ from .parallel import parallel_map_ordered, worker_args
 from .profiles import ProfileTarget, discover_profile_targets
 from .resources import load_image_resource_profile
 from .ssed import expand_sseddata_file, find_case_insensitive
+from .rendererdb import honbun_columns, html_to_plain, prepare_sidecar_database, quote_identifier, table_exists
+from .windows import discover_renderer_sidecars, load_exinfo_for_idx
 
 
 GA16_RESOURCE_NAMES = {"GA16HALF", "GA16FULL", "GAI16H", "GAI16F"}
 TEXT_ROLES = {"honmon", "menu", "title", "text_index"}
+PLACEHOLDER_RE = re.compile(r"<h([A-F0-9]{4})>")
 
 
 @dataclass
@@ -269,12 +275,204 @@ def bitmap_gaiji_codes(idx: Path) -> dict[str, Any]:
                     or (existing.get("blank") and not blank)
                     or (
                         code_source == "uni_record_order"
-                        and existing.get("code_source") == "sequential"
+                        and existing.get("code_source") == "jis_grid"
                         and bool(existing.get("blank")) == blank
                     )
                 ):
                     codes[code] = row
     return codes
+
+
+def count_honmon_entry_slices(target: ProfileTarget) -> int:
+    honmon = find_case_insensitive(target.idx.parent, "HONMON.DIC")
+    if honmon is None:
+        return 0
+    expanded = expand_sseddata_file(honmon)
+    return sum(1 for _ in iter_entry_slices_with_boundaries(expanded))
+
+
+def normalize_alignment_text(value: str) -> str:
+    value = value.replace("\r", " ").replace("\n", " ").replace("\t", " ")
+    value = value.replace("*", "＊")
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def raw_alignment_tokens(value: str) -> list[str]:
+    normalized = normalize_alignment_text(value)
+    tokens: list[str] = []
+    pos = 0
+    for match in PLACEHOLDER_RE.finditer(normalized):
+        tokens.extend(normalized[pos : match.start()])
+        tokens.append("\x00" + match.group(1).lower())
+        pos = match.end()
+    tokens.extend(normalized[pos:])
+    return tokens
+
+
+def renderer_plain_text(title: str | None, html_box: str | None, html_list: str | None) -> str:
+    body = html_box or html_list or ""
+    return normalize_alignment_text((title or "") + " " + html_to_plain(body))
+
+
+def infer_renderer_contextual_chars(target: ProfileTarget, db_path: Path, *, limit: int | None = None) -> dict[str, Any]:
+    """Infer contextual gaiji displays by aligning raw entries to HONBUN HTML.
+
+    This is evidence for renderer-backed display recovery, not a global map.
+    Some dictionaries can reuse the same raw gaiji code for different Unicode
+    characters in different entry families.
+    """
+
+    honmon = find_case_insensitive(target.idx.parent, "HONMON.DIC")
+    if honmon is None:
+        return {}
+    expanded = expand_sseddata_file(honmon)
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    votes: dict[str, Counter[str]] = defaultdict(Counter)
+    aligned_events = 0
+    ambiguous_events = 0
+    rows_seen = 0
+    try:
+        columns = honbun_columns(con)
+        id_col = columns.get("ID")
+        title_col = columns.get("Title_UTF8")
+        html_box_col = columns.get("Contents_HTML_box")
+        html_list_col = columns.get("Contents_HTML_list")
+        if id_col is None or title_col is None or html_box_col is None:
+            return {}
+        select_parts = [
+            f"{quote_identifier(id_col)} as ID",
+            f"{quote_identifier(title_col)} as Title_UTF8",
+            f"{quote_identifier(html_box_col)} as Contents_HTML_box",
+        ]
+        if html_list_col is not None:
+            select_parts.append(f"{quote_identifier(html_list_col)} as Contents_HTML_list")
+        query = (
+            f"select {', '.join(select_parts)} "
+            f"from HONBUN order by {quote_identifier(id_col)}"
+        )
+        for (start, end), row in zip(iter_entry_slices_with_boundaries(expanded), con.execute(query)):
+            if limit is not None and rows_seen >= limit:
+                break
+            rows_seen += 1
+            raw = tokens_to_text(decode_tokens(expanded[start:end], gaiji="placeholder")[0])
+            if "<h" not in raw:
+                continue
+            raw_tokens = raw_alignment_tokens(raw)
+            rendered_tokens = list(
+                renderer_plain_text(
+                    row["Title_UTF8"],
+                    row["Contents_HTML_box"],
+                    row["Contents_HTML_list"] if "Contents_HTML_list" in row.keys() else None,
+                )
+            )
+            matcher = difflib.SequenceMatcher(a=raw_tokens, b=rendered_tokens, autojunk=False)
+            for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+                if tag == "equal":
+                    continue
+                source = raw_tokens[i1:i2]
+                placeholders = [
+                    token[1:]
+                    for token in source
+                    if isinstance(token, str) and token.startswith("\x00")
+                ]
+                non_placeholders = [
+                    token
+                    for token in source
+                    if not (isinstance(token, str) and token.startswith("\x00"))
+                    and token != " "
+                ]
+                target_chars = [char for char in rendered_tokens[j1:j2] if char != " "]
+                if placeholders and not non_placeholders and len(placeholders) == len(target_chars):
+                    for code, char in zip(placeholders, target_chars):
+                        votes[code][char] += 1
+                        aligned_events += 1
+                elif placeholders:
+                    ambiguous_events += 1
+    finally:
+        con.close()
+
+    conflicts = 0
+    inferred: dict[str, Any] = {}
+    for code, counter in sorted(votes.items()):
+        if len(counter) > 1:
+            conflicts += 1
+        inferred[code] = {
+            "aligned_occurrences": sum(counter.values()),
+            "top_displays": [
+                {"display": display, "count": count}
+                for display, count in counter.most_common(8)
+            ],
+            "distinct_displays": len(counter),
+        }
+    return {
+        "rows_aligned": rows_seen,
+        "aligned_events": aligned_events,
+        "ambiguous_events": ambiguous_events,
+        "conflict_codes": conflicts,
+        "codes": inferred,
+    }
+
+
+def renderer_honbun_evidence(target: ProfileTarget, dict_out: Path, args: argparse.Namespace) -> dict[str, Any]:
+    if not getattr(args, "renderer_sidecars", False):
+        return {"enabled": False}
+
+    exinfo = load_exinfo_for_idx(target.idx)
+    sidecars = discover_renderer_sidecars(target.idx, exinfo)
+    rows: list[dict[str, Any]] = []
+    for sidecar in sidecars:
+        try:
+            db_path = prepare_sidecar_database(sidecar, dict_out / "_renderer_sidecars", args)
+            con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        except Exception as exc:
+            rows.append({"path": str(sidecar.path), "storage": sidecar.storage, "status": "open_error", "error": str(exc)})
+            continue
+        try:
+            if not table_exists(con, "HONBUN"):
+                rows.append({"path": str(sidecar.path), "storage": sidecar.storage, "sqlite_path": str(db_path), "status": "no_honbun"})
+                continue
+            columns = honbun_columns(con)
+            required = {"ID", "Title_UTF8", "Contents_HTML_box"}
+            if not required <= set(columns):
+                rows.append(
+                    {
+                        "path": str(sidecar.path),
+                        "storage": sidecar.storage,
+                        "sqlite_path": str(db_path),
+                        "status": "unsupported_honbun_schema",
+                        "columns": sorted(columns.values()),
+                    }
+                )
+                continue
+            row_count = int(con.execute(f"select count(*) from {quote_identifier('HONBUN')}").fetchone()[0])
+        finally:
+            con.close()
+
+        raw_entries = count_honmon_entry_slices(target)
+        evidence = {
+            "path": str(sidecar.path),
+            "storage": sidecar.storage,
+            "sqlite_path": str(db_path),
+            "status": "ok_honbun",
+            "rows": row_count,
+            "raw_entry_slices": raw_entries,
+            "row_order_matches_raw_entries": row_count == raw_entries,
+        }
+        if row_count == raw_entries:
+            evidence["contextual_inference"] = infer_renderer_contextual_chars(
+                target,
+                db_path,
+                limit=getattr(args, "renderer_inference_limit", None),
+            )
+        rows.append(evidence)
+    selected = next((row for row in rows if row.get("status") == "ok_honbun" and row.get("row_order_matches_raw_entries")), None)
+    return {
+        "enabled": True,
+        "entry_backed": selected is not None,
+        "selected": selected,
+        "sidecars": rows,
+    }
 
 
 def is_search_fallback_missing(mapping: MappingEvidence | None, raw_count: int) -> bool:
@@ -331,6 +529,7 @@ def primary_bucket(
     mapping: MappingEvidence | None,
     bitmap: dict[str, Any] | None,
     image: bool,
+    renderer_entry_backed: bool = False,
 ) -> str:
     if raw_count == 0:
         if mapping is not None:
@@ -353,6 +552,8 @@ def primary_bucket(
         return "formatting_helper"
     if bitmap is not None:
         return "bitmap_backed"
+    if raw_count and renderer_entry_backed:
+        return "renderer_entry_backed"
     return "display_unresolved"
 
 
@@ -372,6 +573,8 @@ def code_row(
     mapping: MappingEvidence | None,
     bitmap: dict[str, Any] | None,
     image: bool,
+    renderer_entry_backed: bool = False,
+    renderer_contextual: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     space = observed_gaiji_space(code, mapping, bitmap)
     bucket = primary_bucket(
@@ -380,6 +583,7 @@ def code_row(
         mapping=mapping,
         bitmap=bitmap,
         image=image,
+        renderer_entry_backed=renderer_entry_backed,
     )
     flags: list[str] = []
     if raw_count and mapping is None:
@@ -388,6 +592,8 @@ def code_row(
         flags.append("display_unresolved")
     if raw_count and bucket == "formatting_helper":
         flags.append("formatting_helper_candidate")
+    if raw_count and bucket == "renderer_entry_backed":
+        flags.append("renderer_contextual_required")
     if is_search_fallback_missing(mapping, raw_count):
         flags.append("search_fallback_missing")
     return {
@@ -406,6 +612,8 @@ def code_row(
         "mapping_metadata": f"{mapping.metadata:04x}" if mapping and mapping.metadata is not None else None,
         "bitmap": bitmap,
         "image_asset": image,
+        "renderer_entry_backed": renderer_entry_backed,
+        "renderer_contextual": renderer_contextual,
     }
 
 
@@ -475,6 +683,11 @@ def extract_gaiji_readiness(target: ProfileTarget, out_dir: Path, args: argparse
     bitmaps = bitmap_gaiji_codes(target.idx)
     image_profile = load_image_resource_profile(target.idx)
     image_codes = set(image_profile.gaiji_image_keys)
+    renderer_evidence = renderer_honbun_evidence(target, dict_out, args)
+    renderer_entry_backed = bool(renderer_evidence.get("entry_backed"))
+    contextual_codes = (
+        ((renderer_evidence.get("selected") or {}).get("contextual_inference") or {}).get("codes") or {}
+    )
 
     component_counts_by_code = build_component_counts_by_code(component_reports)
     all_codes = set(raw_counts) | set(mappings) | set(bitmaps) | image_codes
@@ -486,6 +699,8 @@ def extract_gaiji_readiness(target: ProfileTarget, out_dir: Path, args: argparse
             mapping=mappings.get(code),
             bitmap=bitmaps.get(code),
             image=code in image_codes,
+            renderer_entry_backed=renderer_entry_backed,
+            renderer_contextual=contextual_codes.get(code),
         )
         for code in sorted(all_codes)
     ]
@@ -504,6 +719,7 @@ def extract_gaiji_readiness(target: ProfileTarget, out_dir: Path, args: argparse
             "scan_errors": len(errors),
         },
         "mapping_sources": mapping_sources,
+        "renderer_evidence": renderer_evidence,
         "raw_components": component_reports,
         "scan_errors": errors,
         "codes": rows,

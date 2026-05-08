@@ -117,9 +117,11 @@ LogoVista dictionary model.
   are accounted for but whose audio codec/container is not yet classified.
 - Named UI/style images such as `exam.png` are discovered, but mapping them to
   semantic entry regions is dictionary-specific.
-- The raw-resource gaiji readiness pass still has 11 dictionaries with true
-  display-unresolved gaiji under current evidence. `NGYOKTUK` has raw gaiji but
-  no `.uni`, plist, GA16, or package image resources in the SSED package.
+- The default raw-resource gaiji readiness pass has one display-unresolved
+  dictionary: `NGYOKTUK`. Its encrypted `vlpljblF` sidecar decrypts to a
+  row-ordered `HONBUN` renderer database that matches raw HONMON entry slices,
+  so `gaiji-readiness --renderer-sidecars` can recover entry-level display.
+  This is contextual renderer evidence, not a dictionary-global gaiji map.
 - `dump-ir` is still a lossless entry-span JSONL inspection format. It covers
   one LV-IR slice, but it is not yet a full `LV-IR v0` package export.
 - Observed `DictFtsDB` `.dbc` payloads for OXFPEU4/KQCMPROS are LVED
@@ -144,8 +146,9 @@ Recently landed:
 6. Full-corpus component forensics for menu/title/index/gaiji/media resources,
    including new index variants, wrapped PNG `COLSCR.DIC` records, GA16 byte
    coverage, `.uni` trailer accounting, and raw `PCMDATA.DIC` range coverage.
-7. Full-corpus gaiji readiness reporting, including the `.uni` record-order
-   GA16/GAI16 addressing correction and refined capability-matrix gaiji status.
+7. Full-corpus gaiji readiness reporting, including the JIS-grid GA16 range
+   correction, `.uni` record-order GA16/GAI16 addressing, renderer `HONBUN`
+   sidecar evidence, and refined capability-matrix gaiji status.
 
 Next priorities:
 
@@ -153,9 +156,10 @@ Next priorities:
    described in `spec/lv-ir-v0.md`, starting with components, entries,
    titles, indexes, menus, gaiji, media references, media records, issues, and
    metrics.
-2. **Remaining gaiji edge cases.** Investigate the 11 dictionaries that still
-   have display-unresolved gaiji under raw-resource evidence, especially
-   `NGYOKTUK`, `ARCHSIC3`, `LMEDEJ12`, and `MEIKYOU`.
+2. **NGYOKTUK renderer-backed gaiji.** Keep `NGYOKTUK` as the named
+   raw-resource exception: its display is recoverable through row-aligned
+   `HONBUN` HTML, but a lossless IR/exporter must preserve raw gaiji
+   provenance because some codes are contextual rather than dictionary-global.
 3. **Corpus capability matrix refinement.** Use matrix output to separate
    writer-v0 blockers from lossless-repacker blockers, then tighten media and
    menu readiness rules as the IR implementation lands.

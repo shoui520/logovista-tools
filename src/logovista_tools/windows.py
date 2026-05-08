@@ -285,7 +285,9 @@ def discover_renderer_sidecars(idx: Path, exinfo: Exinfo | None = None) -> list[
         storage = sqlite_storage_for_path(candidate)
         if storage is None:
             continue
-        if storage == "plain" and not sqlite_has_table(candidate, "t_contents"):
+        if storage == "plain" and not (
+            sqlite_has_table(candidate, "t_contents") or sqlite_has_table(candidate, "HONBUN")
+        ):
             continue
         rows.append(RendererSidecar(path=candidate, storage=storage))
     return rows

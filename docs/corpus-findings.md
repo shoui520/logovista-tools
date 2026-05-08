@@ -199,46 +199,41 @@ Aggregate result:
 
 ```text
 dictionaries:              169
-readiness status:          133 yes
+readiness status:          143 yes
                              25 n/a
-                             10 partial
                               1 no
 raw gaiji occurrences:  34,854,621
 unicode-mapped occ.:   15,135,023
-bitmap-backed occ.:     8,533,880
+bitmap-backed occ.:     8,725,094
 image-backed occ.:     10,280,015
-formatting-helper occ.:   783,070
-display-unresolved occ.:  122,633
+formatting-helper occ.:   681,325
+display-unresolved occ.:   33,164
 search-fallback-missing occ.: 7,989,069
 ```
 
-The key correction from this pass is that GA16 resources are not always
-addressed only by `start_code + glyph_index`. In several Windows packages,
-GA16/GAI16 glyph slot `n` aligns with `.uni` half/full record `n`; the `.uni`
-record's code field is the raw body code. This resolves many apparent missing
-gaiji in GENIUSEB, RDRSP2, Readers3, RPLUSREV, KENE7J5, KQNEWEJ6, KQNEWJE5,
-and related packages.
+The key correction from this pass is that GA16 header ranges advance in JIS
+row/cell order, not as flat 16-bit integers. A resource beginning at `A121`
+continues through `A17E`, then `A221`. This resolves the apparent missing
+bitmap gaiji in `ARCHSIC3`, `LMEDEJ12`, `MEIKYOU`, `NANDOKU3`, `NANDOKU4`,
+`Dconci87`, `Bri2019P`, `KQBIZEJ`, `IBIO4`, and `IBIO4VRS`.
 
-Remaining display-unresolved dictionaries after the `.uni`-order GA16 fix:
+Several Windows packages still require the second addressing view: GA16/GAI16
+glyph slot `n` aligns with `.uni` half/full record `n`; the `.uni` record's
+code field is the raw body code. This resolves sparse codes in GENIUSEB,
+RDRSP2, Readers3, RPLUSREV, KENE7J5, KQNEWEJ6, KQNEWJE5, and related packages.
+
+Remaining display-unresolved dictionary under the default raw-resource policy:
 
 ```text
-ARCHSIC3   101 codes, 57,788 occurrences
 NGYOKTUK   146 codes, 33,164 occurrences
-LMEDEJ12    68 codes, 20,978 occurrences
-MEIKYOU    374 codes,  7,419 occurrences
-NANDOKU4    45 codes,    939 occurrences
-Dconci87     1 code,     823 occurrences
-NANDOKU3    52 codes,    735 occurrences
-Bri2019P   105 codes,    676 occurrences
-KQBIZEJ      9 codes,     72 occurrences
-IBIO4        6 codes,     36 occurrences
-IBIO4VRS     1 code,       3 occurrences
 ```
 
 `NGYOKTUK` has raw gaiji but no `.uni`, plist, GA16, or package image evidence
-in the SSED package; it remains the only `no` result under this raw-resource
-policy. It ships renderer sidecars, so those may still provide display HTML or
-application-level substitution, but that is not treated as raw gaiji evidence.
+in the SSED package. It ships a LogoFontCipher renderer sidecar, and with
+`gaiji-readiness --renderer-sidecars` it is display-ready through entry-level
+`HONBUN` HTML. It is not reducible to one dictionary-global gaiji map: at least
+one raw code is context-dependent, so the renderer row is the correct display
+source for lossless conversion.
 
 ## Capability Matrix
 
@@ -251,8 +246,8 @@ logovista-tools capability-matrix \
   --profile-dir /tmp/lv-profile-corpus4 \
   --honmon-bytes-dir /tmp/lv-honmon-bytes-corpus-v3 \
   --component-forensics-dir /tmp/lv-component-forensics-corpus-v4 \
-  --gaiji-readiness-dir /tmp/lv-gaiji-readiness-corpus \
-  --out-dir /tmp/lv-capability-matrix-corpus
+  --gaiji-readiness-dir /tmp/lv-gaiji-readiness-corpus-grid-v1 \
+  --out-dir /tmp/lv-capability-matrix-corpus-grid-v1
 ```
 
 This command does not inspect dictionary payloads directly. It classifies each
@@ -265,7 +260,7 @@ Capability counts:
 raw HONMON body:       yes 143, no 26
 indexes fully parsed: yes 123, partial 1, no 11, n/a 34
 titles fully parsed:  yes 79, partial 2, no 4, n/a 84
-gaiji fully resolved: yes 133, partial 10, no 1, n/a 25
+gaiji fully resolved: yes 143, no 1, n/a 25
 media refs resolved:  yes 62, partial 1, no 1, n/a 105
 menu pointers:        yes 63, partial 12, no 9, n/a 85
 ```
@@ -273,15 +268,15 @@ menu pointers:        yes 63, partial 12, no 9, n/a 85
 Writer/repacker planning status:
 
 ```text
-legacy writer v0:   green 108, yellow 29, red 32
-lossless repacker:  green 100, yellow 6,  red 63
-combined worst:     green 100, yellow 6,  red 63
+legacy writer v0:   green 116, yellow 21, red 32
+lossless repacker:  green 106, red 63
+combined worst:     green 106, red 63
 ```
 
 The green count changed because most dictionaries previously marked
 `gaiji_not_fully_resolved` were actually display-ready once bitmap/image-backed
-gaiji, `.uni` record-order GA16 glyphs, and formatting-helper candidates were
-separated from true display failures.
+gaiji, JIS-grid GA16 glyphs, `.uni` record-order GA16 glyphs, and
+formatting-helper candidates were separated from true display failures.
 
 Top blocker counts:
 
@@ -291,16 +286,16 @@ body_requires_sidecar_or_is_missing: 26
 menu_not_fully_resolved:            21
 raw_body_not_self_contained:        18
 indexes_not_fully_parsed:           12
-gaiji_not_fully_resolved:           11
 titles_not_fully_parsed:             6
 unknown_or_structural_text_issues:   3
 media_not_fully_resolved:            2
+gaiji_not_fully_resolved:            1
 ```
 
 The matrix makes the next reverse-engineering priorities more concrete:
 
-- investigate the 11 dictionaries that still have true display-unresolved
-  gaiji under raw-resource evidence;
+- treat `NGYOKTUK` as the remaining raw-resource gaiji exception and preserve
+  its `HONBUN` renderer rows as contextual display evidence;
 - improve menu destination resolution for packages with partial menu coverage;
 - decide whether missing declared components in locally incomplete packages
   should be excluded from writer-readiness scoring;
@@ -718,6 +713,45 @@ CREATE TABLE t_Search_N (
   f_offset TEXT
 );
 ```
+
+### NGYOKTUK Windows HONBUN Renderer Database
+
+`NGYOKTUK` (`日外 外国人名よみ方・綴り方字典`) is a body-stream dictionary whose
+raw HONMON entries are readable, but its Latin gaiji are not backed by `.uni`,
+GA16, plist, or package image resources. `EXINFO.INI` declares
+`GAIJI=NGYOKTUK.UNI`, but that file is absent from the package.
+
+The encrypted sibling `vlpljblF` decrypts with the LogoFontCipher key to a
+SQLite database with a single `HONBUN` table:
+
+```sql
+CREATE TABLE HONBUN (
+  ID TEXT NOT NULL UNIQUE,
+  Title_UTF8 TEXT,
+  Title_SJIS TEXT,
+  Contents_HTML_box TEXT,
+  Contents_HTML_list TEXT,
+  LEVEL1 TEXT,
+  LEVEL2 TEXT,
+  LEVEL3 TEXT,
+  PRIMARY KEY(ID)
+);
+```
+
+The row count is 278,705, exactly matching the number of raw HONMON entry
+slices. Ordering by `ID` aligns rows to raw HONMON entries:
+
+```text
+raw entry 117: Abb<hA13C> / アベ * / アベー
+HONBUN 00000117: Abbé / アベ ＊ / アベー
+```
+
+This sidecar is therefore valid entry-level display evidence. It is not a
+simple gaiji map. Some raw gaiji codes are context-dependent; for example a
+code observed as `A168` can render as different Latin letters with diacritics
+in different name-entry contexts. A lossless exporter should preserve the raw
+code provenance and use the matched `HONBUN` HTML for display when direct raw
+gaiji resources are absent.
 
 ### DAIJIRN4 Windows Renderer Database
 

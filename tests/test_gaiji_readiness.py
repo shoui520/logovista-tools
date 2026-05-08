@@ -5,6 +5,8 @@ from logovista_tools.gaiji import (
     UniRecord,
     UniResource,
     ga16_preferred_code_for_index,
+    gaiji_grid_code_for_index,
+    gaiji_grid_index_for_code,
     iter_ga16_code_sources,
 )
 from logovista_tools.gaiji_readiness import MappingEvidence, code_row, summarize_rows
@@ -61,6 +63,15 @@ def test_gaiji_readiness_buckets_and_flags():
             image=False,
         ),
         code_row(
+            "a1ab",
+            raw_count=2,
+            component_counts={"HONMON.DIC": 2},
+            mapping=None,
+            bitmap=None,
+            image=False,
+            renderer_entry_backed=True,
+        ),
+        code_row(
             "a1bb",
             raw_count=0,
             component_counts={},
@@ -77,6 +88,7 @@ def test_gaiji_readiness_buckets_and_flags():
     assert buckets["a430"] == "formatting_helper"
     assert buckets["b200"] == "formatting_helper"
     assert buckets["a1aa"] == "display_unresolved"
+    assert buckets["a1ab"] == "renderer_entry_backed"
     assert buckets["a1bb"] == "unused_mapping"
     assert "search_fallback_missing" in rows[1]["flags"]
     assert "formatting_helper_candidate" in rows[3]["flags"]
@@ -112,5 +124,14 @@ def test_ga16_can_use_uni_record_order_for_sparse_codes():
 
     assert ga16_preferred_code_for_index(resource, 1, uni) == ("a430", "uni_record_order")
     sources = set(iter_ga16_code_sources(resource, uni))
-    assert ("a122", 1, "sequential") in sources
+    assert ("a122", 1, "jis_grid") in sources
     assert ("a430", 1, "uni_record_order") in sources
+
+
+def test_ga16_header_range_advances_by_jis_grid_cells():
+    assert gaiji_grid_code_for_index(0xA121, 0) == 0xA121
+    assert gaiji_grid_code_for_index(0xA121, 93) == 0xA17E
+    assert gaiji_grid_code_for_index(0xA121, 94) == 0xA221
+    assert gaiji_grid_code_for_index(0xA121, 95) == 0xA222
+    assert gaiji_grid_code_for_index(0xA121, 188) == 0xA321
+    assert gaiji_grid_index_for_code(0xA121, 0xA221) == 94

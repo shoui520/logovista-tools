@@ -399,21 +399,26 @@ matching EBWin and the `.uni` text mapping.
 Two code-addressing views are observed:
 
 ```text
-sequential range       code = header.start_code + glyph_index
+JIS-grid header range  A121..A17E, then A221..A27E, etc.
 .uni record order      code = matching half/full .uni record[glyph_index].code
 ```
 
-Many dictionaries work with the sequential range alone. Several Windows
-packages do not. GENIUSEB, RDRSP2, Readers3, RPLUSREV, KENE7J5, KQNEWEJ6,
-KQNEWJE5, and related packages have GA16 glyph slots that align with `.uni`
-record order. Their `.uni` records can contain sparse/non-sequential codes
-such as `A430`; the matching bitmap exists at that record index even though the
-GAI16 header range starts at `A121`.
+The header range is not `start_code + glyph_index`. The low byte is a JIS cell,
+valid from `0x21` through `0x7e`; the next glyph after `A17E` is therefore
+`A221`. This row/cell rule is required for dictionaries such as `ARCHSIC3`,
+`LMEDEJ12`, `MEIKYOU`, `NANDOKU3`, `NANDOKU4`, `Dconci87`, `Bri2019P`,
+`KQBIZEJ`, `IBIO4`, and `IBIO4VRS`.
+
+Several Windows packages also need `.uni` record order. GENIUSEB, RDRSP2,
+Readers3, RPLUSREV, KENE7J5, KQNEWEJ6, KQNEWJE5, and related packages have
+GA16 glyph slots that align with `.uni` records. Their `.uni` records can
+contain sparse/non-sequential codes such as `A430`; the matching bitmap exists
+at that record index even though the GAI16 header grid starts at `A121`.
 
 For extraction and readiness checks, use both views. For rendering a GA16 dump
 to stable filenames, prefer `.uni` record-order codes when a matching `.uni`
-sidecar is present, then fall back to the sequential header range for glyph
-slots beyond the parsed record table.
+sidecar is present, then fall back to the JIS-grid header range for glyph slots
+beyond the parsed record table.
 
 Some resources are valid headers with zero glyphs. For example, an empty
 `GA16HALF` may declare width, height, and start code but have count `0`. The
@@ -456,6 +461,7 @@ unicode_mapped       .uni or plist provides display text
 bitmap_backed        GA16/GAI16 glyph exists, but no Unicode display text
 image_backed         package image exists, but no Unicode display text
 formatting_helper    blank bitmap code or unbacked full-width code, treated as probable renderer-only helper
+renderer_entry_backed renderer HONBUN HTML is aligned to raw entries and supplies display
 display_unresolved   raw occurrence with no Unicode/image/bitmap/helper evidence
 unused_mapping       mapping exists but raw scans did not see it
 unused_bitmap        bitmap exists but raw scans did not see it
@@ -468,12 +474,21 @@ full-width codes with no mapping, no bitmap, and no package image. Prior
 observed packages use those codes as blank/style helpers. Real display glyphs
 normally have nonblank `.uni`, GA16, or image backing.
 
+`renderer_entry_backed` is also deliberately scoped. It means direct raw gaiji
+resources are absent, but a renderer database has rows aligned to raw HONMON
+entries. `NGYOKTUK` is the observed case: its LogoFontCipher `vlpljblF`
+sidecar decrypts to `HONBUN` HTML rows that exactly match raw entry order.
+Some raw codes in that dictionary are context-dependent, so there is no safe
+single `code -> Unicode` map. Lossless output should preserve the raw code and
+use the matched renderer HTML for display.
+
 Flags are orthogonal:
 
 ```text
 raw_occurrence_unmapped     raw code has no Unicode display text
 search_fallback_missing     display text exists, but .uni fallback/search text is absent
 formatting_helper_candidate formatting-helper heuristic was applied
+renderer_contextual_required entry-level renderer evidence is needed for display
 display_unresolved          primary bucket is display_unresolved
 ```
 

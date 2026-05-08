@@ -475,6 +475,8 @@ def discover_ga16_resources(path: Path) -> list[Path]:
     if not path.exists():
         return []
     if path.is_file():
+        if path.suffix.lower() == ".idx":
+            return discover_ga16_resources(path.parent)
         return [path] if is_ga16_resource_path(path) else []
 
     direct = sorted(
@@ -1451,6 +1453,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_gaiji_readiness.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
     p_gaiji_readiness.add_argument("--out-dir", type=Path, default=Path("logovista-gaiji-readiness"))
     p_gaiji_readiness.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
+    p_gaiji_readiness.add_argument(
+        "--renderer-sidecars",
+        action="store_true",
+        help="Use Windows renderer SQLite/HONBUN sidecars as entry-level gaiji display evidence.",
+    )
+    p_gaiji_readiness.add_argument(
+        "--renderer-inference-limit",
+        type=int,
+        help="Limit raw/HONBUN rows used for contextual gaiji character inference.",
+    )
     p_gaiji_readiness.add_argument("--json", action="store_true", help="Also print machine-readable summary JSON.")
     add_jobs_argument(p_gaiji_readiness)
     p_gaiji_readiness.set_defaults(func=cmd_gaiji_readiness)
