@@ -113,11 +113,23 @@ target inside a larger collection.
 
 ```text
 ssed              SSEDINFO/SSEDDATA package with HONMON-style components
-lved_sqlcipher    modern LVED/WebView2 SQLCipher payload family
 ssed-sizk-read-aloud  SIZK SSED package with loose read-aloud sidecars
+lved_sqlcipher    modern LVED/WebView2 SQLCipher payload family
 multiview_sqlite      LVLMultiView package with SSEDINFO facade + SQLite bodies
 mixed             package has both raw SSED anchors and renderer/database bodies
 unknown           classified enough to report, not enough to decode
+```
+
+`platform` values:
+
+```text
+windows
+windows-sizk
+ios
+android
+lved-windows
+multiview-windows
+unknown
 ```
 
 `honmon_shape` values observed so far:
@@ -130,8 +142,10 @@ text_stream_without_entry_markers
 dense_marker_table
 dense_numeric_id_table
 dense_token_table
+index_targets_without_sampled_body
+marker_table_without_sampled_body
+opaque_or_binary_honmon
 missing
-not_applicable
 unknown
 ```
 
@@ -140,11 +154,10 @@ unknown
 ```text
 honmon
 honmon_anchor_dereference
+sidecar
 dictfulldb
-rendererdb
-androiddb
+renderer_db
 lved_sqlcipher
-multiview_sqlite
 none
 unknown
 ```
@@ -191,16 +204,13 @@ Fields:
 Address `kind` values:
 
 ```text
-component          SSED component block/offset address
-component_offset   component-relative byte offset without block metadata
-book_offset        composed expanded book offset
-packed_bcd         raw packed-BCD pointer before resolution
-dense_anchor       HONMON 32-byte ID/token anchor
-db_row             SQLite/SQLCipher/renderer table row
-asset              package asset or exported media record
-virtual_selector   side-panel/menu selector, not a raw byte destination
-external           URL or external reference
-unresolved         pointer bytes exist but target is not known
+component
+book
+dense_anchor
+database_row
+virtual_selector
+resource
+unknown
 ```
 
 For writer work, `component` plus `component_offset` is the canonical internal
@@ -238,7 +248,7 @@ resources.
 {
   "id": "component:HONMON.DIC",
   "filename": "HONMON.DIC",
-  "role": "body",
+  "role": "honmon",
   "component_type": "00",
   "storage": "plain",
   "start_block": 25769,
@@ -258,20 +268,16 @@ resources.
 `role` values:
 
 ```text
-body
-menu
+honmon
 title
 index
-text_index
+menu
+multi_descriptor
+text
+colscr
+pcmdata
 gaiji_bitmap
-gaiji_unicode_map
-media_image
-media_audio
-renderer_db
-dictfulldb
-lved_payload
-platform_metadata
-package_asset
+component
 unknown
 ```
 
@@ -309,7 +315,22 @@ redacted or sampled.
 }
 ```
 
-Common span kinds:
+Span `kind` values:
+
+```text
+text
+ascii
+control
+section
+break
+gaiji
+media_ref
+padding
+unknown_control
+problem
+```
+
+Common span kind meanings:
 
 | Kind | Meaning |
 | --- | --- |
@@ -319,9 +340,6 @@ Common span kinds:
 | `break` | LogoVista line break control or legacy `0x0a`. |
 | `section` | `1f09 xxxx` section marker. |
 | `control` | Structurally known control with neutral or known tag. |
-| `control_start` | Start wrapper control. |
-| `control_end` | End wrapper control. |
-| `link_ref` | Link/jump control with payload and optional visible label. |
 | `media_ref` | Media/image/audio control with payload. |
 | `gaiji` | Dictionary-local external character. |
 | `unknown_control` | `0x1f` opcode not structurally classified. |
@@ -381,6 +399,17 @@ Fields:
 | `role` | Higher-level semantic role when known, preferably dictionary-profile backed. |
 | `confidence` | Confidence level from `spec/confidence.md`. |
 | `target` | Resolved address for link/media/menu controls when known. |
+
+Control `confidence` values:
+
+```text
+proven
+strongly_inferred
+corpus_inferred
+dictionary_specific
+structural_only
+unknown
+```
 
 Unknown or not-yet-semantic controls are still valid model records. For example,
 `1f1a` and `1f1c` currently have fixed two-byte payloads and neutral tags; the
@@ -979,22 +1008,23 @@ The top-level `writer_readiness` is a copy of
 {
   "writer_readiness": {
     "legacy_ssed_subset": "green",
-    "requires_generated_gaiji": true,
-    "requires_sidecar_body": false,
-    "requires_unknown_controls": false,
-    "requires_unclassified_media": false,
-    "blocking_issues": []
+    "legacy_ssed_subset_blockers": [],
+    "lossless_repacker": "green",
+    "lossless_repacker_blockers": [],
+    "combined": "green",
+    "combined_blockers": []
   }
 }
 ```
 
-Suggested values:
+Writer status values:
 
 ```text
 green   usable by a minimal legacy writer/exporter
 yellow  usable with degradation or profile-specific rules
 red     not usable without additional reverse engineering
 gray    not applicable
+unknown not enough evidence to classify
 ```
 
 This is not a format claim. It is planning metadata for writer/exporter work.
