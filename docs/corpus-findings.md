@@ -580,6 +580,12 @@ Conversely, the second group proves that some dictionaries need a database or
 other payload dereference for final body text, but that does not make HONMON or
 IDX irrelevant: they still carry the raw anchor layer.
 
+`NANMED20` adds one renderer-sidecar wrinkle: its Windows `vlpljblF`
+`t_contents` table contains normal decimal `f_DataId` rows that match raw
+dense-HONMON IDs, plus non-decimal rows such as `99A00001`. The latter are not
+raw HONMON anchors. They are sidecar-only rows and should be measured rather
+than forced through the decimal ID matcher.
+
 LVED/WebView2 SQLCipher products such as OXFPEU4 and KQCMPROS are covered as a
 separate package family below. They are not failed raw-HONMON body streams.
 

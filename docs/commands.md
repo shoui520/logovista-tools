@@ -849,7 +849,9 @@ table, not a body stream. It still starts from raw HONMON:
    such as `f_DataId` / `f_dataid` are normalized. The `BRINEN15` variant is
    also normalized: marker-at-byte-0 HONMON ID records, `f_data_id`,
    `f_midashi`, `f_contents`, and `f_media` map to the same canonical
-   renderer-body fields.
+   renderer-body fields. Some renderer DBs also contain non-decimal
+   `f_DataId` values outside the raw dense-HONMON ID namespace; these are
+   counted and sampled as sidecar-only rows rather than coerced to integers.
 5. For the observed Android body DB shape, query the `DICTID(Html)` table and
    emit rows where `rowid * 5` exists in raw HONMON.
 

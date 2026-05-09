@@ -66,6 +66,7 @@ from logovista_tools.rendererdb import (
     iter_honmon_id_records,
     media_type_counts,
     parse_dense_honmon_id,
+    parse_decimal_int,
     safe_media_name,
     t_contents_columns,
     ziptomedia_reference_names,
@@ -1120,6 +1121,14 @@ def test_rendererdb_underscore_content_aliases() -> None:
     assert columns["f_Media"] == "f_media"
 
     con.close()
+
+
+def test_rendererdb_decimal_id_parser_is_lossless() -> None:
+    assert parse_decimal_int(123) == 123
+    assert parse_decimal_int("00123") == 123
+    assert parse_decimal_int("99A00001") is None
+    assert parse_decimal_int("") is None
+    assert parse_decimal_int(None) is None
 
 
 def test_rendererdb_two_column_t_media_schema() -> None:

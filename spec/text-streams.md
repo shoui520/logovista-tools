@@ -279,7 +279,11 @@ the same declaration mechanism. They are not `DictFULLDB` entries in
 `DictList.plist`; they are platform body/render caches. The toolkit still treats
 them as raw-ID-assisted body sources, not as replacements for raw parsing:
 `rendererdb` first decodes dense HONMON IDs and then accepts only DB rows that
-match those raw IDs.
+match those raw IDs. Renderer DBs can also contain rows whose IDs are outside
+that decimal raw-ID namespace. The observed Windows `NANMED20` `vlpljblF`
+sidecar has `t_contents.f_DataId` values such as `99A00001`; these are
+preserved as sidecar-only rows in reports and are not interpreted as raw HONMON
+anchors.
 
 ## Non-SSED LVED/WebView2 Packages
 

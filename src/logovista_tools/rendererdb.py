@@ -117,6 +117,19 @@ def honmon_id_record_to_json(record: HonmonIdRecord) -> dict[str, Any]:
     }
 
 
+def parse_decimal_int(value: Any) -> int | None:
+    """Return an int only for values that are lossless base-10 integers."""
+
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    text = str(value).strip()
+    if not text or not text.isdecimal():
+        return None
+    return int(text)
+
+
 def quote_identifier(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
@@ -681,6 +694,8 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
         emitted = 0
         matched_ids = 0
         extra_rows = 0
+        non_numeric_data_id_rows = 0
+        non_numeric_data_id_samples: list[str] = []
         type_counts: Counter[int] = Counter()
         ziptomedia_refs: Counter[str] = Counter()
         group_count = 0
@@ -688,16 +703,27 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
         with (dict_out / "rendererdb_entries.jsonl").open("w", encoding="utf-8") as out:
             for row in con.execute(query):
                 row_keys = row.keys()
-                data_id = int(row["f_DataId"])
+                data_id_value = row["f_DataId"]
+                data_id = parse_decimal_int(data_id_value)
+                if data_id is None:
+                    non_numeric_data_id_rows += 1
+                    if len(non_numeric_data_id_samples) < 10:
+                        non_numeric_data_id_samples.append(str(data_id_value))
+                    extra_rows += 1
+                    continue
                 raw = ids_by_data_id.get(data_id)
                 if raw is None:
                     extra_rows += 1
                     continue
                 matched_ids += 1
                 if "f_Type" in row_keys and row["f_Type"] is not None:
-                    type_counts[int(row["f_Type"])] += 1
+                    type_value = parse_decimal_int(row["f_Type"])
+                    if type_value is not None:
+                        type_counts[type_value] += 1
                 if "f_DataGroupId" in row_keys and row["f_DataGroupId"] is not None:
-                    group_ids.add(int(row["f_DataGroupId"]))
+                    group_id = parse_decimal_int(row["f_DataGroupId"])
+                    if group_id is not None:
+                        group_ids.add(group_id)
                 html_value = row["f_Html"] if "f_Html" in row_keys else None
                 title_value = row["f_Title"] if "f_Title" in row_keys else None
                 plane = row["f_Plane"] if "f_Plane" in row_keys else None
@@ -742,6 +768,8 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
                 "entries_matched_to_raw_honmon": matched_ids,
                 "entries_emitted": emitted,
                 "db_rows_without_raw_honmon_id": extra_rows,
+                "db_rows_with_non_numeric_data_id": non_numeric_data_id_rows,
+                "non_numeric_data_id_samples": non_numeric_data_id_samples,
                 "raw_honmon_ids_missing_in_db": max(0, len(raw_ids) - matched_ids),
                 "type_counts": {str(key): value for key, value in sorted(type_counts.items())},
                 "data_group_ids_matched": group_count,
