@@ -72,11 +72,14 @@ lossless repack:       green 148, red 54, gray 59
 ```
 
 `gray` means the package is outside the SSED writer target, currently LVED or
-LVLMultiView. Most `red` export/repack cases are dense-HONMON packages whose
-raw HONMON is an anchor/dereference layer rather than a self-contained body
-stream. Some repack-only red rows are incomplete local corpus packages whose
-declared files are absent. Those are package-integrity blockers, not format
-facts, and they do not block authoring a clean core SSED dictionary. See
+LVLMultiView. Dense-HONMON packages are recognized SSED packages whose raw
+HONMON is an anchor/dereference layer rather than a self-contained body stream.
+They are readable/classifiable through the model, but external export and
+lossless repack remain stricter until sidecar bodies are promoted into the same
+body-provider abstraction as plain HONMON. Some repack-only red rows are
+incomplete local corpus packages whose declared files are absent. Those are
+package-integrity blockers, not format facts, and they do not block authoring a
+clean core SSED dictionary. See
 [Corpus Findings](docs/corpus-findings.md) for the exact aggregate and older
 HONMON/component-forensics passes that feed the current model.
 

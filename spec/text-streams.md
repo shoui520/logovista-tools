@@ -108,10 +108,10 @@ and emits a per-opcode table with payload lengths, component roles, surrounding
 context, pair behavior, examples, and confidence labels. The current full pass
 over the Windows corpus scanned 7,026,978,819 expanded text-stream bytes and
 observed 713,941,069 `0x1f` controls across 40 distinct opcodes. The only
-unclassified opcode occurrence is `25IGAKU` `FHTITLE.DIC` `1f1f`, a singleton
-title-stream anomaly with no observed payload. It appears between bare line
-feeds around the title `closed ecological system (n)【基医`; official-renderer
-inspection is needed before assigning semantics.
+singleton anomaly is `25IGAKU` `FHTITLE.DIC` `1f1f`: it appears once, by itself,
+between title line breaks around `closed ecological system (n)【基医`. It is
+treated as a vendor title-stream defect, not as evidence for a global
+zero-argument opcode.
 
 A bare `0x0a` byte, not introduced by `0x1f`, appears once in the current
 corpus (`NANDOKU1`). It is handled as a legacy line break byte.
@@ -251,6 +251,11 @@ This is why the toolkit keeps the dense raw layer in scope. Even when a
 database is required for final body text, raw `HONMON.DIC` and `*INDEX.DIC`
 still define the dictionary's body anchors, lookup pointers, title linkage, and
 the exact subset/order of IDs that belong to the packaged dictionary.
+
+Dense HONMON is a supported model variant, not a SSED-format blocker. The
+reader/model must classify it and expose the dereference path. A plain core SSED
+writer does not need to emit dense HONMON, renderer DBs, Android DBs, or
+`DictFULLDB`; writer v0 targets self-contained body-stream `HONMON.DIC`.
 
 ## DictFULLDB Payloads
 

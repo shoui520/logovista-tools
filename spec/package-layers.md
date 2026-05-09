@@ -59,11 +59,8 @@ HTMLDLL=HC014F.dll
 ```
 
 `HC????.dll` files are PE32/i386 product renderer plugins, not dictionary
-containers. The official Windows browser loads them through the generic
-renderer/bridge layer: `Dic.dll` and `HtmlConvert.dll` import
-`LoadLibraryA`/`GetProcAddress`, while `SSDicLib.dll` exports bridge functions
-such as `SDicPluginFunction`, `SDicPluginFunction2nd`, and
-`SDicPluginFunction3rd`.
+containers. The Windows browser loads them through a generic renderer/bridge
+layer using dynamic library calls and product-specific bridge hooks.
 
 The stable entrypoint is `epwing2HtmlBodydata`, exported by every HC plugin
 observed in the Windows SSED corpus. Other exports are optional feature hooks:
@@ -81,12 +78,11 @@ openUserData/closeUserData    sidecar/user-data lifecycle
 createMediaFileFromZip        ziptomedia extraction, observed in PROYAL53
 ```
 
-HC plugins import raw services from `SSDicLib.dll`, commonly
-`SDicGetBodyData`, `SDicGetPictureData`, `SDicGetCustomCharacterBitmap`,
-`SDicGetCustomCharacterUincode`, and `SDicGetDictPath`. This makes them useful
-renderer-behavior evidence: embedded strings reveal the HTML/CSS/image templates
-the official browser used, and imports show which raw APIs a product needed.
-They are not, however, a substitute for parsing HONMON/INDEX/TITLE resources.
+HC plugins import raw dictionary services for body, picture, gaiji, and package
+path access. This makes them useful renderer-behavior evidence: embedded
+strings reveal HTML/CSS/image templates, and imports show which raw service
+families a product needed. They are not, however, a substitute for parsing
+HONMON/INDEX/TITLE resources.
 
 Numeric sidecar names often share the HC product code
 (`HC013A.dll` -> `0000013A.idx`), but this is a convention. `EXINFO.INI`

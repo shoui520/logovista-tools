@@ -122,9 +122,8 @@ report:
 - exported renderer hooks such as `epwing2HtmlBodydata`,
   `epwing2HtmlBodydataVertical`, `initializeSQL`, `pluginFunction`, and
   `getCustomCharacterDIB`;
-- imported `SSDicLib.dll` APIs such as `SDicGetBodyData`,
-  `SDicGetPictureData`, `SDicGetCustomCharacterBitmap`, and
-  `SDicGetCustomCharacterUincode`;
+- imported dictionary bridge API families such as body, gaiji, picture, SQL,
+  and plugin hooks;
 - the `EXINFO.INI` `HTMLDLL` declaration;
 - sibling eight-hex-digit numeric indexes and whether one matches the HC code;
 - sibling `vlpljbl*` resources;
@@ -495,10 +494,10 @@ classification family and confidence
 
 The current full corpus pass scanned 547 text-stream components and
 7,026,978,819 expanded bytes. It observed 713,941,069 controls and 40 distinct
-`0x1f` opcodes. All but one opcode occurrence are structurally classified. The
-single unresolved case is `25IGAKU` `FHTITLE.DIC` `1f1f`, a singleton
-zero-payload-looking title-stream control/anomaly that needs official-renderer
-inspection around the title `closed ecological system`.
+`0x1f` opcodes. The only singleton anomaly is `25IGAKU` `FHTITLE.DIC` `1f1f`,
+which appears as a malformed standalone title-stream sequence around the title
+`closed ecological system`. It is treated as a vendor data defect rather than a
+global opcode model gap.
 
 ### `component-forensics`
 
@@ -636,6 +635,12 @@ evidence. `author_core_ssed_v0_status` asks whether the observed SSED core is
 stable enough for a clean plain-HONMON authoring subset. `lossless_repack_existing_status`
 is stricter: it asks whether the observed package can be reproduced/repacked
 with its existing sidecars, menus, media, and title/index structures.
+
+Dense-HONMON packages can still be `read_existing_status=green`: the model can
+classify the HONMON shape and expose dereference records. They may remain red or
+yellow for `export_existing` or `lossless_repack_existing` until the requested
+output path consumes the sidecar body provider. Dense-HONMON writing is outside
+`author_core_ssed_v0`.
 
 Compatibility aliases (`legacy_writer_v0_status`, `lossless_repacker_status`,
 and `writer_repacker_status`) remain in CSV/JSON output for older scripts, but

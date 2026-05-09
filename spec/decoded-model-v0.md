@@ -929,12 +929,12 @@ Issue records are first-class. They keep uncertainty measurable.
 
 ```json
 {
-  "kind": "unknown_control",
+  "kind": "vendor_title_stream_defect",
   "severity": "forensic",
   "address": {"kind": "component", "component": "FHTITLE.DIC", "component_offset": 4980735},
   "length": 2,
   "raw_hex": "1f1f",
-  "message": "0x1f control opcode has no classified argument length or semantics"
+  "message": "25IGAKU contains a malformed singleton title-stream sequence; report it without inferring global opcode semantics"
 }
 ```
 
@@ -1044,6 +1044,14 @@ n/a      the package has no such structure
 unknown  the model was bounded/skipped or evidence is insufficient
 ```
 
+`raw_honmon_body = no` does not mean the package is unreadable. Dense-HONMON
+packages deliberately use `HONMON.DIC` as an anchor/dereference layer, so the
+reader profile can still be green when indexes, components, and sidecar body
+relationships are modeled. The `export_existing` and
+`lossless_repack_existing` profiles are stricter because they require a usable
+body provider for external output or reproduction of the observed package
+layout.
+
 The top-level `writer_readiness` is a copy of
 `readiness.writer_readiness` for convenience:
 
@@ -1076,6 +1084,10 @@ export_existing           convert the existing dictionary to an external format
 author_core_ssed_v0       author a new plain/core SSED package
 lossless_repack_existing  reproduce/repack the observed package structure
 ```
+
+`author_core_ssed_v0` is intentionally about new plain-HONMON authoring. Dense
+HONMON, renderer DBs, Android body DBs, `DictFULLDB`, platform manifests, and
+compiled renderer sidecars are outside that writer profile.
 
 The legacy alias fields remain for compatibility with older reports:
 `legacy_ssed_subset` is currently an alias of `export_existing`,

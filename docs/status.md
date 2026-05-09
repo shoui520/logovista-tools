@@ -49,7 +49,7 @@ LogoVista dictionary model.
 - Windows `EXINFO.INI` parsing and CP932 auxiliary text-index extraction,
   including sibling eight-hex-digit `00000xxx.idx` sidecar trees.
 - Windows `HC????.dll` renderer plugin classification, including PE
-  import/export extraction, `SSDicLib.dll` API usage, `EXINFO` `HTMLDLL`
+  import/export extraction, renderer bridge evidence, `EXINFO` `HTMLDLL`
   correlation, numeric-index correlation, `vlpljbl*` companion names, and
   embedded SQL/HTML/image template strings.
 - Windows renderer SQLite extraction through raw HONMON ID anchors and
@@ -92,7 +92,7 @@ LogoVista dictionary model.
   lossless sampled decode metrics.
 - Corpus-wide `0x1f` opcode atlas with payload lengths, component roles,
   surrounding context, paired-control behavior, examples, confidence labels,
-  and explicit unresolved opcode reporting.
+  and explicit anomaly reporting.
 - Full-stream `HONMON.DIC` byte accounting with redacted per-dictionary reports
   and corpus summaries.
 - Entry-level lossless span JSONL preserving raw offsets/bytes for controls,
@@ -129,9 +129,9 @@ LogoVista dictionary model.
 - Observed `1f3b`/`1f5b` URL body spans.
 - Observed `1f1a`/`1f1c` fixed two-byte-argument controls and
   `1f44`/`1f64` extended link controls.
-- Full text-stream opcode atlas over 7,026,978,819 expanded bytes, with one
-  unresolved singleton title-stream opcode/anomaly: `25IGAKU` `FHTITLE.DIC`
-  `1f1f`.
+- Full text-stream opcode atlas over 7,026,978,819 expanded bytes. The only
+  singleton anomaly is the known vendor title-stream defect
+  `25IGAKU` `FHTITLE.DIC` `1f1f`.
 - Focused all-in staged audits over 182 high/medium/mobile/low-priority SSED
   package targets, covering 3,687,534,595 expanded HONMON bytes with zero
   unknown HONMON controls, zero unknown HONMON bytes, and zero invalid JIS
@@ -169,8 +169,9 @@ LogoVista dictionary model.
 
 - Not all dictionaries store definitions in `HONMON.DIC`.
 - Some Windows titles store raw body IDs in `HONMON.DIC` and renderer HTML in
-  encrypted SQLite sidecars. Raw HONMON remains the anchor table, but final body
-  text requires dereferencing the sidecar.
+  encrypted SQLite sidecars. Raw HONMON remains the anchor table, and the model
+  represents those packages as dense-HONMON dereference variants rather than
+  plain body streams.
 - Not every product that declares `DictFULLDB` has an unreadable `HONMON.DIC`;
   several still have readable raw body streams. Audit the raw layer first.
 - Some control opcodes are structurally recognized with neutral tags, but their
@@ -180,11 +181,11 @@ LogoVista dictionary model.
   cell. It is covered and reported as a truncated control, not guessed.
 - The companion component-forensics pass has narrow residuals outside HONMON:
   `NANDOKU2` has a 3-byte nonzero physical tail after full `FHINDEX.DIC` pages;
-  `25IGAKU` has one title-stream `1f1f` control/anomaly with unknown renderer
-  semantics; `ITALIAN` has one standalone title byte `0x11`; and three `.uni`
-  files have small nonzero trailers after all parsed records. `HABGESPA.uni`
-  is not in this residual group anymore; it is parsed as a single-section
-  simple12 `.uni` file.
+  `25IGAKU` has one malformed singleton title-stream `1f1f` sequence treated as
+  a vendor data defect; `ITALIAN` has one standalone title byte `0x11`; and
+  three `.uni` files have small nonzero trailers after all parsed records.
+  `HABGESPA.uni` is not in this residual group anymore; it is parsed as a
+  single-section simple12 `.uni` file.
 - `ARCHSIC3` has 235 in-range `PCMDATA.DIC` pointer ranges whose payload bytes
   are accounted for but whose audio codec/container is not yet classified.
 - Named UI/style images such as `exam.png` are discovered, but mapping them to

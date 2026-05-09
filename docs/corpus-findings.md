@@ -64,9 +64,11 @@ lossless repack:       green 148, red 54, gray 59
 ```
 
 `gray` means non-SSED package family, currently LVED SQLCipher or
-LVLMultiView. Most red SSED export/repack cases are dense-HONMON dictionaries
-whose raw HONMON is an anchor/dereference layer rather than a self-contained
-body stream. Those cases do not block authoring a clean core SSED v0 package.
+LVLMultiView. Dense-HONMON dictionaries are recognized SSED packages whose raw
+HONMON is an anchor/dereference layer rather than a self-contained body stream.
+They do not block reading/classification or authoring a clean core SSED v0
+package. They remain stricter export/repack cases until the requested output
+path consumes the appropriate sidecar body provider.
 
 Top blocker counts by profile:
 
@@ -84,8 +86,9 @@ lossless repack: non_ssed_package_family 59, missing_declared_components 30,
 The matrix exposes the current blockers clearly:
 
 - Dense-HONMON packages are valid SSED packages, but their raw HONMON is an
-  anchor/dereference layer rather than a self-contained body stream. These are
-  export/repack blockers until the corresponding sidecar body path is handled.
+  anchor/dereference layer rather than a self-contained body stream. The model
+  classifies them and emits dereference records; external export/repack remain
+  stricter because they must consume or reproduce the sidecar body provider.
 - `missing_declared_components` is a local package-integrity blocker. It means
   the gathered package declares files that are absent from the local copy. Do
   not treat this as a format fact. For example, the Windows SSED `Genius53`
@@ -226,7 +229,7 @@ component reports ok:      1,521
 missing declared files:       42
 text/index/media byte residuals:
   unknown title bytes:         1   ITALIAN FHTITLE.DIC standalone 0x11
-  unknown title controls:      1   25IGAKU FHTITLE.DIC singleton 1f1f
+  known vendor title defect:   1   25IGAKU FHTITLE.DIC singleton 1f1f
   index tail bytes:            3   NANDOKU2 FHINDEX.DIC physical tail
   PCMDATA unclassified refs: 235   ARCHSIC3 in-range unknown payloads
 ```
@@ -366,9 +369,8 @@ The HC renderer pass over the same 17 packages found 17 `HC????.dll` files and
 16 unique hashes. `GEN2001` and `Gen2010` share `HC009B.dll`. The Britannica
 small-entry packages use panel-style HC DLLs without numeric `00000xxx.idx`
 sidecars; later `GEN20xx` packages use vertical renderers with numeric sidecar
-indexes. `BRINEN15` uses `HC0C80.dll`, which imports only font/path APIs from
-`SSDicLib.dll` and uses SQL/plugin/user-data hooks plus the `vlpljblF`
-sidecar.
+indexes. `BRINEN15` uses `HC0C80.dll`, which imports only font/path bridge APIs
+and uses SQL/plugin/user-data hooks plus the `vlpljblF` sidecar.
 
 ## Corpus 0x1f Opcode Atlas
 
@@ -388,7 +390,7 @@ text components scanned:   547
 expanded bytes scanned:    7,026,978,819
 controls observed:         713,941,069
 distinct 0x1f opcodes:      40
-unclassified opcodes:        1 occurrence
+vendor singleton anomalies:   1 occurrence
 ```
 
 During this run, several LVLMultiView packages were still present in the local
@@ -396,7 +398,7 @@ SSED folder. They contributed zero scanned text-stream components, so the
 component/byte/control totals above are the relevant opcode evidence.
 
 Every observed payload length matched the current structural table except one
-singleton title-stream anomaly:
+singleton title-stream vendor anomaly:
 
 ```text
 25IGAKU / FHTITLE.DIC / offset 4980735 / raw 1f1f
@@ -410,10 +412,10 @@ closed ecological system (n)【基医
 closed ecosystem (n)【基医】
 ```
 
-The `1f1f` sequence is only observed once. It is between bare line-feed bytes,
-has no observed payload, and appears in a title component rather than HONMON.
-The toolkit keeps it reportable as an unclassified control until official
-viewer behavior is checked.
+The `1f1f` sequence is only observed once. It is between title line breaks, has
+no usable payload, and appears in a title component rather than HONMON. The
+toolkit keeps it reportable as a known vendor data defect and does not infer a
+global zero-argument opcode from it.
 
 Most frequent and structurally important controls from the atlas:
 
@@ -526,9 +528,8 @@ The remaining component anomalies are intentionally small and named:
 
 - `NANDOKU2` `FHINDEX.DIC` has three nonzero physical tail bytes after all full
   2048-byte index pages are parsed.
-- `25IGAKU` `FHTITLE.DIC` has one `1f1f` control/anomaly. It is a single
-  two-byte raw sequence with no observed payload, but renderer semantics are
-  unknown.
+- `25IGAKU` `FHTITLE.DIC` has one malformed singleton `1f1f` title-stream
+  sequence. It is treated as a vendor data defect, not a model gap.
 - `ITALIAN` `FHTITLE.DIC` has one standalone `0x11` byte. It is covered as an
   unknown byte span.
 - `HKDKSR14`, `HKDKSR30`, and `YHOUGO4` have small nonzero `.uni` trailers
@@ -655,8 +656,8 @@ The matrix makes the next reverse-engineering priorities more concrete:
   classified separately and no current menu pointer blockers remain;
 - keep missing declared components visible as package-integrity blockers while
   avoiding format conclusions from locally incomplete gathered packages;
-- resolve the remaining title/text anomalies (`25IGAKU`, `ITALIAN`,
-  `NANDOKU3`);
+- keep the remaining vendor/corpus anomalies (`25IGAKU`, `ITALIAN`,
+  `NANDOKU3`) explicitly named and measurable;
 - classify `ARCHSIC3`'s raw `PCMDATA.DIC` payloads.
 
 ## HONMON/IDX Corpus Audit
@@ -998,7 +999,7 @@ HC files:                         145
 unique SHA-256 binaries:          105
 EXINFO HTMLDLL exact declarations: 137
 PE architecture:                  all PE32 / Intel i386 DLLs
-imports shared by every HC DLL:   SSDicLib.dll, MSVCP60.dll, MSVCRT.dll, KERNEL32.dll
+imports shared by every HC DLL:   dictionary bridge, MSVCP60.dll, MSVCRT.dll, KERNEL32.dll
 exports shared by every HC DLL:   epwing2HtmlBodydata
 ```
 
@@ -1007,16 +1008,9 @@ copies that still carry `HC009B.dll`. Every `EXINFO.INI` that declares
 `HTMLDLL` in the corpus points at the sibling HC DLL exactly.
 
 The HC DLL is not the raw dictionary container. It is a product-specific HTML
-renderer plugin loaded by the Windows browser. Static evidence from the official
-viewer binaries supports this:
-
-- `Dic.dll` and `HtmlConvert.dll` import `LoadLibraryA`/`GetProcAddress`.
-- `SSDicLib.dll` exports plugin bridge functions `SDicPluginFunction`,
-  `SDicPluginFunction2nd`, and `SDicPluginFunction3rd`.
-- `SSDicLib.dll` exports the raw services the HC plugins import, including
-  `SDicGetBodyData`, `SDicGetPictureData`, `SDicGetCustomCharacterBitmap`,
-  `SDicGetCustomCharacterUincode`, `SDicGetMenuData`, `SDicExecIndexSearch`,
-  `SDicSQLSearchAndHtml`, and `SDicSQLSearchAndHtmlEx`.
+renderer plugin loaded by the Windows browser through dynamic library calls and
+product bridge hooks. The imported service families cover body, picture, gaiji,
+menu/search, SQL, and plugin operations.
 
 Observed HC plugin feature counts:
 
@@ -1479,10 +1473,11 @@ Raw entries are coherent without SQLite after decryption:
 .NET[情報]
 ```
 
-`HC014F.dll` is the product HTML renderer. It imports the normal `SSDicLib.dll`
-entry/body/gaiji/picture APIs and contains strings for `epwing2HtmlBodydata` and
-`pluginFunction`. It also contains the sidecar names `vlpljbl.bin`, `DIC014F`,
-and `vlpljblF`, which matches the encrypted sidecar behavior.
+`HC014F.dll` is the product HTML renderer. It imports the normal
+entry/body/gaiji/picture bridge APIs and contains strings for
+`epwing2HtmlBodydata` and `pluginFunction`. It also contains the sidecar names
+`vlpljbl.bin`, `DIC014F`, and `vlpljblF`, which matches the encrypted sidecar
+behavior.
 
 `vlpljblF` decrypts with the same LogoFontCipher key to a SQLite database. It is
 not the primary body stream. It contains 17 tables named `t_Search_1` through
@@ -1839,12 +1834,9 @@ GNIFRUSOGE        -> EGOSURFING
 TEEHSNOITANIMAXE  -> EXAMINATIONSHEET
 ```
 
-This strongly indicates suffix/backward-search support. The official
-`SSDicLib.dll` also exposes `SDicSupportHore` and `epwing2HtmlSupportHore`
-strings, which is consistent with 後方 search support. The rows visible in
-`SPINDEX.DIC` are separator/fence keys for internal B-tree pages, not
-dictionary hits. Because the observed file has no leaf pages and is identical
-across unrelated dictionaries, it should be treated as common auxiliary
-LogoVista/SSDicLib suffix-search metadata or a bundled search skeleton. It is
-not a product-specific dictionary index and cannot produce body entries by
-itself.
+This strongly indicates suffix/backward-search support. The rows visible in
+`SPINDEX.DIC` are separator/fence keys for internal B-tree pages, not dictionary
+hits. Because the observed file has no leaf pages and is identical across
+unrelated dictionaries, it should be treated as common auxiliary LogoVista
+suffix-search metadata or a bundled search skeleton. It is not a
+product-specific dictionary index and cannot produce body entries by itself.
