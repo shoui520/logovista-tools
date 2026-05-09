@@ -247,7 +247,9 @@ def menu_status(component: dict[str, Any]) -> tuple[str, str]:
     if role_has_bad_component(component, "menu"):
         return "no", f"bad menu component statuses={dict(role_status_counts(component, 'menu'))}"
     total_destinations = 0
+    total_null = 0
     total_resolved = 0
+    total_unresolved = 0
     text_problems = 0
     for menu in menus:
         coverage = menu.get("coverage", {})
@@ -260,11 +262,38 @@ def menu_status(component: dict[str, Any]) -> tuple[str, str]:
             + as_int(coverage.get("truncated_gaiji"))
         )
         menu_stats = menu.get("menu", {})
-        total_destinations += as_int(menu_stats.get("destinations"))
-        total_resolved += as_int(menu_stats.get("resolved_destinations"))
-    if text_problems or total_resolved < total_destinations:
-        return "partial", f"destinations={total_destinations}; resolved={total_resolved}; text_issues={text_problems}"
-    return "yes", f"destinations={total_destinations}; resolved={total_resolved}"
+        row_destinations = as_int(menu_stats.get("destinations"))
+        row_null = as_int(menu_stats.get("null_destinations"))
+        row_resolved = as_int(menu_stats.get("resolved_destinations"))
+        legacy_null_selector = (
+            "null_destinations" not in menu_stats
+            and "unresolved_destinations" not in menu_stats
+            and str(menu.get("name") or menu.get("component") or "").upper().startswith(("MUL", "MULTI"))
+            and row_destinations
+            and not row_resolved
+            and not menu_stats.get("target_kinds")
+        )
+        if legacy_null_selector:
+            row_null = row_destinations
+        total_destinations += row_destinations
+        total_null += row_null
+        total_resolved += row_resolved
+        if "unresolved_destinations" in menu_stats:
+            total_unresolved += as_int(menu_stats.get("unresolved_destinations"))
+        else:
+            total_unresolved += max(
+                0,
+                row_destinations - row_resolved - row_null,
+            )
+    if text_problems or total_unresolved:
+        return (
+            "partial",
+            (
+                f"destinations={total_destinations}; resolved={total_resolved}; null={total_null}; "
+                f"unresolved={total_unresolved}; text_issues={text_problems}"
+            ),
+        )
+    return "yes", f"destinations={total_destinations}; resolved={total_resolved}; null={total_null}"
 
 
 def unknown_text_counts(honmon_detail: dict[str, Any], component: dict[str, Any]) -> tuple[int, int, int]:
@@ -449,6 +478,7 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "package_status",
         "package_family",
         "platform",
+        "missing_components",
         "honmon_shape",
         "body_source_hint",
         "raw_honmon_body",
@@ -489,6 +519,7 @@ def write_markdown(path: Path, rows: list[dict[str, Any]]) -> None:
         ("Platform", "platform"),
         ("Target", "target_path"),
         ("Model", "model_path"),
+        ("Missing", "missing_components"),
         ("Body", "raw_honmon_body"),
         ("Index", "indexes_fully_parsed"),
         ("Title", "titles_fully_parsed"),

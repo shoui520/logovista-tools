@@ -1340,6 +1340,7 @@ Each JSONL row looks like:
         "encoding": "bcd",
         "block": 25678,
         "offset": 2,
+        "is_null": false,
         "absolute_offset": 52586498,
         "target": {
           "component": "HONMON.DIC",
@@ -1358,6 +1359,7 @@ Each JSONL row looks like:
     "encoding": "bcd",
     "block": 25678,
     "offset": 2,
+    "is_null": false,
     "absolute_offset": 52586498,
     "target": {
       "component": "HONMON.DIC",
@@ -1381,7 +1383,9 @@ Each destination is resolved against the `.IDX` component block ranges. The
 `target` object names the component and classifies it as `body`, `menu`,
 `title`, `index`, `media-image`, `media-audio`, `gaiji-resource`, or generic
 `component`. `relative_offset` is the byte offset inside the expanded target
-component.
+component. A six-byte payload of `000000000000` is emitted as `is_null: true`
+with no target and is counted as a null/sentinel destination rather than an
+unresolved pointer.
 
 ### `indexes`
 

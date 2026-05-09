@@ -308,6 +308,17 @@ def test_menu_destination_uses_bcd_block_and_offset() -> None:
     assert destination.encoding == "bcd"
     assert destination.block == 25678
     assert destination.offset == 2
+    assert not destination.is_null
+
+
+def test_menu_destination_marks_zero_pointer_as_null() -> None:
+    destination = parse_menu_destination(bytes.fromhex("000000000000"))
+
+    assert destination is not None
+    assert destination.encoding == "bcd"
+    assert destination.block == 0
+    assert destination.offset == 0
+    assert destination.is_null
 
 
 def test_menu_destination_resolves_to_idx_component() -> None:
@@ -349,6 +360,7 @@ def test_parse_menu_stream_emits_tree_records_and_destinations() -> None:
     assert parsed.stats["sections"] == 2
     assert parsed.stats["links"] == 2
     assert parsed.stats["destinations"] == 2
+    assert parsed.stats["null_destinations"] == 0
     assert len(parsed.records) == 2
     assert parsed.records[0].text == "あ"
     assert parsed.records[0].section_code == "0001"
@@ -363,6 +375,17 @@ def test_parse_menu_stream_emits_tree_records_and_destinations() -> None:
     tree = build_menu_tree(parsed.records)
     assert tree[0]["text"] == "あ"
     assert tree[0]["children"][0]["text"] == "い"
+
+
+def test_parse_menu_stream_counts_null_destinations() -> None:
+    data = bytes.fromhex("1f4324221f630000000000001f0a")
+    parsed = parse_menu_stream(data, gaiji="drop")
+
+    assert parsed.stats["links"] == 1
+    assert parsed.stats["destinations"] == 1
+    assert parsed.stats["null_destinations"] == 1
+    assert parsed.records[0].destination is not None
+    assert parsed.records[0].destination.is_null
 
 
 def test_parse_menu_stream_supports_legacy_link_wrapper() -> None:

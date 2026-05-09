@@ -60,7 +60,8 @@ LogoVista dictionary model.
 - Android body DB extraction through raw HONMON ID anchors and the observed
   `rowid * 5` mapping.
 - Structured `MENU.DIC` extraction with menu hierarchy, link labels,
-  packed-BCD destination pointers, and named component/body targets.
+  packed-BCD destination pointers, null/sentinel destinations, and named
+  component/body targets.
 - `COLSCR.DIC` media pointer decoding and referenced BMP/JPEG/PNG extraction.
 - `PCMDATA.DIC` audio/media pointer decoding, unreferenced-record discovery,
   referenced-range byte coverage, and portable WAV/MP3 writing for classified
@@ -145,7 +146,7 @@ LogoVista dictionary model.
   models for LVED/LVLMultiView. The derived capability matrix currently reports
   `read_existing` as green 202, gray 59; `export_existing` as green 173,
   yellow 1, red 28, gray 59; `author_core_ssed_v0` as green 202, gray 59; and
-  `lossless_repack_existing` as green 134, red 68, gray 59.
+  `lossless_repack_existing` as green 148, red 54, gray 59.
 
 ## Experimental / Active Reverse Engineering
 
@@ -201,7 +202,9 @@ LogoVista dictionary model.
   `writer_readiness`. `capability-matrix --model-dir` consumes those decoded
   model reports directly, adds path/family/platform identity columns, and
   splits readiness into `read_existing`, `export_existing`,
-  `author_core_ssed_v0`, and `lossless_repack_existing`.
+  `author_core_ssed_v0`, and `lossless_repack_existing`. Menu destination
+  readiness treats packed `000000000000` payloads as null/sentinel
+  destinations rather than unresolved component pointers.
 - `dump-ir` remains a narrower lossless entry-span JSONL inspection command for
   HONMON-specific debugging.
 - Observed `DictFtsDB` `.dbc` payloads for OXFPEU4/KQCMPROS are LVED

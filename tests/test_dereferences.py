@@ -108,6 +108,39 @@ def test_index_menu_and_media_dereferences_use_typed_addresses() -> None:
     assert rows[4]["to"]["component"] == "PCMDATA.DIC"
 
 
+def test_null_menu_destination_dereference_is_not_unresolved() -> None:
+    model = {
+        "package": {"dict_id": "DEREF"},
+        "menus": {
+            "samples": [
+                {
+                    "component": "MENU.DIC",
+                    "byte_end": 8,
+                    "links": [
+                        {
+                            "label": "placeholder",
+                            "end_offset": 8,
+                            "destination": {
+                                "payload": "000000000000",
+                                "encoding": "bcd",
+                                "block": 0,
+                                "offset": 0,
+                                "is_null": True,
+                                "target": None,
+                            },
+                        }
+                    ],
+                }
+            ]
+        },
+    }
+
+    rows = menu_destination_dereferences(model, elements())
+
+    assert rows[0]["status"] == "null"
+    assert rows[0]["to"] is None
+
+
 def test_dense_anchor_dereference_records_are_first_class(monkeypatch) -> None:
     source = SimpleNamespace(
         dict_id="DENSE",

@@ -341,3 +341,61 @@ def test_capability_matrix_prefers_decoded_model_reports(tmp_path):
     assert row["author_core_ssed_v0_status"] == "green"
     assert row["lossless_repack_existing_status"] == "green"
     assert row["writer_repacker_status"] == "green"
+
+
+def test_decoded_model_menu_null_destinations_do_not_block_repack(tmp_path):
+    model_dir = tmp_path / "models"
+    model = {
+        "schema": "logovista-decoded-model-v0",
+        "package": {"dict_id": "MENU", "title": "Menu", "idx": "/tmp/MENU/MENU.IDX"},
+        "wrapper": {"package_family": "ssed", "platform": "windows"},
+        "classification": {
+            "status": "ok",
+            "package_family": "ssed",
+            "platform": "windows",
+            "body_source_hint": "honmon",
+            "honmon_shape": "body_stream_indexed",
+            "missing_components": [],
+        },
+        "components": [],
+        "honmon": {
+            "shape": "body_stream_indexed",
+            "index_boundary_offsets": 1,
+            "decode_aggregate": {
+                "stats": {
+                    "unknown_controls": 0,
+                    "unknown_bytes": 0,
+                    "invalid_jis_pairs": 0,
+                    "truncated_controls": 0,
+                    "truncated_gaiji": 0,
+                    "gaiji": 0,
+                    "gaiji_unresolved": 0,
+                }
+            },
+        },
+        "entry_spans": {"status": "ok"},
+        "titles": {"summary": {"title_components": []}},
+        "indexes": {"summary": {"index_components": [{"unknown_leaf_bytes": 0, "warnings": []}]}},
+        "menus": {
+            "summary": {
+                "menu_components": [
+                    {
+                        "component": "MENU.DIC",
+                        "destinations": 3,
+                        "null_destinations": 2,
+                        "resolved_destinations": 1,
+                        "unresolved_destinations": 0,
+                    }
+                ]
+            }
+        },
+        "gaiji": {"profile": {"merged_map_entries": 0}, "ga16_resources": [], "image_resources": {"resource_count": 0}},
+        "media": {"colscr": {}, "pcmdata": {}},
+    }
+    write_json(model_dir / "MENU_decoded_model_v0.json", model)
+
+    report = build_capability_matrix_from_models(model_dir=model_dir)
+
+    row = report["rows"][0]
+    assert row["menu_pointers_resolved"] == "yes"
+    assert row["lossless_repack_existing_status"] == "green"

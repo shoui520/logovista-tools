@@ -56,6 +56,10 @@ class MenuDestination:
     target: MenuTarget | None = None
 
     @property
+    def is_null(self) -> bool:
+        return self.block == 0 and self.offset == 0
+
+    @property
     def absolute_offset(self) -> int:
         return (self.block - 1) * BLOCK_SIZE + self.offset
 
@@ -65,6 +69,7 @@ class MenuDestination:
             "encoding": self.encoding,
             "block": self.block,
             "offset": self.offset,
+            "is_null": self.is_null,
             "absolute_offset": self.absolute_offset,
             "target": self.target.as_dict() if self.target else None,
         }
@@ -227,11 +232,38 @@ def resolve_menu_record_destinations(records: list[MenuRecord], elements: list[S
         for link in record.links:
             if link.destination is None:
                 continue
+            if link.destination.is_null:
+                continue
             destination = resolve_menu_destination(link.destination, elements)
             if destination.target is not None:
                 resolved += 1
             link.destination = destination
     return resolved
+
+
+def menu_destination_resolution_counts(records: list[MenuRecord]) -> dict[str, int]:
+    destinations = 0
+    null_destinations = 0
+    resolved_destinations = 0
+    unresolved_destinations = 0
+    for record in records:
+        for link in record.links:
+            destination = link.destination
+            if destination is None:
+                continue
+            destinations += 1
+            if destination.is_null:
+                null_destinations += 1
+            elif destination.target is not None:
+                resolved_destinations += 1
+            else:
+                unresolved_destinations += 1
+    return {
+        "destinations": destinations,
+        "null_destinations": null_destinations,
+        "resolved_destinations": resolved_destinations,
+        "unresolved_destinations": unresolved_destinations,
+    }
 
 
 def finish_active_link(line: _LineBuilder, *, end_offset: int, destination: MenuDestination | None) -> None:
@@ -281,6 +313,7 @@ def parse_menu_stream(
         "sections": 0,
         "links": 0,
         "destinations": 0,
+        "null_destinations": 0,
         "jis_pairs": 0,
         "gaiji": 0,
         "lines": 0,
@@ -334,6 +367,8 @@ def parse_menu_stream(
                 destination = parse_menu_destination(payload) if len(payload) == 6 else None
                 if destination is not None:
                     stats["destinations"] += 1
+                    if destination.is_null:
+                        stats["null_destinations"] += 1
                 finish_active_link(line, end_offset=i + 8, destination=destination)
                 stats["links"] += 1
                 i += 8
@@ -457,7 +492,8 @@ def extract_menus_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) ->
 
             expanded = expand_sseddata_file(source)
             parsed = parse_menu_stream(expanded, gaiji=args.gaiji, gaiji_map=gaiji_profile.map)
-            resolved_destinations = resolve_menu_record_destinations(parsed.records, elements)
+            resolve_menu_record_destinations(parsed.records, elements)
+            destination_counts = menu_destination_resolution_counts(parsed.records)
             target_kinds: dict[str, int] = {}
             for record in parsed.records:
                 for link in record.links:
@@ -496,8 +532,7 @@ def extract_menus_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) ->
                     "lines_total": len(parsed.records),
                     "lines_emitted": component_emitted,
                     "links": parsed.stats["links"],
-                    "destinations": parsed.stats["destinations"],
-                    "resolved_destinations": resolved_destinations,
+                    **destination_counts,
                     "target_kinds": target_kinds,
                     "sections": parsed.stats["sections"],
                     "stats": parsed.stats,

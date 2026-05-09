@@ -1155,11 +1155,18 @@ def menu_destination_dereferences(model: dict[str, Any], elements: list[SsedInfo
             block = destination.get("block")
             offset = destination.get("offset")
             from_address = component_address_by_name(elements, component, int(link.get("end_offset") or record.get("byte_end") or 0))
+            is_null = bool(destination.get("is_null")) or (block == 0 and offset == 0)
             to_address = (
                 logical_pointer_address(elements, block=block, offset=offset)
-                if isinstance(block, int) and isinstance(offset, int)
+                if isinstance(block, int) and isinstance(offset, int) and not is_null
                 else None
             )
+            if is_null:
+                dereference_status = "null"
+            elif destination.get("target"):
+                dereference_status = "resolved"
+            else:
+                dereference_status = "unresolved"
             rows.append(
                 dereference_record(
                     id=f"dereference:{dict_id}:menu:{record_index}:{link_index}",
@@ -1167,7 +1174,7 @@ def menu_destination_dereferences(model: dict[str, Any], elements: list[SsedInfo
                     method="menu_destination",
                     from_address=from_address,
                     to_address=to_address,
-                    status="resolved" if destination.get("target") else "unresolved",
+                    status=dereference_status,
                     confidence="strongly_inferred",
                     label=link.get("label"),
                     path=record.get("path"),

@@ -31,6 +31,10 @@ logical block and two packed-BCD decimal bytes for the offset. In GENIUSEB, the
 first menu item has payload `00 02 56 78 00 02`, which resolves to block
 `25678`, offset `2`; that resolves to `HONMON.DIC` at component-relative
 offset `2`. Other GENIUSEB menu items point back into `MENU.DIC` itself.
+Payload `00 00 00 00 00 00` is a null/sentinel destination. It is not an
+unresolved component pointer. Some selector-style menu/title components,
+especially `MUL*.DIC` / `MULTI*.DIC` families, can contain null destinations
+by design.
 
 Some menu streams use the older `1f42 ... 1f62` wrapper instead. In HAIKSAIJ,
 many of those labels include a no-op `1f00` immediately after `1f42`; the
@@ -48,10 +52,12 @@ menus_summary.json component-level counts and parser statistics
 Representative target resolution from the local corpus:
 
 ```text
-GENIUSEB  destinations=79     resolved=79     target kinds: body=67, menu=12
-HAIKSAIJ  destinations=2,667  resolved=2,667  target kinds: body=2,617, menu=50
-IBIO5     destinations=65,015 resolved=65,015 target kinds: body=61,082, menu=3,933
-NKGORIN2  destinations=10     resolved=10     target kinds: body=9, menu=1
+GENIUSEB  destinations=79     resolved=79     null=0     unresolved=0
+HAIKSAIJ  destinations=2,667  resolved=945    null=1,722 unresolved=0
+IBIO5     destinations=65,015 resolved=65,015 null=0     unresolved=0
+HKKIGAK6  destinations=5,163  resolved=5,101  null=62    unresolved=0
+KQEJMED2  destinations=99,157 resolved=99,130 null=27    unresolved=0
+NKGORIN2  destinations=10     resolved=10     null=0     unresolved=0
 ```
 
 ## Title Components

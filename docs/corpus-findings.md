@@ -51,7 +51,7 @@ indexes fully parsed: yes 165, n/a 96
 titles fully parsed:  yes 111, n/a 150
 gaiji fully resolved: yes 179, no 1, n/a 81
 media refs resolved:  yes 83, no 1, n/a 177
-menu pointers:        yes 91, partial 15, n/a 155
+menu pointers:        yes 106, n/a 155
 ```
 
 Read/export/author/repack planning status:
@@ -60,7 +60,7 @@ Read/export/author/repack planning status:
 read existing:         green 202, gray 59
 export existing:       green 173, yellow 1, red 28, gray 59
 author core SSED v0:   green 202, gray 59
-lossless repack:       green 134, red 68, gray 59
+lossless repack:       green 148, red 54, gray 59
 ```
 
 `gray` means non-SSED package family, currently LVED SQLCipher or
@@ -78,15 +78,26 @@ export existing: non_ssed_package_family 59, body_requires_sidecar_or_is_missing
 author core:     non_ssed_package_family 59
 lossless repack: non_ssed_package_family 59, missing_declared_components 30,
                  body_requires_sidecar_or_is_missing 28, raw_body_not_self_contained 27,
-                 menu_not_fully_resolved 15, gaiji_not_fully_resolved 1,
-                 media_not_fully_resolved 1
+                 gaiji_not_fully_resolved 1, media_not_fully_resolved 1
 ```
 
-The matrix exposes the next model work clearly: keep authoring readiness
-separate from existing-package repacker readiness, expand and validate
-first-class dereference records, keep NGYOKTUK as the only current raw-resource
-gaiji display exception, and resolve the remaining ARCHSIC3 media
-classification gap.
+The matrix exposes the current blockers clearly:
+
+- Dense-HONMON packages are valid SSED packages, but their raw HONMON is an
+  anchor/dereference layer rather than a self-contained body stream. These are
+  export/repack blockers until the corresponding sidecar body path is handled.
+- `missing_declared_components` is a local package-integrity blocker. It means
+  the gathered package declares files that are absent from the local copy. Do
+  not treat this as a format fact. For example, the Windows SSED `Genius53`
+  package in this corpus is missing `HONMON.DIC` and `PCMDATA.DIC`, while the
+  older iOS `GENIUS53` package has an intact readable `HONMON.DIC` and is
+  green in the model matrix.
+- `NGYOKTUK` remains the only current raw-resource gaiji display exception.
+- `ARCHSIC3` remains the only current media classification exception.
+- Menu destinations no longer produce current blockers. Packed
+  `000000000000` menu payloads are null/sentinel destinations, not unresolved
+  pointers, and `MUL*.DIC` selector streams can legitimately contain only null
+  destinations.
 
 ## Windows SSED Corpus Profile
 
@@ -639,9 +650,11 @@ The matrix makes the next reverse-engineering priorities more concrete:
 
 - treat `NGYOKTUK` as the remaining raw-resource gaiji exception and preserve
   its `HONBUN` renderer rows as contextual display evidence;
-- improve menu destination resolution for packages with partial menu coverage;
-- decide whether missing declared components in locally incomplete packages
-  should be excluded from writer-readiness scoring;
+- treat the legacy `menu_not_fully_resolved` counts above as superseded by the
+  current model-derived matrix: null/sentinel menu destinations are now
+  classified separately and no current menu pointer blockers remain;
+- keep missing declared components visible as package-integrity blockers while
+  avoiding format conclusions from locally incomplete gathered packages;
 - resolve the remaining title/text anomalies (`25IGAKU`, `ITALIAN`,
   `NANDOKU3`);
 - classify `ARCHSIC3`'s raw `PCMDATA.DIC` payloads.

@@ -32,7 +32,7 @@ from .indexes import (
     internal_slot_size,
     is_leaf_page,
 )
-from .menus import MENU_TYPE, parse_menu_stream, resolve_menu_record_destinations
+from .menus import MENU_TYPE, menu_destination_resolution_counts, parse_menu_stream, resolve_menu_record_destinations
 from .multi import parse_multi_descriptor
 from .parallel import parallel_map_ordered, worker_args
 from .pcmdata import (
@@ -505,12 +505,12 @@ def text_component_report(
     }
     if row["role"] == "menu":
         parsed = parse_menu_stream(data, gaiji="h-placeholder", gaiji_map=gaiji_profile.map)
-        resolved = resolve_menu_record_destinations(parsed.records, target.elements)
+        resolve_menu_record_destinations(parsed.records, target.elements)
+        destination_counts = menu_destination_resolution_counts(parsed.records)
         row["menu"] = {
             "records": len(parsed.records),
             "links": parsed.stats.get("links", 0),
-            "destinations": parsed.stats.get("destinations", 0),
-            "resolved_destinations": resolved,
+            **destination_counts,
             "unknown_controls": parsed.stats.get("unknown_controls", 0),
             "sections": parsed.stats.get("sections", 0),
         }

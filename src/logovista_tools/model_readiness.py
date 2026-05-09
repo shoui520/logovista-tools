@@ -146,27 +146,63 @@ def menus_capability(model: dict[str, Any]) -> dict[str, Any]:
     if not components:
         return status(ReadinessStatus.NA, "no MENU.DIC")
     total_destinations = 0
+    null_destinations = 0
     resolved_destinations = 0
+    unresolved_destinations = 0
     warnings = 0
     errors = 0
     for row in components:
         if not isinstance(row, dict):
             continue
-        total_destinations += as_int(row.get("destinations"))
-        resolved_destinations += as_int(row.get("resolved_destinations"))
+        row_destinations = as_int(row.get("destinations"))
+        row_null = as_int(row.get("null_destinations"))
+        row_resolved = as_int(row.get("resolved_destinations"))
+        legacy_null_selector = (
+            "null_destinations" not in row
+            and "unresolved_destinations" not in row
+            and str(row.get("component") or "").upper().startswith(("MUL", "MULTI"))
+            and row_destinations
+            and not row_resolved
+            and not row.get("target_kinds")
+        )
+        if legacy_null_selector:
+            row_null = row_destinations
+
+        total_destinations += row_destinations
+        null_destinations += row_null
+        resolved_destinations += row_resolved
+        if "unresolved_destinations" in row:
+            unresolved_destinations += as_int(row.get("unresolved_destinations"))
+        else:
+            unresolved_destinations += max(
+                0,
+                row_destinations - row_resolved - row_null,
+            )
         warnings += len(row.get("warnings") or [])
         errors += 1 if row.get("error") else 0
     if errors:
         return status(ReadinessStatus.NO, f"menu component errors={errors}", errors=errors)
-    if warnings or resolved_destinations < total_destinations:
+    if warnings or unresolved_destinations:
         return status(
             ReadinessStatus.PARTIAL,
-            f"destinations={total_destinations}; resolved={resolved_destinations}; warnings={warnings}",
+            (
+                f"destinations={total_destinations}; resolved={resolved_destinations}; "
+                f"null={null_destinations}; unresolved={unresolved_destinations}; warnings={warnings}"
+            ),
             destinations=total_destinations,
+            null_destinations=null_destinations,
             resolved_destinations=resolved_destinations,
+            unresolved_destinations=unresolved_destinations,
             warnings=warnings,
         )
-    return status(ReadinessStatus.YES, f"destinations={total_destinations}; resolved={resolved_destinations}", destinations=total_destinations, resolved_destinations=resolved_destinations)
+    return status(
+        ReadinessStatus.YES,
+        f"destinations={total_destinations}; resolved={resolved_destinations}; null={null_destinations}",
+        destinations=total_destinations,
+        null_destinations=null_destinations,
+        resolved_destinations=resolved_destinations,
+        unresolved_destinations=0,
+    )
 
 
 def gaiji_capability(model: dict[str, Any]) -> dict[str, Any]:
@@ -217,8 +253,9 @@ def gaiji_capability(model: dict[str, Any]) -> dict[str, Any]:
 
 def media_capability(model: dict[str, Any]) -> dict[str, Any]:
     media = model.get("media", {})
-    colscr = media.get("colscr") or {}
-    pcmdata = media.get("pcmdata") or {}
+    summary = media.get("summary") if isinstance(media.get("summary"), dict) else {}
+    colscr = media.get("colscr") or summary.get("colscr") or {}
+    pcmdata = media.get("pcmdata") or summary.get("pcmdata") or {}
     refs = as_int(colscr.get("media_references")) + as_int(pcmdata.get("audio_references"))
     components = sum(1 for row in (colscr, pcmdata) if row and row.get("status") != "not_scanned" and (row.get("colscr") or row.get("pcmdata")))
     if not refs and not components:
@@ -465,7 +502,7 @@ def _model_target_path(model: dict[str, Any]) -> str:
 
 def capability_row_from_model(model: dict[str, Any]) -> dict[str, Any]:
     classification = model.get("classification", {})
-    capabilities = model.get("readiness", {}).get("capabilities") or build_model_readiness(model)["capabilities"]
+    capabilities = build_model_readiness(model)["capabilities"]
     metrics = unknown_text_metrics(model)
     package_status = str(classification.get("status") or "unknown")
     requires_sidecar = str(classification.get("body_source_hint") or "") == BodySource.HONMON_ANCHOR_DEREFERENCE.value

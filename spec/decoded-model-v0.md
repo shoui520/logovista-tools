@@ -605,6 +605,7 @@ Menu records represent `MENU.DIC` lines, hierarchy, and link destinations.
   "destination": {
     "payload_hex": "000256780002",
     "encoding": "bcd",
+    "is_null": false,
     "target": {"kind": "component", "component": "HONMON.DIC", "block": 25678, "offset": 2}
   },
   "children": []
@@ -612,8 +613,10 @@ Menu records represent `MENU.DIC` lines, hierarchy, and link destinations.
 ```
 
 Menu `destination.target.kind` may be `component`, `virtual_selector`, or
-`unresolved`. Tree structure is derived from section-depth heuristics and
-should carry confidence if used as semantic navigation.
+`unresolved`. Payload `000000000000` is represented with `is_null: true` and
+no target; it is a null/sentinel destination rather than an unresolved pointer.
+Tree structure is derived from section-depth heuristics and should carry
+confidence if used as semantic navigation.
 
 ## Gaiji
 
@@ -870,6 +873,7 @@ Observed status values:
 ```text
 observed            source anchor/pointer was decoded, but no target is attached
 resolved            target was resolved or verified
+null                decoded pointer is a known null/sentinel destination
 unresolved          target pointer could not be mapped to a known component
 unverified          target path/schema exists but was not opened in this run
 missing_target      target store opened but the row/record was absent
