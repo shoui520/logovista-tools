@@ -146,6 +146,8 @@ def test_dump_package_model_embeds_sizk_family(tmp_path) -> None:
 
     assert model["schema"] == "logovista-decoded-model-v0"
     assert model["classification"]["package_family"] == "ssed-sizk-read-aloud"
+    assert model["readiness"]["schema"] == "logovista-model-readiness-v0"
+    assert model["writer_readiness"] == model["readiness"]["writer_readiness"]
     assert model["entry_spans"]["entries_emitted"] == 1
     assert model["families"]["sizk"]["playback"]["row_count"] == 1
     assert model["gaiji"]["profile"]["uni_entries"] == 1

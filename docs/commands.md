@@ -546,8 +546,21 @@ dictionary/component instead of silently skipped.
 
 ### `capability-matrix`
 
-Build a writer/exporter capability matrix from the redacted outputs of
-`profile`, `honmon-bytes`, and `component-forensics`.
+Build a writer/exporter capability matrix from Decoded LogoVista Model v0
+reports. This is now the preferred path because the package model is the
+authoritative place where package family, HONMON shape, body source,
+gaiji/media/menu readiness, sidecar requirements, and unresolved issues are
+normalized.
+
+```bash
+logovista-tools capability-matrix \
+  --model-dir out/package-model \
+  --out-dir out/capability-matrix
+```
+
+Legacy redacted-report mode is still available for older audit outputs. It
+combines the older `profile`, `honmon-bytes`, and `component-forensics`
+reports, but new corpus work should prefer `--model-dir`.
 
 ```bash
 logovista-tools capability-matrix \
@@ -557,8 +570,9 @@ logovista-tools capability-matrix \
   --out-dir out/capability-matrix
 ```
 
-If a `gaiji-readiness` report is available, pass it to refine the gaiji column
-from blunt unresolved-span counts into display/search readiness:
+In legacy mode, if a `gaiji-readiness` report is available, pass it to refine
+the gaiji column from blunt unresolved-span counts into display/search
+readiness:
 
 ```bash
 logovista-tools capability-matrix \
@@ -613,9 +627,9 @@ conservative raw-body writer/exporter subset. `lossless_repacker_status` is
 stricter about missing declared files and unresolved menu/media/title
 structures. `writer_repacker_status` is the combined worst of those two.
 
-This command does not inspect proprietary payloads directly. It combines
-previous redacted reports, so it is fast and reproducible once the expensive
-corpus audits have been run.
+With `--model-dir`, this command does not re-parse dictionaries. It reads
+`*_decoded_model_v0.json` reports and derives matrix rows from the model's
+shared readiness object. This prevents command-specific shape/status drift.
 
 ### `dump-ir`
 
@@ -677,6 +691,8 @@ Important options:
 --full-profile-indexes             run the exhaustive profile index scan
 --full-entry-boundaries            collect all index-derived HONMON boundaries
 --skip-row-models                  skip title/index/menu row extraction
+--gaiji-readiness                  embed gaiji display/search readiness summary
+--renderer-sidecar-gaiji           use renderer sidecars for contextual gaiji evidence
 --no-raw                           omit raw_hex from embedded entry spans
 --no-padding-spans                 omit padding spans from embedded entry spans
 --include-internal-indexes         include internal/auxiliary index files
@@ -689,10 +705,12 @@ marker boundaries unless `--full-entry-boundaries` is requested. Use
 `--skip-row-models` for very large packages when the model only needs component
 and capability summaries.
 
-The command is intentionally not pretty. It is a contradiction finder. Missing
-declared components, empty raw-body packages, unresolved menu targets, raw
-gaiji gaps, sidecar-only body evidence, and sampled decode failures are emitted
-as `inconsistencies` records rather than hidden behind command-specific output.
+The command is intentionally not pretty. It is a contradiction finder and the
+current package-level authority. Missing declared components, empty raw-body
+packages, unresolved menu targets, raw gaiji gaps, sidecar-only body evidence,
+and sampled decode failures are emitted as `inconsistencies` records rather
+than hidden behind command-specific output. The emitted `readiness` and
+`writer_readiness` objects are what `capability-matrix --model-dir` consumes.
 
 ### `resources`
 

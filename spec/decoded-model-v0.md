@@ -36,6 +36,7 @@ Current command outputs map into parts of this model:
 | `gaiji-report` | gaiji mappings, occurrences, validation evidence |
 | `colscr` / `pcmdata` | media references and media records |
 | `fulldb` / `rendererdb` / `lved` | dereferenced body records from sidecar stores |
+| `capability-matrix --model-dir` | writer/exporter capability view derived from model readiness |
 
 `dump-ir` emits `logovista-lossless-entry-v1`. Treat that as an entry-span
 subset of this package model, not as the full decoded package model.
@@ -101,6 +102,8 @@ target inside a larger collection.
   "media": {},
   "sidecars": {},
   "families": {},
+  "readiness": {},
+  "writer_readiness": {},
   "notes": [],
   "inconsistencies": []
 }
@@ -923,10 +926,54 @@ dereference  anchors, resolved targets, missing targets, mismatches
 package      component counts, missing files, body-source classification
 ```
 
-## Writer Readiness Fields
+## Readiness and Writer Fields
 
-The decoded model should expose writer-readiness without committing to writer
-behavior.
+The decoded model exposes parser/exporter/writer readiness without committing
+to writer behavior. Readiness is derived from the same package model object
+that `dump-package-model` emits; downstream matrix/exporter/writer experiments
+should consume this section instead of recomputing package shape names.
+
+```json
+{
+  "readiness": {
+    "schema": "logovista-model-readiness-v0",
+    "capabilities": {
+      "raw_honmon_body": {
+        "status": "yes",
+        "reason": "body_source_hint=honmon; shape=body_stream_indexed"
+      },
+      "indexes_fully_parsed": {"status": "yes", "reason": "index_components=4"},
+      "titles_fully_parsed": {"status": "n/a", "reason": "no title components"},
+      "gaiji_fully_resolved": {"status": "yes", "reason": "gaiji_readiness=yes"},
+      "media_refs_resolved": {"status": "yes", "reason": "media_references=10"},
+      "menu_pointers_resolved": {"status": "n/a", "reason": "no MENU.DIC"}
+    },
+    "metrics": {
+      "unknown_controls": 0,
+      "unknown_bytes": 0,
+      "structural_text_issues": 0,
+      "component_parse_errors": 0
+    },
+    "requirements": {
+      "requires_sidecar_body": false
+    },
+    "writer_readiness": {}
+  }
+}
+```
+
+Capability status values:
+
+```text
+yes      modeled and ready for the relevant view
+partial  usable only with degradation, fallback, or unresolved residuals
+no       blocked by missing data, sidecar-only body, parse failure, or invalid refs
+n/a      the package has no such structure
+unknown  the model was bounded/skipped or evidence is insufficient
+```
+
+The top-level `writer_readiness` is a copy of
+`readiness.writer_readiness` for convenience:
 
 ```json
 {

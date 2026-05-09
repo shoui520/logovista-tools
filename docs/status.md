@@ -172,6 +172,10 @@ LogoVista dictionary model.
 - `dump-package-model` is the first package-level Decoded LogoVista Model v0
   emitter. It embeds sampled rows by default so normal runs stay manageable;
   use zero-valued limits for exhaustive per-package inspection.
+- `dump-package-model` now emits a shared `readiness` object and top-level
+  `writer_readiness`. `capability-matrix --model-dir` consumes those decoded
+  model reports directly, so new matrix work no longer needs to recombine
+  separate `profile` / `honmon-bytes` / `component-forensics` status names.
 - `dump-ir` remains a narrower lossless entry-span JSONL inspection command for
   HONMON-specific debugging.
 - Observed `DictFtsDB` `.dbc` payloads for OXFPEU4/KQCMPROS are LVED
@@ -208,17 +212,17 @@ Recently landed:
 
 Next priorities:
 
-1. **Decoded model stabilization.** Use `dump-package-model` on representative
-   and corpus-wide packages, remove command-specific shape drift, tighten field
-   names, and keep unresolved bytes/pointers/controls measurable in one shared
-   object.
+1. **Decoded model stabilization.** Continue tightening the shared enum/status
+   vocabulary used by `dump-package-model`, then migrate older commands toward
+   emitting evidence for the model instead of independently naming package
+   shape and readiness.
 2. **NGYOKTUK renderer-backed gaiji.** Keep `NGYOKTUK` as the named
    raw-resource exception: its display is recoverable through row-aligned
    `HONBUN` HTML, but a lossless IR/exporter must preserve raw gaiji
    provenance because some codes are contextual rather than dictionary-global.
-3. **Corpus capability matrix refinement.** Use matrix output to separate
-   writer-v0 blockers from lossless-repacker blockers, then tighten media and
-   menu readiness rules as the IR implementation lands.
+3. **Corpus capability matrix refinement.** Regenerate matrix output from
+   `dump-package-model --gaiji-readiness` reports, then separate writer-v0
+   blockers from lossless-repacker blockers using the model readiness fields.
 4. **Corpus regression harness.** Commit redacted expected metrics generated
    from owned corpora, then add a comparison command that flags changed shape
    counts, unknown counts, parse failures, and dereference coverage without

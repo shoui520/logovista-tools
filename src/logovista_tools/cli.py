@@ -1372,7 +1372,11 @@ def cmd_opcode_atlas(args: argparse.Namespace) -> int:
 
 
 def cmd_capability_matrix(args: argparse.Namespace) -> int:
-    report = extract_capability_matrix_for_args(args)
+    try:
+        report = extract_capability_matrix_for_args(args)
+    except ValueError as exc:
+        print(f"capability-matrix: {exc}", file=sys.stderr)
+        return 2
     print(
         f"capability matrix: dictionaries={report['total']} "
         f"writer_v0={report['legacy_writer_v0_status_counts']} "
@@ -1739,6 +1743,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip title/index/menu row extraction in the package model; useful for very large packages.",
     )
     p_model.add_argument(
+        "--gaiji-readiness",
+        action="store_true",
+        help="Embed gaiji-readiness summary in the package model for authoritative gaiji capability status.",
+    )
+    p_model.add_argument(
+        "--renderer-sidecar-gaiji",
+        action="store_true",
+        help="When --gaiji-readiness is set, use renderer sidecars as contextual gaiji display evidence.",
+    )
+    p_model.add_argument(
+        "--renderer-inference-limit",
+        type=int,
+        help="When renderer gaiji evidence is enabled, limit raw/HONBUN rows used for contextual inference.",
+    )
+    p_model.add_argument(
         "--include-playback-rows",
         action="store_true",
         help="Embed SIZK playback rows instead of summary-only playback metadata.",
@@ -1857,25 +1876,27 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_capability = sub.add_parser(
         "capability-matrix",
-        help="Build a writer/exporter capability matrix from redacted corpus reports.",
+        help="Build a writer/exporter capability matrix from decoded model reports.",
+    )
+    p_capability.add_argument(
+        "--model-dir",
+        type=Path,
+        help="Directory containing dump-package-model *_decoded_model_v0.json reports. Preferred input.",
     )
     p_capability.add_argument(
         "--profile-dir",
         type=Path,
-        required=True,
-        help="Directory produced by the profile command.",
+        help="Legacy fallback: directory produced by the profile command.",
     )
     p_capability.add_argument(
         "--honmon-bytes-dir",
         type=Path,
-        required=True,
-        help="Directory produced by the honmon-bytes command.",
+        help="Legacy fallback: directory produced by the honmon-bytes command.",
     )
     p_capability.add_argument(
         "--component-forensics-dir",
         type=Path,
-        required=True,
-        help="Directory produced by the component-forensics command.",
+        help="Legacy fallback: directory produced by the component-forensics command.",
     )
     p_capability.add_argument(
         "--gaiji-readiness-dir",

@@ -16,8 +16,19 @@ from typing import Any
 from .colscr import extract_colscr_for_source
 from .entries import DictionarySource, discover_dictionaries, iter_entry_slices_with_boundaries
 from .gaiji import candidate_gaiji_paths, load_gaiji_profile, parse_ga16_resource, parse_uni_resource
+from .gaiji_readiness import extract_gaiji_readiness
 from .indexes import INDEX_TYPES, collect_index_body_offsets_for_idx, extract_indexes_for_idx
 from .menus import extract_menus_for_idx
+from .model_readiness import build_model_readiness
+from .model_types import (
+    AddressKind,
+    ModelAddress,
+    normalize_body_source,
+    normalize_component_role,
+    normalize_honmon_shape,
+    normalize_package_family,
+    normalize_platform,
+)
 from .pcmdata import extract_pcmdata_for_source
 from .profiles import ProfileTarget, build_profile
 from .resources import candidate_image_dirs, load_image_resource_profile, relative_image_source
@@ -151,15 +162,31 @@ def detect_platform_wrapper(source: DictionarySource) -> dict[str, Any]:
 
 
 def component_address(element: Any, component_offset: int = 0) -> dict[str, Any]:
-    return {
-        "kind": "component",
-        "component": element.filename,
-        "component_type": f"{element.type:02x}",
-        "block": element.start + component_offset // BLOCK_SIZE if element.start else None,
-        "offset": component_offset % BLOCK_SIZE,
-        "component_offset": component_offset,
-        "absolute_book_offset": (element.start - 1) * BLOCK_SIZE + component_offset if element.start else None,
-    }
+    return ModelAddress(
+        kind=AddressKind.COMPONENT,
+        component=element.filename,
+        component_type=f"{element.type:02x}",
+        block=element.start + component_offset // BLOCK_SIZE if element.start else None,
+        offset=component_offset % BLOCK_SIZE,
+        component_offset=component_offset,
+        absolute_book_offset=(element.start - 1) * BLOCK_SIZE + component_offset if element.start else None,
+    ).as_dict()
+
+
+def normalize_classification(row: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(row)
+    normalized["package_family"] = normalize_package_family(normalized.get("package_family"))
+    normalized["platform"] = normalize_platform(normalized.get("platform"))
+    normalized["honmon_shape"] = normalize_honmon_shape(normalized.get("honmon_shape"))
+    normalized["body_source_hint"] = normalize_body_source(normalized.get("body_source_hint"))
+    return normalized
+
+
+def normalize_component_row(row: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(row)
+    if "role" in normalized:
+        normalized["role"] = normalize_component_role(normalized["role"])
+    return normalized
 
 
 def component_rows_for_idx(idx: Path, profile: dict[str, Any]) -> list[dict[str, Any]]:
@@ -171,7 +198,7 @@ def component_rows_for_idx(idx: Path, profile: dict[str, Any]) -> list[dict[str,
         row.setdefault("filename", element.filename)
         row.setdefault("type", f"{element.type:02x}")
         row["address"] = component_address(element)
-        rows.append(row)
+        rows.append(normalize_component_row(row))
     return rows
 
 
@@ -353,7 +380,7 @@ def windows_sidecars(source: DictionarySource, args: argparse.Namespace) -> dict
     return windows_sidecars_for_idx(source.idx, args)
 
 
-def gaiji_resources_for_idx(idx: Path) -> dict[str, Any]:
+def gaiji_resources_for_idx(idx: Path, args: argparse.Namespace | None = None) -> dict[str, Any]:
     profile = load_gaiji_profile(idx)
     uni_candidates, plist_candidates = candidate_gaiji_paths(idx)
     uni_resources = []
@@ -398,7 +425,7 @@ def gaiji_resources_for_idx(idx: Path) -> dict[str, Any]:
             }
         )
     image_profile = load_image_resource_profile(idx)
-    return {
+    resources = {
         "profile": {
             "merged_map_entries": len(profile.map),
             "uni_entries": profile.uni_entries,
@@ -423,10 +450,22 @@ def gaiji_resources_for_idx(idx: Path) -> dict[str, Any]:
             },
         },
     }
+    if args is not None and getattr(args, "gaiji_readiness", False):
+        title, elements, _layout = parse_ssedinfo_with_layout(idx)
+        target = ProfileTarget(dict_id=dict_id_for_idx(idx), idx=idx, title=title, elements=elements)
+        with tempfile.TemporaryDirectory(prefix="lv-model-gaiji-") as tmp:
+            readiness_args = argparse.Namespace(
+                renderer_sidecars=getattr(args, "renderer_sidecar_gaiji", False),
+                renderer_inference_limit=getattr(args, "renderer_inference_limit", None),
+            )
+            readiness = extract_gaiji_readiness(target, Path(tmp), readiness_args)
+            readiness.pop("report", None)
+            resources["readiness"] = readiness
+    return resources
 
 
-def gaiji_resources(source: DictionarySource) -> dict[str, Any]:
-    return gaiji_resources_for_idx(source.idx)
+def gaiji_resources(source: DictionarySource, args: argparse.Namespace | None = None) -> dict[str, Any]:
+    return gaiji_resources_for_idx(source.idx, args)
 
 
 def static_package_resources_for_idx(idx: Path, sample_limit: int = 50) -> dict[str, Any]:
@@ -631,6 +670,11 @@ def collect_inconsistencies(model: dict[str, Any]) -> list[dict[str, Any]]:
 
 def dump_package_model(source: DictionarySource, args: argparse.Namespace) -> dict[str, Any]:
     wrapper = detect_platform_wrapper(source)
+    wrapper = {
+        **wrapper,
+        "package_family": normalize_package_family(wrapper.get("package_family")),
+        "platform": normalize_platform(wrapper.get("platform")),
+    }
     profile = profile_for_source(source, args)
     components = component_rows(source, profile)
     rows = title_index_menu_model(source.idx, args)
@@ -653,18 +697,18 @@ def dump_package_model(source: DictionarySource, args: argparse.Namespace) -> di
             "honmon": str(source.honmon),
         },
         "wrapper": wrapper,
-        "classification": {
+        "classification": normalize_classification({
             **profile.get("classification", {}),
             "package_family": wrapper["package_family"],
             "platform": wrapper["platform"],
-        },
+        }),
         "components": components,
         "honmon": profile.get("honmon", {}),
         "entry_spans": entry_span_samples(source, args),
         "titles": rows["titles"],
         "indexes": rows["indexes"],
         "menus": rows["menus"],
-        "gaiji": gaiji_resources(source),
+        "gaiji": gaiji_resources(source, args),
         "resources": {
             **profile.get("resources", {}),
             "static_sidecars": static_package_resources(source, args),
@@ -675,6 +719,8 @@ def dump_package_model(source: DictionarySource, args: argparse.Namespace) -> di
         "notes": [],
         "inconsistencies": [],
     }
+    model["readiness"] = build_model_readiness(model)
+    model["writer_readiness"] = model["readiness"]["writer_readiness"]
     model["notes"] = package_notes(model)
     model["inconsistencies"] = collect_inconsistencies(model)
     return model
@@ -683,6 +729,11 @@ def dump_package_model(source: DictionarySource, args: argparse.Namespace) -> di
 def dump_incomplete_package_model(idx: Path, args: argparse.Namespace, reason: str) -> dict[str, Any]:
     title, elements, _layout = parse_ssedinfo_with_layout(idx)
     wrapper = detect_platform_wrapper_for_idx(idx)
+    wrapper = {
+        **wrapper,
+        "package_family": normalize_package_family(wrapper.get("package_family")),
+        "platform": normalize_platform(wrapper.get("platform")),
+    }
     profile = profile_for_idx(idx, args)
     components = component_rows_for_idx(idx, profile)
     rows = title_index_menu_model(idx, args)
@@ -700,12 +751,12 @@ def dump_incomplete_package_model(idx: Path, args: argparse.Namespace, reason: s
             "honmon": str(honmon_path) if honmon_path is not None else None,
         },
         "wrapper": wrapper,
-        "classification": {
+        "classification": normalize_classification({
             **profile.get("classification", {}),
             "status": "incomplete",
             "package_family": wrapper["package_family"],
             "platform": wrapper["platform"],
-        },
+        }),
         "components": components,
         "honmon": profile.get("honmon", {}),
         "entry_spans": {
@@ -717,7 +768,7 @@ def dump_incomplete_package_model(idx: Path, args: argparse.Namespace, reason: s
         "titles": rows["titles"],
         "indexes": rows["indexes"],
         "menus": rows["menus"],
-        "gaiji": gaiji_resources_for_idx(idx),
+        "gaiji": gaiji_resources_for_idx(idx, args),
         "resources": {
             **profile.get("resources", {}),
             "static_sidecars": static_package_resources_for_idx(idx, sample_limit=args.sample_limit),
@@ -737,6 +788,8 @@ def dump_incomplete_package_model(idx: Path, args: argparse.Namespace, reason: s
         ],
         "inconsistencies": [],
     }
+    model["readiness"] = build_model_readiness(model)
+    model["writer_readiness"] = model["readiness"]["writer_readiness"]
     model["inconsistencies"] = collect_inconsistencies(model)
     if not any(row["kind"] == "missing_component" for row in model["inconsistencies"]):
         model["inconsistencies"].append(issue("incomplete_package", reason))

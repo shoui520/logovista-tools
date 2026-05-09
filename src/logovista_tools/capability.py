@@ -5,19 +5,11 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
-
-CAPABILITY_FIELDS = [
-    "raw_honmon_body",
-    "indexes_fully_parsed",
-    "titles_fully_parsed",
-    "gaiji_fully_resolved",
-    "media_refs_resolved",
-    "menu_pointers_resolved",
-]
+from .model_readiness import CAPABILITY_FIELDS, capability_row_from_model, summarize_capability_rows
 
 
 def read_json(path: Path) -> Any:
@@ -39,6 +31,20 @@ def load_gaiji_readiness_map(report_dir: Path | None) -> dict[str, dict[str, Any
     summary = read_json(summary_path)
     rows = summary.get("rows", []) if isinstance(summary, dict) else []
     return {str(row["dict_id"]): row for row in rows if isinstance(row, dict) and row.get("dict_id")}
+
+
+def load_model_reports(model_dir: Path) -> list[dict[str, Any]]:
+    """Load Decoded LogoVista Model v0 reports from a directory tree."""
+
+    models: list[dict[str, Any]] = []
+    for path in sorted(model_dir.rglob("*.json")):
+        try:
+            data = read_json(path)
+        except Exception:
+            continue
+        if isinstance(data, dict) and data.get("schema") == "logovista-decoded-model-v0":
+            models.append(data)
+    return models
 
 
 def detail_path(report_dir: Path, summary_row: dict[str, Any] | None, filename: str, dict_id: str) -> Path | None:
@@ -462,20 +468,10 @@ def build_capability_matrix(
             )
         )
 
-    capability_counts = {
-        field: dict(sorted(Counter(str(row.get(field) or "unknown") for row in rows).items()))
-        for field in CAPABILITY_FIELDS
-    }
-    writer_counts = Counter(str(row.get("legacy_writer_v0_status") or "unknown") for row in rows)
-    repacker_counts = Counter(str(row.get("lossless_repacker_status") or "unknown") for row in rows)
-    combined_counts = Counter(str(row.get("writer_repacker_status") or "unknown") for row in rows)
-    blocker_counts: Counter[str] = Counter()
-    for row in rows:
-        for blocker in str(row.get("writer_repacker_blockers") or "").split(";"):
-            if blocker:
-                blocker_counts[blocker] += 1
+    summary = summarize_capability_rows(rows)
     return {
         "schema": "logovista-capability-matrix-v1",
+        "source_mode": "legacy_redacted_reports",
         "sources": {
             "profile_dir": str(profile_dir),
             "honmon_bytes_dir": str(honmon_bytes_dir),
@@ -483,11 +479,32 @@ def build_capability_matrix(
             "gaiji_readiness_dir": str(gaiji_readiness_dir) if gaiji_readiness_dir else None,
         },
         "total": len(rows),
-        "capability_counts": capability_counts,
-        "legacy_writer_v0_status_counts": dict(sorted(writer_counts.items())),
-        "lossless_repacker_status_counts": dict(sorted(repacker_counts.items())),
-        "writer_repacker_status_counts": dict(sorted(combined_counts.items())),
-        "blocker_counts": dict(sorted(blocker_counts.items())),
+        **summary,
+        "rows": rows,
+    }
+
+
+def build_capability_matrix_from_models(
+    *,
+    model_dir: Path,
+    selected: set[str] | None = None,
+) -> dict[str, Any]:
+    models = load_model_reports(model_dir)
+    rows: list[dict[str, Any]] = []
+    for model in models:
+        row = capability_row_from_model(model)
+        if selected and row["dict_id"] not in selected:
+            continue
+        rows.append(row)
+    summary = summarize_capability_rows(rows)
+    return {
+        "schema": "logovista-capability-matrix-v1",
+        "source_mode": "decoded_model_v0",
+        "sources": {
+            "model_dir": str(model_dir),
+        },
+        "total": len(rows),
+        **summary,
         "rows": rows,
     }
 
@@ -553,13 +570,27 @@ def write_markdown(path: Path, rows: list[dict[str, Any]]) -> None:
 def extract_capability_matrix_for_args(args: argparse.Namespace) -> dict[str, Any]:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     selected = set(args.dict) if args.dict else None
-    report = build_capability_matrix(
-        profile_dir=args.profile_dir,
-        honmon_bytes_dir=args.honmon_bytes_dir,
-        component_forensics_dir=args.component_forensics_dir,
-        gaiji_readiness_dir=getattr(args, "gaiji_readiness_dir", None),
-        selected=selected,
-    )
+    if getattr(args, "model_dir", None) is not None:
+        report = build_capability_matrix_from_models(model_dir=args.model_dir, selected=selected)
+    else:
+        required = {
+            "profile_dir": args.profile_dir,
+            "honmon_bytes_dir": args.honmon_bytes_dir,
+            "component_forensics_dir": args.component_forensics_dir,
+        }
+        missing = [name.replace("_", "-") for name, value in required.items() if value is None]
+        if missing:
+            raise ValueError(
+                "capability-matrix now prefers --model-dir from dump-package-model; "
+                f"legacy mode also requires: {', '.join('--' + name for name in missing)}"
+            )
+        report = build_capability_matrix(
+            profile_dir=args.profile_dir,
+            honmon_bytes_dir=args.honmon_bytes_dir,
+            component_forensics_dir=args.component_forensics_dir,
+            gaiji_readiness_dir=getattr(args, "gaiji_readiness_dir", None),
+            selected=selected,
+        )
     (args.out_dir / "capability_matrix.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2),
         encoding="utf-8",

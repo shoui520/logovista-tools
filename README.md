@@ -204,12 +204,30 @@ Dump one package-level decoded model report:
 logovista-tools dump-package-model /path/to/_DCT_HAESPJPN --out-dir out/package-model
 ```
 
+For package-model reports that will feed writer/exporter planning, include
+gaiji readiness so display/search fallback status is not guessed from sampled
+spans:
+
+```bash
+logovista-tools dump-package-model /path/to/_DCT_HAESPJPN \
+  --gaiji-readiness \
+  --out-dir out/package-model
+```
+
 For very large package probes, keep the model bounded:
 
 ```bash
 logovista-tools dump-package-model /path/to/_DCT_EJJE100 \
   --skip-row-models --entry-limit 80 --profile-max-slices 100 \
   --out-dir out/package-model
+```
+
+Build the capability matrix from decoded model reports:
+
+```bash
+logovista-tools capability-matrix \
+  --model-dir out/package-model \
+  --out-dir out/capability-matrix
 ```
 
 Extract readable body-stream entries:

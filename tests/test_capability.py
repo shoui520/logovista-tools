@@ -1,6 +1,6 @@
 import json
 
-from logovista_tools.capability import build_capability_matrix
+from logovista_tools.capability import build_capability_matrix, build_capability_matrix_from_models
 
 
 def write_json(path, data):
@@ -277,3 +277,52 @@ def test_capability_matrix_names_writer_blockers(tmp_path):
     assert row["writer_repacker_status"] == "red"
     assert "body_requires_sidecar_or_is_missing" in blockers
     assert "unknown_or_structural_text_issues" in blockers
+
+
+def test_capability_matrix_prefers_decoded_model_reports(tmp_path):
+    model_dir = tmp_path / "models"
+    model = {
+        "schema": "logovista-decoded-model-v0",
+        "package": {"dict_id": "MODEL", "title": "Model"},
+        "wrapper": {"package_family": "ssed", "platform": "windows"},
+        "classification": {
+            "status": "ok",
+            "package_family": "ssed",
+            "platform": "windows",
+            "body_source_hint": "honmon",
+            "honmon_shape": "body_stream_indexed",
+            "missing_components": [],
+        },
+        "components": [],
+        "honmon": {
+            "shape": "body_stream_indexed",
+            "index_boundary_offsets": 1,
+            "decode_aggregate": {
+                "stats": {
+                    "unknown_controls": 0,
+                    "unknown_bytes": 0,
+                    "invalid_jis_pairs": 0,
+                    "truncated_controls": 0,
+                    "truncated_gaiji": 0,
+                    "gaiji": 0,
+                    "gaiji_unresolved": 0,
+                }
+            },
+        },
+        "entry_spans": {"status": "ok"},
+        "titles": {"summary": {"title_components": []}},
+        "indexes": {"summary": {"index_components": [{"unknown_leaf_bytes": 0, "warnings": []}]}},
+        "menus": {"summary": {"menu_components": []}},
+        "gaiji": {"profile": {"merged_map_entries": 0}, "ga16_resources": [], "image_resources": {"resource_count": 0}},
+        "media": {"colscr": {}, "pcmdata": {}},
+    }
+    write_json(model_dir / "MODEL_decoded_model_v0.json", model)
+
+    report = build_capability_matrix_from_models(model_dir=model_dir)
+
+    assert report["source_mode"] == "decoded_model_v0"
+    row = report["rows"][0]
+    assert row["dict_id"] == "MODEL"
+    assert row["raw_honmon_body"] == "yes"
+    assert row["indexes_fully_parsed"] == "yes"
+    assert row["writer_repacker_status"] == "green"

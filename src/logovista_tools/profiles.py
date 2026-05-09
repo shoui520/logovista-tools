@@ -16,6 +16,7 @@ from .audit import dict_id_for_idx
 from .entries import ENTRY_MARKER, iter_entry_slices_with_boundaries
 from .gaiji import load_gaiji_profile
 from .indexes import INDEX_TYPES, scan_index_component
+from .model_types import BodySource, ComponentRole
 from .parallel import parallel_map_ordered, worker_args
 from .resources import load_image_resource_profile
 from .spans import LosslessDecodeError, combine_span_stats, decode_lossless_spans
@@ -86,24 +87,24 @@ def _profile_target_from_idx(idx: Path) -> ProfileTarget | None:
 def component_role(element: SsedInfoElement) -> str:
     upper = element.filename.upper()
     if upper == "HONMON.DIC":
-        return "honmon"
+        return ComponentRole.HONMON.value
     if element.type in TITLE_TYPES:
-        return "title"
+        return ComponentRole.TITLE.value
     if element.type in INDEX_TYPES:
-        return "index"
+        return ComponentRole.INDEX.value
     if upper == "MENU.DIC" or element.type == MENU_TYPE:
-        return "menu"
+        return ComponentRole.MENU.value
     if element.type == 0xFF or upper.startswith("MULTI"):
-        return "multi_descriptor"
+        return ComponentRole.MULTI_DESCRIPTOR.value
     if element.type in {0x02, 0x20, 0x28} or upper in {"RIGHT.DIC", "TOC.DIC", "IDXJUMP.DIC"}:
-        return "text"
+        return ComponentRole.TEXT.value
     if upper == "COLSCR.DIC" or element.type == COLSCR_TYPE:
-        return "colscr"
+        return ComponentRole.COLSCR.value
     if upper == "PCMDATA.DIC" or element.type == PCMDATA_TYPE:
-        return "pcmdata"
+        return ComponentRole.PCMDATA.value
     if upper.startswith("GA16") or upper.startswith("GAI16"):
-        return "gaiji_bitmap"
-    return "component"
+        return ComponentRole.GAIJI_BITMAP.value
+    return ComponentRole.COMPONENT.value
 
 
 def safe_relative(path: Path, roots: list[Path]) -> str:
@@ -465,13 +466,13 @@ def build_profile(target: ProfileTarget, roots: list[Path], args: argparse.Names
     numeric_aux = discover_numeric_aux_indexes(target.idx)
     honmon, indexes = honmon_profile(target, args)
 
-    body_source_hint = "unknown"
+    body_source_hint = BodySource.UNKNOWN.value
     if honmon.get("shape") in {"body_stream_indexed", "body_stream_marker_sliced"}:
-        body_source_hint = "honmon"
+        body_source_hint = BodySource.HONMON.value
     elif honmon.get("shape") == "dense_marker_table":
-        body_source_hint = "honmon_anchor_dereference"
+        body_source_hint = BodySource.HONMON_ANCHOR_DEREFERENCE.value
     elif not honmon.get("present"):
-        body_source_hint = "none"
+        body_source_hint = BodySource.NONE.value
 
     return {
         "schema": "logovista-profile-v1",
