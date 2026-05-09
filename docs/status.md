@@ -103,7 +103,9 @@ LogoVista dictionary model.
   gaiji/media resources, Windows sidecar evidence, family notes, and
   inconsistencies into one decoded model object. Large per-package runs can
   keep it bounded with skipped row models and opt-in full profile/index
-  boundary scans.
+  boundary scans. The command is now family-aware: LVED SQLCipher and
+  LVLMultiView packages are classified into deferred models instead of being
+  treated as failed SSED/HONMON packages.
 - Corpus capability matrix generation from redacted `profile`,
   `honmon-bytes`, `component-forensics`, and optional `gaiji-readiness`
   outputs.
@@ -137,7 +139,10 @@ LogoVista dictionary model.
 - Dictionary-specific semantic profiles for section codes, named images, and
   virtual selectors.
 - Broader LVED/WebView2 corpus coverage beyond observed OXFPEU4/KQCMPROS
-  packages.
+  packages. This is deferred until SSED model stabilization because LVED is a
+  separate SQLCipher/SQLite package family.
+- Broader LVLMultiView corpus coverage. This is also deferred and remains a
+  separate package-family reader target, not an SSED writer target.
 - LogoVista writer support.
 
 ## Known Limitations
@@ -215,7 +220,9 @@ Next priorities:
 1. **Decoded model stabilization.** Continue tightening the shared enum/status
    vocabulary used by `dump-package-model`, then migrate older commands toward
    emitting evidence for the model instead of independently naming package
-   shape and readiness.
+   shape and readiness. Keep LVED and LVLMultiView as classified/deferred
+   package families while SSED remains the active deep-reverse-engineering
+   target.
 2. **NGYOKTUK renderer-backed gaiji.** Keep `NGYOKTUK` as the named
    raw-resource exception: its display is recoverable through row-aligned
    `HONBUN` HTML, but a lossless IR/exporter must preserve raw gaiji

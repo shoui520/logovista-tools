@@ -660,15 +660,16 @@ size is too large for the task.
 ### `dump-package-model`
 
 Emit one package-level [Decoded LogoVista Model v0](../spec/decoded-model-v0.md)
-JSON report for one dictionary. This is the consolidation command for reverse
-engineering: it gathers the current component table, wrapper evidence, HONMON
-classification, entry spans, title/index/menu summaries, gaiji resources,
-media resources, Windows sidecars, package-family notes, and inconsistencies
-into one object.
+JSON report for one dictionary package. This is the consolidation command for
+reverse engineering: it gathers the current component table, wrapper evidence,
+HONMON classification, entry spans, title/index/menu summaries, gaiji
+resources, media resources, Windows sidecars, package-family notes, and
+inconsistencies into one object.
 
 ```bash
 logovista-tools dump-package-model /path/to/_DCT_HAESPJPN --out-dir package-model
 logovista-tools dump-package-model /path/to/LogoVista --dict HAESPJPN --no-raw --out-dir package-model
+logovista-tools dump-package-model /path/to/_DCT_OXFPEU4 --out-dir package-model
 ```
 
 The output file is:
@@ -711,6 +712,13 @@ packages, unresolved menu targets, raw gaiji gaps, sidecar-only body evidence,
 and sampled decode failures are emitted as `inconsistencies` records rather
 than hidden behind command-specific output. The emitted `readiness` and
 `writer_readiness` objects are what `capability-matrix --model-dir` consumes.
+
+`dump-package-model` is family-aware. SSED packages receive the full SSED model.
+LVED/WebView2 SQLCipher and LVLMultiView packages receive deferred family
+models: they are classified, their obvious payloads/resources are summarized,
+and SSED HONMON parsing plus SSED writer readiness are marked not applicable.
+This keeps mixed corpus runs honest without pulling LVED/LVLMultiView research
+into the SSED stabilization track.
 
 ### `resources`
 

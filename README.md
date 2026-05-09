@@ -36,8 +36,8 @@ are still allowed to change as more products are tested.
 | `.uni`, `GA16HALF`, `GA16FULL` gaiji resources | High for observed variants |
 | `MENU.DIC`, `COLSCR.DIC`, `PCMDATA.DIC` | High byte coverage for the current SSED corpus |
 | Windows / Android / iOS wrappers | Supported per observed package family |
-| LVED/WebView2 `main.data` / `.dbc` SQLCipher payloads | Validated for observed OXFPEU4/KQCMPROS packages |
-| LVLMultiView SQLite packages | Classified for observed ESPRANT2/YROPPO/MOROKU packages |
+| LVED/WebView2 `main.data` / `.dbc` SQLCipher payloads | Separate deferred package family; validated for observed OXFPEU4/KQCMPROS packages |
+| LVLMultiView SQLite packages | Separate deferred package family; classified for observed ESPRANT2/YROPPO/MOROKU packages |
 | SIZK read-aloud HTML/audio packages | Supported for the observed 30-package NHK set |
 | LogoVista writer support | Not implemented |
 
@@ -362,6 +362,10 @@ separately instead of forcing them into the SSED model. The SQLCipher key
 derivation is documented in [LVED SQLCipher Packages](spec/lved-main-data.md)
 and implemented in code; per-product final keys and serials are not repository
 artifacts.
+
+LVED and LVLMultiView are not planned writer targets. They are classified so
+corpus runs can account for them, but current writer-readiness work applies
+only to core SSED packages.
 
 Observed LVLMultiView products are also separate from classic SSED body streams.
 They ship a small SSEDINFO-like `.IDX` facade naming familiar components such

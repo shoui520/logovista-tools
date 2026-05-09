@@ -60,6 +60,7 @@ class BodySource(ModelEnum):
     DICTFULLDB = "dictfulldb"
     RENDERER_DB = "renderer_db"
     LVED_SQLCIPHER = "lved_sqlcipher"
+    MULTIVIEW_SQLITE = "multiview_sqlite"
     NONE = "none"
     UNKNOWN = "unknown"
 

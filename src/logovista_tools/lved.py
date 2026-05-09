@@ -64,6 +64,8 @@ def entropy_sample_for_file(path: Path, *, sample_size: int = 1024 * 1024) -> fl
 
 def is_lved_payload_name(path: Path) -> bool:
     name = path.name.lower()
+    if name.endswith(":zone.identifier"):
+        return False
     return name == "main.data" or name.endswith(".dbc")
 
 

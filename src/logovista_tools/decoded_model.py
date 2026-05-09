@@ -18,17 +18,23 @@ from .entries import DictionarySource, discover_dictionaries, iter_entry_slices_
 from .gaiji import candidate_gaiji_paths, load_gaiji_profile, parse_ga16_resource, parse_uni_resource
 from .gaiji_readiness import extract_gaiji_readiness
 from .indexes import INDEX_TYPES, collect_index_body_offsets_for_idx, extract_indexes_for_idx
+from .lved import discover_lved_payloads, inspect_lved_roots
 from .menus import extract_menus_for_idx
 from .model_readiness import build_model_readiness
 from .model_types import (
     AddressKind,
+    BodySource,
+    HonmonShape,
     ModelAddress,
+    PackageFamily,
+    PlatformWrapper,
     normalize_body_source,
     normalize_component_role,
     normalize_honmon_shape,
     normalize_package_family,
     normalize_platform,
 )
+from .multiview import discover_multiview_packages, inspect_multiview_package
 from .pcmdata import extract_pcmdata_for_source
 from .profiles import ProfileTarget, build_profile
 from .resources import candidate_image_dirs, load_image_resource_profile, relative_image_source
@@ -53,6 +59,10 @@ from .windows import (
 
 
 MODEL_SCHEMA = "logovista-decoded-model-v0"
+
+
+def is_metadata_noise_path(path: Path) -> bool:
+    return path.name.endswith(":Zone.Identifier")
 
 
 def read_jsonl_samples(path: Path, limit: int) -> list[dict[str, Any]]:
@@ -103,8 +113,8 @@ def select_single_idx(root: Path, dict_id: str | None = None) -> Path:
     if root.is_file() and root.suffix.lower() == ".idx":
         candidates.append(root)
     elif root.is_dir():
-        candidates.extend(root.rglob("*.IDX"))
-        candidates.extend(root.rglob("*.idx"))
+        candidates.extend(path for path in root.rglob("*.IDX") if not is_metadata_noise_path(path))
+        candidates.extend(path for path in root.rglob("*.idx") if not is_metadata_noise_path(path))
     valid: list[Path] = []
     for idx in sorted({path.resolve() for path in candidates}):
         try:
@@ -200,6 +210,38 @@ def component_rows_for_idx(idx: Path, profile: dict[str, Any]) -> list[dict[str,
         row["address"] = component_address(element)
         rows.append(normalize_component_row(row))
     return rows
+
+
+def matches_dict_id(path: Path, dict_id: str | None) -> bool:
+    if not dict_id:
+        return True
+    wanted = dict_id.upper().removeprefix("_DCT_")
+    candidates = {path.stem.upper(), path.name.upper()}
+    candidates.update(part.upper().removeprefix("_DCT_") for part in path.parts)
+    return wanted in candidates
+
+
+def select_single_lved_payload(root: Path, dict_id: str | None = None) -> Path | None:
+    payloads = [path for path in discover_lved_payloads([root]) if not is_metadata_noise_path(path)]
+    payloads = [path for path in payloads if matches_dict_id(path, dict_id)]
+    if not payloads:
+        return None
+    if len(payloads) > 1:
+        ids = ", ".join(str(path) for path in payloads[:10])
+        suffix = "..." if len(payloads) > 10 else ""
+        raise ValueError(f"dump-package-model found {len(payloads)} LVED payloads: {ids}{suffix}. Use --dict or a package root.")
+    return payloads[0]
+
+
+def select_single_multiview_package(root: Path, dict_id: str | None = None) -> Path | None:
+    packages = [path for path in discover_multiview_packages([root]) if matches_dict_id(path, dict_id)]
+    if not packages:
+        return None
+    if len(packages) > 1:
+        ids = ", ".join(path.name.removeprefix("_DCT_") for path in packages[:20])
+        suffix = "..." if len(packages) > 20 else ""
+        raise ValueError(f"dump-package-model found {len(packages)} LVLMultiView packages: {ids}{suffix}. Use --dict.")
+    return packages[0]
 
 
 def component_rows(source: DictionarySource, profile: dict[str, Any]) -> list[dict[str, Any]]:
@@ -485,6 +527,8 @@ def static_package_resources_for_idx(idx: Path, sample_limit: int = 50) -> dict[
         "templates",
     }
     for path in sorted(package.iterdir()):
+        if is_metadata_noise_path(path):
+            continue
         if path.is_dir() and path.name.lower() in known_dir_names:
             resource_dirs.append(path)
     for path in candidate_image_dirs(package):
@@ -494,11 +538,13 @@ def static_package_resources_for_idx(idx: Path, sample_limit: int = 50) -> dict[
     root_files = [
         path
         for path in package.iterdir()
-        if path.is_file() and path.suffix.lower() in {".html", ".htm", ".css", ".js", ".gif", ".png", ".jpg", ".jpeg", ".svg"}
+        if path.is_file()
+        and not is_metadata_noise_path(path)
+        and path.suffix.lower() in {".html", ".htm", ".css", ".js", ".gif", ".png", ".jpg", ".jpeg", ".svg"}
     ]
     files = list(root_files)
     for directory in resource_dirs:
-        files.extend(path for path in directory.rglob("*") if path.is_file())
+        files.extend(path for path in directory.rglob("*") if path.is_file() and not is_metadata_noise_path(path))
 
     extension_counts: dict[str, int] = {}
     total_bytes = 0
@@ -523,6 +569,32 @@ def static_package_resources_for_idx(idx: Path, sample_limit: int = 50) -> dict[
     return {
         "root_files": [relative_image_source(path, idx) for path in sorted(root_files)],
         "directories": [relative_image_source(path, idx) for path in resource_dirs],
+        "file_count": len(files),
+        "total_bytes": total_bytes,
+        "extension_counts": dict(sorted(extension_counts.items())),
+        "samples": samples,
+    }
+
+
+def static_resources_for_package(package: Path, *, sample_limit: int = 50) -> dict[str, Any]:
+    files = [path for path in package.rglob("*") if path.is_file() and not is_metadata_noise_path(path)]
+    extension_counts: dict[str, int] = {}
+    total_bytes = 0
+    samples = []
+    for path in sorted(files):
+        suffix = path.suffix.lower() or "<none>"
+        extension_counts[suffix] = extension_counts.get(suffix, 0) + 1
+        size = path.stat().st_size
+        total_bytes += size
+        if len(samples) < sample_limit:
+            samples.append(
+                {
+                    "path": str(path.relative_to(package)),
+                    "bytes": size,
+                    "extension": suffix,
+                }
+            )
+    return {
         "file_count": len(files),
         "total_bytes": total_bytes,
         "extension_counts": dict(sorted(extension_counts.items())),
@@ -796,10 +868,193 @@ def dump_incomplete_package_model(idx: Path, args: argparse.Namespace, reason: s
     return model
 
 
+def _deferred_family_common(
+    *,
+    dict_id: str,
+    title: str,
+    package_path: Path,
+    package_family: PackageFamily,
+    platform: PlatformWrapper,
+    body_source: BodySource,
+    markers: dict[str, Any],
+    families: dict[str, Any],
+    resources: dict[str, Any],
+    components: list[dict[str, Any]] | None = None,
+    notes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    model: dict[str, Any] = {
+        "schema": MODEL_SCHEMA,
+        "model_version": 0,
+        "stability": "research-draft",
+        "package": {
+            "dict_id": dict_id,
+            "title": title,
+            "path": str(package_path),
+            "idx": None,
+            "honmon": None,
+        },
+        "wrapper": {
+            "package_family": package_family.value,
+            "platform": platform.value,
+            "markers": markers,
+        },
+        "classification": normalize_classification(
+            {
+                "status": "deferred",
+                "package_family": package_family.value,
+                "platform": platform.value,
+                "honmon_shape": HonmonShape.MISSING.value,
+                "body_source_hint": body_source.value,
+                "missing_components": [],
+            }
+        ),
+        "components": components or [],
+        "honmon": {
+            "status": "not_applicable",
+            "shape": HonmonShape.MISSING.value,
+            "decode_aggregate": {"stats": {}},
+        },
+        "entry_spans": {
+            "schema": "logovista-decoded-entries-v0",
+            "status": "not_applicable",
+            "entries": [],
+            "warnings": [f"{package_family.value} is a separate package family; SSED HONMON parsing is not applicable."],
+        },
+        "titles": {"summary": {"status": "not_applicable"}, "samples": []},
+        "indexes": {"summary": {"status": "not_applicable"}, "samples": []},
+        "menus": {"summary": {"status": "not_applicable"}, "samples": []},
+        "gaiji": {"status": "not_scanned", "reason": f"{package_family.value} support is deferred."},
+        "resources": resources,
+        "media": {
+            "colscr": {"status": "not_applicable"},
+            "pcmdata": {"status": "not_applicable"},
+        },
+        "sidecars": {},
+        "families": families,
+        "notes": notes or [],
+        "inconsistencies": [],
+    }
+    model["readiness"] = build_model_readiness(model)
+    model["writer_readiness"] = model["readiness"]["writer_readiness"]
+    return model
+
+
+def dump_lved_deferred_model(payload: Path, args: argparse.Namespace) -> dict[str, Any]:
+    package = payload.parent
+    dict_id = package.name.removeprefix("_DCT_")
+    report = inspect_lved_roots([payload], jobs=1)
+    payload_rows = report.get("payloads", [])
+    components = [
+        normalize_component_row(
+            {
+                "filename": Path(row.get("path", payload)).name,
+                "path": row.get("path"),
+                "role": "component",
+                "type": "lved_sqlcipher_payload",
+                "bytes": row.get("size"),
+                "storage": row.get("classification"),
+                "sha256": row.get("sha256"),
+                "inferred_dict_code": row.get("inferred_dict_code"),
+            }
+        )
+        for row in payload_rows
+        if isinstance(row, dict)
+    ]
+    markers = {
+        "sqlcipher_payloads": len(payload_rows),
+        "main_data": payload.name.lower() == "main.data",
+        "dbc": payload.suffix.lower() == ".dbc",
+        "res_dir": (package / "res").is_dir(),
+    }
+    return _deferred_family_common(
+        dict_id=dict_id,
+        title="",
+        package_path=package,
+        package_family=PackageFamily.LVED_SQLCIPHER,
+        platform=PlatformWrapper.LVED_WINDOWS,
+        body_source=BodySource.LVED_SQLCIPHER,
+        markers=markers,
+        families={"lved": report},
+        resources={"static_sidecars": static_resources_for_package(package, sample_limit=args.sample_limit)},
+        components=components,
+        notes=[
+            issue(
+                "deferred_lved_sqlcipher",
+                "LVED is a separate SQLCipher/SQLite package family. It is classified here but not parsed through SSED/HONMON.",
+                payload=str(payload),
+            )
+        ],
+    )
+
+
+def dump_multiview_deferred_model(package: Path, args: argparse.Namespace) -> dict[str, Any]:
+    report = inspect_multiview_package(package)
+    payloads = report.get("payloads", [])
+    components = [
+        normalize_component_row(
+            {
+                "filename": row.get("name"),
+                "path": row.get("path"),
+                "role": "component",
+                "type": "multiview_sqlite_payload",
+                "bytes": row.get("size"),
+                "storage": row.get("storage"),
+                "content_kind": row.get("content_kind"),
+                "role_hint": row.get("role"),
+                "sha256": row.get("sha256"),
+            }
+        )
+        for row in payloads
+        if isinstance(row, dict)
+    ]
+    if report.get("idx"):
+        for row in report["idx"].get("components", []):
+            components.append(
+                normalize_component_row(
+                    {
+                        "filename": row.get("filename"),
+                        "role": "multi_descriptor",
+                        "type": row.get("type"),
+                        "physical_file_present": row.get("physical_file_present"),
+                    }
+                )
+            )
+    markers = {
+        "menuData_xml": report.get("menu") is not None,
+        "payloads": len(payloads),
+        "idx_facade": report.get("idx") is not None,
+    }
+    return _deferred_family_common(
+        dict_id=str(report.get("dict_id") or package.name.removeprefix("_DCT_")),
+        title=str((report.get("idx") or {}).get("title") or ""),
+        package_path=package,
+        package_family=PackageFamily.MULTIVIEW_SQLITE,
+        platform=PlatformWrapper.MULTIVIEW_WINDOWS,
+        body_source=BodySource.MULTIVIEW_SQLITE,
+        markers=markers,
+        families={"multiview": report},
+        resources={"static_sidecars": static_resources_for_package(package, sample_limit=args.sample_limit)},
+        components=components,
+        notes=[
+            issue(
+                "deferred_multiview_sqlite",
+                "LVLMultiView is a separate SQLite-backed package family. It is classified here but not parsed through SSED/HONMON.",
+                package=str(package),
+            )
+        ],
+    )
+
+
 def dump_package_model_for_path(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     try:
         source = select_single_source(root, dict_id=args.dict)
     except ValueError as exc:
+        multiview = select_single_multiview_package(root, dict_id=args.dict)
+        if multiview is not None:
+            return dump_multiview_deferred_model(multiview, args)
+        lved_payload = select_single_lved_payload(root, dict_id=args.dict)
+        if lved_payload is not None:
+            return dump_lved_deferred_model(lved_payload, args)
         idx = select_single_idx(root, dict_id=args.dict)
         return dump_incomplete_package_model(idx, args, str(exc))
     return dump_package_model(source, args)

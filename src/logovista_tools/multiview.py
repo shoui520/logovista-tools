@@ -58,7 +58,11 @@ def sha256_file(path: Path) -> str:
 
 
 def is_multiview_payload_path(path: Path) -> bool:
-    return path.is_file() and MULTIVIEW_PAYLOAD_RE.fullmatch(path.name) is not None
+    return (
+        path.is_file()
+        and not path.name.endswith(":Zone.Identifier")
+        and MULTIVIEW_PAYLOAD_RE.fullmatch(path.name) is not None
+    )
 
 
 def discover_multiview_packages(roots: list[Path]) -> list[Path]:
@@ -397,7 +401,11 @@ def inspect_multiview_package(
         resource_out = decrypted_root / "Resources" if write_resources and decrypted_dir is not None else None
         resource_dir = package_dir / "Resources"
         resources = (
-            [classify_resource(path, resource_out) for path in sorted(resource_dir.iterdir()) if path.is_file()]
+            [
+                classify_resource(path, resource_out)
+                for path in sorted(resource_dir.iterdir())
+                if path.is_file() and not path.name.endswith(":Zone.Identifier")
+            ]
             if resource_dir.is_dir()
             else []
         )
@@ -433,7 +441,7 @@ def _file_listing(path: Path, *, with_kind: bool) -> list[dict[str, Any]]:
         return []
     rows: list[dict[str, Any]] = []
     for child in sorted(path.iterdir()):
-        if not child.is_file():
+        if not child.is_file() or child.name.endswith(":Zone.Identifier"):
             continue
         row: dict[str, Any] = {"name": child.name, "path": str(child), "size": child.stat().st_size}
         if with_kind:
@@ -450,7 +458,7 @@ def _html_directory_summaries(package_dir: Path) -> list[dict[str, Any]]:
         html_files = sorted(
             path
             for path in child.rglob("*")
-            if path.is_file() and path.suffix.lower() in {".html", ".htm"}
+            if path.is_file() and not path.name.endswith(":Zone.Identifier") and path.suffix.lower() in {".html", ".htm"}
         )
         if not html_files and not (child / "index.html").is_file():
             continue
@@ -463,7 +471,7 @@ def _html_directory_summaries(package_dir: Path) -> list[dict[str, Any]]:
                 "root_files": [
                     grandchild.name
                     for grandchild in sorted(child.iterdir())
-                    if grandchild.is_file()
+                    if grandchild.is_file() and not grandchild.name.endswith(":Zone.Identifier")
                 ][:40],
                 "sample_html_files": [str(path.relative_to(child)) for path in html_files[:40]],
             }
@@ -474,7 +482,7 @@ def _html_directory_summaries(package_dir: Path) -> list[dict[str, Any]]:
 def _viewer_file_listing(package_dir: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for path in sorted(package_dir.rglob("*")):
-        if not path.is_file() or path.suffix.lower() not in {".exe", ".dll"}:
+        if not path.is_file() or path.name.endswith(":Zone.Identifier") or path.suffix.lower() not in {".exe", ".dll"}:
             continue
         rows.append(
             {

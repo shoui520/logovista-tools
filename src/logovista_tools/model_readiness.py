@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from .model_types import BodySource, HonmonShape, ReadinessStatus, StatusRecord, WriterStatus
+from .model_types import BodySource, HonmonShape, PackageFamily, ReadinessStatus, StatusRecord, WriterStatus
 
 
 CAPABILITY_FIELDS = [
@@ -16,6 +16,24 @@ CAPABILITY_FIELDS = [
     "media_refs_resolved",
     "menu_pointers_resolved",
 ]
+
+SSED_PACKAGE_FAMILIES = {
+    PackageFamily.SSED.value,
+    PackageFamily.SSED_SIZK_READ_ALOUD.value,
+    PackageFamily.MIXED.value,
+}
+
+
+def package_family(model: dict[str, Any]) -> str:
+    return str(
+        model.get("classification", {}).get("package_family")
+        or model.get("wrapper", {}).get("package_family")
+        or PackageFamily.UNKNOWN.value
+    )
+
+
+def is_ssed_family(model: dict[str, Any]) -> bool:
+    return package_family(model) in SSED_PACKAGE_FAMILIES
 
 
 def as_int(value: Any) -> int:
@@ -331,18 +349,25 @@ def capability_row_from_model(model: dict[str, Any]) -> dict[str, Any]:
         "component_parse_errors": component_parse_errors(model),
         "missing_components": ";".join(classification.get("missing_components") or []),
     }
-    writer_blockers = writer_v0_blockers(row)
-    repacker_blockers = lossless_repacker_blockers(row)
-    writer_status = capability_status(writer_blockers, red_blockers=set())
-    repacker_status = capability_status(
-        repacker_blockers,
-        red_blockers={
-            "missing_declared_components",
-            "media_not_fully_resolved",
-            "menu_not_fully_resolved",
-            "titles_not_fully_parsed",
-        },
-    )
+    readiness_writer = model.get("readiness", {}).get("writer_readiness", {})
+    if not is_ssed_family(model):
+        writer_blockers = list(readiness_writer.get("legacy_ssed_subset_blockers") or ["non_ssed_package_family"])
+        repacker_blockers = list(readiness_writer.get("lossless_repacker_blockers") or ["non_ssed_package_family"])
+        writer_status = str(readiness_writer.get("legacy_ssed_subset") or WriterStatus.GRAY.value)
+        repacker_status = str(readiness_writer.get("lossless_repacker") or WriterStatus.GRAY.value)
+    else:
+        writer_blockers = writer_v0_blockers(row)
+        repacker_blockers = lossless_repacker_blockers(row)
+        writer_status = capability_status(writer_blockers, red_blockers=set())
+        repacker_status = capability_status(
+            repacker_blockers,
+            red_blockers={
+                "missing_declared_components",
+                "media_not_fully_resolved",
+                "menu_not_fully_resolved",
+                "titles_not_fully_parsed",
+            },
+        )
     row["legacy_writer_v0_status"] = writer_status
     row["legacy_writer_v0_blockers"] = ";".join(writer_blockers)
     row["lossless_repacker_status"] = repacker_status
@@ -353,6 +378,36 @@ def capability_row_from_model(model: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_model_readiness(model: dict[str, Any]) -> dict[str, Any]:
+    family = package_family(model)
+    if family not in SSED_PACKAGE_FAMILIES:
+        capabilities = {
+            field: status(ReadinessStatus.NA, f"{field} is outside the SSED model for package_family={family}")
+            for field in CAPABILITY_FIELDS
+        }
+        blockers = ["non_ssed_package_family"]
+        return {
+            "schema": "logovista-model-readiness-v0",
+            "capabilities": capabilities,
+            "metrics": {
+                "unknown_controls": 0,
+                "unknown_bytes": 0,
+                "structural_text_issues": 0,
+                "component_parse_errors": 0,
+            },
+            "requirements": {
+                "requires_sidecar_body": False,
+                "deferred_package_family": True,
+            },
+            "writer_readiness": {
+                "legacy_ssed_subset": WriterStatus.GRAY.value,
+                "legacy_ssed_subset_blockers": blockers,
+                "lossless_repacker": WriterStatus.GRAY.value,
+                "lossless_repacker_blockers": blockers,
+                "combined": WriterStatus.GRAY.value,
+                "combined_blockers": blockers,
+            },
+        }
+
     capabilities = {
         "raw_honmon_body": raw_honmon_capability(model),
         "indexes_fully_parsed": indexes_capability(model),

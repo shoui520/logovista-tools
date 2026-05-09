@@ -1280,7 +1280,11 @@ def cmd_sizk(args: argparse.Namespace) -> int:
 
 
 def cmd_dump_package_model(args: argparse.Namespace) -> int:
-    model = dump_package_model_for_path(args.root, args)
+    try:
+        model = dump_package_model_for_path(args.root, args)
+    except ValueError as exc:
+        print(f"dump-package-model: {exc}", file=sys.stderr)
+        return 1
     out_path = write_package_model(model, args.out_dir)
     print(
         f"{model['package']['dict_id']:12s} "

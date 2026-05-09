@@ -158,6 +158,7 @@ sidecar
 dictfulldb
 renderer_db
 lved_sqlcipher
+multiview_sqlite
 none
 unknown
 ```
@@ -1016,6 +1017,12 @@ The top-level `writer_readiness` is a copy of
   }
 }
 ```
+
+For non-SSED package families such as `lved_sqlcipher` and
+`multiview_sqlite`, SSED writer readiness is deliberately `gray` with a
+`non_ssed_package_family` blocker. Those families are classified into the
+common package model so corpus runs can account for them, but planned writer
+support applies only to core SSED packages.
 
 Writer status values:
 
