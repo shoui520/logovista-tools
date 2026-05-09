@@ -247,8 +247,12 @@ def unknown_text_metrics(model: dict[str, Any]) -> dict[str, int]:
 
 
 def component_parse_errors(model: dict[str, Any]) -> int:
+    components = model.get("components", [])
+    if not isinstance(components, list):
+        readiness_metrics = model.get("readiness", {}).get("metrics", {})
+        return as_int(readiness_metrics.get("component_parse_errors"))
     errors = 0
-    for component in model.get("components", []):
+    for component in components:
         if not isinstance(component, dict):
             continue
         expected_raw_resource = (

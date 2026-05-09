@@ -4,6 +4,7 @@ import json
 from argparse import Namespace
 from pathlib import Path
 
+from logovista_tools.capability import build_capability_matrix_from_models
 from logovista_tools.cli import cmd_dump_package_models
 from logovista_tools.decoded_model import discover_package_model_targets
 
@@ -39,6 +40,7 @@ def make_corpus_args(root: Path, out_dir: Path, **overrides) -> Namespace:
         "renderer_sidecar_gaiji": False,
         "renderer_inference_limit": None,
         "include_playback_rows": False,
+        "chunked": False,
         "no_hash": True,
         "json": False,
         "jobs": 2,
@@ -96,3 +98,50 @@ def test_dump_package_models_writes_summary_failures_and_resumes(tmp_path: Path)
     assert resumed == 0
     resumed_summary = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
     assert resumed_summary["status_counts"] == {"skipped": 2}
+
+
+def test_dump_package_models_chunked_writes_jsonl_bundle_and_matrix_reads_package_json(tmp_path: Path) -> None:
+    make_lved_package(tmp_path, "TESTLVED")
+    out_dir = tmp_path / "chunked-reports"
+
+    result = cmd_dump_package_models(make_corpus_args(tmp_path, out_dir, chunked=True))
+
+    assert result == 0
+    summary = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
+    row = summary["rows"][0]
+    bundle = Path(row["bundle_path"])
+    package_json = bundle / "package.json"
+    assert Path(row["model_path"]) == package_json
+    assert package_json.exists()
+    for name in (
+        "components.jsonl",
+        "entries.jsonl",
+        "titles.jsonl",
+        "indexes.jsonl",
+        "menus.jsonl",
+        "gaiji.jsonl",
+        "media_refs.jsonl",
+        "media_records.jsonl",
+        "dereferences.jsonl",
+        "issues.jsonl",
+        "metrics.json",
+    ):
+        assert (bundle / name).exists()
+
+    package = json.loads(package_json.read_text(encoding="utf-8"))
+    assert package["schema"] == "logovista-decoded-model-v0"
+    assert package["storage"]["mode"] == "chunked-jsonl"
+    assert package["components"]["status"] == "externalized"
+    assert package["entry_spans"]["entries_ref"]["path"] == "entries.jsonl"
+
+    matrix = build_capability_matrix_from_models(model_dir=out_dir)
+
+    assert matrix["total"] == 1
+    assert matrix["rows"][0]["package_family"] == "lved_sqlcipher"
+    assert matrix["rows"][0]["legacy_writer_v0_status"] == "gray"
+
+    resumed = cmd_dump_package_models(make_corpus_args(tmp_path, out_dir, chunked=True, resume=True))
+
+    assert resumed == 0
+    resumed_summary = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
+    assert resumed_summary["status_counts"] == {"skipped": 1}

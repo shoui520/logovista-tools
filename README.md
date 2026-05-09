@@ -208,13 +208,22 @@ logovista-tools dump-package-models /home/shoui/Agents/CodexMax/LogoVista \
   --jobs 0 \
   --resume \
   --progress \
-  --gaiji-readiness
+  --gaiji-readiness \
+  --chunked
 ```
 
 Dump one package-level decoded model report:
 
 ```bash
 logovista-tools dump-package-model /path/to/_DCT_HAESPJPN --out-dir out/package-model
+```
+
+For large or exhaustive model reports, use chunked output:
+
+```bash
+logovista-tools dump-package-model /path/to/_DCT_HAESPJPN \
+  --chunked \
+  --out-dir out/package-model
 ```
 
 For package-model reports that will feed writer/exporter planning, include

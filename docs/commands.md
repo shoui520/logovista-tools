@@ -697,6 +697,7 @@ Important options:
 --no-raw                           omit raw_hex from embedded entry spans
 --no-padding-spans                 omit padding spans from embedded entry spans
 --include-internal-indexes         include internal/auxiliary index files
+--chunked                          write package.json + JSONL files
 --json                             print the model JSON to stdout as well
 ```
 
@@ -720,6 +721,19 @@ and SSED HONMON parsing plus SSED writer readiness are marked not applicable.
 This keeps mixed corpus runs honest without pulling LVED/LVLMultiView research
 into the SSED stabilization track.
 
+Use `--chunked` when output size matters:
+
+```bash
+logovista-tools dump-package-model /path/to/_DCT_HAESPJPN \
+  --chunked \
+  --out-dir package-model
+```
+
+This writes `package-model/HAESPJPN_decoded_model_v0/package.json` plus JSONL
+record files for components, entries, title/index/menu samples, gaiji, media,
+dereferences, and issues. `package.json` keeps the normal decoded-model schema
+and can still be consumed by `capability-matrix --model-dir`.
+
 ### `dump-package-models`
 
 Emit Decoded LogoVista Model v0 reports for every package under one or more
@@ -732,7 +746,8 @@ logovista-tools dump-package-models /home/shoui/Agents/CodexMax/LogoVista \
   --jobs 0 \
   --resume \
   --progress \
-  --gaiji-readiness
+  --gaiji-readiness \
+  --chunked
 ```
 
 The command discovers SSED `.IDX` catalogs, LVED `main.data` / `.dbc` payloads,
@@ -769,6 +784,7 @@ Important options:
 --allow-failures                 exit 0 even if some workers fail
 --gaiji-readiness                embed gaiji readiness in each model
 --renderer-sidecar-gaiji         use renderer sidecars as contextual gaiji evidence
+--chunked                        write one package.json + JSONL bundle per package
 --skip-row-models                skip title/index/menu row extraction
 --no-raw                         omit raw_hex from embedded entry spans
 ```

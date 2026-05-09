@@ -1038,8 +1038,9 @@ This is not a format claim. It is planning metadata for writer/exporter work.
 
 ## Serialization Shape
 
-For large dictionaries, the model should support chunked JSONL files rather
-than a single massive JSON document.
+For large dictionaries, the model supports chunked JSONL files rather than a
+single massive JSON document. `dump-package-model --chunked` and
+`dump-package-models --chunked` write this layout.
 
 Recommended directory layout:
 
@@ -1060,8 +1061,11 @@ decoded-model/
 ```
 
 `package.json` contains package-level metadata and file references. JSONL files
-contain one object per record. Small synthetic fixtures may inline everything
-into one JSON document for test convenience.
+contain one object per record. `package.json` keeps the same
+`logovista-decoded-model-v0` schema so `capability-matrix --model-dir` can read
+chunked and monolithic reports through the same model-loader path. Small
+synthetic fixtures may inline everything into one JSON document for test
+convenience.
 
 ## Relationship to Future Work
 

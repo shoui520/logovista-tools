@@ -16,7 +16,13 @@ from .audit import extract_audit_for_sources
 from .capability import extract_capability_matrix_for_args
 from .colscr import extract_colscr_for_sources
 from .component_forensics import extract_component_forensics_for_args
-from .decoded_model import discover_package_model_targets, dump_package_model_for_path, write_package_model
+from .decoded_model import (
+    discover_package_model_targets,
+    dump_package_model_for_path,
+    write_package_model,
+    write_package_model_chunked,
+    write_package_model_chunked_to_dir,
+)
 from .entries import discover_dictionaries, extract_dictionary
 from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
@@ -1287,7 +1293,7 @@ def cmd_dump_package_model(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"dump-package-model: {exc}", file=sys.stderr)
         return 1
-    out_path = write_package_model(model, args.out_dir)
+    out_path = write_package_model_chunked(model, args.out_dir) if args.chunked else write_package_model(model, args.out_dir)
     print(
         f"{model['package']['dict_id']:12s} "
         f"family={model['classification'].get('package_family')} "
@@ -1303,6 +1309,8 @@ def cmd_dump_package_model(args: argparse.Namespace) -> int:
 
 
 def valid_existing_model(path: Path) -> bool:
+    if path.is_dir():
+        path = path / "package.json"
     if not path.exists():
         return False
     try:
@@ -1312,21 +1320,23 @@ def valid_existing_model(path: Path) -> bool:
     return isinstance(data, dict) and data.get("schema") == "logovista-decoded-model-v0"
 
 
-def package_model_corpus_path(out_dir: Path, target: dict[str, str]) -> Path:
+def package_model_corpus_path(out_dir: Path, target: dict[str, str], *, chunked: bool = False) -> Path:
     dict_id = target["dict_id"] or "UNKNOWN"
     safe_dict_id = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in dict_id)
     family = target["family_hint"] or "unknown"
     fingerprint = hashlib.sha1(target["path"].encode("utf-8")).hexdigest()[:12]
-    return out_dir / family / f"{safe_dict_id}_{fingerprint}_decoded_model_v0.json"
+    stem = f"{safe_dict_id}_{fingerprint}_decoded_model_v0"
+    return out_dir / family / stem if chunked else out_dir / family / f"{stem}.json"
 
 
 def _dump_package_model_corpus_task(payload: tuple[dict[str, str], Path, argparse.Namespace]) -> dict[str, Any]:
     target, out_path, args = payload
+    model_path = out_path / "package.json" if getattr(args, "chunked", False) else out_path
     row: dict[str, Any] = {
         "dict_id": target["dict_id"],
         "family_hint": target["family_hint"],
         "target_path": target["path"],
-        "model_path": str(out_path),
+        "model_path": str(model_path),
     }
     if getattr(args, "resume", False) and valid_existing_model(out_path):
         row["status"] = "skipped"
@@ -1337,12 +1347,18 @@ def _dump_package_model_corpus_task(payload: tuple[dict[str, str], Path, argpars
     task_args.dict = None
     try:
         model = dump_package_model_for_path(Path(target["path"]), task_args)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding="utf-8")
+        if getattr(args, "chunked", False):
+            model_path = write_package_model_chunked_to_dir(model, out_path)
+        else:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding="utf-8")
+            model_path = out_path
         classification = model.get("classification", {})
         row.update(
             {
                 "status": "ok",
+                "model_path": str(model_path),
+                "bundle_path": str(out_path) if getattr(args, "chunked", False) else None,
                 "package_family": classification.get("package_family"),
                 "platform": classification.get("platform"),
                 "honmon_shape": classification.get("honmon_shape"),
@@ -1358,7 +1374,7 @@ def _dump_package_model_corpus_task(payload: tuple[dict[str, str], Path, argpars
             "dict_id": target["dict_id"],
             "family_hint": target["family_hint"],
             "target_path": target["path"],
-            "model_path": str(out_path),
+            "model_path": str(model_path),
             "error_type": type(exc).__name__,
             "message": str(exc),
             "traceback": traceback.format_exc(),
@@ -1396,7 +1412,7 @@ def cmd_dump_package_models(args: argparse.Namespace) -> int:
     task_args = worker_args(args)
     task_args.dict = None
     task_payloads = [
-        (target.as_dict(), package_model_corpus_path(args.out_dir, target.as_dict()), task_args)
+        (target.as_dict(), package_model_corpus_path(args.out_dir, target.as_dict(), chunked=args.chunked), task_args)
         for target in targets
     ]
     completed = 0
@@ -1921,6 +1937,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Embed SIZK playback rows instead of summary-only playback metadata.",
     )
+    p_model.add_argument(
+        "--chunked",
+        action="store_true",
+        help="Write chunked package.json + JSONL files instead of one monolithic JSON report.",
+    )
     p_model.add_argument("--no-hash", action="store_true", help="Skip component/sidecar SHA-256 hashing.")
     p_model.add_argument("--json", action="store_true", help="Also print the full model JSON.")
     p_model.set_defaults(
@@ -1977,6 +1998,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_models.add_argument("--renderer-sidecar-gaiji", action="store_true", help="When --gaiji-readiness is set, use renderer sidecars as contextual gaiji display evidence.")
     p_models.add_argument("--renderer-inference-limit", type=int, help="When renderer gaiji evidence is enabled, limit raw/HONBUN rows used for contextual inference.")
     p_models.add_argument("--include-playback-rows", action="store_true", help="Embed SIZK playback rows instead of summary-only playback metadata.")
+    p_models.add_argument("--chunked", action="store_true", help="Write one package.json + JSONL bundle per package instead of monolithic JSON reports.")
     p_models.add_argument("--no-hash", action="store_true", help="Skip component/sidecar SHA-256 hashing.")
     p_models.add_argument("--json", action="store_true", help="Also print summary JSON.")
     add_jobs_argument(p_models)

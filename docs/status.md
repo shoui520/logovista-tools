@@ -109,6 +109,10 @@ LogoVista dictionary model.
 - `dump-package-models`, a corpus-scale model harness with package-family
   target discovery, process-level parallelism, progress output, resumable
   deterministic model paths, and clean failure JSON.
+- Chunked decoded model output via `--chunked`: `package.json` plus JSONL files
+  for components, entries, title/index/menu samples, gaiji, media,
+  dereferences, issues, and metrics. Chunked `package.json` files keep the
+  decoded-model schema and remain readable by `capability-matrix --model-dir`.
 - Corpus capability matrix generation from redacted `profile`,
   `honmon-bytes`, `component-forensics`, and optional `gaiji-readiness`
   outputs.
@@ -221,9 +225,9 @@ Recently landed:
 Next priorities:
 
 1. **Corpus model regeneration.** Run `dump-package-models --jobs 0 --resume
-   --progress --gaiji-readiness` over the owned corpus, then use the resulting
-   model directory as the preferred input for capability and writer-readiness
-   reports.
+   --progress --gaiji-readiness --chunked` over the owned corpus, then use the
+   resulting model directory as the preferred input for capability and
+   writer-readiness reports.
 2. **Decoded model stabilization.** Continue tightening the shared enum/status
    vocabulary used by `dump-package-model`, then migrate older commands toward
    emitting evidence for the model instead of independently naming package

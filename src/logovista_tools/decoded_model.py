@@ -1165,3 +1165,185 @@ def write_package_model(model: dict[str, Any], out_dir: Path) -> Path:
     path = out_dir / f"{model['package']['dict_id']}_decoded_model_v0.json"
     path.write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
+
+
+def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> int:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")))
+            handle.write("\n")
+    return len(rows)
+
+
+def _chunk_ref(path: str, records: int) -> dict[str, Any]:
+    return {"path": path, "records": records}
+
+
+def gaiji_chunk_rows(gaiji: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for key in ("uni_resources", "ga16_resources"):
+        for row in gaiji.get(key, []) or []:
+            if isinstance(row, dict):
+                rows.append({"kind": key.removesuffix("s"), **row})
+    for key, row in (gaiji.get("image_resources", {}).get("samples") or {}).items():
+        if isinstance(row, dict):
+            rows.append({"kind": "image_resource", "key": key, **row})
+    readiness = gaiji.get("readiness")
+    if isinstance(readiness, dict):
+        rows.append({"kind": "readiness", **readiness})
+    return rows
+
+
+def media_ref_chunk_rows(media: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for key in ("colscr", "pcmdata"):
+        value = media.get(key)
+        if isinstance(value, dict):
+            rows.append({"component": key, "kind": "summary", **value})
+    return rows
+
+
+def media_record_chunk_rows(media: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for component in ("colscr", "pcmdata"):
+        value = media.get(component)
+        if not isinstance(value, dict):
+            continue
+        for key, records in value.items():
+            if not isinstance(records, list):
+                continue
+            for record in records:
+                if isinstance(record, dict):
+                    rows.append({"component": component, "source_list": key, **record})
+    return rows
+
+
+def dereference_chunk_rows(model: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for note in model.get("notes", []) or []:
+        if isinstance(note, dict) and note.get("kind") == "dense_honmon":
+            rows.append({"status": "requires_dereference", **note})
+    for family_name, family in (model.get("families") or {}).items():
+        if isinstance(family, dict):
+            for key in ("dereferences", "resolved_entries", "anchors"):
+                records = family.get(key)
+                if isinstance(records, list):
+                    for record in records:
+                        if isinstance(record, dict):
+                            rows.append({"family": family_name, "source_list": key, **record})
+    return rows
+
+
+def issue_chunk_rows(model: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for source_key in ("notes", "inconsistencies"):
+        for row in model.get(source_key, []) or []:
+            if isinstance(row, dict):
+                rows.append({"source": source_key, **row})
+    return rows
+
+
+def metrics_for_chunked_model(model: dict[str, Any], counts: dict[str, int]) -> dict[str, Any]:
+    return {
+        "schema": "logovista-decoded-model-metrics-v0",
+        "package": model.get("package", {}),
+        "classification": model.get("classification", {}),
+        "counts": counts,
+        "readiness": model.get("readiness", {}),
+        "writer_readiness": model.get("writer_readiness", {}),
+        "entry_spans": {
+            key: value
+            for key, value in (model.get("entry_spans") or {}).items()
+            if key != "entries"
+        },
+    }
+
+
+def chunked_package_summary(model: dict[str, Any], refs: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    entry_spans = dict(model.get("entry_spans") or {})
+    entry_spans.pop("entries", None)
+    entry_spans["entries_ref"] = refs["entries"]
+
+    titles = dict(model.get("titles") or {})
+    titles.pop("samples", None)
+    titles["samples_ref"] = refs["titles"]
+    indexes = dict(model.get("indexes") or {})
+    indexes.pop("samples", None)
+    indexes["samples_ref"] = refs["indexes"]
+    menus = dict(model.get("menus") or {})
+    menus.pop("samples", None)
+    menus["samples_ref"] = refs["menus"]
+
+    return {
+        "schema": MODEL_SCHEMA,
+        "model_version": model.get("model_version", 0),
+        "stability": model.get("stability", "research-draft"),
+        "storage": {
+            "mode": "chunked-jsonl",
+            "layout": "logovista-decoded-model-chunked-v0",
+        },
+        "package": model.get("package", {}),
+        "wrapper": model.get("wrapper", {}),
+        "classification": model.get("classification", {}),
+        "components_ref": refs["components"],
+        "components": {"status": "externalized", **refs["components"]},
+        "honmon": model.get("honmon", {}),
+        "entry_spans": entry_spans,
+        "titles": titles,
+        "indexes": indexes,
+        "menus": menus,
+        "gaiji": {
+            key: value
+            for key, value in (model.get("gaiji") or {}).items()
+            if key not in {"uni_resources", "ga16_resources"}
+        }
+        | {"resources_ref": refs["gaiji"]},
+        "resources": model.get("resources", {}),
+        "media": {"summary": model.get("media", {}), "refs_ref": refs["media_refs"], "records_ref": refs["media_records"]},
+        "sidecars": model.get("sidecars", {}),
+        "families": model.get("families", {}),
+        "dereferences_ref": refs["dereferences"],
+        "issues_ref": refs["issues"],
+        "metrics_ref": refs["metrics"],
+        "readiness": model.get("readiness", {}),
+        "writer_readiness": model.get("writer_readiness", {}),
+        "notes": {"status": "externalized", **refs["issues"]},
+        "inconsistencies": {"status": "externalized", **refs["issues"]},
+    }
+
+
+def write_package_model_chunked_to_dir(model: dict[str, Any], bundle_dir: Path) -> Path:
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    chunks = {
+        "components": ("components.jsonl", list(model.get("components") or [])),
+        "entries": ("entries.jsonl", list((model.get("entry_spans") or {}).get("entries") or [])),
+        "titles": ("titles.jsonl", list((model.get("titles") or {}).get("samples") or [])),
+        "indexes": ("indexes.jsonl", list((model.get("indexes") or {}).get("samples") or [])),
+        "menus": ("menus.jsonl", list((model.get("menus") or {}).get("samples") or [])),
+        "gaiji": ("gaiji.jsonl", gaiji_chunk_rows(model.get("gaiji") or {})),
+        "media_refs": ("media_refs.jsonl", media_ref_chunk_rows(model.get("media") or {})),
+        "media_records": ("media_records.jsonl", media_record_chunk_rows(model.get("media") or {})),
+        "dereferences": ("dereferences.jsonl", dereference_chunk_rows(model)),
+        "issues": ("issues.jsonl", issue_chunk_rows(model)),
+    }
+    refs: dict[str, dict[str, Any]] = {}
+    counts: dict[str, int] = {}
+    for key, (filename, rows) in chunks.items():
+        count = write_jsonl(bundle_dir / filename, rows)
+        refs[key] = _chunk_ref(filename, count)
+        counts[key] = count
+    metrics = metrics_for_chunked_model(model, counts)
+    metrics_path = bundle_dir / "metrics.json"
+    metrics_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
+    refs["metrics"] = _chunk_ref("metrics.json", 1)
+    package = chunked_package_summary(model, refs)
+    package_path = bundle_dir / "package.json"
+    package_path.write_text(json.dumps(package, ensure_ascii=False, indent=2), encoding="utf-8")
+    return package_path
+
+
+def write_package_model_chunked(model: dict[str, Any], out_dir: Path) -> Path:
+    dict_id = model["package"]["dict_id"]
+    safe_dict_id = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in str(dict_id))
+    return write_package_model_chunked_to_dir(model, out_dir / f"{safe_dict_id}_decoded_model_v0")
