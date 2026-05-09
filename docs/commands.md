@@ -596,6 +596,10 @@ capability-matrix/
 The matrix records one row per dictionary:
 
 ```text
+target_path
+model_path
+package_family
+platform
 raw_honmon_body
 indexes_fully_parsed
 titles_fully_parsed
@@ -605,27 +609,37 @@ menu_pointers_resolved
 unknown_controls
 unknown_bytes
 structural_text_issues
-legacy_writer_v0_status
-legacy_writer_v0_blockers
-lossless_repacker_status
-lossless_repacker_blockers
-writer_repacker_status
-writer_repacker_blockers
+read_existing_status
+read_existing_blockers
+export_existing_status
+export_existing_blockers
+author_core_ssed_v0_status
+author_core_ssed_v0_blockers
+lossless_repack_existing_status
+lossless_repack_existing_blockers
 ```
 
 Status values are `yes`, `partial`, `no`, `n/a`, or `unknown`.
-The writer/repacker statuses are planning signals:
+The readiness profile statuses are planning signals:
 
 ```text
-green   no obvious blocker for the conservative raw-body writer/exporter subset
+green   no observed blocker for that profile
 yellow  usable with degradation or dictionary-specific rules
-red     blocked by missing data, sidecar-only bodies, parser residuals, or unknown text bytes/controls
+red     blocked without more reverse engineering or a non-core sidecar path
+gray    not applicable to this package family
 ```
 
-`legacy_writer_v0_status` asks whether the dictionary shape is suitable for a
-conservative raw-body writer/exporter subset. `lossless_repacker_status` is
-stricter about missing declared files and unresolved menu/media/title
-structures. `writer_repacker_status` is the combined worst of those two.
+`read_existing_status` asks whether the current model can parse/read the
+existing package as a package. `export_existing_status` asks whether the
+existing dictionary can be converted to an external format from current model
+evidence. `author_core_ssed_v0_status` asks whether the observed SSED core is
+stable enough for a clean plain-HONMON authoring subset. `lossless_repack_existing_status`
+is stricter: it asks whether the observed package can be reproduced/repacked
+with its existing sidecars, menus, media, and title/index structures.
+
+Compatibility aliases (`legacy_writer_v0_status`, `lossless_repacker_status`,
+and `writer_repacker_status`) remain in CSV/JSON output for older scripts, but
+new work should use the four explicit profiles above.
 
 With `--model-dir`, this command does not re-parse dictionaries. It reads
 `*_decoded_model_v0.json` reports and derives matrix rows from the model's

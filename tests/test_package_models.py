@@ -146,6 +146,10 @@ def test_dump_package_models_chunked_writes_jsonl_bundle_and_matrix_reads_packag
 
     assert matrix["total"] == 1
     assert matrix["rows"][0]["package_family"] == "lved_sqlcipher"
+    assert matrix["rows"][0]["read_existing_status"] == "gray"
+    assert matrix["rows"][0]["export_existing_status"] == "gray"
+    assert matrix["rows"][0]["author_core_ssed_v0_status"] == "gray"
+    assert matrix["rows"][0]["lossless_repack_existing_status"] == "gray"
     assert matrix["rows"][0]["legacy_writer_v0_status"] == "gray"
 
     resumed = cmd_dump_package_models(make_corpus_args(tmp_path, out_dir, chunked=True, resume=True))

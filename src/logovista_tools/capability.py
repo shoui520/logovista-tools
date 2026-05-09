@@ -9,7 +9,12 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from .model_readiness import CAPABILITY_FIELDS, capability_row_from_model, summarize_capability_rows
+from .model_readiness import (
+    READINESS_PROFILES,
+    capability_row_from_model,
+    readiness_profile_values,
+    summarize_capability_rows,
+)
 
 
 def read_json(path: Path) -> Any:
@@ -43,6 +48,7 @@ def load_model_reports(model_dir: Path) -> list[dict[str, Any]]:
         except Exception:
             continue
         if isinstance(data, dict) and data.get("schema") == "logovista-decoded-model-v0":
+            data["_model_path"] = str(path)
             models.append(data)
     return models
 
@@ -277,83 +283,6 @@ def unknown_text_counts(honmon_detail: dict[str, Any], component: dict[str, Any]
     return unknown_controls, unknown_bytes, structural_issues
 
 
-def common_blockers(row: dict[str, Any]) -> list[str]:
-    blockers: list[str] = []
-    if row["raw_honmon_body"] == "no":
-        blockers.append("body_requires_sidecar_or_is_missing")
-    elif row["raw_honmon_body"] == "unknown":
-        blockers.append("body_source_unknown")
-    if row["indexes_fully_parsed"] in {"no", "partial", "unknown"}:
-        blockers.append("indexes_not_fully_parsed")
-    if row["titles_fully_parsed"] in {"no", "partial", "unknown"}:
-        blockers.append("titles_not_fully_parsed")
-    if row["gaiji_fully_resolved"] in {"no", "partial", "unknown"}:
-        blockers.append("gaiji_not_fully_resolved")
-    if row["media_refs_resolved"] in {"no", "partial", "unknown"}:
-        blockers.append("media_not_fully_resolved")
-    if row["menu_pointers_resolved"] in {"no", "partial", "unknown"}:
-        blockers.append("menu_not_fully_resolved")
-    if row["unknown_controls"] or row["unknown_bytes"] or row["structural_text_issues"]:
-        blockers.append("unknown_or_structural_text_issues")
-    if row["component_parse_errors"]:
-        blockers.append("component_parse_errors")
-    if row["requires_sidecar_body"]:
-        blockers.append("raw_body_not_self_contained")
-    return blockers
-
-
-def writer_v0_blockers(row: dict[str, Any]) -> list[str]:
-    blockers = common_blockers(row)
-    if row["titles_fully_parsed"] in {"no", "partial", "unknown"}:
-        blockers.append("titles_not_fully_parsed")
-    if row["gaiji_fully_resolved"] in {"no", "partial", "unknown"}:
-        blockers.append("gaiji_not_fully_resolved")
-    if row["media_refs_resolved"] in {"no", "partial", "unknown"}:
-        blockers.append("media_not_fully_resolved")
-    if row["menu_pointers_resolved"] in {"no", "partial", "unknown"}:
-        blockers.append("menu_not_fully_resolved")
-    return list(dict.fromkeys(blockers))
-
-
-def lossless_repacker_blockers(row: dict[str, Any]) -> list[str]:
-    blockers = common_blockers(row)
-    if row["package_status"] == "incomplete":
-        blockers.insert(0, "missing_declared_components")
-    if row["titles_fully_parsed"] in {"no", "partial", "unknown"}:
-        blockers.append("titles_not_fully_parsed")
-    if row["gaiji_fully_resolved"] in {"no", "partial", "unknown"}:
-        blockers.append("gaiji_not_fully_resolved")
-    if row["media_refs_resolved"] in {"no", "partial", "unknown"}:
-        blockers.append("media_not_fully_resolved")
-    if row["menu_pointers_resolved"] in {"no", "partial", "unknown"}:
-        blockers.append("menu_not_fully_resolved")
-    return list(dict.fromkeys(blockers))
-
-
-def capability_status(blockers: list[str], *, red_blockers: set[str]) -> str:
-    red = {
-        "body_requires_sidecar_or_is_missing",
-        "body_source_unknown",
-        "indexes_not_fully_parsed",
-        "unknown_or_structural_text_issues",
-        "component_parse_errors",
-    }
-    red = red | red_blockers
-    if any(blocker in red for blocker in blockers):
-        return "red"
-    if blockers:
-        return "yellow"
-    return "green"
-
-
-def worst_writer_repacker_status(writer_status: str, repacker_status: str) -> str:
-    if "red" in {writer_status, repacker_status}:
-        return "red"
-    if "yellow" in {writer_status, repacker_status}:
-        return "yellow"
-    return "green"
-
-
 def matrix_row(
     dict_id: str,
     profile_row: dict[str, Any],
@@ -383,10 +312,17 @@ def matrix_row(
     component_statuses = Counter(str(component.get("status") or "unknown") for component in component_view.get("components", []))
     component_parse_errors = component_statuses.get("parse_error", 0)
     requires_sidecar = str(profile_row.get("body_source_hint") or "") == "honmon_anchor_dereference"
+    classification = profile_detail.get("classification", {})
+    wrapper = profile_detail.get("wrapper", {})
+    package = profile_detail.get("package", {})
     row: dict[str, Any] = {
         "dict_id": dict_id,
         "title": profile_row.get("title") or honmon_row.get("title") or component_row.get("title") or "",
+        "target_path": package.get("idx") or package.get("path") or profile_row.get("path") or "",
+        "model_path": "",
         "package_status": package_status,
+        "package_family": classification.get("package_family") or wrapper.get("package_family") or "ssed",
+        "platform": classification.get("platform") or wrapper.get("platform") or "unknown",
         "honmon_shape": profile_row.get("honmon_shape") or honmon_row.get("byte_shape") or "",
         "body_source_hint": profile_row.get("body_source_hint") or "",
         "raw_honmon_body": raw_status,
@@ -410,24 +346,16 @@ def matrix_row(
         "component_parse_errors": component_parse_errors,
         "missing_components": ";".join(profile_detail.get("classification", {}).get("missing_components", [])),
     }
-    writer_blockers = writer_v0_blockers(row)
-    repacker_blockers = lossless_repacker_blockers(row)
-    writer_status = capability_status(writer_blockers, red_blockers=set())
-    repacker_status = capability_status(
-        repacker_blockers,
-        red_blockers={
-            "missing_declared_components",
-            "media_not_fully_resolved",
-            "menu_not_fully_resolved",
-            "titles_not_fully_parsed",
-        },
-    )
-    row["legacy_writer_v0_status"] = writer_status
-    row["legacy_writer_v0_blockers"] = ";".join(writer_blockers)
-    row["lossless_repacker_status"] = repacker_status
-    row["lossless_repacker_blockers"] = ";".join(repacker_blockers)
-    row["writer_repacker_status"] = worst_writer_repacker_status(writer_status, repacker_status)
-    row["writer_repacker_blockers"] = ";".join(list(dict.fromkeys(writer_blockers + repacker_blockers)))
+    readiness_values = readiness_profile_values(row, ssed_family=True)
+    for profile in READINESS_PROFILES:
+        row[f"{profile}_status"] = readiness_values[profile]
+        row[f"{profile}_blockers"] = ";".join(readiness_values[f"{profile}_blockers"])
+    row["legacy_writer_v0_status"] = readiness_values["legacy_ssed_subset"]
+    row["legacy_writer_v0_blockers"] = ";".join(readiness_values["legacy_ssed_subset_blockers"])
+    row["lossless_repacker_status"] = readiness_values["lossless_repacker"]
+    row["lossless_repacker_blockers"] = ";".join(readiness_values["lossless_repacker_blockers"])
+    row["writer_repacker_status"] = readiness_values["combined"]
+    row["writer_repacker_blockers"] = ";".join(readiness_values["combined_blockers"])
     return row
 
 
@@ -516,7 +444,11 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     fieldnames = [
         "dict_id",
         "title",
+        "target_path",
+        "model_path",
         "package_status",
+        "package_family",
+        "platform",
         "honmon_shape",
         "body_source_hint",
         "raw_honmon_body",
@@ -528,6 +460,14 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "unknown_controls",
         "unknown_bytes",
         "structural_text_issues",
+        "read_existing_status",
+        "read_existing_blockers",
+        "export_existing_status",
+        "export_existing_blockers",
+        "author_core_ssed_v0_status",
+        "author_core_ssed_v0_blockers",
+        "lossless_repack_existing_status",
+        "lossless_repack_existing_blockers",
         "legacy_writer_v0_status",
         "legacy_writer_v0_blockers",
         "lossless_repacker_status",
@@ -545,6 +485,10 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 def write_markdown(path: Path, rows: list[dict[str, Any]]) -> None:
     columns = [
         ("Dict", "dict_id"),
+        ("Family", "package_family"),
+        ("Platform", "platform"),
+        ("Target", "target_path"),
+        ("Model", "model_path"),
         ("Body", "raw_honmon_body"),
         ("Index", "indexes_fully_parsed"),
         ("Title", "titles_fully_parsed"),
@@ -552,8 +496,11 @@ def write_markdown(path: Path, rows: list[dict[str, Any]]) -> None:
         ("Media", "media_refs_resolved"),
         ("Menu", "menu_pointers_resolved"),
         ("Unknown", "unknown_controls"),
-        ("Status", "writer_repacker_status"),
-        ("Blockers", "writer_repacker_blockers"),
+        ("Read", "read_existing_status"),
+        ("Export", "export_existing_status"),
+        ("Author", "author_core_ssed_v0_status"),
+        ("Repack", "lossless_repack_existing_status"),
+        ("Blockers", "lossless_repack_existing_blockers"),
     ]
     lines = ["| " + " | ".join(title for title, _key in columns) + " |"]
     lines.append("| " + " | ".join("---" for _title, _key in columns) + " |")

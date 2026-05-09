@@ -1008,6 +1008,14 @@ The top-level `writer_readiness` is a copy of
 ```json
 {
   "writer_readiness": {
+    "author_core_ssed_v0": "green",
+    "author_core_ssed_v0_blockers": [],
+    "lossless_repack_existing": "green",
+    "lossless_repack_existing_blockers": [],
+    "export_existing": "green",
+    "export_existing_blockers": [],
+    "read_existing": "green",
+    "read_existing_blockers": [],
     "legacy_ssed_subset": "green",
     "legacy_ssed_subset_blockers": [],
     "lossless_repacker": "green",
@@ -1018,6 +1026,20 @@ The top-level `writer_readiness` is a copy of
 }
 ```
 
+The four profile names are intentionally distinct:
+
+```text
+read_existing             parse/read the existing package as observed
+export_existing           convert the existing dictionary to an external format
+author_core_ssed_v0       author a new plain/core SSED package
+lossless_repack_existing  reproduce/repack the observed package structure
+```
+
+The legacy alias fields remain for compatibility with older reports:
+`legacy_ssed_subset` is currently an alias of `export_existing`,
+`lossless_repacker` is an alias of `lossless_repack_existing`, and `combined`
+is the worst of `export_existing` and `lossless_repack_existing`.
+
 For non-SSED package families such as `lved_sqlcipher` and
 `multiview_sqlite`, SSED writer readiness is deliberately `gray` with a
 `non_ssed_package_family` blocker. Those families are classified into the
@@ -1027,9 +1049,9 @@ support applies only to core SSED packages.
 Writer status values:
 
 ```text
-green   usable by a minimal legacy writer/exporter
+green   no observed blocker for that profile
 yellow  usable with degradation or profile-specific rules
-red     not usable without additional reverse engineering
+red     not usable without additional reverse engineering or a sidecar path
 gray    not applicable
 unknown not enough evidence to classify
 ```

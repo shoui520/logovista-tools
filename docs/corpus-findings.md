@@ -54,29 +54,32 @@ media refs resolved:  yes 83, no 1, n/a 177
 menu pointers:        yes 91, partial 15, n/a 155
 ```
 
-Writer/repacker planning status:
+Read/export/author/repack planning status:
 
 ```text
-legacy writer v0:   green 158, yellow 16, red 28, gray 59
-lossless repacker:  green 134, red 68, gray 59
-combined worst:     green 134, red 68, gray 59
+read existing:         green 202, gray 59
+export existing:       green 173, yellow 1, red 28, gray 59
+author core SSED v0:   green 202, gray 59
+lossless repack:       green 134, red 68, gray 59
 ```
 
 `gray` means non-SSED package family, currently LVED SQLCipher or
-LVLMultiView. Most red SSED writer-v0 cases are dense-HONMON dictionaries
+LVLMultiView. Most red SSED export/repack cases are dense-HONMON dictionaries
 whose raw HONMON is an anchor/dereference layer rather than a self-contained
-body stream.
+body stream. Those cases do not block authoring a clean core SSED v0 package.
 
-Top blocker counts:
+Top blocker counts by profile:
 
 ```text
-non_ssed_package_family:            59
-missing_declared_components:        30
-body_requires_sidecar_or_is_missing: 28
-raw_body_not_self_contained:        27
-menu_not_fully_resolved:            15
-gaiji_not_fully_resolved:            1
-media_not_fully_resolved:            1
+read existing:   non_ssed_package_family 59
+export existing: non_ssed_package_family 59, body_requires_sidecar_or_is_missing 28,
+                 raw_body_not_self_contained 27, gaiji_not_fully_resolved 1,
+                 media_not_fully_resolved 1
+author core:     non_ssed_package_family 59
+lossless repack: non_ssed_package_family 59, missing_declared_components 30,
+                 body_requires_sidecar_or_is_missing 28, raw_body_not_self_contained 27,
+                 menu_not_fully_resolved 15, gaiji_not_fully_resolved 1,
+                 media_not_fully_resolved 1
 ```
 
 The matrix exposes the next model work clearly: split authoring readiness from
@@ -604,7 +607,7 @@ media refs resolved:  yes 62, partial 1, no 1, n/a 105
 menu pointers:        yes 63, partial 12, no 9, n/a 85
 ```
 
-Writer/repacker planning status:
+Older alias planning status from that 169-target legacy matrix:
 
 ```text
 legacy writer v0:   green 116, yellow 21, red 32

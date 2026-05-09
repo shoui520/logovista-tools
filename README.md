@@ -65,13 +65,16 @@ The resulting capability matrix is derived from Decoded LogoVista Model v0
 reports rather than recombining older command-specific outputs:
 
 ```text
-legacy writer v0:  green 158, yellow 16, red 28, gray 59
-lossless repacker: green 134, red 68, gray 59
+read existing:         green 202, gray 59
+export existing:       green 173, yellow 1, red 28, gray 59
+author core SSED v0:   green 202, gray 59
+lossless repack:       green 134, red 68, gray 59
 ```
 
 `gray` means the package is outside the SSED writer target, currently LVED or
-LVLMultiView. Most `red` SSED cases are dense-HONMON packages whose raw HONMON
-is an anchor/dereference layer rather than a self-contained body stream. See
+LVLMultiView. Most `red` export/repack cases are dense-HONMON packages whose
+raw HONMON is an anchor/dereference layer rather than a self-contained body
+stream. They do not block authoring a clean core SSED dictionary. See
 [Corpus Findings](docs/corpus-findings.md) for the exact aggregate and older
 HONMON/component-forensics passes that feed the current model.
 

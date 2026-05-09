@@ -99,6 +99,10 @@ def test_capability_matrix_classifies_green_raw_body(tmp_path):
     assert row["indexes_fully_parsed"] == "yes"
     assert row["titles_fully_parsed"] == "yes"
     assert row["menu_pointers_resolved"] == "yes"
+    assert row["read_existing_status"] == "green"
+    assert row["export_existing_status"] == "green"
+    assert row["author_core_ssed_v0_status"] == "green"
+    assert row["lossless_repack_existing_status"] == "green"
     assert row["writer_repacker_status"] == "green"
 
 
@@ -267,14 +271,17 @@ def test_capability_matrix_names_writer_blockers(tmp_path):
     )
 
     row = report["rows"][0]
-    blockers = set(row["writer_repacker_blockers"].split(";"))
+    blockers = set(row["lossless_repack_existing_blockers"].split(";"))
     assert row["raw_honmon_body"] == "no"
     assert row["indexes_fully_parsed"] == "partial"
     assert row["titles_fully_parsed"] == "partial"
     assert row["gaiji_fully_resolved"] == "partial"
     assert row["media_refs_resolved"] == "partial"
     assert row["menu_pointers_resolved"] == "no"
-    assert row["writer_repacker_status"] == "red"
+    assert row["read_existing_status"] == "red"
+    assert row["export_existing_status"] == "red"
+    assert row["author_core_ssed_v0_status"] == "red"
+    assert row["lossless_repack_existing_status"] == "red"
     assert "body_requires_sidecar_or_is_missing" in blockers
     assert "unknown_or_structural_text_issues" in blockers
 
@@ -283,7 +290,7 @@ def test_capability_matrix_prefers_decoded_model_reports(tmp_path):
     model_dir = tmp_path / "models"
     model = {
         "schema": "logovista-decoded-model-v0",
-        "package": {"dict_id": "MODEL", "title": "Model"},
+        "package": {"dict_id": "MODEL", "title": "Model", "idx": "/tmp/MODEL/MODEL.IDX"},
         "wrapper": {"package_family": "ssed", "platform": "windows"},
         "classification": {
             "status": "ok",
@@ -323,6 +330,14 @@ def test_capability_matrix_prefers_decoded_model_reports(tmp_path):
     assert report["source_mode"] == "decoded_model_v0"
     row = report["rows"][0]
     assert row["dict_id"] == "MODEL"
+    assert row["target_path"] == "/tmp/MODEL/MODEL.IDX"
+    assert row["model_path"].endswith("MODEL_decoded_model_v0.json")
+    assert row["package_family"] == "ssed"
+    assert row["platform"] == "windows"
     assert row["raw_honmon_body"] == "yes"
     assert row["indexes_fully_parsed"] == "yes"
+    assert row["read_existing_status"] == "green"
+    assert row["export_existing_status"] == "green"
+    assert row["author_core_ssed_v0_status"] == "green"
+    assert row["lossless_repack_existing_status"] == "green"
     assert row["writer_repacker_status"] == "green"

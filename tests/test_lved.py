@@ -67,6 +67,10 @@ def test_dump_package_model_classifies_lved_as_deferred_family(tmp_path) -> None
     assert model["classification"]["status"] == "deferred"
     assert model["classification"]["body_source_hint"] == "lved_sqlcipher"
     assert model["readiness"]["requirements"]["deferred_package_family"] is True
+    assert model["writer_readiness"]["read_existing"] == "gray"
+    assert model["writer_readiness"]["export_existing"] == "gray"
+    assert model["writer_readiness"]["author_core_ssed_v0"] == "gray"
+    assert model["writer_readiness"]["lossless_repack_existing"] == "gray"
     assert model["writer_readiness"]["legacy_ssed_subset"] == "gray"
     assert model["writer_readiness"]["legacy_ssed_subset_blockers"] == ["non_ssed_package_family"]
     assert model["families"]["lved"]["payloads"][0]["classification"] == "sqlcipher_lved_candidate"
@@ -86,6 +90,7 @@ def test_dump_package_model_classifies_multiview_as_deferred_family(tmp_path) ->
     assert model["classification"]["status"] == "deferred"
     assert model["classification"]["body_source_hint"] == "multiview_sqlite"
     assert model["readiness"]["requirements"]["deferred_package_family"] is True
+    assert model["writer_readiness"]["lossless_repack_existing"] == "gray"
     assert model["writer_readiness"]["lossless_repacker"] == "gray"
     assert model["families"]["multiview"]["payloads"][0]["name"] == "blvbat"
     assert len(model["families"]["multiview"]["payloads"]) == 1

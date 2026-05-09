@@ -139,8 +139,9 @@ LogoVista dictionary model.
 - Full corpus Decoded Model v0 generation over 261 package targets with
   chunked output, resume, progress, gaiji readiness, and family-aware deferred
   models for LVED/LVLMultiView. The derived capability matrix currently reports
-  `legacy_writer_v0` as green 158, yellow 16, red 28, gray 59, and
-  `lossless_repacker` as green 134, red 68, gray 59.
+  `read_existing` as green 202, gray 59; `export_existing` as green 173,
+  yellow 1, red 28, gray 59; `author_core_ssed_v0` as green 202, gray 59; and
+  `lossless_repack_existing` as green 134, red 68, gray 59.
 
 ## Experimental / Active Reverse Engineering
 
@@ -194,8 +195,9 @@ LogoVista dictionary model.
   streaming internally.
 - `dump-package-model` now emits a shared `readiness` object and top-level
   `writer_readiness`. `capability-matrix --model-dir` consumes those decoded
-  model reports directly, so new matrix work no longer needs to recombine
-  separate `profile` / `honmon-bytes` / `component-forensics` status names.
+  model reports directly, adds path/family/platform identity columns, and
+  splits readiness into `read_existing`, `export_existing`,
+  `author_core_ssed_v0`, and `lossless_repack_existing`.
 - `dump-ir` remains a narrower lossless entry-span JSONL inspection command for
   HONMON-specific debugging.
 - Observed `DictFtsDB` `.dbc` payloads for OXFPEU4/KQCMPROS are LVED
@@ -241,35 +243,26 @@ Next priorities:
    shape and readiness. Keep LVED and LVLMultiView as classified/deferred
    package families while SSED remains the active deep-reverse-engineering
    target.
-2. **Writer-readiness split.** Separate `read_existing_package`,
-   `export_existing_package`, `lossless_repack_existing_package`, and
-   `author_core_ssed_v0`. Dense-HONMON packages block lossless repacking of
-   existing products, but they should not automatically block authoring a clean
-   core SSED dictionary.
-3. **First-class dereference records.** Make `dereferences.jsonl` represent
+2. **First-class dereference records.** Make `dereferences.jsonl` represent
    typed relationships between raw HONMON anchors, index/menu/media pointers,
    sidecar/database rows, and final body/media targets. This is the main model
    gap before writer/repacker work.
-4. **Capability matrix identity.** Include package family, platform,
-   `target_path`, and `model_path` in matrix rows so same-title SSED/LVED/iOS/
-   Android/Windows packages are unambiguous outside `dump-package-models`
-   progress output.
-5. **NGYOKTUK renderer-backed gaiji.** Keep `NGYOKTUK` as the named
+3. **NGYOKTUK renderer-backed gaiji.** Keep `NGYOKTUK` as the named
    raw-resource exception: its display is recoverable through row-aligned
    `HONBUN` HTML, but a lossless IR/exporter must preserve raw gaiji
    provenance because some codes are contextual rather than dictionary-global.
-6. **Corpus regression harness.** Commit redacted expected metrics generated
+4. **Corpus regression harness.** Commit redacted expected metrics generated
    from owned corpora, then add a comparison command that flags changed shape
    counts, unknown counts, parse failures, and dereference coverage without
    storing dictionary text.
-7. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
+5. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
    media extractors, and exporters consume the same classification/profile
    layer instead of each command rediscovering package shape independently.
-8. **Streaming model output / memory-aware scheduling.** `--chunked` fixes
+6. **Streaming model output / memory-aware scheduling.** `--chunked` fixes
    output shape, but large package workers still build bounded sections in
    memory. Add streaming JSONL paths or size-aware scheduling before exhaustive
    all-limits corpus runs.
-9. **Renderer parity.** Build small local parity fixtures for body text,
+7. **Renderer parity.** Build small local parity fixtures for body text,
    literal spans, URL spans, gaiji images, named section images, media links,
    menu destinations, and dense-anchor renderer bodies.
 10. **Exporter layer.** After the decoded model stabilizes, implement debug HTML

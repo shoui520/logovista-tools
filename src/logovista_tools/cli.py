@@ -1364,8 +1364,10 @@ def _dump_package_model_corpus_task(payload: tuple[dict[str, str], Path, argpars
                 "honmon_shape": classification.get("honmon_shape"),
                 "body_source_hint": classification.get("body_source_hint"),
                 "issues": len(model.get("inconsistencies", [])),
-                "writer_status": model.get("writer_readiness", {}).get("legacy_ssed_subset"),
-                "repacker_status": model.get("writer_readiness", {}).get("lossless_repacker"),
+                "export_status": model.get("writer_readiness", {}).get("export_existing")
+                or model.get("writer_readiness", {}).get("legacy_ssed_subset"),
+                "repacker_status": model.get("writer_readiness", {}).get("lossless_repack_existing")
+                or model.get("writer_readiness", {}).get("lossless_repacker"),
             }
         )
     except Exception as exc:
@@ -1576,8 +1578,10 @@ def cmd_capability_matrix(args: argparse.Namespace) -> int:
         return 2
     print(
         f"capability matrix: dictionaries={report['total']} "
-        f"writer_v0={report['legacy_writer_v0_status_counts']} "
-        f"repacker={report['lossless_repacker_status_counts']} "
+        f"read={report.get('read_existing_status_counts', {})} "
+        f"export={report.get('export_existing_status_counts', {})} "
+        f"author={report.get('author_core_ssed_v0_status_counts', {})} "
+        f"repack={report.get('lossless_repack_existing_status_counts', {})} "
         f"out={args.out_dir}",
         file=sys.stderr,
     )
