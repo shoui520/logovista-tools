@@ -5,7 +5,7 @@ from argparse import Namespace
 from pathlib import Path
 
 from logovista_tools.capability import build_capability_matrix_from_models
-from logovista_tools.cli import cmd_dump_package_models
+from logovista_tools.cli import cmd_dump_package_models, format_progress_target_path
 from logovista_tools.decoded_model import discover_package_model_targets
 
 
@@ -74,6 +74,14 @@ def test_discover_package_model_targets_classifies_deferred_families(tmp_path: P
 
     assert by_id["TESTLVED"].family_hint == "lved_sqlcipher"
     assert by_id["TESTMULTI"].family_hint == "multiview_sqlite"
+
+
+def test_format_progress_target_path_relativizes_to_corpus_root(tmp_path: Path) -> None:
+    target = tmp_path / "LOGOVISTA_SSED_DICTS_WINDOWS" / "_DCT_TEST" / "TEST.IDX"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"")
+
+    assert format_progress_target_path(str(target), [tmp_path]) == "LOGOVISTA_SSED_DICTS_WINDOWS/_DCT_TEST/TEST.IDX"
 
 
 def test_dump_package_models_writes_summary_failures_and_resumes(tmp_path: Path) -> None:

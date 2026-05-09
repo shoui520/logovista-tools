@@ -1394,6 +1394,26 @@ def _dump_package_model_corpus_task(payload: tuple[dict[str, str], Path, argpars
     return row
 
 
+def format_progress_target_path(target_path: str | None, roots: Sequence[Path]) -> str:
+    if not target_path:
+        return "-"
+    path = Path(target_path)
+    try:
+        resolved = path.resolve()
+    except OSError:
+        resolved = path
+    for root in roots:
+        try:
+            root_resolved = root.resolve()
+        except OSError:
+            root_resolved = root
+        try:
+            return str(resolved.relative_to(root_resolved))
+        except ValueError:
+            continue
+    return str(path)
+
+
 def cmd_dump_package_models(args: argparse.Namespace) -> int:
     selected = set(args.dict) if args.dict else None
     targets = discover_package_model_targets(args.root, dict_ids=selected)
@@ -1435,9 +1455,11 @@ def cmd_dump_package_models(args: argparse.Namespace) -> int:
             extra = f" error={row.get('error_type')}: {row.get('message')}"
         elif status == "skipped":
             extra = f" reason={row.get('reason')}"
+        target_display = format_progress_target_path(row.get("target_path"), args.root)
         print(
             f"model progress {completed:4d}/{total}: {status:7s} "
-            f"{row.get('dict_id', ''):16s} family={detail}{extra}",
+            f"{row.get('dict_id', ''):16s} family={detail}{extra} "
+            f"path={target_display}",
             file=sys.stderr,
             flush=True,
         )
