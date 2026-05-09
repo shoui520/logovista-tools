@@ -154,6 +154,125 @@ The staged pass also confirmed several practical compatibility points:
   contextual row-aligned `HONBUN` HTML. Without renderer sidecars, it remains
   the named raw-resource gaiji exception.
 
+## Previously Excluded Britannica/Genius Pass
+
+A follow-up pass covered 17 Britannica/Genius-family SSED packages that had
+been deliberately skipped in earlier priority runs: older Britannica releases,
+older/later `GEN20xx` packages, `GENIUS43`, and `BRINEN15`. Media companion
+folders were not treated as dictionary roots.
+
+The pass used the same scratch-outside-repo rule, `--jobs 0`, and
+progress/log teeing as the focused all-in pass.
+
+HONMON byte accounting:
+
+```text
+package targets:             17
+status:                      17 ok
+expanded HONMON bytes: 1,101,215,744
+bytes covered:         1,101,215,744
+HONMON shapes:              16 marker_rich_text_stream
+                             1 dense_marker_table
+storage modes:              10 plain
+                             7 logofont_cipher
+entry markers:          777,883
+controls:              120,793,035
+known controls:        120,793,035
+unknown controls:                0
+unknown bytes:                   0
+invalid JIS cells:               0
+truncated controls:              0
+truncated gaiji:                 0
+gaiji occurrences:       1,897,256
+media refs:                  7,119
+links:                   2,127,869
+```
+
+Component forensics found no new residual byte classes:
+
+```text
+component reports ok:             133
+missing declared files:            12
+index residual bytes:               0
+title/menu unknown controls:        0
+title/menu unknown bytes:           0
+GA16 trailing/header residuals:     0
+.uni trailer bytes:                 0
+COLSCR unparsed bytes:              0
+PCMDATA unparsed bytes:             0
+```
+
+The missing files are package-completeness issues rather than new binary
+layouts: `BRINEN15` declares missing title/index/GA16 components, and
+`GEN2001` lacks `MENU.DIC` and `KWTITLE.DIC`. The parsed index rows total
+14,677,657 with zero unknown leaf bytes. Title extraction emits 9,079,801 rows,
+mostly from the Britannica small-entry encyclopedias and `GEN2001`; later
+`GEN20xx` packages rely on HONMON/index/menu structures rather than title
+streams.
+
+Gaiji readiness:
+
+```text
+display-ready packages:       16
+no raw gaiji occurrences:      1
+display-unresolved packages:   0
+bitmap-backed occurrences:     1,609,808
+unicode-mapped occurrences:      274,715
+image-backed occurrences:         19,492
+formatting-helper occurrences:    18,564
+```
+
+Some older Genius packages still lack Unicode search fallbacks for bitmap-only
+gaiji, but display is backed by raw resources. This is a search/export quality
+issue, not a byte-parsing issue.
+
+`BRINEN15` (`2015 ブリタニカ国際年鑑`) exposed a new renderer-body variant and
+is now supported:
+
+- `HONMON.DIC` is a 135,168-byte dense 32-byte anchor table, not definition
+  text.
+- Unlike earlier dense-anchor rows whose `1f09` section marker appears after a
+  leading `1f0a`, its records start with `1f09` at byte 0.
+- The visible head span is an eight-digit JIS numeric ID such as `10100000`.
+- `vlpljblF` decrypts with LogoFontCipher to SQLite.
+- `t_contents` has `f_array_no`, `f_data_id`, `f_midashi`, `f_contents`, and
+  `f_media`.
+- `t_media` has only `f_name` and `f_blob`; the blobs are JPEG images.
+
+After adding the marker-at-byte-0 anchor parser and renderer DB column aliases,
+the dereference result is exact:
+
+```text
+raw HONMON ID records:       713
+t_contents rows:             713
+entries matched:             713
+db rows without raw anchor:     0
+raw anchors missing in DB:      0
+rows with f_media:           154
+t_media rows:                226
+sample media export:         JPEG
+```
+
+Representative extracted row:
+
+```text
+data_id=10100000
+title=国際百科年表　１月６日
+body source=t_contents.f_contents HTML
+```
+
+This confirms `BRINEN15` as another SSED package where HONMON remains the raw
+anchor authority even though final display bodies are supplied by a Windows
+renderer sidecar.
+
+The HC renderer pass over the same 17 packages found 17 `HC????.dll` files and
+16 unique hashes. `GEN2001` and `Gen2010` share `HC009B.dll`. The Britannica
+small-entry packages use panel-style HC DLLs without numeric `00000xxx.idx`
+sidecars; later `GEN20xx` packages use vertical renderers with numeric sidecar
+indexes. `BRINEN15` uses `HC0C80.dll`, which imports only font/path APIs from
+`SSDicLib.dll` and uses SQL/plugin/user-data hooks plus the `vlpljblF`
+sidecar.
+
 ## Corpus 0x1f Opcode Atlas
 
 The dedicated opcode atlas pass scans expanded SSED text-stream components:

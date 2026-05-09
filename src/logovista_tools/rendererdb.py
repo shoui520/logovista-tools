@@ -47,31 +47,51 @@ class AndroidBodyDb:
 def parse_dense_honmon_id(record: bytes) -> int | None:
     """Return the decimal ID carried by one observed 32-byte HONMON anchor row."""
 
+    parsed = parse_dense_honmon_id_with_marker(record)
+    return parsed[0] if parsed else None
+
+
+def parse_dense_honmon_id_with_marker(record: bytes) -> tuple[int, int] | None:
+    """Return ``(data_id, marker_start)`` for one observed HONMON anchor row."""
+
     if len(record) < 32:
         return None
-    if record[2:6] != b"\x1f\x09\x00\x01" or record[10:12] != b"\x1f\x04":
-        return None
-    digits: list[str] = []
-    for start in range(12, 28, 2):
-        pair = record[start : start + 2]
-        if pair == JIS_SPACE:
+    for marker_start in (0, 2):
+        if record[marker_start : marker_start + 4] != b"\x1f\x09\x00\x01":
             continue
-        if len(pair) != 2 or pair[0] != JIS_DIGIT_PREFIX or not 0x30 <= pair[1] <= 0x39:
-            return None
-        digits.append(chr(pair[1]))
-    if not digits:
-        return None
-    return int("".join(digits))
+        head_start = marker_start + 4
+        text_start = marker_start + 8
+        digits_start = marker_start + 10
+        digits_end = marker_start + 26
+        if record[head_start : head_start + 2] != b"\x1f\x41":
+            continue
+        if record[text_start : text_start + 2] != b"\x1f\x04":
+            continue
+        if record[digits_end : digits_end + 2] != b"\x1f\x05":
+            continue
+        digits: list[str] = []
+        for start in range(digits_start, digits_end, 2):
+            pair = record[start : start + 2]
+            if pair == JIS_SPACE:
+                continue
+            if len(pair) != 2 or pair[0] != JIS_DIGIT_PREFIX or not 0x30 <= pair[1] <= 0x39:
+                digits = []
+                break
+            digits.append(chr(pair[1]))
+        if digits:
+            return (int("".join(digits)), marker_start)
+    return None
 
 
 def iter_honmon_id_records(expanded: bytes, *, honmon_start_block: int) -> Iterable[HonmonIdRecord]:
     for record_index, start in enumerate(range(0, len(expanded), 32)):
-        data_id = parse_dense_honmon_id(expanded[start : start + 32])
-        if data_id is None:
+        parsed = parse_dense_honmon_id_with_marker(expanded[start : start + 32])
+        if parsed is None:
             continue
+        data_id, marker_start = parsed
         record_block = honmon_start_block + start // BLOCK_SIZE
         record_offset = start % BLOCK_SIZE
-        marker = start + 2
+        marker = start + marker_start
         marker_block = honmon_start_block + marker // BLOCK_SIZE
         marker_offset = marker % BLOCK_SIZE
         yield HonmonIdRecord(
@@ -247,7 +267,7 @@ def summarize_ziptomedia_refs(idx: Path, refs: Counter[str]) -> dict[str, Any]:
     }
 
 
-def media_column_names(con: sqlite3.Connection) -> tuple[str, str, str, str] | None:
+def media_column_names(con: sqlite3.Connection) -> tuple[str, str, str | None, str] | None:
     table = media_table_name(con)
     if table is None:
         return None
@@ -256,6 +276,8 @@ def media_column_names(con: sqlite3.Connection) -> tuple[str, str, str, str] | N
         return (columns["no"], columns["f_name"], columns["f_type"], columns["f_main"])
     if {"id", "name", "type", "main"} <= set(columns):
         return (columns["id"], columns["name"], columns["type"], columns["main"])
+    if {"f_name", "f_blob"} <= set(columns):
+        return ("rowid", columns["f_name"], None, columns["f_blob"])
     return None
 
 
@@ -290,9 +312,10 @@ def write_media_records(con: sqlite3.Connection, media_dir: Path, *, limit: int 
         return {"media_rows": 0, "media_written": 0, "media_type_counts": {}}
     number_col, name_col, type_col, blob_col = media_columns
     media_dir.mkdir(parents=True, exist_ok=True)
+    type_expr = "0 as _media_type" if type_col is None else quote_identifier(type_col)
     rows = con.execute(
         f"select {quote_identifier(number_col)}, {quote_identifier(name_col)}, "
-        f"{quote_identifier(type_col)}, {quote_identifier(blob_col)} "
+        f"{type_expr}, {quote_identifier(blob_col)} "
         f"from {quote_identifier(media_table)} order by {quote_identifier(number_col)}"
     )
     type_counts: Counter[int] = Counter()
@@ -320,6 +343,9 @@ def media_type_counts(con: sqlite3.Connection) -> dict[str, int]:
     if media_table is None or media_columns is None:
         return {}
     _number_col, _name_col, type_col, _blob_col = media_columns
+    if type_col is None:
+        count = table_count(con, media_table) or 0
+        return {"0": count} if count else {}
     return {
         str(int(row[0])): int(row[1])
         for row in con.execute(
@@ -331,18 +357,25 @@ def media_type_counts(con: sqlite3.Connection) -> dict[str, int]:
 
 def t_contents_columns(con: sqlite3.Connection) -> dict[str, str]:
     columns = table_column_map(con, "t_contents")
-    wanted = [
-        "f_DataId",
-        "f_Type",
-        "f_DataGroupId",
-        "f_Anchor",
-        "f_Title",
-        "f_Title_SS",
-        "f_Html",
-        "f_Keyword",
-        "f_Plane",
-    ]
-    return {canonical: columns[canonical.lower()] for canonical in wanted if canonical.lower() in columns}
+    aliases = {
+        "f_DataId": ("f_dataid", "f_data_id"),
+        "f_Type": ("f_type",),
+        "f_DataGroupId": ("f_datagroupid", "f_data_group_id"),
+        "f_Anchor": ("f_anchor",),
+        "f_Title": ("f_title", "f_midashi"),
+        "f_Title_SS": ("f_title_ss", "f_title_sjis", "f_midashi_hyoki"),
+        "f_Html": ("f_html", "f_contents", "f_body"),
+        "f_Keyword": ("f_keyword",),
+        "f_Plane": ("f_plane", "f_plain", "f_plane_text"),
+        "f_Media": ("f_media",),
+    }
+    resolved: dict[str, str] = {}
+    for canonical, candidates in aliases.items():
+        for candidate in candidates:
+            if candidate in columns:
+                resolved[canonical] = columns[candidate]
+                break
+    return resolved
 
 
 def honbun_columns(con: sqlite3.Connection) -> dict[str, str]:
@@ -668,6 +701,7 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
                 html_value = row["f_Html"] if "f_Html" in row_keys else None
                 title_value = row["f_Title"] if "f_Title" in row_keys else None
                 plane = row["f_Plane"] if "f_Plane" in row_keys else None
+                media_value = row["f_Media"] if "f_Media" in row_keys else None
                 ziptomedia_refs.update(ziptomedia_reference_names(html_value))
                 if args.limit is None or emitted < args.limit:
                     record = {
@@ -682,6 +716,7 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
                         "title_plain": html_to_plain(title_value) if title_value else None,
                         "title_search": row["f_Title_SS"] if "f_Title_SS" in row_keys else None,
                         "keyword": row["f_Keyword"] if "f_Keyword" in row_keys else None,
+                        "media": media_value,
                         "plain": plane or (html_to_plain(html_value) if html_value else ""),
                     }
                     if args.include_html:
@@ -691,6 +726,14 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
         group_count = len(group_ids)
         content_rows = table_count(con, "t_contents")
         media_table = media_table_name(con)
+        media_col = columns.get("f_Media")
+        rows_with_media_field = None
+        if media_col is not None:
+            media_row = con.execute(
+                f"select count(*) from t_contents where {quote_identifier(media_col)} is not null "
+                f"and {quote_identifier(media_col)} <> ''"
+            ).fetchone()
+            rows_with_media_field = int(media_row[0]) if media_row else 0
         ziptomedia_summary = summarize_ziptomedia_refs(source.idx, ziptomedia_refs)
         summary.update(
             {
@@ -706,6 +749,7 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
                 "media_table": media_table,
                 "media_rows": table_count(con, media_table) if media_table else None,
                 "media_type_counts": media_type_counts(con),
+                "rows_with_media_field": rows_with_media_field,
                 "html_rows_with_media_references": html_media_reference_rows(con),
                 "html_rows_with_ziptomedia_references": html_ziptomedia_reference_rows(con),
                 **ziptomedia_summary,

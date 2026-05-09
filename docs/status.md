@@ -54,6 +54,9 @@ LogoVista dictionary model.
   embedded SQL/HTML/image template strings.
 - Windows renderer SQLite extraction through raw HONMON ID anchors and
   `t_contents` rows, with optional `media` BLOB export.
+- Windows renderer SQLite extraction for the `BRINEN15` dense-anchor variant:
+  marker-at-byte-0 HONMON ID rows, `f_data_id` / `f_contents` `t_contents`
+  schemas, and two-column `t_media(f_name, f_blob)` JPEG stores.
 - Android body DB extraction through raw HONMON ID anchors and the observed
   `rowid * 5` mapping.
 - Structured `MENU.DIC` extraction with menu hierarchy, link labels,
@@ -117,6 +120,11 @@ LogoVista dictionary model.
   package targets, covering 3,687,534,595 expanded HONMON bytes with zero
   unknown HONMON controls, zero unknown HONMON bytes, and zero invalid JIS
   cells.
+- Follow-up audits over 17 previously excluded Britannica/Genius-family SSED
+  package targets, covering 1,101,215,744 more expanded HONMON bytes with zero
+  unknown HONMON controls, zero unknown HONMON bytes, and zero invalid JIS
+  cells. This pass exposed and closed the `BRINEN15` marker-at-byte-0 dense
+  anchor plus renderer SQLite schema variant.
 
 ## Experimental / Active Reverse Engineering
 
@@ -194,6 +202,9 @@ Recently landed:
 7. Full-corpus gaiji readiness reporting, including the JIS-grid GA16 range
    correction, `.uni` record-order GA16/GAI16 addressing, renderer `HONBUN`
    sidecar evidence, and refined capability-matrix gaiji status.
+8. Focused ignored-dictionary pass over older Britannica/Genius-family SSED
+   packages, including `BRINEN15` raw-anchor dereferencing into LogoFontCipher
+   renderer HTML and JPEG media extraction.
 
 Next priorities:
 

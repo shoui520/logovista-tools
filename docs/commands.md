@@ -846,7 +846,10 @@ table, not a body stream. It still starts from raw HONMON:
 4. For Windows renderer DBs, decrypt observed LogoFontCipher sidecars such as
    `vlpljblb` when needed, query `t_contents`, and emit only rows whose
    `f_DataId` exists in raw HONMON. Mixed-case and lowercase column variants
-   such as `f_DataId` / `f_dataid` are normalized.
+   such as `f_DataId` / `f_dataid` are normalized. The `BRINEN15` variant is
+   also normalized: marker-at-byte-0 HONMON ID records, `f_data_id`,
+   `f_midashi`, `f_contents`, and `f_media` map to the same canonical
+   renderer-body fields.
 5. For the observed Android body DB shape, query the `DICTID(Html)` table and
    emit rows where `rowid * 5` exists in raw HONMON.
 
@@ -873,11 +876,14 @@ rendererdb/
 
 For `t_contents`, rows include `data_id`, raw HONMON block/offset, type, group
 id, title HTML, plain title, search title, keyword text, plain body text, and
-HTML unless `--no-html` is used. For row-ordered `HONBUN`, rows include
+media reference text when present. HTML is included unless `--no-html` is used.
+For row-ordered `HONBUN`, rows include
 renderer `ID`, raw HONMON entry offset, title, plain body text, and HTML unless
-`--no-html` is used. `--write-media` exports BLOBs from `media` or `t_media` using magic bytes
-to choose `.gif`, `.png`, `.jpg`, `.bmp`, or `.bin`; filenames are preserved
-when the renderer HTML already references the original media name. Some Windows
+`--no-html` is used. `--write-media` exports BLOBs from `media` or `t_media`
+using magic bytes to choose `.gif`, `.png`, `.jpg`, `.bmp`, or `.bin`;
+filenames are preserved when the renderer HTML already references the original
+media name. Two-column `t_media(f_name, f_blob)` stores are treated as untyped
+media and still exported by filename/magic. Some Windows
 packages also use `lved.ziptomedia:NAME.wav` links. `--write-ziptomedia`
 discovers a sibling sound directory such as `_DCT_NAME_Sound_Files`, decrypts
 LogoFontCipher-wrapped loose sound files, and writes portable `.wav` / `.mp3`

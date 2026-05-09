@@ -78,6 +78,14 @@ cells, and the same named `NANDOKU3` final truncated control. That pass also
 added support for sibling `*_GAIJI` image directories and HABGESPA's
 single-section simple12 `.uni` layout.
 
+A follow-up pass over 17 previously excluded Britannica/Genius-family SSED
+package targets added another 1,101,215,744 expanded HONMON bytes with zero
+unknown controls, zero unknown bytes, and zero invalid JIS cells. Sixteen are
+normal raw-HONMON body streams. `BRINEN15` is a dense numeric HONMON anchor
+table whose full bodies live in a LogoFontCipher `vlpljblF` SQLite sidecar;
+the toolkit now resolves its marker-at-byte-0 anchor rows to `t_contents`
+HTML and can export its two-column `t_media` JPEG blobs.
+
 ## Install
 
 Use Python 3.10 or newer.

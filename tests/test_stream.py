@@ -1105,6 +1105,33 @@ def test_rendererdb_lowercase_content_and_t_media_schema(tmp_path) -> None:
     con.close()
 
 
+def test_rendererdb_underscore_content_aliases() -> None:
+    con = sqlite3.connect(":memory:")
+    con.execute(
+        "create table t_contents ("
+        "f_array_no integer, f_data_id integer, f_midashi text, f_contents text, f_media text)"
+    )
+
+    columns = t_contents_columns(con)
+
+    assert columns["f_DataId"] == "f_data_id"
+    assert columns["f_Title"] == "f_midashi"
+    assert columns["f_Html"] == "f_contents"
+    assert columns["f_Media"] == "f_media"
+
+    con.close()
+
+
+def test_rendererdb_two_column_t_media_schema() -> None:
+    con = sqlite3.connect(":memory:")
+    con.execute("create table t_media (f_name text, f_blob blob)")
+    con.execute("insert into t_media values ('figure.jpg', ?)", (b"\xff\xd8\xffx",))
+
+    assert media_type_counts(con) == {"0": 1}
+
+    con.close()
+
+
 def test_rendererdb_honbun_columns_are_case_insensitive() -> None:
     con = sqlite3.connect(":memory:")
     con.execute("create table HONBUN (id text primary key, title_utf8 text, contents_html_box text)")
@@ -1158,6 +1185,23 @@ def test_parse_dense_honmon_id_record_and_pointer() -> None:
     assert records[0].block == 2
     assert records[0].offset == 32
     assert records[0].marker_offset == 34
+
+
+def test_parse_dense_honmon_id_record_with_marker_at_record_start() -> None:
+    record = bytes.fromhex(
+        "1f0900011f4101001f04"
+        "23312330233123302330233023302330"
+        "1f051f611f0a"
+    )
+    expanded = record
+    records = list(iter_honmon_id_records(expanded, honmon_start_block=2))
+
+    assert parse_dense_honmon_id(record) == 10100000
+    assert records[0].data_id == 10100000
+    assert records[0].record_offset == 0
+    assert records[0].block == 2
+    assert records[0].offset == 0
+    assert records[0].marker_offset == 0
 
 
 def test_parse_spindex_internal_pages_and_reversed_keys() -> None:
