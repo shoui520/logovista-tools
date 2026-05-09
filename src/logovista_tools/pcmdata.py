@@ -82,6 +82,8 @@ class PcmRecord:
     bits_per_sample: int | None = None
     data_size: int | None = None
     data_offset: int | None = None
+    shared_fmt_offset: int | None = None
+    shared_data_offset: int | None = None
     trailing_zero_bytes: int = 0
 
     def as_dict(self) -> dict[str, Any]:
@@ -101,7 +103,73 @@ class PcmRecord:
             "bits_per_sample": self.bits_per_sample,
             "data_size": self.data_size,
             "data_offset": self.data_offset,
+            "shared_fmt_offset": self.shared_fmt_offset,
+            "shared_data_offset": self.shared_data_offset,
             "trailing_zero_bytes": self.trailing_zero_bytes,
+        }
+
+
+@dataclass(frozen=True)
+class SharedWaveStream:
+    """A PCMDATA-level WAVE chunk header whose data chunk is addressed by slices."""
+
+    fmt_offset: int
+    fmt_size: int
+    data_header_offset: int
+    data_offset: int
+    data_size: int
+    format_tag: int
+    channels: int
+    sample_rate: int
+    byte_rate: int
+    block_align: int
+    bits_per_sample: int
+
+    @property
+    def data_end_exclusive(self) -> int:
+        return self.data_offset + self.data_size
+
+    @property
+    def codec(self) -> str:
+        if self.format_tag == 0x0001:
+            return "pcm"
+        if self.format_tag == 0x0055:
+            return "mpeg_layer3_wave"
+        return f"wave_format_{self.format_tag:04x}"
+
+    @property
+    def extension(self) -> str:
+        return "mp3" if self.format_tag == 0x0055 else "wav"
+
+    def contains(self, start: int, size: int) -> bool:
+        return start >= self.data_offset and size > 0 and start + size <= self.data_end_exclusive
+
+    def fmt_payload(self) -> bytes:
+        return (
+            self.format_tag.to_bytes(2, "little")
+            + self.channels.to_bytes(2, "little")
+            + self.sample_rate.to_bytes(4, "little")
+            + self.byte_rate.to_bytes(4, "little")
+            + self.block_align.to_bytes(2, "little")
+            + self.bits_per_sample.to_bytes(2, "little")
+        )
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "fmt_offset": self.fmt_offset,
+            "fmt_size": self.fmt_size,
+            "data_header_offset": self.data_header_offset,
+            "data_offset": self.data_offset,
+            "data_size": self.data_size,
+            "data_end_exclusive": self.data_end_exclusive,
+            "format_tag": self.format_tag,
+            "codec": self.codec,
+            "extension": self.extension,
+            "channels": self.channels,
+            "sample_rate": self.sample_rate,
+            "byte_rate": self.byte_rate,
+            "block_align": self.block_align,
+            "bits_per_sample": self.bits_per_sample,
         }
 
 
@@ -207,7 +275,125 @@ def trailing_zero_count(data: bytes, start: int = 0) -> int:
     return count
 
 
-def parse_pcmdata_record(data: bytes, relative_offset: int = 0) -> tuple[PcmRecord, list[RiffChunk]] | None:
+def _wave_format_from_payload(fmt_payload: bytes) -> tuple[int, int, int, int, int, int] | None:
+    if len(fmt_payload) < 16:
+        return None
+    format_tag = int.from_bytes(fmt_payload[0:2], "little")
+    channels = int.from_bytes(fmt_payload[2:4], "little")
+    sample_rate = int.from_bytes(fmt_payload[4:8], "little")
+    byte_rate = int.from_bytes(fmt_payload[8:12], "little")
+    block_align = int.from_bytes(fmt_payload[12:14], "little")
+    bits_per_sample = int.from_bytes(fmt_payload[14:16], "little")
+    if channels <= 0 or sample_rate <= 0 or byte_rate <= 0 or block_align <= 0:
+        return None
+    return format_tag, channels, sample_rate, byte_rate, block_align, bits_per_sample
+
+
+def detect_shared_wave_stream(prefix: bytes, *, max_scan: int = PCMDATA_DIRECTORY_BYTES) -> SharedWaveStream | None:
+    """Detect PCMDATA files that store one global WAVE header plus pointer slices.
+
+    ARCHSIC3 shows this shape: a small component-level prelude, one `fmt `
+    chunk, one large `data` chunk, then HONMON `1f4a` pointers into the data
+    payload rather than to self-contained per-reference `fmt` records.
+    """
+
+    search_limit = min(len(prefix), max_scan)
+    pos = 0
+    while True:
+        fmt_offset = prefix.find(b"fmt ", pos, search_limit)
+        if fmt_offset < 0:
+            return None
+        if fmt_offset + 8 > len(prefix):
+            return None
+        fmt_size = int.from_bytes(prefix[fmt_offset + 4 : fmt_offset + 8], "little")
+        fmt_payload_offset = fmt_offset + 8
+        fmt_end = fmt_payload_offset + fmt_size
+        if fmt_size < 16 or fmt_end > len(prefix):
+            pos = fmt_offset + 1
+            continue
+        parsed_format = _wave_format_from_payload(prefix[fmt_payload_offset:fmt_end])
+        if parsed_format is None:
+            pos = fmt_offset + 1
+            continue
+
+        chunk_pos = fmt_end + (fmt_size & 1)
+        while chunk_pos + 8 <= len(prefix):
+            tag = prefix[chunk_pos : chunk_pos + 4]
+            size = int.from_bytes(prefix[chunk_pos + 4 : chunk_pos + 8], "little")
+            if tag == b"data":
+                (
+                    format_tag,
+                    channels,
+                    sample_rate,
+                    byte_rate,
+                    block_align,
+                    bits_per_sample,
+                ) = parsed_format
+                return SharedWaveStream(
+                    fmt_offset=fmt_offset,
+                    fmt_size=fmt_size,
+                    data_header_offset=chunk_pos,
+                    data_offset=chunk_pos + 8,
+                    data_size=size,
+                    format_tag=format_tag,
+                    channels=channels,
+                    sample_rate=sample_rate,
+                    byte_rate=byte_rate,
+                    block_align=block_align,
+                    bits_per_sample=bits_per_sample,
+                )
+            if not is_ascii_chunk_tag(tag):
+                break
+            next_pos = chunk_pos + 8 + size + (size & 1)
+            if next_pos <= chunk_pos or next_pos > len(prefix):
+                break
+            chunk_pos = next_pos
+        pos = fmt_offset + 1
+
+
+def _shared_wave_slice_record(
+    data: bytes,
+    relative_offset: int,
+    shared_wave: SharedWaveStream,
+) -> tuple[PcmRecord, list[RiffChunk]] | None:
+    if not shared_wave.contains(relative_offset, len(data)):
+        return None
+    media_type = "wave_data_slice"
+    codec = shared_wave.codec
+    extension = shared_wave.extension
+    if codec == "mpeg_layer3_wave":
+        media_type = "mp3_data_slice"
+    return (
+        PcmRecord(
+            relative_offset=relative_offset,
+            record_size=len(data),
+            content_size=len(data),
+            media_type=media_type,
+            codec=codec,
+            extension=extension,
+            chunk_tags=("data_slice",),
+            format_tag=shared_wave.format_tag,
+            channels=shared_wave.channels,
+            sample_rate=shared_wave.sample_rate,
+            byte_rate=shared_wave.byte_rate,
+            block_align=shared_wave.block_align,
+            bits_per_sample=shared_wave.bits_per_sample,
+            data_size=len(data),
+            data_offset=0,
+            shared_fmt_offset=shared_wave.fmt_offset,
+            shared_data_offset=shared_wave.data_offset,
+            trailing_zero_bytes=0,
+        ),
+        [],
+    )
+
+
+def parse_pcmdata_record(
+    data: bytes,
+    relative_offset: int = 0,
+    *,
+    shared_wave: SharedWaveStream | None = None,
+) -> tuple[PcmRecord, list[RiffChunk]] | None:
     if data.startswith(b"fmt "):
         parsed = parse_riff_chunks(data)
         if parsed is None:
@@ -219,12 +405,10 @@ def parse_pcmdata_record(data: bytes, relative_offset: int = 0) -> tuple[PcmReco
         if fmt is None or data_chunk is None or fmt.size < 16:
             return None
         fmt_payload = data[fmt.payload_offset : fmt.end_offset]
-        format_tag = int.from_bytes(fmt_payload[0:2], "little")
-        channels = int.from_bytes(fmt_payload[2:4], "little")
-        sample_rate = int.from_bytes(fmt_payload[4:8], "little")
-        byte_rate = int.from_bytes(fmt_payload[8:12], "little")
-        block_align = int.from_bytes(fmt_payload[12:14], "little")
-        bits_per_sample = int.from_bytes(fmt_payload[14:16], "little")
+        parsed_format = _wave_format_from_payload(fmt_payload)
+        if parsed_format is None:
+            return None
+        format_tag, channels, sample_rate, byte_rate, block_align, bits_per_sample = parsed_format
         trailer = trailing_zero_count(data, content_size)
         if format_tag == 0x0001:
             codec = "pcm"
@@ -273,6 +457,11 @@ def parse_pcmdata_record(data: bytes, relative_offset: int = 0) -> tuple[PcmReco
             [],
         )
 
+    if shared_wave is not None:
+        parsed = _shared_wave_slice_record(data, relative_offset, shared_wave)
+        if parsed is not None:
+            return parsed
+
     return None
 
 
@@ -281,11 +470,31 @@ def make_riff_wave(chunks: bytes) -> bytes:
     return b"RIFF" + size.to_bytes(4, "little") + b"WAVE" + chunks
 
 
+def wave_chunks_for_record(record: PcmRecord, data: bytes) -> bytes:
+    if record.format_tag is None or record.channels is None or record.sample_rate is None:
+        return data
+    if record.byte_rate is None or record.block_align is None or record.bits_per_sample is None:
+        return data
+    fmt_payload = (
+        record.format_tag.to_bytes(2, "little")
+        + record.channels.to_bytes(2, "little")
+        + record.sample_rate.to_bytes(4, "little")
+        + record.byte_rate.to_bytes(4, "little")
+        + record.block_align.to_bytes(2, "little")
+        + record.bits_per_sample.to_bytes(2, "little")
+    )
+    return b"fmt " + len(fmt_payload).to_bytes(4, "little") + fmt_payload + b"data" + len(data).to_bytes(4, "little") + data
+
+
 def portable_audio_bytes(record: PcmRecord, raw: bytes) -> bytes:
     if record.media_type == "wave_chunks":
         if record.codec == "mpeg_layer3_wave" and record.data_offset is not None and record.data_size is not None:
             return raw[record.data_offset : record.data_offset + record.data_size]
         return make_riff_wave(raw[: record.content_size])
+    if record.media_type == "wave_data_slice":
+        return make_riff_wave(wave_chunks_for_record(record, raw[: record.content_size]))
+    if record.media_type == "mp3_data_slice":
+        return raw[: record.content_size]
     return raw[: record.content_size]
 
 
@@ -462,6 +671,8 @@ def extract_pcmdata_for_source(source: Any, out_dir: Path, args: argparse.Namesp
         references = references[: args.limit]
 
     reader = SsedRandomReader(pcmdata_path)
+    header_sample = reader.read(0, min(PCMDATA_DIRECTORY_BYTES, reader.expanded_size))
+    shared_wave = detect_shared_wave_stream(header_sample)
     intervals, range_invalid = referenced_intervals(references, reader)
     gaps = unreferenced_gaps(intervals, reader.expanded_size)
 
@@ -505,7 +716,7 @@ def extract_pcmdata_for_source(source: Any, out_dir: Path, args: argparse.Namesp
                 out.write("\n")
                 continue
             raw = reader.read(start, size)
-            parsed = parse_pcmdata_record(raw, start)
+            parsed = parse_pcmdata_record(raw, start, shared_wave=shared_wave)
             if parsed is None:
                 invalid_referenced_records += 1
                 item = {
@@ -579,7 +790,6 @@ def extract_pcmdata_for_source(source: Any, out_dir: Path, args: argparse.Namesp
                 out.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")))
                 out.write("\n")
 
-    header_sample = reader.read(0, min(PCMDATA_DIRECTORY_BYTES, 256))
     nonzero_gaps = 0
     for start, end in gaps:
         if end < PCMDATA_DIRECTORY_BYTES:
@@ -597,7 +807,8 @@ def extract_pcmdata_for_source(source: Any, out_dir: Path, args: argparse.Namesp
         "pcmdata_start_block": reader.start_block,
         "pcmdata_end_block": reader.end_block,
         "pcmdata_expanded_bytes": reader.expanded_size,
-        "directory_header_sample": header_sample.hex(),
+        "directory_header_sample": header_sample[:256].hex(),
+        "shared_wave_stream": shared_wave.as_dict() if shared_wave is not None else None,
         "audio_references": len(references),
         "unique_referenced_records": len({reference.pointer.payload for reference in references}),
         "duplicate_references": duplicate_references,

@@ -808,8 +808,10 @@ invalid_pointer
 unsupported_codec
 ```
 
-`ARCHSIC3` currently uses `unclassified_payload` for valid `PCMDATA.DIC`
-ranges that are not yet RIFF/WAVE, native ID3/MP3, or MPEG-in-WAVE.
+`PCMDATA.DIC` records may be self-contained records or shared-container
+slices. Shared-container slices, observed in `ARCHSIC3`, keep the raw pointer
+range as the media reference and resolve the output format from the
+component-level WAVE `fmt ` header.
 
 ## Dereference
 

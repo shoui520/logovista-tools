@@ -83,6 +83,12 @@ The exact semantic names vary by dictionary, but the broad pattern is stable:
 title components store readable headword/title streams, index components store
 binary search data and pointers, and `HONMON.DIC` often stores bodies.
 
+Some catalogs declare optional resources with start/end block `0`. Observed
+Windows renderer packages can list `GA16FULL` / `GA16HALF` this way while
+omitting the physical files and using renderer-side gaiji/display evidence
+instead. A zero-block declaration is an absent optional resource, not a missing
+positive-length component.
+
 ## `SSEDDATA` `.DIC`
 
 Every compressed `.DIC` component starts with:

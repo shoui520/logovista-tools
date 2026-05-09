@@ -1,5 +1,6 @@
 import plistlib
 import sqlite3
+from argparse import Namespace
 
 import pytest
 
@@ -50,11 +51,13 @@ from logovista_tools.indexes import (
 from logovista_tools.menus import build_menu_tree, parse_menu_destination, parse_menu_stream, resolve_menu_destination
 from logovista_tools.multi import parse_multi_descriptor
 from logovista_tools.pcmdata import (
+    detect_shared_wave_stream,
     make_riff_wave,
     parse_pcm_pointer,
     parse_pcmdata_record,
     portable_audio_bytes,
 )
+from logovista_tools.profiles import ProfileTarget, build_profile
 from logovista_tools.rendererdb import (
     blob_extension,
     discover_android_body_databases,
@@ -167,6 +170,23 @@ def _ssedinfo_record(
     return bytes(record)
 
 
+def _minimal_sseddata(payload: bytes) -> bytes:
+    expanded = payload + bytes(2048 - len(payload))
+    header = bytearray(64)
+    header[:8] = b"SSEDDATA"
+    header[0x16:0x18] = (1).to_bytes(2, "big")
+    header[0x18:0x1C] = (2).to_bytes(4, "big")
+    header[0x1C:0x20] = (2).to_bytes(4, "big")
+    data = bytearray(header)
+    data.extend((68).to_bytes(4, "big"))
+    data.extend(b"\x00\x00")
+    data.extend(len(expanded).to_bytes(2, "big"))
+    data.append(0)
+    for value in expanded:
+        data.extend(bytes((0, 0, value)))
+    return bytes(data)
+
+
 def test_parse_ssedinfo_supports_shifted_multiview_catalog(tmp_path) -> None:
     title = "模範六法".encode("cp932")
     header = bytearray(0x7F)
@@ -189,6 +209,31 @@ def test_parse_ssedinfo_supports_shifted_multiview_catalog(tmp_path) -> None:
     assert layout.trailing_bytes == 4
     assert [element.filename for element in elements] == ["HONMON.DIC", "FKINDEX.DIC"]
     assert parse_ssedinfo(path)[1][1].type == 0x90
+
+
+def test_profile_ignores_missing_zero_block_components(tmp_path) -> None:
+    header = bytearray(0x80)
+    header[:8] = b"SSEDINFO"
+    header[0x4D] = 2
+    data = bytes(header)
+    data += _ssedinfo_record(type_byte=0x00, start=2, end=2, data=b"\x02\x00\x00\x00", filename=b"HONMON.DIC")
+    data += _ssedinfo_record(type_byte=0xF1, start=0, end=0, data=b"\x00\x00\x00\x00", filename=b"GA16FULL")
+    idx = tmp_path / "TEST.IDX"
+    idx.write_bytes(data)
+    (tmp_path / "HONMON.DIC").write_bytes(_minimal_sseddata(b""))
+
+    _title, elements = parse_ssedinfo(idx)
+    profile = build_profile(
+        ProfileTarget(dict_id="TEST", idx=idx, title="", elements=elements),
+        [tmp_path],
+        Namespace(parse_mode="forensic", max_slices=1, max_issue_samples=5, hash_files=False, skip_index_scan=True),
+    )
+
+    assert profile["classification"]["status"] == "ok"
+    assert profile["classification"]["missing_components"] == []
+    ga16 = next(row for row in profile["catalog"]["components"] if row["filename"] == "GA16FULL")
+    assert ga16["present"] is False
+    assert ga16["block_count"] == 0
 
 
 def test_decode_jis_pair_and_line_break() -> None:
@@ -523,6 +568,30 @@ def test_pcmdata_parses_wave_chunks_and_writes_riff_wrapper() -> None:
     assert record.trailing_zero_bytes == 12
     assert [chunk.tag for chunk in chunks] == ["fmt ", "data"]
     assert portable_audio_bytes(record, raw) == make_riff_wave(raw[: record.content_size])
+
+
+def test_pcmdata_detects_shared_wave_slices_and_writes_riff_wrapper() -> None:
+    wave = pcm_wave_chunks(8)[:-12]
+    shared = b"\x01\x00\x20\x00" + (b"\x00" * 28) + wave
+    shared_wave = detect_shared_wave_stream(shared[:80])
+
+    assert shared_wave is not None
+    assert shared_wave.fmt_offset == 32
+    assert shared_wave.data_offset == 64
+    assert shared_wave.data_size == 8
+
+    raw_slice = shared[shared_wave.data_offset : shared_wave.data_offset + 4]
+    parsed = parse_pcmdata_record(raw_slice, shared_wave.data_offset, shared_wave=shared_wave)
+
+    assert parsed is not None
+    record, chunks = parsed
+    assert chunks == []
+    assert record.media_type == "wave_data_slice"
+    assert record.codec == "pcm"
+    assert record.extension == "wav"
+    assert record.shared_fmt_offset == 32
+    assert record.shared_data_offset == 64
+    assert portable_audio_bytes(record, raw_slice) == make_riff_wave(pcm_wave_chunks(4)[:-12])
 
 
 def test_pcmdata_extracts_mpeg_wave_data_as_mp3() -> None:

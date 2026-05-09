@@ -947,7 +947,9 @@ Useful options:
 For `fmt `/`data` PCM records, `--write-audio` wraps the raw chunks in a
 standard `RIFF/WAVE` container. For MPEG Layer III records stored inside WAVE
 chunks, it writes the `data` chunk as `.mp3`. For native `ID3`/MP3 records, it
-writes the MP3 payload directly.
+writes the MP3 payload directly. For shared-WAVE stores such as `ARCHSIC3`,
+each HONMON pointer range is emitted as a `wave_data_slice` and wrapped with
+the component-level `fmt ` parameters.
 
 ### `extras`
 

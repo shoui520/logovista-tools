@@ -458,7 +458,11 @@ def build_profile(target: ProfileTarget, roots: list[Path], args: argparse.Names
     components = [component_profile(target.idx, element, hash_files=args.hash_files) for element in target.elements]
     role_counts = Counter(row["role"] for row in components)
     type_counts = Counter(row["type"] for row in components)
-    missing = [row["filename"] for row in components if not row["present"]]
+    missing = [
+        row["filename"]
+        for row in components
+        if not row["present"] and int(row.get("block_count") or 0) > 0
+    ]
     gaiji_profile = load_gaiji_profile(target.idx)
     image_profile = load_image_resource_profile(target.idx)
     exinfo = load_exinfo_for_idx(target.idx)

@@ -35,7 +35,7 @@ LVLMultiView SQLite:       14
 decoded model failures:     0
 ```
 
-The corresponding model-derived capability matrix was generated with:
+The corresponding model-derived capability matrix is generated with:
 
 ```bash
 logovista-tools capability-matrix \
@@ -43,47 +43,13 @@ logovista-tools capability-matrix \
   --out-dir /home/shoui/Agents/CodexMax/LogoVista/reports/capability-from-model
 ```
 
-Capability counts:
+The matrix records capability fields for raw HONMON body availability, index
+parsing, title parsing, gaiji display readiness, media resolution, and menu
+destination resolution. It also splits planning status into four profiles:
+`read_existing`, `export_existing`, `author_core_ssed_v0`, and
+`lossless_repack_existing`.
 
-```text
-raw HONMON body:       yes 174, no 28, n/a 59
-indexes fully parsed: yes 165, n/a 96
-titles fully parsed:  yes 111, n/a 150
-gaiji fully resolved: yes 179, no 1, n/a 81
-media refs resolved:  yes 83, no 1, n/a 177
-menu pointers:        yes 106, n/a 155
-```
-
-Read/export/author/repack planning status:
-
-```text
-read existing:         green 202, gray 59
-export existing:       green 173, yellow 1, red 28, gray 59
-author core SSED v0:   green 202, gray 59
-lossless repack:       green 148, red 54, gray 59
-```
-
-`gray` means non-SSED package family, currently LVED SQLCipher or
-LVLMultiView. Dense-HONMON dictionaries are recognized SSED packages whose raw
-HONMON is an anchor/dereference layer rather than a self-contained body stream.
-They do not block reading/classification or authoring a clean core SSED v0
-package. They remain stricter export/repack cases until the requested output
-path consumes the appropriate sidecar body provider.
-
-Top blocker counts by profile:
-
-```text
-read existing:   non_ssed_package_family 59
-export existing: non_ssed_package_family 59, body_requires_sidecar_or_is_missing 28,
-                 raw_body_not_self_contained 27, gaiji_not_fully_resolved 1,
-                 media_not_fully_resolved 1
-author core:     non_ssed_package_family 59
-lossless repack: non_ssed_package_family 59, missing_declared_components 30,
-                 body_requires_sidecar_or_is_missing 28, raw_body_not_self_contained 27,
-                 gaiji_not_fully_resolved 1, media_not_fully_resolved 1
-```
-
-The matrix exposes the current blockers clearly:
+Interpretation rules:
 
 - Dense-HONMON packages are valid SSED packages, but their raw HONMON is an
   anchor/dereference layer rather than a self-contained body stream. The model
@@ -95,12 +61,17 @@ The matrix exposes the current blockers clearly:
   package in this corpus is missing `HONMON.DIC` and `PCMDATA.DIC`, while the
   older iOS `GENIUS53` package has an intact readable `HONMON.DIC` and is
   green in the model matrix.
-- `NGYOKTUK` remains the only current raw-resource gaiji display exception.
-- `ARCHSIC3` remains the only current media classification exception.
+- `NGYOKTUK` has no direct raw gaiji resources, but renderer sidecar evidence
+  resolves entry-level display through row-aligned `HONBUN` HTML.
+- `ARCHSIC3`'s `PCMDATA.DIC` is a shared WAVE store: HONMON pointers address
+  slices inside one component-level `data` chunk.
 - Menu destinations no longer produce current blockers. Packed
   `000000000000` menu payloads are null/sentinel destinations, not unresolved
   pointers, and `MUL*.DIC` selector streams can legitimately contain only null
   destinations.
+
+After focused NGYOKTUK and ARCHSIC3 fixes, regenerate the full matrix before
+quoting aggregate readiness counts.
 
 ## Windows SSED Corpus Profile
 
@@ -231,7 +202,7 @@ text/index/media byte residuals:
   unknown title bytes:         1   ITALIAN FHTITLE.DIC standalone 0x11
   known vendor title defect:   1   25IGAKU FHTITLE.DIC singleton 1f1f
   index tail bytes:            3   NANDOKU2 FHINDEX.DIC physical tail
-  PCMDATA unclassified refs: 235   ARCHSIC3 in-range unknown payloads
+  PCMDATA shared slices:     235   ARCHSIC3 shared WAVE data-slice records
 ```
 
 The staged pass also confirmed several practical compatibility points:
@@ -476,7 +447,7 @@ GA16 unknown header nonzero bytes:    0
 COLSCR nonzero unparsed bytes:        0
 COLSCR invalid referenced records:    0
 PCMDATA nonzero unparsed bytes:       0
-PCMDATA unclassified ref ranges:    235
+PCMDATA shared WAVE slices:         235
 .uni trailing bytes:                 72
 .uni nonzero trailing bytes:         14
 ```
@@ -521,8 +492,8 @@ The pass added several concrete format details:
   `KQSYNONM` component type `0x27` is handled as a text stream.
 - `COLSCR.DIC` records can wrap PNG payloads with the same `data` + little
   endian size header used by BMP/JPEG records.
-- `PCMDATA.DIC` pointer ranges are valid byte-addressed records even when the
-  payload codec is not yet classified.
+- `PCMDATA.DIC` pointer ranges can address self-contained audio records or
+  slices inside a shared component-level WAVE `data` chunk.
 
 The remaining component anomalies are intentionally small and named:
 
@@ -534,9 +505,9 @@ The remaining component anomalies are intentionally small and named:
   unknown byte span.
 - `HKDKSR14`, `HKDKSR30`, and `YHOUGO4` have small nonzero `.uni` trailers
   after all declared records are parsed.
-- `ARCHSIC3` has 235 in-range `PCMDATA.DIC` references whose byte intervals are
-  covered, but whose payloads are not RIFF/WAVE, native ID3/MP3, or the
-  currently classified MPEG-in-WAVE shape.
+- `ARCHSIC3` has 235 in-range `PCMDATA.DIC` references. They are contiguous
+  slices inside one shared WAVE `data` payload and are resolved as
+  `wave_data_slice` records.
 
 ## Corpus Gaiji Readiness
 
@@ -576,7 +547,7 @@ glyph slot `n` aligns with `.uni` half/full record `n`; the `.uni` record's
 code field is the raw body code. This resolves sparse codes in GENIUSEB,
 RDRSP2, Readers3, RPLUSREV, KENE7J5, KQNEWEJ6, KQNEWJE5, and related packages.
 
-Remaining display-unresolved dictionary under the default raw-resource policy:
+Display-unresolved dictionary under the default raw-resource-only policy:
 
 ```text
 NGYOKTUK   146 codes, 33,164 occurrences
@@ -649,8 +620,8 @@ gaiji_not_fully_resolved:            1
 
 The matrix makes the next reverse-engineering priorities more concrete:
 
-- treat `NGYOKTUK` as the remaining raw-resource gaiji exception and preserve
-  its `HONBUN` renderer rows as contextual display evidence;
+- include renderer sidecar evidence for `NGYOKTUK` model/gaiji readiness and
+  preserve its `HONBUN` renderer rows as contextual display evidence;
 - treat the legacy `menu_not_fully_resolved` counts above as superseded by the
   current model-derived matrix: null/sentinel menu destinations are now
   classified separately and no current menu pointer blockers remain;
@@ -658,7 +629,8 @@ The matrix makes the next reverse-engineering priorities more concrete:
   avoiding format conclusions from locally incomplete gathered packages;
 - keep the remaining vendor/corpus anomalies (`25IGAKU`, `ITALIAN`,
   `NANDOKU3`) explicitly named and measurable;
-- classify `ARCHSIC3`'s raw `PCMDATA.DIC` payloads.
+- preserve `ARCHSIC3`'s `wave_data_slice` PCMDATA references as shared-WAVE
+  slices rather than self-contained records.
 
 ## HONMON/IDX Corpus Audit
 
@@ -1497,10 +1469,12 @@ CREATE TABLE t_Search_N (
 
 ### NGYOKTUK Windows HONBUN Renderer Database
 
-`NGYOKTUK` (`日外 外国人名よみ方・綴り方字典`) is a body-stream dictionary whose
-raw HONMON entries are readable, but its Latin gaiji are not backed by `.uni`,
-GA16, plist, or package image resources. `EXINFO.INI` declares
-`GAIJI=NGYOKTUK.UNI`, but that file is absent from the package.
+`NGYOKTUK` (`日外 外国人名よみ方・綴り方字典`) uses a dense 32-byte HONMON
+entry table. The raw rows contain enough visible label text to align entries,
+but the full formatted display body lives in a renderer sidecar. Its Latin
+gaiji are not backed by `.uni`, GA16, plist, or package image resources.
+`EXINFO.INI` declares `GAIJI=NGYOKTUK.UNI`, but that file is absent from the
+package.
 
 The encrypted sibling `vlpljblF` decrypts with the LogoFontCipher key to a
 SQLite database with a single `HONBUN` table:

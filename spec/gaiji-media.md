@@ -225,6 +225,12 @@ export, the toolkit wraps PCM chunks into a standard WAVE file. If the WAVE
 format tag is `0x0055` (`MPEG Layer III`), the toolkit writes the `data` chunk
 as `.mp3` instead. Native `ID3`/MP3 records are written directly as `.mp3`.
 
+`PCMDATA.DIC` can also store one component-level WAVE header followed by one
+large `data` payload. In that shape, HONMON `1f4a` pointers address byte ranges
+inside the shared `data` payload rather than self-contained per-reference
+records. The toolkit reports these references as `wave_data_slice` records and
+wraps each slice with the shared `fmt ` parameters for portable WAV output.
+
 Verified examples:
 
 | Dictionary | HONMON refs | Unique refs | Unreferenced records | Payload formats |
@@ -236,7 +242,7 @@ Verified examples:
 | `Readers3` | 14,050 | 13,995 | 0 | MPEG Layer III stored inside WAVE chunks |
 | `ROYALEGR` | 295 | 295 | 0 | PCM WAVE chunks |
 | `SINMEI7` | 84,372 | 68,437 | 0 | Native ID3/MP3 records |
-| `ARCHSIC3` | 235 | 235 | 0 | unclassified raw payload ranges |
+| `ARCHSIC3` | 235 | 235 | 0 | shared WAVE `data` slices, mono 44.1 kHz, 16-bit |
 
 The unreferenced count matters: `PCMDATA.DIC` is not merely a lookup table for
 HONMON references. It is a sequential media store, and some records can exist
@@ -244,10 +250,10 @@ between referenced ranges. The `pcmdata` command therefore reports both
 HONMON-referenced records and unreferenced records found in nonzero gaps.
 
 Corpus-wide component forensics currently covers 12 `PCMDATA.DIC` components
-with zero nonzero unparsed bytes. `ARCHSIC3` contributes 235 referenced ranges
-whose start/end pointers are valid and whose bytes are therefore accounted for,
-but the payload codec/container is not yet identified. Those ranges are kept as
-`unknown_audio_payload` instead of being forced into WAV or MP3.
+with zero nonzero unparsed bytes. `ARCHSIC3` is the observed shared-WAVE
+variant: its first 64 bytes contain a small prelude plus `fmt `/`data` headers,
+and all 235 referenced ranges are contiguous slices inside that shared data
+chunk.
 
 ## `.uni` Files
 

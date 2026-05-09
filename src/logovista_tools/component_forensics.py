@@ -40,6 +40,7 @@ from .pcmdata import (
     PCMDATA_TYPE,
     PCM_CONTROL,
     PcmReference,
+    detect_shared_wave_stream,
     mp3_frame_sync,
     parse_pcm_pointer,
     pointer_relative_range,
@@ -1170,6 +1171,7 @@ def pcmdata_report(
 ) -> dict[str, Any]:
     reader = SsedRandomReader(source)
     data = expand_sseddata_file(source)
+    shared_wave = detect_shared_wave_stream(data[: min(len(data), PCMDATA_DIRECTORY_BYTES)])
     references = iter_pcm_references_fast(honmon) if honmon else []
     intervals: list[tuple[int, int]] = []
     valid_refs = 0
@@ -1188,6 +1190,9 @@ def pcmdata_report(
         intervals.append((start, end))
         covered.append((start, end))
         classified = inspect_pcmdata_prefix(data[start : start + min(size, 4096)])
+        if classified is None and shared_wave is not None and shared_wave.contains(start, size):
+            media_type = "mp3_data_slice" if shared_wave.codec == "mpeg_layer3_wave" else "wave_data_slice"
+            classified = (media_type, shared_wave.codec)
         if classified is None:
             invalid_refs += 1
             media_types["unknown_audio_payload"] += 1
@@ -1220,6 +1225,7 @@ def pcmdata_report(
         "end_block": reader.end_block,
         "expanded_bytes": expanded_size,
         "directory_bytes": min(expanded_size, PCMDATA_DIRECTORY_BYTES),
+        "shared_wave_stream": shared_wave.as_dict() if shared_wave is not None else None,
         "honmon_references": len(references),
         "unique_honmon_references": len({reference.pointer.payload for reference in references}),
         "valid_referenced_records": valid_refs,

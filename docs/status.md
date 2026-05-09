@@ -65,7 +65,7 @@ LogoVista dictionary model.
 - `COLSCR.DIC` media pointer decoding and referenced BMP/JPEG/PNG extraction.
 - `PCMDATA.DIC` audio/media pointer decoding, unreferenced-record discovery,
   referenced-range byte coverage, and portable WAV/MP3 writing for classified
-  payloads.
+  payloads, including shared WAVE data-slice stores such as `ARCHSIC3`.
 - Package image discovery from iOS `img`, Windows `Templates` / `HANREI/img`,
   Android resource folders, platformless `res` / `resources` / `templates`
   folders, and sibling `*_GAIJI` companion directories.
@@ -143,10 +143,10 @@ LogoVista dictionary model.
   anchor plus renderer SQLite schema variant.
 - Full corpus Decoded Model v0 generation over 261 package targets with
   chunked output, resume, progress, gaiji readiness, and family-aware deferred
-  models for LVED/LVLMultiView. The derived capability matrix currently reports
-  `read_existing` as green 202, gray 59; `export_existing` as green 173,
-  yellow 1, red 28, gray 59; `author_core_ssed_v0` as green 202, gray 59; and
-  `lossless_repack_existing` as green 148, red 54, gray 59.
+  models for LVED/LVLMultiView. The model-derived capability matrix is the
+  preferred planning report for `read_existing`, `export_existing`,
+  `author_core_ssed_v0`, and `lossless_repack_existing`; regenerate it after
+  focused parser fixes before quoting aggregate readiness counts.
 
 ## Experimental / Active Reverse Engineering
 
@@ -186,15 +186,15 @@ LogoVista dictionary model.
   three `.uni` files have small nonzero trailers after all parsed records.
   `HABGESPA.uni` is not in this residual group anymore; it is parsed as a
   single-section simple12 `.uni` file.
-- `ARCHSIC3` has 235 in-range `PCMDATA.DIC` pointer ranges whose payload bytes
-  are accounted for but whose audio codec/container is not yet classified.
 - Named UI/style images such as `exam.png` are discovered, but mapping them to
   semantic entry regions is dictionary-specific.
-- The default raw-resource gaiji readiness pass has one display-unresolved
-  dictionary: `NGYOKTUK`. Its encrypted `vlpljblF` sidecar decrypts to a
-  row-ordered `HONBUN` renderer database that matches raw HONMON entry slices,
-  so `gaiji-readiness --renderer-sidecars` can recover entry-level display.
-  This is contextual renderer evidence, not a dictionary-global gaiji map.
+- The default raw-resource gaiji readiness pass intentionally does not use
+  Windows renderer databases. `NGYOKTUK` has no direct `.uni`/GA16/image gaiji
+  resources, but its encrypted `vlpljblF` sidecar decrypts to row-ordered
+  `HONBUN` renderer HTML that matches raw HONMON entry slices. Authoritative
+  model/gaiji readiness runs should include renderer sidecar evidence for that
+  package; the result is display-ready but contextual rather than a
+  dictionary-global `code -> Unicode` map.
 - `dump-package-model` embeds sampled rows by default so normal runs stay
   manageable; use zero-valued limits for exhaustive per-package inspection.
   Chunked output externalizes row families, but extraction is not yet fully
@@ -256,27 +256,23 @@ Next priorities:
 2. **Dereference expansion and validation.** The first-class rows now exist;
    next, increase verified sidecar/body-link coverage, add per-kind metrics,
    and make dereference failures compare cleanly in redacted corpus regression.
-3. **NGYOKTUK renderer-backed gaiji.** Keep `NGYOKTUK` as the named
-   raw-resource exception: its display is recoverable through row-aligned
-   `HONBUN` HTML, but a lossless IR/exporter must preserve raw gaiji
-   provenance because some codes are contextual rather than dictionary-global.
-4. **Corpus regression harness.** Commit redacted expected metrics generated
+3. **Corpus regression harness.** Commit redacted expected metrics generated
    from owned corpora, then add a comparison command that flags changed shape
    counts, unknown counts, parse failures, and dereference coverage without
    storing dictionary text.
-5. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
+4. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
    media extractors, and exporters consume the same classification/profile
    layer instead of each command rediscovering package shape independently.
-6. **Streaming model output / memory-aware scheduling.** `--chunked` fixes
+5. **Streaming model output / memory-aware scheduling.** `--chunked` fixes
    output shape, but large package workers still build bounded sections in
    memory. Add streaming JSONL paths or size-aware scheduling before exhaustive
    all-limits corpus runs.
-7. **Renderer parity.** Build small local parity fixtures for body text,
+6. **Renderer parity.** Build small local parity fixtures for body text,
    literal spans, URL spans, gaiji images, named section images, media links,
    menu destinations, and dense-anchor renderer bodies.
-10. **Exporter layer.** After the decoded model stabilizes, implement debug HTML
+7. **Exporter layer.** After the decoded model stabilizes, implement debug HTML
    first, then Yomitan structured v3 and MDict as views over the same model
    rather than separate parsers.
-11. **Writer research.** Start only after the model can round-trip addresses,
+8. **Writer research.** Start only after the model can round-trip addresses,
    indexes, gaiji/media references, and dense-anchor relationships with
    measurable unknowns near zero on the corpus.
