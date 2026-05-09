@@ -1718,6 +1718,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Open/decrypt vlpljbl SQLite sidecars for schema roles. Can be slow on huge Windows packages.",
     )
     p_model.add_argument(
+        "--full-profile-indexes",
+        action="store_true",
+        help=(
+            "Also run the exhaustive profile index scan inside the model's profile section. "
+            "By default dump-package-model leaves index parsing to the bounded indexes section."
+        ),
+    )
+    p_model.add_argument(
+        "--full-entry-boundaries",
+        action="store_true",
+        help=(
+            "Collect all index-derived HONMON entry boundaries before sampling entry spans. "
+            "By default dump-package-model uses marker boundaries for bounded entry samples."
+        ),
+    )
+    p_model.add_argument(
+        "--skip-row-models",
+        action="store_true",
+        help="Skip title/index/menu row extraction in the package model; useful for very large packages.",
+    )
+    p_model.add_argument(
         "--include-playback-rows",
         action="store_true",
         help="Embed SIZK playback rows instead of summary-only playback metadata.",
@@ -1729,6 +1750,9 @@ def build_parser() -> argparse.ArgumentParser:
         include_raw=True,
         include_padding_spans=True,
         include_internal_indexes=False,
+        full_profile_indexes=False,
+        full_entry_boundaries=False,
+        skip_row_models=False,
         func=cmd_dump_package_model,
     )
 

@@ -285,14 +285,55 @@ def scan_indexes_for_profile(
     return {"aggregate": aggregate, "components": components}, boundary_offsets, first_error
 
 
+def skipped_indexes_for_profile(target: ProfileTarget) -> tuple[dict[str, Any], set[int], str | None]:
+    components: list[dict[str, Any]] = []
+    aggregate: dict[str, int] = {
+        "components": 0,
+        "present_components": 0,
+        "expand_errors": 0,
+        "internal_pages": 0,
+        "leaf_pages": 0,
+        "internal_rows": 0,
+        "leaf_rows": 0,
+        "search_groups": 0,
+        "unknown_leaf_bytes": 0,
+        "scan_skipped": 1,
+    }
+    for element in target.elements:
+        if element.type not in INDEX_TYPES:
+            continue
+        aggregate["components"] += 1
+        source = find_case_insensitive(target.idx.parent, element.filename)
+        if source is not None:
+            aggregate["present_components"] += 1
+        components.append(
+            {
+                "filename": element.filename,
+                "type": f"{element.type:02x}",
+                "start_block": element.start,
+                "present": source is not None,
+                "status": "not_scanned",
+                "reason": "profile index scan skipped",
+            }
+        )
+    return {"aggregate": aggregate, "components": components}, set(), None
+
+
 def honmon_profile(target: ProfileTarget, args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
+    skip_index_scan = bool(getattr(args, "skip_index_scan", False))
     honmon_element = next((e for e in target.elements if e.filename.upper() == "HONMON.DIC"), None)
     if honmon_element is None:
-        indexes, _boundaries, _index_error = scan_indexes_for_profile(target)
+        if skip_index_scan:
+            indexes, _boundaries, _index_error = skipped_indexes_for_profile(target)
+        else:
+            indexes, _boundaries, _index_error = scan_indexes_for_profile(target)
         return {"present": False, "status": "no_honmon_component"}, indexes
     honmon_path = find_case_insensitive(target.idx.parent, honmon_element.filename)
     if honmon_path is None:
-        indexes, _boundaries, _index_error = scan_indexes_for_profile(target)
+        if skip_index_scan:
+            indexes, _boundaries, _index_error = skipped_indexes_for_profile(target)
+        else:
+            indexes, _boundaries, _index_error = scan_indexes_for_profile(target)
         return {"present": False, "status": "missing_honmon_file"}, indexes
 
     row: dict[str, Any] = {
@@ -308,11 +349,15 @@ def honmon_profile(target: ProfileTarget, args: argparse.Namespace) -> tuple[dic
         return row, indexes
 
     marker_count = expanded.count(ENTRY_MARKER)
-    indexes, index_boundaries, index_error = scan_indexes_for_profile(
-        target,
-        honmon_start_block=honmon_element.start,
-        expanded_size=len(expanded),
-    )
+    if skip_index_scan:
+        indexes, index_boundaries, index_error = skipped_indexes_for_profile(target)
+        index_error = "profile_index_scan_skipped"
+    else:
+        indexes, index_boundaries, index_error = scan_indexes_for_profile(
+            target,
+            honmon_start_block=honmon_element.start,
+            expanded_size=len(expanded),
+        )
 
     gaiji_profile = load_gaiji_profile(target.idx)
     image_profile = load_image_resource_profile(target.idx)

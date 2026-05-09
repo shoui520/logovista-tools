@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -290,10 +291,23 @@ def extract_honmon_byte_reports_for_args(args: argparse.Namespace) -> list[dict[
         targets = [target for target in targets if target.dict_id in selected or target.idx.stem in selected]
     args.out_dir.mkdir(parents=True, exist_ok=True)
     task_args = worker_args(args)
+    completed = 0
+    total = len(targets)
+
+    def on_result(row: dict[str, Any]) -> None:
+        nonlocal completed
+        completed += 1
+        print(
+            f"honmon-bytes progress {completed}/{total}: {row.get('dict_id', '?')}",
+            file=sys.stderr,
+            flush=True,
+        )
+
     rows = parallel_map_ordered(
         _scan_task,
         [(target, roots, task_args) for target in targets],
         jobs=getattr(args, "jobs", 1),
+        on_result=on_result,
     )
     (args.out_dir / "summary.json").write_text(
         json.dumps(corpus_honmon_byte_summary(rows, args.out_dir), ensure_ascii=False, indent=2),

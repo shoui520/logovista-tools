@@ -16,15 +16,15 @@ from typing import Any
 from .colscr import extract_colscr_for_source
 from .entries import DictionarySource, discover_dictionaries, iter_entry_slices_with_boundaries
 from .gaiji import candidate_gaiji_paths, load_gaiji_profile, parse_ga16_resource, parse_uni_resource
-from .indexes import collect_index_body_offsets_for_idx, extract_indexes_for_idx
+from .indexes import INDEX_TYPES, collect_index_body_offsets_for_idx, extract_indexes_for_idx
 from .menus import extract_menus_for_idx
 from .pcmdata import extract_pcmdata_for_source
 from .profiles import ProfileTarget, build_profile
-from .resources import load_image_resource_profile, relative_image_source
+from .resources import candidate_image_dirs, load_image_resource_profile, relative_image_source
 from .sizk import inspect_sizk_package, is_sizk_package
 from .spans import LosslessDecodeError, decode_lossless_spans
 from .ssed import BLOCK_SIZE, expand_sseddata_file_with_storage, find_case_insensitive, parse_ssedinfo_with_layout
-from .titles import extract_titles_for_idx
+from .titles import TITLE_TYPES, extract_titles_for_idx
 from .windows import (
     aux_index_row_to_json,
     classify_hc_renderer_file,
@@ -131,14 +131,14 @@ def detect_platform_wrapper_for_idx(idx: Path) -> dict[str, Any]:
     if markers["sizk"]:
         platform = "windows-sizk"
         family = "ssed-sizk-read-aloud"
-    elif markers["exinfo"] or markers["hc_renderer"] or markers["vlpljbl"]:
-        platform = "windows"
-        family = "ssed"
     elif markers["android_conf"]:
         platform = "android"
         family = "ssed"
     elif markers["dictlist_plist"] or markers["ios_gaiji_plist"]:
         platform = "ios"
+        family = "ssed"
+    elif markers["exinfo"] or markers["hc_renderer"] or markers["vlpljbl"] or markers["numeric_aux_indexes"]:
+        platform = "windows"
         family = "ssed"
     else:
         platform = "unknown"
@@ -187,6 +187,7 @@ def profile_for_idx(idx: Path, args: argparse.Namespace) -> dict[str, Any]:
         max_slices=args.profile_max_slices,
         max_issue_samples=args.max_issue_samples,
         hash_files=not args.no_hash,
+        skip_index_scan=(not getattr(args, "full_profile_indexes", False) and args.profile_max_slices != 0),
     )
     return build_profile(target, [idx.parent], profile_args)
 
@@ -203,14 +204,17 @@ def entry_span_samples(source: DictionarySource, args: argparse.Namespace) -> di
     expanded, storage = expand_sseddata_file_with_storage(source.honmon)
     index_boundary_offsets: set[int] = set()
     warnings: list[str] = []
-    try:
-        index_boundary_offsets = collect_index_body_offsets_for_idx(
-            source.idx,
-            honmon_start_block=source.honmon_start_block,
-            expanded_size=len(expanded),
-        )
-    except Exception as exc:
-        warnings.append(f"index boundary collection failed: {exc}")
+    if getattr(args, "full_entry_boundaries", False):
+        try:
+            index_boundary_offsets = collect_index_body_offsets_for_idx(
+                source.idx,
+                honmon_start_block=source.honmon_start_block,
+                expanded_size=len(expanded),
+            )
+        except Exception as exc:
+            warnings.append(f"index boundary collection failed: {exc}")
+    else:
+        warnings.append("index boundary collection skipped for bounded package model")
 
     limit = args.entry_limit
     gaiji_profile = load_gaiji_profile(source.idx)
@@ -428,9 +432,24 @@ def gaiji_resources(source: DictionarySource) -> dict[str, Any]:
 def static_package_resources_for_idx(idx: Path, sample_limit: int = 50) -> dict[str, Any]:
     package = idx.parent
     resource_dirs = []
-    for name in ("HANREI", "Help", "HTMLs", "Templates"):
-        path = package / name
-        if path.is_dir():
+    known_dir_names = {
+        "gaijitemp",
+        "hanrei",
+        "help",
+        "html",
+        "htmls",
+        "image",
+        "images",
+        "img",
+        "manual",
+        "panel",
+        "templates",
+    }
+    for path in sorted(package.iterdir()):
+        if path.is_dir() and path.name.lower() in known_dir_names:
+            resource_dirs.append(path)
+    for path in candidate_image_dirs(package):
+        if path.is_dir() and path not in resource_dirs:
             resource_dirs.append(path)
 
     root_files = [
@@ -456,15 +475,15 @@ def static_package_resources_for_idx(idx: Path, sample_limit: int = 50) -> dict[
         if len(samples) < sample_limit:
             samples.append(
                 {
-                    "path": str(path.relative_to(package)),
+                    "path": relative_image_source(path, idx),
                     "bytes": size,
                     "extension": suffix,
                 }
             )
 
     return {
-        "root_files": [str(path.relative_to(package)) for path in sorted(root_files)],
-        "directories": [str(path.relative_to(package)) for path in resource_dirs],
+        "root_files": [relative_image_source(path, idx) for path in sorted(root_files)],
+        "directories": [relative_image_source(path, idx) for path in resource_dirs],
         "file_count": len(files),
         "total_bytes": total_bytes,
         "extension_counts": dict(sorted(extension_counts.items())),
@@ -495,6 +514,30 @@ def media_summaries(source: DictionarySource, args: argparse.Namespace) -> dict[
 
 
 def title_index_menu_model(idx: Path, args: argparse.Namespace) -> dict[str, Any]:
+    if getattr(args, "skip_row_models", False):
+        _title, elements, _layout = parse_ssedinfo_with_layout(idx)
+        title_components = [element.filename for element in elements if element.type in TITLE_TYPES and element.start]
+        index_components = [element.filename for element in elements if element.type in INDEX_TYPES and element.start]
+        menu_components = [element.filename for element in elements if element.filename.upper() == "MENU.DIC" and element.start]
+        skipped = {
+            "status": "skipped",
+            "reason": "title/index/menu row model skipped by request",
+        }
+        return {
+            "titles": {
+                "summary": {**skipped, "component_count": len(title_components), "components": title_components},
+                "samples": [],
+            },
+            "indexes": {
+                "summary": {**skipped, "component_count": len(index_components), "components": index_components},
+                "samples": [],
+            },
+            "menus": {
+                "summary": {**skipped, "component_count": len(menu_components), "components": menu_components},
+                "samples": [],
+            },
+        }
+
     with tempfile.TemporaryDirectory(prefix="lv-model-rows-") as tmp:
         tmp_path = Path(tmp)
         title_args = argparse.Namespace(out_dir=tmp_path, limit=args.title_limit, gaiji="h-placeholder")

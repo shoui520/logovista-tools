@@ -674,11 +674,20 @@ Important options:
 --menu-limit N                     sample N menu nodes; use 0 for all
 --media-limit N                    inspect N COLSCR/PCMDATA references; use 0 for all
 --deep-sidecars                    inspect HC/vlpljbl sidecars more deeply
+--full-profile-indexes             run the exhaustive profile index scan
+--full-entry-boundaries            collect all index-derived HONMON boundaries
+--skip-row-models                  skip title/index/menu row extraction
 --no-raw                           omit raw_hex from embedded entry spans
 --no-padding-spans                 omit padding spans from embedded entry spans
 --include-internal-indexes         include internal/auxiliary index files
 --json                             print the model JSON to stdout as well
 ```
+
+By default, `dump-package-model` is bounded for practical per-package use: it
+does not run the expensive full profile index scan, and sampled entry spans use
+marker boundaries unless `--full-entry-boundaries` is requested. Use
+`--skip-row-models` for very large packages when the model only needs component
+and capability summaries.
 
 The command is intentionally not pretty. It is a contradiction finder. Missing
 declared components, empty raw-body packages, unresolved menu targets, raw
@@ -698,7 +707,9 @@ LogoVista packages often include a top-level `img` directory plus
 `resourcesCopy.plist` and `gaijiicon.plist`. Windows packages can put HTML
 renderer assets in `Templates` and `HANREI/img`; Android packages can omit
 plist manifests and put images in `resource/kmkimges`, `appendix/img`, or
-`manual/contents/img`. The resource scanner checks all of those locations,
+`manual/contents/img`. Some Windows packages also ship a sibling companion
+directory such as `_DCT_KANJIGN5_GAIJI`; the resource scanner checks those
+`*_GAIJI` directories too. The scanner checks all of those locations,
 groups theme variants such as
 `b13d_n.png` / `b13d_w.png` and Android-style `b167_1.png` / `b167_3.png`, and
 reports code-like resources such as `b13d` or `b167` as image-backed gaiji.

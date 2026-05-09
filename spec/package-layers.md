@@ -28,7 +28,7 @@ That core is the stable part. Platform packages wrap it differently:
 iOS       DictList.plist, Gaiji.plist, GaijiS.plist, resourcesCopy.plist,
           gaijiicon.plist, img/, html/, OTHER/, *.sql
 Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
-Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, *.chm, vlpljbl*,
+Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, sibling *_GAIJI/, *.chm, vlpljbl*,
           eight-hex-digit 00000xxx.idx sidecar trees, sometimes standalone
           auxiliary SPINDEX.DIC and sibling *_Sound_Files/ ziptomedia audio
 SIZK      classic SSED catalog plus HC0190.dll, HTMLs/b121-b124 templates,
@@ -103,7 +103,9 @@ The stable rule is magic/schema first, suffix second.
 `Gaiji.plist` and `GaijiS.plist` are therefore not generic LogoVista files.
 They are iOS packaging fallbacks observed in some products. Cross-platform
 gaiji handling should start from the dictionary-local `.uni`/`.UNI` file and
-then use platform-specific image/plist/font assets where present.
+then use platform-specific image/plist/font assets where present. Windows
+packages can also place image-backed gaiji in a sibling companion directory,
+as observed with `_DCT_KANJIGN5_GAIJI`.
 
 The core raw format has two layers:
 

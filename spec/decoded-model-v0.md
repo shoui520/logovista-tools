@@ -146,6 +146,12 @@ none
 unknown
 ```
 
+Wrapper markers are evidence, not mutually exclusive identities. For example,
+some iOS packages also contain Windows-looking files such as `EXINFO.INI`.
+Current package classification gives SIZK, Android `resource/conf.ini`, and
+iOS plist evidence precedence over generic Windows markers such as `EXINFO.INI`,
+HC DLLs, `vlpljbl*`, or numeric auxiliary indexes.
+
 ## Address
 
 `Address` is the most important shared object. It represents where something
@@ -486,6 +492,10 @@ Title rows are decoded from `*TITLE.DIC` streams or renderer/LVED equivalents.
 Title rows may not always have a resolved entry. The pointer relationship often
 comes from an index row, not the title stream itself.
 
+Large `dump-package-model` runs may emit title/index/menu summaries with
+`"status": "skipped"` and component counts instead of row samples. This is a
+bounded reporting mode, not a claim that the row grammars are unsupported.
+
 ## Index Row
 
 Index rows describe lookup-tree leaf records and optional branch rows.
@@ -649,8 +659,12 @@ avoid huge entry payloads.
 ## Static Package Resources
 
 Static resource records describe package files that are not SSED components but
-are still part of the product presentation: HTML help/front matter, CSS, JavaScript,
-template images, and helper pages declared by `EXINFO.INI`.
+are still part of the product presentation: HTML help/front matter, CSS,
+JavaScript, template images, panel assets, package image directories, and helper
+pages declared by `EXINFO.INI`. Resource discovery also includes sibling
+companion directories such as `_DCT_KANJIGN5_GAIJI` / `KANJIGN5_GAIJI`, because
+some Windows packages keep image-backed gaiji outside the main dictionary
+directory.
 
 ```json
 {

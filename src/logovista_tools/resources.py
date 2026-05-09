@@ -104,7 +104,7 @@ def image_key_and_theme(path: Path) -> tuple[str, str | None]:
 
 
 def candidate_image_dirs(root: Path) -> list[Path]:
-    return [
+    package_specific = [
         root / "img",
         root / "Templates",
         root / "HANREI" / "img",
@@ -114,6 +114,11 @@ def candidate_image_dirs(root: Path) -> list[Path]:
         root / "appendix" / "img",
         root / "manual" / "contents" / "img",
     ]
+    companion_names = {f"{root.name}_GAIJI"}
+    if root.name.upper().startswith("_DCT_"):
+        companion_names.add(f"{root.name[5:]}_GAIJI")
+    package_specific.extend(root.parent / name for name in sorted(companion_names))
+    return package_specific
 
 
 def relative_image_source(path: Path, package_hint: Path) -> str:

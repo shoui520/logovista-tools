@@ -26,7 +26,8 @@ LogoVista dictionary model.
 - Text-like `RIGHT.DIC`, `TOC.DIC`, and `IDXJUMP.DIC` sidecar decoding,
   including the `1f49` / `1f69` TOC link control pair.
 - Dictionary-local `.uni` gaiji mapping, including UTF-16 surrogate-pair
-  sequences, older 12-byte `.uni` files, and explicit trailer accounting.
+  sequences, two-section and single-section 12-byte `.uni` files, and explicit
+  trailer accounting.
 - `GA16HALF` / `GA16FULL` bitmap header parsing, glyph slicing, and PNG
   rendering, including packages where glyph slots are addressed by `.uni`
   record order rather than only by the sequential header range.
@@ -62,7 +63,7 @@ LogoVista dictionary model.
   referenced-range byte coverage, and portable WAV/MP3 writing for classified
   payloads.
 - Package image discovery from iOS `img`, Windows `Templates` / `HANREI/img`,
-  and Android resource folders.
+  Android resource folders, and sibling `*_GAIJI` companion directories.
 - SQL/`DictFULLDB`-assisted gaiji validation reports.
 - Raw-resource gaiji readiness reports that separate Unicode mappings,
   bitmap-backed glyphs, image-backed glyphs, probable formatting helpers,
@@ -97,7 +98,9 @@ LogoVista dictionary model.
 - `dump-package-model`, a package-level JSON report that gathers SSEDINFO,
   HONMON/body-source classification, entry spans, title/index/menu summaries,
   gaiji/media resources, Windows sidecar evidence, family notes, and
-  inconsistencies into one decoded model object.
+  inconsistencies into one decoded model object. Large per-package runs can
+  keep it bounded with skipped row models and opt-in full profile/index
+  boundary scans.
 - Corpus capability matrix generation from redacted `profile`,
   `honmon-bytes`, `component-forensics`, and optional `gaiji-readiness`
   outputs.
@@ -110,6 +113,10 @@ LogoVista dictionary model.
 - Full text-stream opcode atlas over 7,026,978,819 expanded bytes, with one
   unresolved singleton title-stream opcode/anomaly: `25IGAKU` `FHTITLE.DIC`
   `1f1f`.
+- Focused all-in staged audits over 182 high/medium/mobile/low-priority SSED
+  package targets, covering 3,687,534,595 expanded HONMON bytes with zero
+  unknown HONMON controls, zero unknown HONMON bytes, and zero invalid JIS
+  cells.
 
 ## Experimental / Active Reverse Engineering
 
@@ -142,7 +149,9 @@ LogoVista dictionary model.
   `NANDOKU2` has a 3-byte nonzero physical tail after full `FHINDEX.DIC` pages;
   `25IGAKU` has one title-stream `1f1f` control/anomaly with unknown renderer
   semantics; `ITALIAN` has one standalone title byte `0x11`; and three `.uni`
-  files have small nonzero trailers after all parsed records.
+  files have small nonzero trailers after all parsed records. `HABGESPA.uni`
+  is not in this residual group anymore; it is parsed as a single-section
+  simple12 `.uni` file.
 - `ARCHSIC3` has 235 in-range `PCMDATA.DIC` pointer ranges whose payload bytes
   are accounted for but whose audio codec/container is not yet classified.
 - Named UI/style images such as `exam.png` are discovered, but mapping them to

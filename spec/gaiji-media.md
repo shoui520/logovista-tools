@@ -335,7 +335,13 @@ Corpus summary from the local test collection:
 ```text
 Ver2 files:      GENIUSEB, HAESPJPN, HAFRAN, KOJIEN7, and most others
 simple12 files:  IWKOKUG8, KENROWA, SIZK shizuku.uni
+simple12-single: HABGESPA
 ```
+
+`simple12-single` files start with a 32-bit record count and then contain only
+12-byte records, with no second half/full count. HABGESPA uses this for
+Spanish punctuation and diacritic gaiji such as `A121 -> ¡`, `A123 -> ¿`, and
+`A124 -> Á`.
 
 In SIZK packages, the same `.uni` file also documents blank full-width gaiji
 records `B121` through `B124`. Those codes are not display characters; the raw
@@ -346,7 +352,7 @@ with an empty display sequence should be preserved as structural evidence
 rather than automatically treated as a missing character.
 
 The current Windows SSED component-forensics pass saw 90 `.uni` / `.UNI`
-files. All declared records parse under the two layouts above. The only
+files. All declared records parse under the layouts above. The only
 residuals are trailers after the parsed record tables:
 
 ```text

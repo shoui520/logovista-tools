@@ -98,6 +98,62 @@ The sole remaining forensic issue is `NANDOKU3`: the expanded stream ends with
 a lone final `0x1f` byte after decoded text. It is covered and reported as a
 truncated control; no opcode is inferred.
 
+## Focused All-In Corpus Pass
+
+After the model-consolidation work, a broader focused pass was run against
+priority Windows packages, medium-priority Windows packages, all available
+Android/iOS SSED packages, and the remaining lower-priority Windows SSED set.
+Scratch outputs were written outside the repository.
+
+The pass used process-level parallelism (`--jobs 0`) and progress-emitting
+batch scripts. It deliberately kept SQL/LVED dictionaries out of the SSED pass.
+
+Aggregate across these staged package targets:
+
+```text
+package targets:             182
+expanded HONMON bytes: 3,687,534,595
+bytes covered:         3,687,534,595
+unknown HONMON controls:             0
+unknown HONMON bytes:                0
+invalid JIS cells:                   0
+truncated controls:                  1
+```
+
+The one truncated control is still the known `NANDOKU3` final lone `0x1f`.
+
+Component-forensics across the same staged targets produced:
+
+```text
+component reports ok:      1,521
+missing declared files:       42
+text/index/media byte residuals:
+  unknown title bytes:         1   ITALIAN FHTITLE.DIC standalone 0x11
+  unknown title controls:      1   25IGAKU FHTITLE.DIC singleton 1f1f
+  index tail bytes:            3   NANDOKU2 FHINDEX.DIC physical tail
+  PCMDATA unclassified refs: 235   ARCHSIC3 in-range unknown payloads
+```
+
+The staged pass also confirmed several practical compatibility points:
+
+- `KANJIGN5` requires the sibling `_DCT_KANJIGN5_GAIJI` directory for its
+  image-backed gaiji. The resource scanner now discovers sibling
+  `*_GAIJI` companion directories instead of treating them as unrelated
+  packages.
+- Several iOS packages carry Windows-looking metadata such as `EXINFO.INI`.
+  Platform classification now treats iOS plist evidence as a stronger wrapper
+  marker than `EXINFO.INI`; markers are evidence, not mutually exclusive
+  package identities.
+- `HABGESPA.uni` introduced a third `.uni` layout: a single-section simple12
+  file with a 32-bit count followed immediately by 12-byte records and no
+  second full-width count. It maps Spanish punctuation/diacritic gaiji such as
+  `A121 -> ¡`, `A123 -> ¿`, `A124 -> Á`.
+- `KQJEXPRS` is a readable text-stream HONMON without normal entry markers.
+  It is classified separately as `text_stream_without_entry_markers`.
+- With renderer sidecars enabled, `NGYOKTUK` is display-ready through
+  contextual row-aligned `HONBUN` HTML. Without renderer sidecars, it remains
+  the named raw-resource gaiji exception.
+
 ## Corpus 0x1f Opcode Atlas
 
 The dedicated opcode atlas pass scans expanded SSED text-stream components:

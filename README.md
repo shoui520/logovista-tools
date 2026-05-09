@@ -71,6 +71,13 @@ corrected the GA16 model: header ranges advance by JIS row/cell order
 (`A121..A17E`, then `A221`), and some Windows GAI16 glyphs are additionally
 addressed by `.uni` record order.
 
+A later focused all-in pass over 182 high/medium/mobile/low-priority SSED
+package targets covered 3,687,534,595 expanded HONMON bytes with the same
+HONMON result: zero unknown controls, zero unknown bytes, zero invalid JIS
+cells, and the same named `NANDOKU3` final truncated control. That pass also
+added support for sibling `*_GAIJI` image directories and HABGESPA's
+single-section simple12 `.uni` layout.
+
 ## Install
 
 Use Python 3.10 or newer.
@@ -187,6 +194,14 @@ Dump one package-level decoded model report:
 
 ```bash
 logovista-tools dump-package-model /path/to/_DCT_HAESPJPN --out-dir out/package-model
+```
+
+For very large package probes, keep the model bounded:
+
+```bash
+logovista-tools dump-package-model /path/to/_DCT_EJJE100 \
+  --skip-row-models --entry-limit 80 --profile-max-slices 100 \
+  --out-dir out/package-model
 ```
 
 Extract readable body-stream entries:

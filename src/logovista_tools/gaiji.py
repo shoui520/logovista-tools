@@ -278,6 +278,8 @@ def parse_uni_resource(path: Path) -> UniResource | None:
       32-bit full count, 16-byte full records.
     - simple files: 32-bit half count, 12-byte half records, 32-bit full
       count, 12-byte full records. This layout appears in IWKOKUG8/KENROWA.
+    - single-section simple files: 32-bit count followed by 12-byte records
+      and no second count. This layout appears in HABGESPA.
     """
 
     data = path.read_bytes()
@@ -320,6 +322,19 @@ def parse_uni_resource(path: Path) -> UniResource | None:
     half_count = int.from_bytes(data[0:4], "big")
     half_offset = UNI_SIMPLE_HEADER_SIZE
     full_count_offset = half_offset + half_count * UNI_SIMPLE_RECORD_SIZE
+    if full_count_offset == len(data):
+        half_records, _half_seen = parse_uni_records(
+            data, half_offset, half_count, record_size=UNI_SIMPLE_RECORD_SIZE, section="half"
+        )
+        return UniResource(
+            path=path,
+            format="simple12-single",
+            half_count=half_count,
+            full_count=0,
+            records=tuple(half_records),
+            expected_size=full_count_offset,
+            trailing_bytes=0,
+        )
     if full_count_offset + 4 > len(data):
         return None
     full_count = int.from_bytes(data[full_count_offset : full_count_offset + 4], "big")

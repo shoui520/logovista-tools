@@ -71,6 +71,7 @@ from logovista_tools.rendererdb import (
     ziptomedia_reference_names,
     ziptomedia_source_path,
 )
+from logovista_tools.decoded_model import static_package_resources_for_idx
 from logovista_tools.resources import load_image_resource_profile, relative_image_source
 from logovista_tools.lvcrypto import (
     decrypt_logofont_cipher_bytes,
@@ -634,6 +635,26 @@ def test_load_simple12_uni_gaiji_map(tmp_path) -> None:
     assert mapping["b121"] == "Ё"
 
 
+def test_load_simple12_single_section_uni_gaiji_map(tmp_path) -> None:
+    path = tmp_path / "HABGESPA.uni"
+    path.write_bytes(
+        (2).to_bytes(4, "big")
+        + simple_uni_record(0xA121, (0, 0x00A1))
+        + simple_uni_record(0xA122, (0, 0x00AA))
+    )
+
+    resource = parse_uni_resource(path)
+    mapping, records_seen = load_uni_gaiji_map(path)
+
+    assert resource is not None
+    assert resource.format == "simple12-single"
+    assert resource.half_count == 2
+    assert resource.full_count == 0
+    assert records_seen == 2
+    assert mapping["a121"] == "¡"
+    assert mapping["a122"] == "ª"
+
+
 def test_load_uni_gaiji_map_later_sections_override_duplicate_codes(tmp_path) -> None:
     path = tmp_path / "TEST.uni"
     path.write_bytes(
@@ -873,6 +894,26 @@ def test_load_image_resource_profile_discovers_windows_templates(tmp_path) -> No
     assert profile.resources["inline"].default == templates / "inline.svg"
     assert relative_image_source(templates / "exam.png", idx) == "Templates/exam.png"
     assert relative_image_source(hanrei_img / "b159_M.png", idx) == "HANREI/img/b159_M.png"
+
+
+def test_load_image_resource_profile_discovers_sibling_gaiji_companion(tmp_path) -> None:
+    collection = tmp_path / "corpus"
+    package = collection / "_DCT_KANJIGN5"
+    companion = collection / "_DCT_KANJIGN5_GAIJI"
+    package.mkdir(parents=True)
+    companion.mkdir()
+    idx = package / "KANJIGN5.IDX"
+    idx.write_bytes(b"")
+    (companion / "b44c.png").write_bytes(b"png")
+
+    profile = load_image_resource_profile(idx)
+    static = static_package_resources_for_idx(idx)
+
+    assert companion in profile.image_dirs
+    assert "b44c" in profile.gaiji_image_keys
+    assert relative_image_source(companion / "b44c.png", idx) == "_DCT_KANJIGN5_GAIJI/b44c.png"
+    assert "_DCT_KANJIGN5_GAIJI" in static["directories"]
+    assert static["extension_counts"][".png"] == 1
 
 
 def test_parse_windows_exinfo_and_auxiliary_text_idx(tmp_path) -> None:
