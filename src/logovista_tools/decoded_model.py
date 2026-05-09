@@ -1300,18 +1300,6 @@ def title_index_menu_model(idx: Path, args: argparse.Namespace) -> dict[str, Any
 
 def package_notes(model: dict[str, Any]) -> list[dict[str, Any]]:
     notes: list[dict[str, Any]] = []
-    classification = model.get("classification", {})
-    honmon_shape = classification.get("honmon_shape")
-    body_source = classification.get("body_source_hint")
-    if honmon_shape in {"dense_marker_table", "dense_numeric_id_table", "dense_token_table"} or body_source == "honmon_anchor_dereference":
-        notes.append(
-            issue(
-                "dense_honmon",
-                "HONMON appears to be an anchor/table layer; complete body rendering needs a dereference path.",
-                honmon_shape=honmon_shape,
-                body_source_hint=body_source,
-            )
-        )
     if model.get("wrapper", {}).get("markers", {}).get("sizk"):
         notes.append(issue("sizk_read_aloud", "SIZK package uses template-selector HONMON entries and loose playback sidecars."))
     media = model.get("media", {}).get("pcmdata", {})
