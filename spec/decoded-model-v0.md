@@ -470,7 +470,7 @@ entry_marker
 index_derived
 marker_and_index
 dense_record
-db_row
+database_row
 lved_row
 manual
 unknown
@@ -810,27 +810,40 @@ ranges that are not yet RIFF/WAVE, native ID3/MP3, or MPEG-in-WAVE.
 ## Dereference
 
 Dereference records connect raw anchors or pointers to resolved bodies/assets.
+`dump-package-model` now emits these records directly in monolithic reports as
+`dereferences`, and in chunked reports as `dereferences.jsonl`.
 
 ```json
 {
   "id": "dereference:honmon-anchor:755",
+  "kind": "body_link",
   "from": {
     "kind": "dense_anchor",
     "component": "HONMON.DIC",
     "block": 13,
     "offset": 1602,
-    "anchor_type": "numeric_id",
-    "anchor_value": "755"
+    "row_id": 755
   },
   "to": {
-    "kind": "db_row",
-    "db": "DictFULLDB",
+    "kind": "database_row",
+    "database": "DictFULLDB",
     "table": "contents",
     "row_id": 755
   },
   "method": "dictfulldb_id",
+  "status": "resolved",
   "confidence": "proven"
 }
+```
+
+Observed dereference kinds:
+
+```text
+dense_honmon_anchor  raw 32-byte HONMON anchor records, normally numeric IDs
+body_link            raw HONMON or entry boundary to sidecar/database body row
+index_pointer        *INDEX.DIC leaf row to body/title pointer
+menu_destination     MENU.DIC link payload to component/body target
+media_reference      HONMON media/audio control to COLSCR/PCMDATA record
 ```
 
 Dereference methods:
@@ -851,6 +864,30 @@ ziptomedia_name
 unknown
 ```
 
+Observed status values:
+
+```text
+observed            source anchor/pointer was decoded, but no target is attached
+resolved            target was resolved or verified
+unresolved          target pointer could not be mapped to a known component
+unverified          target path/schema exists but was not opened in this run
+missing_target      target store opened but the row/record was absent
+invalid_pointer     pointer payload was structurally invalid or out of range
+unsupported_schema  sidecar/database exists but its body schema is unsupported
+error               parser or database access failed
+```
+
+Current coverage:
+
+- dense HONMON anchor records from `HONMON.DIC`;
+- DictFULLDB body links when the declared `t_contents` table is readable;
+- Windows renderer DB body links, with verified rows under `--deep-sidecars`
+  and unverified structural links otherwise;
+- Android body DB links using the observed `data_id = rowid * 5` rule;
+- index-derived body/title pointers from emitted index rows;
+- `MENU.DIC` destination pointers;
+- `COLSCR.DIC` and `PCMDATA.DIC` media/audio references.
+
 ## Sidecar Body
 
 Sidecar body records represent bodies that are not stored as readable HONMON
@@ -860,7 +897,7 @@ text, while retaining their raw anchor relationship.
 {
   "id": "body:rendererdb:12345",
   "source": {
-    "address": {"kind": "db_row", "db": "vlpljblb", "table": "t_contents", "row_id": 12345}
+    "address": {"kind": "database_row", "database": "vlpljblb", "table": "t_contents", "row_id": 12345}
   },
   "anchor": {
     "kind": "dense_anchor",

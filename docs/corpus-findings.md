@@ -82,10 +82,11 @@ lossless repack: non_ssed_package_family 59, missing_declared_components 30,
                  media_not_fully_resolved 1
 ```
 
-The matrix exposes the next model work clearly: split authoring readiness from
-existing-package repacker readiness, make dereference records first-class, keep
-NGYOKTUK as the only current raw-resource gaiji display exception, and resolve
-the remaining ARCHSIC3 media classification gap.
+The matrix exposes the next model work clearly: keep authoring readiness
+separate from existing-package repacker readiness, expand and validate
+first-class dereference records, keep NGYOKTUK as the only current raw-resource
+gaiji display exception, and resolve the remaining ARCHSIC3 media
+classification gap.
 
 ## Windows SSED Corpus Profile
 

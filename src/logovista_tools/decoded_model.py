@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ from typing import Any
 
 from .colscr import extract_colscr_for_source
 from .entries import DictionarySource, discover_dictionaries, iter_entry_slices_with_boundaries
+from .fulldb import find_fulldb
 from .gaiji import candidate_gaiji_paths, load_gaiji_profile, parse_ga16_resource, parse_uni_resource
 from .gaiji_readiness import extract_gaiji_readiness
 from .indexes import INDEX_TYPES, collect_index_body_offsets_for_idx, extract_indexes_for_idx
@@ -38,10 +40,26 @@ from .model_types import (
 from .multiview import discover_multiview_packages, inspect_multiview_package
 from .pcmdata import extract_pcmdata_for_source
 from .profiles import ProfileTarget, build_profile
+from .rendererdb import (
+    discover_android_body_databases,
+    honbun_columns,
+    iter_honmon_id_records as iter_dense_honmon_id_records,
+    prepare_sidecar_database,
+    quote_identifier,
+    t_contents_columns,
+    table_count,
+    table_exists,
+)
 from .resources import candidate_image_dirs, load_image_resource_profile, relative_image_source
 from .sizk import inspect_sizk_package, is_sizk_package
 from .spans import LosslessDecodeError, decode_lossless_spans
-from .ssed import BLOCK_SIZE, expand_sseddata_file_with_storage, find_case_insensitive, parse_ssedinfo_with_layout
+from .ssed import (
+    BLOCK_SIZE,
+    SsedInfoElement,
+    expand_sseddata_file_with_storage,
+    find_case_insensitive,
+    parse_ssedinfo_with_layout,
+)
 from .titles import TITLE_TYPES, extract_titles_for_idx
 from .windows import (
     aux_index_row_to_json,
@@ -87,6 +105,21 @@ def read_jsonl_samples(path: Path, limit: int) -> list[dict[str, Any]]:
     with path.open("r", encoding="utf-8") as handle:
         for line in handle:
             if len(rows) >= limit:
+                break
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    return rows
+
+
+def read_jsonl_records(path: Path, limit: int | None = None) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if limit is not None and limit > 0 and len(rows) >= limit:
                 break
             line = line.strip()
             if not line:
@@ -196,6 +229,103 @@ def component_address(element: Any, component_offset: int = 0) -> dict[str, Any]
         component_offset=component_offset,
         absolute_book_offset=(element.start - 1) * BLOCK_SIZE + component_offset if element.start else None,
     ).as_dict()
+
+
+def database_row_address(path: Path | str, table: str, row_id: str | int | None) -> dict[str, Any]:
+    db_path = Path(path)
+    return ModelAddress(
+        kind=AddressKind.DATABASE_ROW,
+        path=str(db_path),
+        database=db_path.name,
+        table=table,
+        row_id=row_id,
+    ).as_dict()
+
+
+def resource_address(path: Path | str, selector: str | None = None) -> dict[str, Any]:
+    resource_path = Path(path)
+    return ModelAddress(
+        kind=AddressKind.RESOURCE,
+        path=str(resource_path),
+        selector=selector,
+    ).as_dict()
+
+
+def component_address_by_name(
+    elements: list[SsedInfoElement],
+    component_name: str,
+    component_offset: int,
+) -> dict[str, Any]:
+    for element in elements:
+        if element.filename.upper() == component_name.upper():
+            return component_address(element, component_offset)
+    return ModelAddress(
+        kind=AddressKind.COMPONENT,
+        component=component_name,
+        component_offset=component_offset,
+    ).as_dict()
+
+
+def logical_pointer_address(
+    elements: list[SsedInfoElement],
+    *,
+    block: int,
+    offset: int,
+) -> dict[str, Any]:
+    for element in elements:
+        if element.start and element.start <= block <= element.end:
+            component_offset = (block - element.start) * BLOCK_SIZE + offset
+            return component_address(element, component_offset)
+    return ModelAddress(
+        kind=AddressKind.BOOK,
+        block=block,
+        offset=offset,
+        absolute_book_offset=(block - 1) * BLOCK_SIZE + offset,
+    ).as_dict()
+
+
+def dense_anchor_address(source: DictionarySource, record: Any) -> dict[str, Any]:
+    component_offset = (record.marker_block - source.honmon_start_block) * BLOCK_SIZE + record.marker_offset
+    return ModelAddress(
+        kind=AddressKind.DENSE_ANCHOR,
+        component="HONMON.DIC",
+        component_type="00",
+        block=record.marker_block,
+        offset=record.marker_offset,
+        component_offset=component_offset,
+        absolute_book_offset=(record.marker_block - 1) * BLOCK_SIZE + record.marker_offset,
+        row_id=record.data_id,
+    ).as_dict()
+
+
+def dereference_record(
+    *,
+    id: str,
+    kind: str,
+    method: str,
+    from_address: dict[str, Any] | None,
+    to_address: dict[str, Any] | None,
+    status: str,
+    confidence: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    row = {
+        "id": id,
+        "kind": kind,
+        "method": method,
+        "from": from_address,
+        "to": to_address,
+        "status": status,
+        "confidence": confidence,
+    }
+    row.update({key: value for key, value in extra.items() if value is not None})
+    return row
+
+
+def limited_rows(rows: list[Any], limit: int | None) -> list[Any]:
+    if limit is None or limit == 0:
+        return rows
+    return rows[: max(0, limit)]
 
 
 def normalize_classification(row: dict[str, Any]) -> dict[str, Any]:
@@ -718,10 +848,378 @@ def media_summaries(source: DictionarySource, args: argparse.Namespace) -> dict[
         pcm_args = argparse.Namespace(**common, write_audio=False, include_unreferenced=True)
         colscr = extract_colscr_for_source(source, Path(tmp), colscr_args)
         pcmdata = extract_pcmdata_for_source(source, Path(tmp), pcm_args)
+        colscr_records = read_jsonl_records(Path(colscr.get("manifest_path", "")), args.media_limit)
+        pcmdata_records = read_jsonl_records(Path(pcmdata.get("manifest_path", "")), args.media_limit)
         return {
-            "colscr": strip_temp_paths(colscr, "manifest_path"),
-            "pcmdata": strip_temp_paths(pcmdata, "manifest_path"),
+            "colscr": {**strip_temp_paths(colscr, "manifest_path"), "records": colscr_records},
+            "pcmdata": {**strip_temp_paths(pcmdata, "manifest_path"), "records": pcmdata_records},
         }
+
+
+def _sqlite_row_exists(con: sqlite3.Connection, table: str, column: str, value: Any) -> bool:
+    try:
+        row = con.execute(
+            f"select 1 from {quote_identifier(table)} where {quote_identifier(column)}=? limit 1",
+            (value,),
+        ).fetchone()
+    except sqlite3.DatabaseError:
+        return False
+    return row is not None
+
+
+def _raw_id_limit(args: argparse.Namespace) -> int | None:
+    return getattr(args, "sidecar_sample_limit", 20)
+
+
+def dense_anchor_and_body_dereferences(
+    source: DictionarySource,
+    elements: list[SsedInfoElement],
+    args: argparse.Namespace,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    try:
+        expanded, _storage = expand_sseddata_file_with_storage(source.honmon)
+    except Exception as exc:
+        return [
+            dereference_record(
+                id=f"dereference:{source.dict_id}:honmon-anchor:error",
+                kind="dense_honmon_anchor_scan",
+                method="dense_numeric_id",
+                from_address=None,
+                to_address=None,
+                status="error",
+                confidence="structural_only",
+                error=str(exc),
+            )
+        ]
+
+    raw_ids = list(iter_dense_honmon_id_records(expanded, honmon_start_block=source.honmon_start_block))
+    limited_ids = limited_rows(raw_ids, _raw_id_limit(args))
+    for record in limited_ids:
+        rows.append(
+            dereference_record(
+                id=f"dereference:{source.dict_id}:dense-anchor:{record.record_index}",
+                kind="dense_honmon_anchor",
+                method="dense_numeric_id",
+                from_address=dense_anchor_address(source, record),
+                to_address=None,
+                status="observed",
+                confidence="strongly_inferred",
+                anchor_type="numeric_id",
+                anchor_value=record.data_id,
+                record_index=record.record_index,
+                record_offset=record.record_offset,
+            )
+        )
+
+    fulldb = find_fulldb(source)
+    if fulldb is not None and raw_ids:
+        try:
+            con = sqlite3.connect(f"file:{fulldb}?mode=ro", uri=True)
+            try:
+                columns = t_contents_columns(con) if table_exists(con, "t_contents") else {}
+                data_id_col = columns.get("f_DataId")
+                row_count = table_count(con, "t_contents") if data_id_col else None
+                for record in limited_ids:
+                    exists = bool(data_id_col and _sqlite_row_exists(con, "t_contents", data_id_col, record.data_id))
+                    rows.append(
+                        dereference_record(
+                            id=f"dereference:{source.dict_id}:dictfulldb:{record.record_index}",
+                            kind="body_link",
+                            method="dictfulldb_id",
+                            from_address=dense_anchor_address(source, record),
+                            to_address=database_row_address(fulldb, "t_contents", record.data_id),
+                            status="resolved" if exists else "missing_target",
+                            confidence="proven" if exists else "strongly_inferred",
+                            anchor_value=record.data_id,
+                            target_rows=row_count,
+                        )
+                    )
+            finally:
+                con.close()
+        except sqlite3.DatabaseError as exc:
+            rows.append(
+                dereference_record(
+                    id=f"dereference:{source.dict_id}:dictfulldb:error",
+                    kind="body_link",
+                    method="dictfulldb_id",
+                    from_address=None,
+                    to_address=resource_address(fulldb),
+                    status="error",
+                    confidence="structural_only",
+                    error=str(exc),
+                )
+            )
+
+    android_dbs = discover_android_body_databases(source.idx, source.dict_id)
+    for body_db in android_dbs[:1]:
+        try:
+            con = sqlite3.connect(f"file:{body_db.path}?mode=ro", uri=True)
+            try:
+                for record in limited_ids:
+                    if record.data_id % 5:
+                        status = "invalid_pointer"
+                        row_id: int | None = None
+                    else:
+                        row_id = record.data_id // 5
+                        status = "resolved" if _sqlite_row_exists(con, body_db.table, "rowid", row_id) else "missing_target"
+                    rows.append(
+                        dereference_record(
+                            id=f"dereference:{source.dict_id}:android-body:{record.record_index}",
+                            kind="body_link",
+                            method="android_rowid_times_5",
+                            from_address=dense_anchor_address(source, record),
+                            to_address=database_row_address(body_db.path, body_db.table, row_id),
+                            status=status,
+                            confidence="proven" if status == "resolved" else "strongly_inferred",
+                            anchor_value=record.data_id,
+                        )
+                    )
+            finally:
+                con.close()
+        except sqlite3.DatabaseError as exc:
+            rows.append(
+                dereference_record(
+                    id=f"dereference:{source.dict_id}:android-body:error",
+                    kind="body_link",
+                    method="android_rowid_times_5",
+                    from_address=None,
+                    to_address=resource_address(body_db.path),
+                    status="error",
+                    confidence="structural_only",
+                    error=str(exc),
+                )
+            )
+
+    sidecars = discover_renderer_sidecars(source.idx)
+    if sidecars and raw_ids and not getattr(args, "deep_sidecars", False):
+        for sidecar in sidecars[:1]:
+            for record in limited_ids:
+                rows.append(
+                    dereference_record(
+                        id=f"dereference:{source.dict_id}:rendererdb-unverified:{record.record_index}",
+                        kind="body_link",
+                        method="rendererdb_data_id",
+                        from_address=dense_anchor_address(source, record),
+                        to_address=database_row_address(sidecar.path, "t_contents", record.data_id),
+                        status="unverified",
+                        confidence="structural_only",
+                        anchor_value=record.data_id,
+                        storage=sidecar.storage,
+                        note="Run dump-package-model with --deep-sidecars to verify renderer DB rows.",
+                    )
+                )
+
+    if sidecars and getattr(args, "deep_sidecars", False):
+        with tempfile.TemporaryDirectory(prefix="lv-model-deref-sidecar-") as tmp:
+            tmp_path = Path(tmp)
+            for sidecar in sidecars[:1]:
+                try:
+                    db_path = prepare_sidecar_database(sidecar, tmp_path, args)
+                    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+                except Exception as exc:
+                    rows.append(
+                        dereference_record(
+                            id=f"dereference:{source.dict_id}:rendererdb:error",
+                            kind="body_link",
+                            method="rendererdb_data_id",
+                            from_address=None,
+                            to_address=resource_address(sidecar.path),
+                            status="error",
+                            confidence="structural_only",
+                            error=str(exc),
+                        )
+                    )
+                    continue
+                try:
+                    if table_exists(con, "t_contents"):
+                        columns = t_contents_columns(con)
+                        data_id_col = columns.get("f_DataId")
+                        for record in limited_ids:
+                            exists = bool(data_id_col and _sqlite_row_exists(con, "t_contents", data_id_col, record.data_id))
+                            rows.append(
+                                dereference_record(
+                                    id=f"dereference:{source.dict_id}:rendererdb:{record.record_index}",
+                                    kind="body_link",
+                                    method="rendererdb_data_id",
+                                    from_address=dense_anchor_address(source, record),
+                                    to_address=database_row_address(sidecar.path, "t_contents", record.data_id),
+                                    status="resolved" if exists else "missing_target",
+                                    confidence="proven" if exists else "strongly_inferred",
+                                    anchor_value=record.data_id,
+                                    storage=sidecar.storage,
+                                )
+                            )
+                    elif table_exists(con, "HONBUN"):
+                        columns = honbun_columns(con)
+                        id_col = columns.get("ID")
+                        raw_slices = iter_entry_slices_with_boundaries(expanded)
+                        query = f"select {quote_identifier(id_col)} from HONBUN order by {quote_identifier(id_col)}" if id_col else None
+                        if query:
+                            for index, ((start, _end), db_row) in enumerate(zip(raw_slices, con.execute(query)), start=1):
+                                if _raw_id_limit(args) and index > _raw_id_limit(args):
+                                    break
+                                row_id = db_row[0]
+                                rows.append(
+                                    dereference_record(
+                                        id=f"dereference:{source.dict_id}:rendererdb-honbun:{index}",
+                                        kind="body_link",
+                                        method="rendererdb_row_order",
+                                        from_address=component_address_by_name(elements, "HONMON.DIC", start),
+                                        to_address=database_row_address(sidecar.path, "HONBUN", row_id),
+                                        status="resolved",
+                                        confidence="strongly_inferred",
+                                        entry_index=index,
+                                        storage=sidecar.storage,
+                                    )
+                                )
+                    else:
+                        rows.append(
+                            dereference_record(
+                                id=f"dereference:{source.dict_id}:rendererdb:unsupported-schema",
+                                kind="body_link",
+                                method="rendererdb_data_id",
+                                from_address=None,
+                                to_address=resource_address(sidecar.path),
+                                status="unsupported_schema",
+                                confidence="structural_only",
+                                storage=sidecar.storage,
+                            )
+                        )
+                finally:
+                    con.close()
+    return rows
+
+
+def index_pointer_dereferences(model: dict[str, Any], elements: list[SsedInfoElement]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for index, row in enumerate((model.get("indexes") or {}).get("samples") or [], start=1):
+        if row.get("kind") != "leaf":
+            continue
+        component = str(row.get("component") or "")
+        from_address = ModelAddress(
+            kind=AddressKind.COMPONENT,
+            component=component,
+            block=row.get("logical_block"),
+            selector=f"page:{row.get('page_index')}:row:{row.get('row_index')}",
+        ).as_dict()
+        for target_name, method in (("body", "index_body_pointer"), ("title", "index_title_pointer")):
+            pointer = row.get(target_name)
+            if not isinstance(pointer, dict):
+                continue
+            block = pointer.get("block")
+            offset = pointer.get("offset")
+            if not isinstance(block, int) or not isinstance(offset, int):
+                continue
+            rows.append(
+                dereference_record(
+                    id=f"dereference:{model['package']['dict_id']}:index:{index}:{target_name}",
+                    kind="index_pointer",
+                    method=method,
+                    from_address=from_address,
+                    to_address=logical_pointer_address(elements, block=block, offset=offset),
+                    status="resolved",
+                    confidence="strongly_inferred",
+                    key=row.get("key"),
+                    target_key=row.get("target_key"),
+                )
+            )
+    return rows
+
+
+def menu_destination_dereferences(model: dict[str, Any], elements: list[SsedInfoElement]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    dict_id = str(model.get("package", {}).get("dict_id") or "")
+    for record_index, record in enumerate((model.get("menus") or {}).get("samples") or [], start=1):
+        component = str(record.get("component") or "MENU.DIC")
+        for link_index, link in enumerate(record.get("links") or [], start=1):
+            if not isinstance(link, dict):
+                continue
+            destination = link.get("destination")
+            if not isinstance(destination, dict):
+                continue
+            block = destination.get("block")
+            offset = destination.get("offset")
+            from_address = component_address_by_name(elements, component, int(link.get("end_offset") or record.get("byte_end") or 0))
+            to_address = (
+                logical_pointer_address(elements, block=block, offset=offset)
+                if isinstance(block, int) and isinstance(offset, int)
+                else None
+            )
+            rows.append(
+                dereference_record(
+                    id=f"dereference:{dict_id}:menu:{record_index}:{link_index}",
+                    kind="menu_destination",
+                    method="menu_destination",
+                    from_address=from_address,
+                    to_address=to_address,
+                    status="resolved" if destination.get("target") else "unresolved",
+                    confidence="strongly_inferred",
+                    label=link.get("label"),
+                    path=record.get("path"),
+                    payload=destination.get("payload"),
+                    encoding=destination.get("encoding"),
+                )
+            )
+    return rows
+
+
+def media_dereferences(model: dict[str, Any], elements: list[SsedInfoElement]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    dict_id = str(model.get("package", {}).get("dict_id") or "")
+    honmon_element = next((element for element in elements if element.filename.upper() == "HONMON.DIC"), None)
+    for component, method, records in (
+        ("COLSCR.DIC", "packed_bcd_media_pointer", ((model.get("media") or {}).get("colscr") or {}).get("records") or []),
+        ("PCMDATA.DIC", "packed_bcd_media_pointer", ((model.get("media") or {}).get("pcmdata") or {}).get("records") or []),
+    ):
+        for index, record in enumerate(records, start=1):
+            if not isinstance(record, dict) or record.get("source") == "unreferenced":
+                continue
+            position = record.get("honmon_position")
+            from_address = (
+                component_address(honmon_element, int(position))
+                if honmon_element is not None and isinstance(position, int)
+                else None
+            )
+            block = record.get("block")
+            offset = record.get("offset")
+            to_address = (
+                logical_pointer_address(elements, block=block, offset=offset)
+                if isinstance(block, int) and isinstance(offset, int)
+                else None
+            )
+            rows.append(
+                dereference_record(
+                    id=f"dereference:{dict_id}:media:{component.lower()}:{index}",
+                    kind="media_reference",
+                    method=method,
+                    from_address=from_address,
+                    to_address=to_address,
+                    status="resolved" if record.get("valid") else "invalid_pointer",
+                    confidence="proven" if record.get("valid") else "strongly_inferred",
+                    component=component,
+                    payload=record.get("payload"),
+                    media_type=record.get("media_type"),
+                    codec=record.get("codec"),
+                    label=record.get("label"),
+                    section_code=record.get("section_code"),
+                )
+            )
+    return rows
+
+
+def model_dereferences(
+    source: DictionarySource,
+    model: dict[str, Any],
+    elements: list[SsedInfoElement],
+    args: argparse.Namespace,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    rows.extend(dense_anchor_and_body_dereferences(source, elements, args))
+    rows.extend(index_pointer_dereferences(model, elements))
+    rows.extend(menu_destination_dereferences(model, elements))
+    rows.extend(media_dereferences(model, elements))
+    return rows
 
 
 def title_index_menu_model(idx: Path, args: argparse.Namespace) -> dict[str, Any]:
@@ -841,6 +1339,7 @@ def collect_inconsistencies(model: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def dump_package_model(source: DictionarySource, args: argparse.Namespace) -> dict[str, Any]:
+    _title, elements, _layout = parse_ssedinfo_with_layout(source.idx)
     wrapper = detect_platform_wrapper(source)
     wrapper = {
         **wrapper,
@@ -888,9 +1387,11 @@ def dump_package_model(source: DictionarySource, args: argparse.Namespace) -> di
         "media": media_summaries(source, args),
         "sidecars": windows_sidecars(source, args),
         "families": families,
+        "dereferences": [],
         "notes": [],
         "inconsistencies": [],
     }
+    model["dereferences"] = model_dereferences(source, model, elements, args)
     model["readiness"] = build_model_readiness(model)
     model["writer_readiness"] = model["readiness"]["writer_readiness"]
     model["notes"] = package_notes(model)
@@ -951,6 +1452,7 @@ def dump_incomplete_package_model(idx: Path, args: argparse.Namespace, reason: s
         },
         "sidecars": windows_sidecars_for_idx(idx, args),
         "families": {},
+        "dereferences": [],
         "notes": [
             issue(
                 "incomplete_package",
@@ -960,6 +1462,11 @@ def dump_incomplete_package_model(idx: Path, args: argparse.Namespace, reason: s
         ],
         "inconsistencies": [],
     }
+    model["dereferences"] = [
+        *index_pointer_dereferences(model, elements),
+        *menu_destination_dereferences(model, elements),
+        *media_dereferences(model, elements),
+    ]
     model["readiness"] = build_model_readiness(model)
     model["writer_readiness"] = model["readiness"]["writer_readiness"]
     model["inconsistencies"] = collect_inconsistencies(model)
@@ -1031,6 +1538,7 @@ def _deferred_family_common(
         },
         "sidecars": {},
         "families": families,
+        "dereferences": [],
         "notes": notes or [],
         "inconsistencies": [],
     }
@@ -1200,7 +1708,9 @@ def media_ref_chunk_rows(media: dict[str, Any]) -> list[dict[str, Any]]:
     for key in ("colscr", "pcmdata"):
         value = media.get(key)
         if isinstance(value, dict):
-            rows.append({"component": key, "kind": "summary", **value})
+            summary = dict(value)
+            summary.pop("records", None)
+            rows.append({"component": key, "kind": "summary", **summary})
     return rows
 
 
@@ -1220,19 +1730,7 @@ def media_record_chunk_rows(media: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def dereference_chunk_rows(model: dict[str, Any]) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for note in model.get("notes", []) or []:
-        if isinstance(note, dict) and note.get("kind") == "dense_honmon":
-            rows.append({"status": "requires_dereference", **note})
-    for family_name, family in (model.get("families") or {}).items():
-        if isinstance(family, dict):
-            for key in ("dereferences", "resolved_entries", "anchors"):
-                records = family.get(key)
-                if isinstance(records, list):
-                    for record in records:
-                        if isinstance(record, dict):
-                            rows.append({"family": family_name, "source_list": key, **record})
-    return rows
+    return [row for row in model.get("dereferences", []) or [] if isinstance(row, dict)]
 
 
 def issue_chunk_rows(model: dict[str, Any]) -> list[dict[str, Any]]:

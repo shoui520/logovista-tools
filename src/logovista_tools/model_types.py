@@ -132,6 +132,9 @@ class ModelAddress:
     kind: AddressKind
     component: str | None = None
     component_type: str | None = None
+    path: str | None = None
+    database: str | None = None
+    table: str | None = None
     block: int | None = None
     offset: int | None = None
     component_offset: int | None = None

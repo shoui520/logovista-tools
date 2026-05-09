@@ -118,6 +118,9 @@ LogoVista dictionary model.
 - Corpus capability matrix generation from Decoded Model v0 reports. Legacy
   redacted `profile` / `honmon-bytes` / `component-forensics` inputs remain
   supported, but `--model-dir` is now the preferred planning path.
+- First-class `dereferences.jsonl` records for dense HONMON anchors,
+  DictFULLDB/renderer/Android body links, index body/title pointers, menu
+  destinations, and COLSCR/PCMDATA media references.
 - Strict, forensic, and lenient text-span parsing modes for sampled body
   slices and entry-level IR dumps.
 - Observed `1f0b`/`1f0c` literal/preformatted body spans.
@@ -234,6 +237,8 @@ Recently landed:
 9. Corpus-scale Decoded Model v0 generation over the combined local corpus:
    261 package targets, zero failures, path-aware progress, resumable chunked
    bundles, and a model-derived capability matrix.
+10. First-class dereference records in Decoded Model v0 and chunked
+    `dereferences.jsonl`.
 
 Next priorities:
 
@@ -243,10 +248,9 @@ Next priorities:
    shape and readiness. Keep LVED and LVLMultiView as classified/deferred
    package families while SSED remains the active deep-reverse-engineering
    target.
-2. **First-class dereference records.** Make `dereferences.jsonl` represent
-   typed relationships between raw HONMON anchors, index/menu/media pointers,
-   sidecar/database rows, and final body/media targets. This is the main model
-   gap before writer/repacker work.
+2. **Dereference expansion and validation.** The first-class rows now exist;
+   next, increase verified sidecar/body-link coverage, add per-kind metrics,
+   and make dereference failures compare cleanly in redacted corpus regression.
 3. **NGYOKTUK renderer-backed gaiji.** Keep `NGYOKTUK` as the named
    raw-resource exception: its display is recoverable through row-aligned
    `HONBUN` HTML, but a lossless IR/exporter must preserve raw gaiji

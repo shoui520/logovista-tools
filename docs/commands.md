@@ -678,8 +678,8 @@ Emit one package-level [Decoded LogoVista Model v0](../spec/decoded-model-v0.md)
 JSON report for one dictionary package. This is the consolidation command for
 reverse engineering: it gathers the current component table, wrapper evidence,
 HONMON classification, entry spans, title/index/menu summaries, gaiji
-resources, media resources, Windows sidecars, package-family notes, and
-inconsistencies into one object.
+resources, media resources, Windows sidecars, first-class dereference records,
+package-family notes, and inconsistencies into one object.
 
 ```bash
 logovista-tools dump-package-model /path/to/_DCT_HAESPJPN --out-dir package-model
@@ -703,7 +703,7 @@ Important options:
 --index-limit N                    sample N index rows; use 0 for all
 --menu-limit N                     sample N menu nodes; use 0 for all
 --media-limit N                    inspect N COLSCR/PCMDATA references; use 0 for all
---deep-sidecars                    inspect HC/vlpljbl sidecars more deeply
+--deep-sidecars                    open/decrypt renderer DB sidecars for verified body-link dereferences
 --full-profile-indexes             run the exhaustive profile index scan
 --full-entry-boundaries            collect all index-derived HONMON boundaries
 --skip-row-models                  skip title/index/menu row extraction
@@ -728,6 +728,13 @@ packages, unresolved menu targets, raw gaiji gaps, sidecar-only body evidence,
 and sampled decode failures are emitted as `inconsistencies` records rather
 than hidden behind command-specific output. The emitted `readiness` and
 `writer_readiness` objects are what `capability-matrix --model-dir` consumes.
+
+Dereference rows connect raw pointers to targets. They include dense HONMON
+anchor records, DictFULLDB/renderer/Android body links, index body/title
+pointers, `MENU.DIC` destinations, and `COLSCR.DIC`/`PCMDATA.DIC` media
+references. Without `--deep-sidecars`, encrypted renderer DB body links are
+structural `unverified` records; with `--deep-sidecars`, readable renderer DB
+rows are checked where the schema is supported.
 
 `dump-package-model` is family-aware. SSED packages receive the full SSED model.
 LVED/WebView2 SQLCipher and LVLMultiView packages receive deferred family
