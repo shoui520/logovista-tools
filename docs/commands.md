@@ -336,7 +336,7 @@ logovista-tools audit-honmon /path/to/LogoVista --out-dir honmon-audit
 logovista-tools audit-honmon /path/to/LogoVista --dict KOJIEN7 --json
 ```
 
-Output layout:
+Default output layout:
 
 ```text
 honmon-audit/
@@ -454,7 +454,7 @@ Useful options:
 --jobs 0                             use all detected CPU cores
 ```
 
-The current Windows SSED corpus run accounts for 3,497,793,539 expanded HONMON
+An earlier Windows SSED corpus run accounted for 3,497,793,539 expanded HONMON
 bytes with zero unknown controls, zero unknown bytes, zero invalid JIS cells,
 and one known truncated final `0x1f` byte in `NANDOKU3`.
 
@@ -629,7 +629,8 @@ structures. `writer_repacker_status` is the combined worst of those two.
 
 With `--model-dir`, this command does not re-parse dictionaries. It reads
 `*_decoded_model_v0.json` reports and derives matrix rows from the model's
-shared readiness object. This prevents command-specific shape/status drift.
+shared readiness object. For chunked model reports, it reads each bundle's
+`package.json`. This prevents command-specific shape/status drift.
 
 ### `dump-ir`
 
@@ -756,7 +757,7 @@ models. LVED and LVLMultiView packages receive deferred family models so the
 corpus summary remains complete without forcing those formats through SSED
 parsers.
 
-Output layout:
+Default output layout:
 
 ```text
 model-v0/
@@ -771,6 +772,29 @@ model-v0/
     DICTID_<pathhash>_decoded_model_v0.json
   multiview_sqlite/
     DICTID_<pathhash>_decoded_model_v0.json
+```
+
+With `--chunked`, each package path is a bundle directory:
+
+```text
+model-v0/
+  targets.json
+  summary.json
+  failures.json
+  ssed/
+    DICTID_<pathhash>_decoded_model_v0/
+      package.json
+      components.jsonl
+      entries.jsonl
+      titles.jsonl
+      indexes.jsonl
+      menus.jsonl
+      gaiji.jsonl
+      media_refs.jsonl
+      media_records.jsonl
+      dereferences.jsonl
+      issues.jsonl
+      metrics.json
 ```
 
 Important options:
@@ -791,7 +815,9 @@ Important options:
 
 Worker failures are written to `failures/*.json` and summarized in
 `failures.json`. Console output stays short; detailed tracebacks are stored in
-failure JSON so long corpus runs remain inspectable.
+failure JSON so long corpus runs remain inspectable. Progress lines include the
+relative target path, so same-title packages in SSED/LVED/iOS/Android/Windows
+collections remain distinguishable while the run is active.
 
 ### `resources`
 

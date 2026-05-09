@@ -143,7 +143,7 @@ validated against Japanese, English, Spanish, French, science, medical, and
 collocation dictionaries, including HAESPJPN, GENIUSEB, HAFRAN, NANMED20,
 OUKOKU11, IPHYCHE5, KENCOLLO, KQJCOLLO, KOJIEN7, 45KAGAKU, and KQSYNONM.
 
-The current 169-package Windows SSED component-forensics pass reports zero
+An earlier 169-package Windows SSED component-forensics pass reported zero
 unknown index leaf subrecords. The only index residual is `NANDOKU2`
 `FHINDEX.DIC`, which has three nonzero physical tail bytes after all full
 2048-byte pages are consumed.

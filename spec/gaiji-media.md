@@ -351,7 +351,7 @@ map to visible Unicode text. This is a useful example of why a gaiji record
 with an empty display sequence should be preserved as structural evidence
 rather than automatically treated as a missing character.
 
-The current Windows SSED component-forensics pass saw 90 `.uni` / `.UNI`
+An earlier Windows SSED component-forensics pass saw 90 `.uni` / `.UNI`
 files. All declared records parse under the layouts above. The only
 residuals are trailers after the parsed record tables:
 

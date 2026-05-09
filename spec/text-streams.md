@@ -129,7 +129,7 @@ The `honmon-bytes` command decodes the entire expanded `HONMON.DIC` stream
 without emitting spans. It is meant to answer a stricter question than entry
 extraction: whether every byte is structurally accounted for.
 
-The current Windows SSED corpus result:
+An earlier Windows SSED corpus result:
 
 ```text
 targets:                    169

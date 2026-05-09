@@ -107,15 +107,17 @@ LogoVista dictionary model.
   LVLMultiView packages are classified into deferred models instead of being
   treated as failed SSED/HONMON packages.
 - `dump-package-models`, a corpus-scale model harness with package-family
-  target discovery, process-level parallelism, progress output, resumable
-  deterministic model paths, and clean failure JSON.
+  target discovery, process-level parallelism, path-aware progress output,
+  resumable deterministic model paths, and clean failure JSON. The current
+  local corpus model pass completed 261 targets with zero failures:
+  202 SSED, 45 LVED SQLCipher, and 14 LVLMultiView packages.
 - Chunked decoded model output via `--chunked`: `package.json` plus JSONL files
   for components, entries, title/index/menu samples, gaiji, media,
   dereferences, issues, and metrics. Chunked `package.json` files keep the
   decoded-model schema and remain readable by `capability-matrix --model-dir`.
-- Corpus capability matrix generation from redacted `profile`,
-  `honmon-bytes`, `component-forensics`, and optional `gaiji-readiness`
-  outputs.
+- Corpus capability matrix generation from Decoded Model v0 reports. Legacy
+  redacted `profile` / `honmon-bytes` / `component-forensics` inputs remain
+  supported, but `--model-dir` is now the preferred planning path.
 - Strict, forensic, and lenient text-span parsing modes for sampled body
   slices and entry-level IR dumps.
 - Observed `1f0b`/`1f0c` literal/preformatted body spans.
@@ -134,6 +136,11 @@ LogoVista dictionary model.
   unknown HONMON controls, zero unknown HONMON bytes, and zero invalid JIS
   cells. This pass exposed and closed the `BRINEN15` marker-at-byte-0 dense
   anchor plus renderer SQLite schema variant.
+- Full corpus Decoded Model v0 generation over 261 package targets with
+  chunked output, resume, progress, gaiji readiness, and family-aware deferred
+  models for LVED/LVLMultiView. The derived capability matrix currently reports
+  `legacy_writer_v0` as green 158, yellow 16, red 28, gray 59, and
+  `lossless_repacker` as green 134, red 68, gray 59.
 
 ## Experimental / Active Reverse Engineering
 
@@ -162,7 +169,7 @@ LogoVista dictionary model.
   several still have readable raw body streams. Audit the raw layer first.
 - Some control opcodes are structurally recognized with neutral tags, but their
   exact renderer presentation is not fully modeled.
-- The current Windows SSED corpus has one known physical tail anomaly:
+- The observed SSED corpus has one known physical tail anomaly:
   `NANDOKU3` ends with a lone final `0x1f` byte after the last decoded text
   cell. It is covered and reported as a truncated control, not guessed.
 - The companion component-forensics pass has narrow residuals outside HONMON:
@@ -181,9 +188,10 @@ LogoVista dictionary model.
   row-ordered `HONBUN` renderer database that matches raw HONMON entry slices,
   so `gaiji-readiness --renderer-sidecars` can recover entry-level display.
   This is contextual renderer evidence, not a dictionary-global gaiji map.
-- `dump-package-model` is the first package-level Decoded LogoVista Model v0
-  emitter. It embeds sampled rows by default so normal runs stay manageable;
-  use zero-valued limits for exhaustive per-package inspection.
+- `dump-package-model` embeds sampled rows by default so normal runs stay
+  manageable; use zero-valued limits for exhaustive per-package inspection.
+  Chunked output externalizes row families, but extraction is not yet fully
+  streaming internally.
 - `dump-package-model` now emits a shared `readiness` object and top-level
   `writer_readiness`. `capability-matrix --model-dir` consumes those decoded
   model reports directly, so new matrix work no longer needs to recombine
@@ -221,39 +229,52 @@ Recently landed:
 8. Focused ignored-dictionary pass over older Britannica/Genius-family SSED
    packages, including `BRINEN15` raw-anchor dereferencing into LogoFontCipher
    renderer HTML and JPEG media extraction.
+9. Corpus-scale Decoded Model v0 generation over the combined local corpus:
+   261 package targets, zero failures, path-aware progress, resumable chunked
+   bundles, and a model-derived capability matrix.
 
 Next priorities:
 
-1. **Corpus model regeneration.** Run `dump-package-models --jobs 0 --resume
-   --progress --gaiji-readiness --chunked` over the owned corpus, then use the
-   resulting model directory as the preferred input for capability and
-   writer-readiness reports.
-2. **Decoded model stabilization.** Continue tightening the shared enum/status
+1. **Decoded model stabilization.** Continue tightening the shared enum/status
    vocabulary used by `dump-package-model`, then migrate older commands toward
    emitting evidence for the model instead of independently naming package
    shape and readiness. Keep LVED and LVLMultiView as classified/deferred
    package families while SSED remains the active deep-reverse-engineering
    target.
-3. **NGYOKTUK renderer-backed gaiji.** Keep `NGYOKTUK` as the named
+2. **Writer-readiness split.** Separate `read_existing_package`,
+   `export_existing_package`, `lossless_repack_existing_package`, and
+   `author_core_ssed_v0`. Dense-HONMON packages block lossless repacking of
+   existing products, but they should not automatically block authoring a clean
+   core SSED dictionary.
+3. **First-class dereference records.** Make `dereferences.jsonl` represent
+   typed relationships between raw HONMON anchors, index/menu/media pointers,
+   sidecar/database rows, and final body/media targets. This is the main model
+   gap before writer/repacker work.
+4. **Capability matrix identity.** Include package family, platform,
+   `target_path`, and `model_path` in matrix rows so same-title SSED/LVED/iOS/
+   Android/Windows packages are unambiguous outside `dump-package-models`
+   progress output.
+5. **NGYOKTUK renderer-backed gaiji.** Keep `NGYOKTUK` as the named
    raw-resource exception: its display is recoverable through row-aligned
    `HONBUN` HTML, but a lossless IR/exporter must preserve raw gaiji
    provenance because some codes are contextual rather than dictionary-global.
-4. **Corpus capability matrix refinement.** Regenerate matrix output from
-   `dump-package-models --gaiji-readiness` reports, then separate writer-v0
-   blockers from lossless-repacker blockers using the model readiness fields.
-5. **Corpus regression harness.** Commit redacted expected metrics generated
+6. **Corpus regression harness.** Commit redacted expected metrics generated
    from owned corpora, then add a comparison command that flags changed shape
    counts, unknown counts, parse failures, and dereference coverage without
    storing dictionary text.
-6. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
+7. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
    media extractors, and exporters consume the same classification/profile
    layer instead of each command rediscovering package shape independently.
-7. **Renderer parity.** Build small local parity fixtures for body text,
+8. **Streaming model output / memory-aware scheduling.** `--chunked` fixes
+   output shape, but large package workers still build bounded sections in
+   memory. Add streaming JSONL paths or size-aware scheduling before exhaustive
+   all-limits corpus runs.
+9. **Renderer parity.** Build small local parity fixtures for body text,
    literal spans, URL spans, gaiji images, named section images, media links,
    menu destinations, and dense-anchor renderer bodies.
-8. **Exporter layer.** After the decoded model stabilizes, implement debug HTML
+10. **Exporter layer.** After the decoded model stabilizes, implement debug HTML
    first, then Yomitan structured v3 and MDict as views over the same model
    rather than separate parsers.
-9. **Writer research.** Start only after the model can round-trip addresses,
+11. **Writer research.** Start only after the model can round-trip addresses,
    indexes, gaiji/media references, and dense-anchor relationships with
    measurable unknowns near zero on the corpus.

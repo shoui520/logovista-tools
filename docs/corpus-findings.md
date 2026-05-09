@@ -2,9 +2,91 @@
 
 Observed dictionary behavior. These notes are evidence from the local corpus, not universal claims about every LogoVista product ever shipped.
 
+## Current Decoded Model Corpus Pass
+
+The current authoritative corpus harness is `dump-package-models`, because it
+keeps SSED, LVED SQLCipher, and LVLMultiView packages in one family-aware model
+directory while preserving package paths with deterministic hashes.
+
+Latest local pass:
+
+```bash
+logovista-tools dump-package-models /home/shoui/Agents/CodexMax/LogoVista \
+  --out-dir /home/shoui/Agents/CodexMax/LogoVista/reports/model-v0 \
+  --jobs 0 \
+  --resume \
+  --progress \
+  --gaiji-readiness \
+  --chunked \
+  --no-raw \
+  --parse-mode forensic \
+  --allow-failures
+```
+
+The run started with all detected CPU cores, then resumed with lower worker
+counts after memory pressure from large SSED workers. The final model directory
+contains 261 chunked package bundles and zero failures:
+
+```text
+total package targets:    261
+SSED:                     202
+LVED SQLCipher:            45
+LVLMultiView SQLite:       14
+decoded model failures:     0
+```
+
+The corresponding model-derived capability matrix was generated with:
+
+```bash
+logovista-tools capability-matrix \
+  --model-dir /home/shoui/Agents/CodexMax/LogoVista/reports/model-v0 \
+  --out-dir /home/shoui/Agents/CodexMax/LogoVista/reports/capability-from-model
+```
+
+Capability counts:
+
+```text
+raw HONMON body:       yes 174, no 28, n/a 59
+indexes fully parsed: yes 165, n/a 96
+titles fully parsed:  yes 111, n/a 150
+gaiji fully resolved: yes 179, no 1, n/a 81
+media refs resolved:  yes 83, no 1, n/a 177
+menu pointers:        yes 91, partial 15, n/a 155
+```
+
+Writer/repacker planning status:
+
+```text
+legacy writer v0:   green 158, yellow 16, red 28, gray 59
+lossless repacker:  green 134, red 68, gray 59
+combined worst:     green 134, red 68, gray 59
+```
+
+`gray` means non-SSED package family, currently LVED SQLCipher or
+LVLMultiView. Most red SSED writer-v0 cases are dense-HONMON dictionaries
+whose raw HONMON is an anchor/dereference layer rather than a self-contained
+body stream.
+
+Top blocker counts:
+
+```text
+non_ssed_package_family:            59
+missing_declared_components:        30
+body_requires_sidecar_or_is_missing: 28
+raw_body_not_self_contained:        27
+menu_not_fully_resolved:            15
+gaiji_not_fully_resolved:            1
+media_not_fully_resolved:            1
+```
+
+The matrix exposes the next model work clearly: split authoring readiness from
+existing-package repacker readiness, make dereference records first-class, keep
+NGYOKTUK as the only current raw-resource gaiji display exception, and resolve
+the remaining ARCHSIC3 media classification gap.
+
 ## Windows SSED Corpus Profile
 
-The current Windows SSED corpus pass profiled 169 packages with raw SSED expansion,
+An earlier Windows SSED corpus pass profiled 169 packages with raw SSED expansion,
 raw `*INDEX.DIC` scanning, sampled lossless HONMON span decoding, and no
 SQLite body text. The command shape was:
 
@@ -493,8 +575,9 @@ source for lossless conversion.
 
 ## Capability Matrix
 
-The first writer/exporter capability matrix combines three redacted report
-families. With `gaiji-readiness`, the gaiji status is refined from raw
+The current preferred capability matrix is the model-derived matrix described
+near the top of this document. The older matrix path combined three redacted
+report families. With `gaiji-readiness`, the gaiji status was refined from raw
 unresolved-span counts into display readiness:
 
 ```bash
@@ -506,9 +589,9 @@ logovista-tools capability-matrix \
   --out-dir /tmp/lv-capability-matrix-corpus-grid-v1
 ```
 
-This command does not inspect dictionary payloads directly. It classifies each
-dictionary from existing raw-first reports. The current matrix covers 169 SSED
-targets.
+This legacy command path does not inspect dictionary payloads directly. It
+classifies each dictionary from existing raw-first reports. The older matrix
+covers 169 SSED targets.
 
 Capability counts:
 
@@ -879,7 +962,7 @@ unknown_controls:       0
 
 Windows packages share the same SSED/EPWING-like core as the mobile packages
 where matching copies are available, but add Windows app sidecars around it.
-The current Windows SSED corpus is broad enough to separate general wrapper
+The observed Windows SSED corpus is broad enough to separate general wrapper
 rules from one-off product behavior.
 
 ### Windows `HC????.dll` HTML Renderer Plugins
@@ -1275,7 +1358,7 @@ the Android `Html` table shape.
 
 ### Corpus-Wide `vlpljbl*` Audit
 
-The current Windows SSED corpus contains 98 `vlpljbl*` files. Every observed
+The audited Windows SSED corpus contains 98 `vlpljbl*` files. Every observed
 file is now classified by raw magic, LogoFontCipher-decrypted magic when
 needed, SQLite schema when applicable, and inferred role.
 

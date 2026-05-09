@@ -49,42 +49,31 @@ The current development direction is:
 4. use exporters and writer experiments as views over that model.
 
 See [Project Status and Roadmap](docs/status.md) for the longer capability list.
-The current Windows SSED corpus byte scan covers 169 package targets and
-3,497,793,539 expanded `HONMON.DIC` bytes. With the current opcode and text
-cell table, every expanded HONMON byte is accounted for: zero unknown controls,
-zero unknown bytes, zero invalid JIS cells, and one known final truncated
-control byte in `NANDOKU3`. See [Corpus Findings](docs/corpus-findings.md) for
-the exact aggregate.
 
-The companion component-forensics pass accounts for observed `MENU.DIC`,
-`*TITLE.DIC`, `*INDEX.DIC`, `.uni`, `GA16*`, `COLSCR.DIC`, and `PCMDATA.DIC`
-components across the same 169-package corpus. Remaining anomalies are narrow
-and explicitly reported: one 3-byte physical index tail, one unknown title
-control, one unknown title byte, a few `.uni` trailer bytes, and one dictionary
-with in-range but still-unclassified raw audio payloads.
+The current authoritative corpus harness is `dump-package-models`. A
+path-aware, resumable, chunked model pass over the local LogoVista collection
+completed 261 package targets with zero failures:
 
-The gaiji readiness pass now separates display fidelity from search fallback
-quality. Across the same corpus, 143 packages are display-ready from raw
-resources, 25 have no raw gaiji occurrences, and one package (`NGYOKTUK`)
-requires its LogoFontCipher renderer sidecar for gaiji display. The pass also
-corrected the GA16 model: header ranges advance by JIS row/cell order
-(`A121..A17E`, then `A221`), and some Windows GAI16 glyphs are additionally
-addressed by `.uni` record order.
+```text
+SSED packages:          202
+LVED SQLCipher:          45
+LVLMultiView SQLite:     14
+decoded model failures:   0
+```
 
-A later focused all-in pass over 182 high/medium/mobile/low-priority SSED
-package targets covered 3,687,534,595 expanded HONMON bytes with the same
-HONMON result: zero unknown controls, zero unknown bytes, zero invalid JIS
-cells, and the same named `NANDOKU3` final truncated control. That pass also
-added support for sibling `*_GAIJI` image directories and HABGESPA's
-single-section simple12 `.uni` layout.
+The resulting capability matrix is derived from Decoded LogoVista Model v0
+reports rather than recombining older command-specific outputs:
 
-A follow-up pass over 17 previously excluded Britannica/Genius-family SSED
-package targets added another 1,101,215,744 expanded HONMON bytes with zero
-unknown controls, zero unknown bytes, and zero invalid JIS cells. Sixteen are
-normal raw-HONMON body streams. `BRINEN15` is a dense numeric HONMON anchor
-table whose full bodies live in a LogoFontCipher `vlpljblF` SQLite sidecar;
-the toolkit now resolves its marker-at-byte-0 anchor rows to `t_contents`
-HTML and can export its two-column `t_media` JPEG blobs.
+```text
+legacy writer v0:  green 158, yellow 16, red 28, gray 59
+lossless repacker: green 134, red 68, gray 59
+```
+
+`gray` means the package is outside the SSED writer target, currently LVED or
+LVLMultiView. Most `red` SSED cases are dense-HONMON packages whose raw HONMON
+is an anchor/dereference layer rather than a self-contained body stream. See
+[Corpus Findings](docs/corpus-findings.md) for the exact aggregate and older
+HONMON/component-forensics passes that feed the current model.
 
 ## Install
 
