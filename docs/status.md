@@ -106,6 +106,9 @@ LogoVista dictionary model.
   boundary scans. The command is now family-aware: LVED SQLCipher and
   LVLMultiView packages are classified into deferred models instead of being
   treated as failed SSED/HONMON packages.
+- `dump-package-models`, a corpus-scale model harness with package-family
+  target discovery, process-level parallelism, progress output, resumable
+  deterministic model paths, and clean failure JSON.
 - Corpus capability matrix generation from redacted `profile`,
   `honmon-bytes`, `component-forensics`, and optional `gaiji-readiness`
   outputs.
@@ -217,32 +220,36 @@ Recently landed:
 
 Next priorities:
 
-1. **Decoded model stabilization.** Continue tightening the shared enum/status
+1. **Corpus model regeneration.** Run `dump-package-models --jobs 0 --resume
+   --progress --gaiji-readiness` over the owned corpus, then use the resulting
+   model directory as the preferred input for capability and writer-readiness
+   reports.
+2. **Decoded model stabilization.** Continue tightening the shared enum/status
    vocabulary used by `dump-package-model`, then migrate older commands toward
    emitting evidence for the model instead of independently naming package
    shape and readiness. Keep LVED and LVLMultiView as classified/deferred
    package families while SSED remains the active deep-reverse-engineering
    target.
-2. **NGYOKTUK renderer-backed gaiji.** Keep `NGYOKTUK` as the named
+3. **NGYOKTUK renderer-backed gaiji.** Keep `NGYOKTUK` as the named
    raw-resource exception: its display is recoverable through row-aligned
    `HONBUN` HTML, but a lossless IR/exporter must preserve raw gaiji
    provenance because some codes are contextual rather than dictionary-global.
-3. **Corpus capability matrix refinement.** Regenerate matrix output from
-   `dump-package-model --gaiji-readiness` reports, then separate writer-v0
+4. **Corpus capability matrix refinement.** Regenerate matrix output from
+   `dump-package-models --gaiji-readiness` reports, then separate writer-v0
    blockers from lossless-repacker blockers using the model readiness fields.
-4. **Corpus regression harness.** Commit redacted expected metrics generated
+5. **Corpus regression harness.** Commit redacted expected metrics generated
    from owned corpora, then add a comparison command that flags changed shape
    counts, unknown counts, parse failures, and dereference coverage without
    storing dictionary text.
-5. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
+6. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
    media extractors, and exporters consume the same classification/profile
    layer instead of each command rediscovering package shape independently.
-6. **Renderer parity.** Build small local parity fixtures for body text,
+7. **Renderer parity.** Build small local parity fixtures for body text,
    literal spans, URL spans, gaiji images, named section images, media links,
    menu destinations, and dense-anchor renderer bodies.
-7. **Exporter layer.** After the decoded model stabilizes, implement debug HTML
+8. **Exporter layer.** After the decoded model stabilizes, implement debug HTML
    first, then Yomitan structured v3 and MDict as views over the same model
    rather than separate parsers.
-8. **Writer research.** Start only after the model can round-trip addresses,
+9. **Writer research.** Start only after the model can round-trip addresses,
    indexes, gaiji/media references, and dense-anchor relationships with
    measurable unknowns near zero on the corpus.

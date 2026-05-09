@@ -198,6 +198,19 @@ Dump lossless span JSONL for entry-level reverse engineering:
 logovista-tools dump-ir /path/to/LogoVista --dict HAESPJPN --limit 10 --out-dir out/ir
 ```
 
+Generate package-level decoded model reports for a corpus. This is the
+preferred planning input because it keeps SSED, LVED, and LVLMultiView package
+families explicit:
+
+```bash
+logovista-tools dump-package-models /home/shoui/Agents/CodexMax/LogoVista \
+  --out-dir /home/shoui/Agents/CodexMax/LogoVista/reports/model-v0 \
+  --jobs 0 \
+  --resume \
+  --progress \
+  --gaiji-readiness
+```
+
 Dump one package-level decoded model report:
 
 ```bash

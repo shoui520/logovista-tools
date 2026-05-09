@@ -18,8 +18,8 @@ This applies to commands that operate across many dictionaries or resources:
 `scan`, `entries`, `resources`, `colscr`, `pcmdata`, `extras`, `rendererdb`,
 `spindex`, `audit-honmon`, `gaiji-report`, `gaiji-readiness`, `ga16`,
 `titles`, `indexes`, `menus`, `fulldb`, `profile`, `honmon-bytes`,
-`opcode-atlas`, `component-forensics`, `dump-ir`, LVED payload inspection, and
-LVLMultiView/SIZK package inspection.
+`opcode-atlas`, `component-forensics`, `dump-ir`, `dump-package-models`, LVED
+payload inspection, and LVLMultiView/SIZK package inspection.
 `capability-matrix` is also corpus-oriented, but it reads already-generated
 report directories rather than re-scanning raw dictionary files.
 
@@ -719,6 +719,63 @@ models: they are classified, their obvious payloads/resources are summarized,
 and SSED HONMON parsing plus SSED writer readiness are marked not applicable.
 This keeps mixed corpus runs honest without pulling LVED/LVLMultiView research
 into the SSED stabilization track.
+
+### `dump-package-models`
+
+Emit Decoded LogoVista Model v0 reports for every package under one or more
+corpus roots. This is the corpus-scale harness that should feed capability
+matrix and writer-readiness planning.
+
+```bash
+logovista-tools dump-package-models /home/shoui/Agents/CodexMax/LogoVista \
+  --out-dir /home/shoui/Agents/CodexMax/LogoVista/reports/model-v0 \
+  --jobs 0 \
+  --resume \
+  --progress \
+  --gaiji-readiness
+```
+
+The command discovers SSED `.IDX` catalogs, LVED `main.data` / `.dbc` payloads,
+and LVLMultiView `menuData.xml` packages. SSED packages receive full decoded
+models. LVED and LVLMultiView packages receive deferred family models so the
+corpus summary remains complete without forcing those formats through SSED
+parsers.
+
+Output layout:
+
+```text
+model-v0/
+  targets.json
+  summary.json
+  failures.json
+  failures/
+    *_failure.json
+  ssed/
+    DICTID_<pathhash>_decoded_model_v0.json
+  lved_sqlcipher/
+    DICTID_<pathhash>_decoded_model_v0.json
+  multiview_sqlite/
+    DICTID_<pathhash>_decoded_model_v0.json
+```
+
+Important options:
+
+```bash
+--jobs 0                         use all detected CPU cores
+--resume                         skip existing valid decoded model JSON files
+--progress                       print one status line as each package finishes
+--dict ID                        limit to one dictionary id; can be repeated
+--family FAMILY                  limit to ssed/lved_sqlcipher/multiview_sqlite
+--allow-failures                 exit 0 even if some workers fail
+--gaiji-readiness                embed gaiji readiness in each model
+--renderer-sidecar-gaiji         use renderer sidecars as contextual gaiji evidence
+--skip-row-models                skip title/index/menu row extraction
+--no-raw                         omit raw_hex from embedded entry spans
+```
+
+Worker failures are written to `failures/*.json` and summarized in
+`failures.json`. Console output stays short; detailed tracebacks are stored in
+failure JSON so long corpus runs remain inspectable.
 
 ### `resources`
 

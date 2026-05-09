@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,20 @@ from .windows import (
 
 
 MODEL_SCHEMA = "logovista-decoded-model-v0"
+
+
+@dataclass(frozen=True)
+class PackageModelTarget:
+    dict_id: str
+    path: Path
+    family_hint: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "dict_id": self.dict_id,
+            "path": str(self.path),
+            "family_hint": self.family_hint,
+        }
 
 
 def is_metadata_noise_path(path: Path) -> bool:
@@ -221,6 +236,14 @@ def matches_dict_id(path: Path, dict_id: str | None) -> bool:
     return wanted in candidates
 
 
+def _path_is_inside(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def select_single_lved_payload(root: Path, dict_id: str | None = None) -> Path | None:
     payloads = [path for path in discover_lved_payloads([root]) if not is_metadata_noise_path(path)]
     payloads = [path for path in payloads if matches_dict_id(path, dict_id)]
@@ -242,6 +265,83 @@ def select_single_multiview_package(root: Path, dict_id: str | None = None) -> P
         suffix = "..." if len(packages) > 20 else ""
         raise ValueError(f"dump-package-model found {len(packages)} LVLMultiView packages: {ids}{suffix}. Use --dict.")
     return packages[0]
+
+
+def _candidate_idx_paths(root: Path) -> list[Path]:
+    if root.is_file() and root.suffix.lower() == ".idx" and not is_metadata_noise_path(root):
+        return [root]
+    if not root.is_dir():
+        return []
+    return sorted(
+        {
+            path.resolve()
+            for pattern in ("*.IDX", "*.idx")
+            for path in root.rglob(pattern)
+            if path.is_file() and not is_metadata_noise_path(path)
+        }
+    )
+
+
+def discover_package_model_targets(roots: list[Path], dict_ids: set[str] | None = None) -> list[PackageModelTarget]:
+    """Discover package roots/payloads suitable for dump-package-models.
+
+    This discovery layer is deliberately family-aware. SSED targets are keyed by
+    parseable SSEDINFO indexes, LVED targets by `main.data`/`.dbc` payloads, and
+    LVLMultiView targets by package directories with `menuData.xml` plus
+    encrypted/plain SQLite payloads.
+    """
+
+    if not roots:
+        roots = [Path(".")]
+    wanted = {item.upper().removeprefix("_DCT_") for item in dict_ids} if dict_ids else None
+    targets: list[PackageModelTarget] = []
+    seen: set[tuple[str, Path]] = set()
+
+    multiview_packages = []
+    for package in discover_multiview_packages(roots):
+        dict_id = package.name.removeprefix("_DCT_")
+        if wanted and dict_id.upper() not in wanted:
+            continue
+        resolved = package.resolve()
+        key = (PackageFamily.MULTIVIEW_SQLITE.value, resolved)
+        if key in seen:
+            continue
+        seen.add(key)
+        multiview_packages.append(resolved)
+        targets.append(PackageModelTarget(dict_id=dict_id, path=resolved, family_hint=PackageFamily.MULTIVIEW_SQLITE.value))
+
+    for payload in discover_lved_payloads(roots):
+        if is_metadata_noise_path(payload):
+            continue
+        dict_id = payload.parent.name.removeprefix("_DCT_")
+        if wanted and dict_id.upper() not in wanted:
+            continue
+        resolved = payload.resolve()
+        key = (PackageFamily.LVED_SQLCIPHER.value, resolved)
+        if key in seen:
+            continue
+        seen.add(key)
+        targets.append(PackageModelTarget(dict_id=dict_id, path=resolved, family_hint=PackageFamily.LVED_SQLCIPHER.value))
+
+    for root in roots:
+        for idx in _candidate_idx_paths(root):
+            if any(_path_is_inside(idx, package) for package in multiview_packages):
+                continue
+            try:
+                parse_ssedinfo_with_layout(idx)
+            except Exception:
+                continue
+            dict_id = dict_id_for_idx(idx)
+            if wanted and dict_id.upper() not in wanted and idx.stem.upper() not in wanted:
+                continue
+            resolved = idx.resolve()
+            key = (PackageFamily.SSED.value, resolved)
+            if key in seen:
+                continue
+            seen.add(key)
+            targets.append(PackageModelTarget(dict_id=dict_id, path=resolved, family_hint=PackageFamily.SSED.value))
+
+    return sorted(targets, key=lambda target: (target.dict_id, target.family_hint, str(target.path)))
 
 
 def component_rows(source: DictionarySource, profile: dict[str, Any]) -> list[dict[str, Any]]:

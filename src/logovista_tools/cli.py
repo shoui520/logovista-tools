@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
+import traceback
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -14,7 +16,7 @@ from .audit import extract_audit_for_sources
 from .capability import extract_capability_matrix_for_args
 from .colscr import extract_colscr_for_sources
 from .component_forensics import extract_component_forensics_for_args
-from .decoded_model import dump_package_model_for_path, write_package_model
+from .decoded_model import discover_package_model_targets, dump_package_model_for_path, write_package_model
 from .entries import discover_dictionaries, extract_dictionary
 from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
@@ -1300,6 +1302,159 @@ def cmd_dump_package_model(args: argparse.Namespace) -> int:
     return 0
 
 
+def valid_existing_model(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    return isinstance(data, dict) and data.get("schema") == "logovista-decoded-model-v0"
+
+
+def package_model_corpus_path(out_dir: Path, target: dict[str, str]) -> Path:
+    dict_id = target["dict_id"] or "UNKNOWN"
+    safe_dict_id = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in dict_id)
+    family = target["family_hint"] or "unknown"
+    fingerprint = hashlib.sha1(target["path"].encode("utf-8")).hexdigest()[:12]
+    return out_dir / family / f"{safe_dict_id}_{fingerprint}_decoded_model_v0.json"
+
+
+def _dump_package_model_corpus_task(payload: tuple[dict[str, str], Path, argparse.Namespace]) -> dict[str, Any]:
+    target, out_path, args = payload
+    row: dict[str, Any] = {
+        "dict_id": target["dict_id"],
+        "family_hint": target["family_hint"],
+        "target_path": target["path"],
+        "model_path": str(out_path),
+    }
+    if getattr(args, "resume", False) and valid_existing_model(out_path):
+        row["status"] = "skipped"
+        row["reason"] = "existing valid decoded model"
+        return row
+
+    task_args = argparse.Namespace(**vars(args))
+    task_args.dict = None
+    try:
+        model = dump_package_model_for_path(Path(target["path"]), task_args)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding="utf-8")
+        classification = model.get("classification", {})
+        row.update(
+            {
+                "status": "ok",
+                "package_family": classification.get("package_family"),
+                "platform": classification.get("platform"),
+                "honmon_shape": classification.get("honmon_shape"),
+                "body_source_hint": classification.get("body_source_hint"),
+                "issues": len(model.get("inconsistencies", [])),
+                "writer_status": model.get("writer_readiness", {}).get("legacy_ssed_subset"),
+                "repacker_status": model.get("writer_readiness", {}).get("lossless_repacker"),
+            }
+        )
+    except Exception as exc:
+        failure = {
+            "schema": "logovista-package-model-failure-v0",
+            "dict_id": target["dict_id"],
+            "family_hint": target["family_hint"],
+            "target_path": target["path"],
+            "model_path": str(out_path),
+            "error_type": type(exc).__name__,
+            "message": str(exc),
+            "traceback": traceback.format_exc(),
+        }
+        failure_dir = args.out_dir / "failures"
+        failure_dir.mkdir(parents=True, exist_ok=True)
+        failure_path = failure_dir / f"{out_path.stem}_failure.json"
+        failure_path.write_text(json.dumps(failure, ensure_ascii=False, indent=2), encoding="utf-8")
+        row.update(
+            {
+                "status": "failed",
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+                "failure_path": str(failure_path),
+            }
+        )
+    return row
+
+
+def cmd_dump_package_models(args: argparse.Namespace) -> int:
+    selected = set(args.dict) if args.dict else None
+    targets = discover_package_model_targets(args.root, dict_ids=selected)
+    if args.family:
+        allowed = set(args.family)
+        targets = [target for target in targets if target.family_hint in allowed]
+    if not targets:
+        print("dump-package-models: no package targets found", file=sys.stderr)
+        return 1
+
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    target_rows = [target.as_dict() for target in targets]
+    target_path = args.out_dir / "targets.json"
+    target_path.write_text(json.dumps({"schema": "logovista-package-model-targets-v0", "targets": target_rows}, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    task_args = worker_args(args)
+    task_args.dict = None
+    task_payloads = [
+        (target.as_dict(), package_model_corpus_path(args.out_dir, target.as_dict()), task_args)
+        for target in targets
+    ]
+    completed = 0
+    total = len(task_payloads)
+
+    def log_progress(row: dict[str, Any]) -> None:
+        nonlocal completed
+        completed += 1
+        if not args.progress:
+            return
+        status = str(row.get("status") or "unknown")
+        detail = row.get("package_family") or row.get("family_hint") or "-"
+        extra = ""
+        if status == "ok":
+            extra = (
+                f" honmon={row.get('honmon_shape') or '-'} "
+                f"issues={row.get('issues', 0)}"
+            )
+        elif status == "failed":
+            extra = f" error={row.get('error_type')}: {row.get('message')}"
+        elif status == "skipped":
+            extra = f" reason={row.get('reason')}"
+        print(
+            f"model progress {completed:4d}/{total}: {status:7s} "
+            f"{row.get('dict_id', ''):16s} family={detail}{extra}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    rows = parallel_map_ordered(
+        _dump_package_model_corpus_task,
+        task_payloads,
+        jobs=args.jobs,
+        on_result=log_progress,
+    )
+    status_counts = Counter(str(row.get("status") or "unknown") for row in rows)
+    family_counts = Counter(str(row.get("package_family") or row.get("family_hint") or "unknown") for row in rows)
+    failures = [row for row in rows if row.get("status") == "failed"]
+    summary = {
+        "schema": "logovista-package-models-v0",
+        "sources": [str(path) for path in args.root],
+        "out_dir": str(args.out_dir),
+        "targets_path": str(target_path),
+        "total": len(rows),
+        "status_counts": dict(sorted(status_counts.items())),
+        "family_counts": dict(sorted(family_counts.items())),
+        "failures": len(failures),
+        "rows": rows,
+    }
+    write_json(args.out_dir / "summary.json", summary)
+    write_json(args.out_dir / "failures.json", {"schema": "logovista-package-model-failures-v0", "failures": failures})
+    if args.json:
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+    if failures and not args.allow_failures:
+        return 1
+    return 0
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
     rows = extract_audit_for_sources(args)
     if args.json:
@@ -1777,6 +1932,63 @@ def build_parser() -> argparse.ArgumentParser:
         full_entry_boundaries=False,
         skip_row_models=False,
         func=cmd_dump_package_model,
+    )
+
+    p_models = sub.add_parser(
+        "dump-package-models",
+        help="Emit Decoded LogoVista Model v0 JSON reports for every package under corpus roots.",
+    )
+    p_models.add_argument("root", type=Path, nargs="+", help="Corpus root(s), package directories, payload files, or direct .IDX paths.")
+    p_models.add_argument("--out-dir", type=Path, required=True, help="Output directory for model reports, summary.json, targets.json, and failures.json.")
+    p_models.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
+    p_models.add_argument(
+        "--family",
+        action="append",
+        choices=("ssed", "ssed-sizk-read-aloud", "lved_sqlcipher", "multiview_sqlite"),
+        help="Only emit targets from the selected package family. Can be repeated.",
+    )
+    p_models.add_argument("--resume", action="store_true", help="Skip targets whose deterministic output JSON already contains a valid decoded model.")
+    p_models.add_argument("--progress", action="store_true", help="Print one progress line as each package finishes.")
+    p_models.add_argument("--allow-failures", action="store_true", help="Exit 0 even when some package model workers fail.")
+    p_models.add_argument(
+        "--parse-mode",
+        choices=("lenient", "forensic", "strict"),
+        default="forensic",
+        help="Lossless span parser mode for HONMON entry samples.",
+    )
+    p_models.add_argument("--entry-limit", type=int, default=25, help="Number of HONMON entries with spans to embed; use 0 for all entries.")
+    p_models.add_argument("--profile-max-slices", type=int, default=200, help="Number of HONMON slices sampled for package profiling; use 0 for all.")
+    p_models.add_argument("--title-limit", type=int, default=200, help="Title rows emitted into the model sample pass; 0 = all.")
+    p_models.add_argument("--index-limit", type=int, default=200, help="Index rows emitted into the model sample pass; 0 = all.")
+    p_models.add_argument("--menu-limit", type=int, default=200, help="Menu rows emitted into the model sample pass; 0 = all.")
+    p_models.add_argument("--media-limit", type=int, default=0, help="COLSCR/PCMDATA refs scanned; 0 = all.")
+    p_models.add_argument("--sample-limit", type=int, default=20, help="Rows embedded from title/index/menu JSONL outputs.")
+    p_models.add_argument("--sidecar-sample-limit", type=int, default=20, help="Rows embedded from Windows auxiliary sidecars.")
+    p_models.add_argument("--max-issue-samples", type=int, default=50)
+    p_models.add_argument("--no-spans", dest="include_spans", action="store_false", help="Omit entry span arrays.")
+    p_models.add_argument("--no-raw", dest="include_raw", action="store_false", help="Omit raw_hex from embedded spans.")
+    p_models.add_argument("--no-padding-spans", dest="include_padding_spans", action="store_false", help="Count NUL padding but omit padding spans from entry samples.")
+    p_models.add_argument("--include-internal-indexes", action="store_true", help="Include binary-search internal index rows in index samples.")
+    p_models.add_argument("--deep-sidecars", action="store_true", help="Open/decrypt vlpljbl SQLite sidecars for schema roles. Can be slow on huge Windows packages.")
+    p_models.add_argument("--full-profile-indexes", action="store_true", help="Also run the exhaustive profile index scan inside each model's profile section.")
+    p_models.add_argument("--full-entry-boundaries", action="store_true", help="Collect all index-derived HONMON entry boundaries before sampling entry spans.")
+    p_models.add_argument("--skip-row-models", action="store_true", help="Skip title/index/menu row extraction in package models; useful for very large packages.")
+    p_models.add_argument("--gaiji-readiness", action="store_true", help="Embed gaiji-readiness summary in each package model for authoritative gaiji capability status.")
+    p_models.add_argument("--renderer-sidecar-gaiji", action="store_true", help="When --gaiji-readiness is set, use renderer sidecars as contextual gaiji display evidence.")
+    p_models.add_argument("--renderer-inference-limit", type=int, help="When renderer gaiji evidence is enabled, limit raw/HONBUN rows used for contextual inference.")
+    p_models.add_argument("--include-playback-rows", action="store_true", help="Embed SIZK playback rows instead of summary-only playback metadata.")
+    p_models.add_argument("--no-hash", action="store_true", help="Skip component/sidecar SHA-256 hashing.")
+    p_models.add_argument("--json", action="store_true", help="Also print summary JSON.")
+    add_jobs_argument(p_models)
+    p_models.set_defaults(
+        include_spans=True,
+        include_raw=True,
+        include_padding_spans=True,
+        include_internal_indexes=False,
+        full_profile_indexes=False,
+        full_entry_boundaries=False,
+        skip_row_models=False,
+        func=cmd_dump_package_models,
     )
 
     p_audit = sub.add_parser("audit-honmon", help="Audit raw HONMON/IDX readability without SQLite bodies.")
