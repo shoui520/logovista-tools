@@ -25,6 +25,8 @@ DICT.uni
 That core is the stable part. Platform packages wrap it differently:
 
 ```text
+NoPlatform raw SSED core plus portable resource dirs such as res/, resources/,
+          templates/, img/; no EXINFO/HC/vlpljbl/plist/application sidecars
 iOS       DictList.plist, Gaiji.plist, GaijiS.plist, resourcesCopy.plist,
           gaijiicon.plist, img/, html/, OTHER/, *.sql
 Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
@@ -38,6 +40,13 @@ LVED      main.data or *.dbc, WebView2 viewer files, sqlcipher.dll,
 MultiView SSEDINFO-like *.IDX facade, menuData.xml, LOGOVISTAMULTIVIEW,
           *lvbat/*lvdat LogoFontCipher SQLite payloads, Templates/, Resources/
 ```
+
+`NoPlatform` is not an observed retail LogoVista wrapper. It is the model value
+for stripped core-SSED packages and for future SSED writer output that should
+not depend on a specific LogoVista reader implementation. Numeric auxiliary
+`00000xxx.idx` files can still be present in this layout; they are SSED sidecar
+indexes/resources, not sufficient Windows evidence without `EXINFO.INI`,
+`HC????.dll`, or `vlpljbl*`.
 
 ## Windows HC Renderer Plugins
 

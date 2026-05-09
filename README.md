@@ -355,6 +355,8 @@ DICT.uni / DICT.UNI
 Platform packages add their own wrapper material:
 
 ```text
+NoPlatform raw SSED core plus portable resource dirs such as res/, resources/,
+          templates/, img/; no reader-specific EXINFO/HC/vlpljbl/plist sidecars
 iOS       DictList.plist, Gaiji.plist, GaijiS.plist, img/, html/, *.sql
 Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
 Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, vlpljbl*, 00000xxx.idx
@@ -368,6 +370,11 @@ The raw core is the main reverse-engineering target. SQLite databases, renderer
 sidecars, and app caches may be validation evidence, search caches, or full
 body payloads. They are not treated as replacements for the raw
 address/pointer model.
+
+`noplatform` is the expected wrapper for deliberately stripped or authoring
+target packages that keep the SSED core but remove LogoVista reader-specific
+sidecars. A sibling numeric `00000xxx.idx` by itself is treated as auxiliary
+SSED data, not as proof that the package is Windows-bound.
 
 Modern LVED/WebView2 products are a separate package family. In observed
 OXFPEU4/KQCMPROS packages, `main.data` or `.dbc` is a SQLCipher database rather

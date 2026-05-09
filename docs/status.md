@@ -66,7 +66,8 @@ LogoVista dictionary model.
   referenced-range byte coverage, and portable WAV/MP3 writing for classified
   payloads.
 - Package image discovery from iOS `img`, Windows `Templates` / `HANREI/img`,
-  Android resource folders, and sibling `*_GAIJI` companion directories.
+  Android resource folders, platformless `res` / `resources` / `templates`
+  folders, and sibling `*_GAIJI` companion directories.
 - SQL/`DictFULLDB`-assisted gaiji validation reports.
 - Raw-resource gaiji readiness reports that separate Unicode mappings,
   bitmap-backed glyphs, image-backed glyphs, probable formatting helpers,

@@ -853,9 +853,11 @@ LogoVista packages often include a top-level `img` directory plus
 `resourcesCopy.plist` and `gaijiicon.plist`. Windows packages can put HTML
 renderer assets in `Templates` and `HANREI/img`; Android packages can omit
 plist manifests and put images in `resource/kmkimges`, `appendix/img`, or
-`manual/contents/img`. Some Windows packages also ship a sibling companion
-directory such as `_DCT_KANJIGN5_GAIJI`; the resource scanner checks those
-`*_GAIJI` directories too. The scanner checks all of those locations,
+`manual/contents/img`. Platformless/core-SSED packages can use generic
+portable folders such as `res`, `resources`, lowercase `templates`, `image`,
+or `images`. Some Windows packages also ship a sibling companion directory
+such as `_DCT_KANJIGN5_GAIJI`; the resource scanner checks those `*_GAIJI`
+directories too. The scanner checks all of those locations,
 groups theme variants such as
 `b13d_n.png` / `b13d_w.png` and Android-style `b167_1.png` / `b167_3.png`, and
 reports code-like resources such as `b13d` or `b167` as image-backed gaiji.

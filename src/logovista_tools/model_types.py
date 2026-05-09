@@ -29,6 +29,7 @@ class PackageFamily(ModelEnum):
 
 
 class PlatformWrapper(ModelEnum):
+    NOPLATFORM = "noplatform"
     WINDOWS = "windows"
     WINDOWS_SIZK = "windows-sizk"
     IOS = "ios"

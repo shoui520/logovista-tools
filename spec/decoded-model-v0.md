@@ -123,6 +123,7 @@ unknown           classified enough to report, not enough to decode
 `platform` values:
 
 ```text
+noplatform
 windows
 windows-sizk
 ios

@@ -105,8 +105,13 @@ def image_key_and_theme(path: Path) -> tuple[str, str | None]:
 
 def candidate_image_dirs(root: Path) -> list[Path]:
     package_specific = [
+        root / "res",
+        root / "resources",
         root / "img",
+        root / "image",
+        root / "images",
         root / "Templates",
+        root / "templates",
         root / "HANREI" / "img",
         root / "HANREI" / "contents" / "img",
         root / "OTHER" / "images",
@@ -135,10 +140,11 @@ def load_image_resource_profile(path: Path) -> ImageResourceProfile:
 
     LogoVista packages commonly keep dictionary-specific icon PNGs in a sibling
     ``img`` directory next to the dictionary directory. Windows packages can put
-    dictionary-template assets in ``Templates``; Android packages can use
-    ``resource/kmkimges`` and omit plist manifests. Files ending in ``_n`` /
-    ``_w`` and Android-style ``_1`` / ``_3`` are grouped as theme variants of
-    the same resource key.
+    dictionary-template assets in ``Templates``; platformless/core-SSED packages
+    can use generic ``res`` / ``resources`` / ``templates`` directories; Android
+    packages can use ``resource/kmkimges`` and omit plist manifests. Files ending
+    in ``_n`` / ``_w`` and Android-style ``_1`` / ``_3`` are grouped as theme
+    variants of the same resource key.
     """
 
     roots = candidate_package_roots(path)

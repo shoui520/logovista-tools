@@ -897,6 +897,36 @@ def test_load_image_resource_profile_discovers_windows_templates(tmp_path) -> No
     assert relative_image_source(hanrei_img / "b159_M.png", idx) == "HANREI/img/b159_M.png"
 
 
+def test_load_image_resource_profile_discovers_platformless_resource_dirs(tmp_path) -> None:
+    package = tmp_path / "DICT"
+    res = package / "res"
+    templates = package / "templates"
+    res.mkdir(parents=True)
+    templates.mkdir(parents=True)
+    idx = package / "DICT.IDX"
+    idx.write_bytes(b"")
+    (res / "B123.png").write_bytes(b"png")
+    (res / "exam.png").write_bytes(b"png")
+    (templates / "A126.png").write_bytes(b"png")
+
+    profile = load_image_resource_profile(idx)
+    static = static_package_resources_for_idx(idx)
+
+    assert res in profile.image_dirs
+    assert any(path.name.lower() == "templates" for path in profile.image_dirs)
+    assert profile.resources["b123"].default == res / "B123.png"
+    assert profile.resources["a126"].default is not None
+    assert profile.resources["a126"].default.name == "A126.png"
+    assert profile.resources["a126"].default.parent.name.lower() == "templates"
+    assert "b123" in profile.gaiji_image_keys
+    assert "a126" in profile.gaiji_image_keys
+    assert relative_image_source(res / "B123.png", idx) == "res/B123.png"
+    assert relative_image_source(templates / "A126.png", idx) == "templates/A126.png"
+    assert "res" in static["directories"]
+    assert "templates" in static["directories"]
+    assert static["extension_counts"][".png"] == 3
+
+
 def test_load_image_resource_profile_discovers_sibling_gaiji_companion(tmp_path) -> None:
     collection = tmp_path / "corpus"
     package = collection / "_DCT_KANJIGN5"

@@ -50,7 +50,7 @@ from .rendererdb import (
     table_count,
     table_exists,
 )
-from .resources import candidate_image_dirs, load_image_resource_profile, relative_image_source
+from .resources import candidate_image_dirs, file_identity, load_image_resource_profile, relative_image_source
 from .sizk import inspect_sizk_package, is_sizk_package
 from .spans import LosslessDecodeError, decode_lossless_spans
 from .ssed import (
@@ -191,6 +191,8 @@ def detect_platform_wrapper_for_idx(idx: Path) -> dict[str, Any]:
         "ios_gaiji_plist": any((base / name).exists() for base in (package, parent) for name in ("Gaiji.plist", "GaijiS.plist")),
         "android_conf": (package / "resource" / "conf.ini").exists() or (parent / "resource" / "conf.ini").exists(),
         "templates": (package / "Templates").is_dir(),
+        "templates_lower": (package / "templates").is_dir(),
+        "res_dir": (package / "res").is_dir(),
         "htmls": (package / "HTMLs").is_dir(),
         "hc_renderer": bool(discover_hc_renderer_files([package])),
         "vlpljbl": bool(discover_vlpljbl_files([package])),
@@ -206,11 +208,11 @@ def detect_platform_wrapper_for_idx(idx: Path) -> dict[str, Any]:
     elif markers["dictlist_plist"] or markers["ios_gaiji_plist"]:
         platform = "ios"
         family = "ssed"
-    elif markers["exinfo"] or markers["hc_renderer"] or markers["vlpljbl"] or markers["numeric_aux_indexes"]:
+    elif markers["exinfo"] or markers["hc_renderer"] or markers["vlpljbl"]:
         platform = "windows"
         family = "ssed"
     else:
-        platform = "unknown"
+        platform = "noplatform"
         family = "ssed"
     return {"package_family": family, "platform": platform, "markers": markers}
 
@@ -743,6 +745,7 @@ def gaiji_resources(source: DictionarySource, args: argparse.Namespace | None = 
 def static_package_resources_for_idx(idx: Path, sample_limit: int = 50) -> dict[str, Any]:
     package = idx.parent
     resource_dirs = []
+    seen_resource_dirs: set[Any] = set()
     known_dir_names = {
         "gaijitemp",
         "hanrei",
@@ -754,16 +757,27 @@ def static_package_resources_for_idx(idx: Path, sample_limit: int = 50) -> dict[
         "img",
         "manual",
         "panel",
+        "res",
+        "resources",
         "templates",
     }
     for path in sorted(package.iterdir()):
         if is_metadata_noise_path(path):
             continue
         if path.is_dir() and path.name.lower() in known_dir_names:
+            identity = file_identity(path)
+            if identity in seen_resource_dirs:
+                continue
+            seen_resource_dirs.add(identity)
             resource_dirs.append(path)
     for path in candidate_image_dirs(package):
-        if path.is_dir() and path not in resource_dirs:
-            resource_dirs.append(path)
+        if not path.is_dir():
+            continue
+        identity = file_identity(path)
+        if identity in seen_resource_dirs:
+            continue
+        seen_resource_dirs.add(identity)
+        resource_dirs.append(path)
 
     root_files = [
         path

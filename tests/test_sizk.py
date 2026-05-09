@@ -1,7 +1,7 @@
 from argparse import Namespace
 from pathlib import Path
 
-from logovista_tools.decoded_model import dump_package_model_for_path
+from logovista_tools.decoded_model import detect_platform_wrapper_for_idx, dump_package_model_for_path
 from logovista_tools.gaiji import load_gaiji_profile
 from logovista_tools.sizk import discover_sizk_packages, inspect_sizk_package
 
@@ -99,6 +99,19 @@ def test_load_gaiji_profile_uses_exinfo_declared_uni(tmp_path) -> None:
     assert profile.map["b12a"] == "鷗"
     assert profile.uni_entries == 1
     assert profile.uni_paths == (package / "shizuku.uni",)
+
+
+def test_detect_platformless_core_ssed_wrapper(tmp_path) -> None:
+    package = tmp_path / "CORE"
+    package.mkdir()
+    idx = package / "CORE.IDX"
+    make_ssedinfo(idx, title="Core")
+
+    wrapper = detect_platform_wrapper_for_idx(idx)
+
+    assert wrapper["package_family"] == "ssed"
+    assert wrapper["platform"] == "noplatform"
+    assert wrapper["markers"]["numeric_aux_indexes"] is False
 
 
 def test_inspect_sizk_package_links_honmon_templates_and_playback(tmp_path) -> None:
