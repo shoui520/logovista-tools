@@ -133,9 +133,11 @@ LogoVista dictionary model.
   page splitting, `1f04`/`1f05` halfwidth ASCII display spans, deterministic
   Unicode-to-JIS/gaiji allocation, `.uni` emission, and `GA16HALF` /
   `GA16FULL` emission. Synthetic roundtrip tests validate these bytes through
-  the existing parser. Writer-v0 keeps all rows for an identical index key on
-  one leaf page; if one key group cannot fit, it fails loudly instead of
-  emitting duplicate branch keys with ambiguous lookup behavior.
+  the existing parser. ASCII/fullwidth-ASCII index keys are normalized to
+  uppercase JIS row-3 cells while body/title display text stays unchanged.
+  Writer-v0 keeps all rows for an identical index key on one leaf page; if one
+  key group cannot fit, it fails loudly instead of emitting duplicate branch
+  keys with ambiguous lookup behavior.
 - Experimental standalone Python reader core in `src/lvcore-experimental`.
   This is a clean reimplementation and does not import `logovista_tools`.
   Current SSED coverage includes package-family detection, SSEDINFO parsing,

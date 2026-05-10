@@ -491,7 +491,19 @@ def encode_body_text(text: str, gaiji: GaijiAllocator | None = None) -> bytes:
 
 
 def encode_search_key(text: str, gaiji: GaijiAllocator | None = None, *, reverse: bool = False) -> bytes:
-    chars = list(text)
+    """Encode a LogoVista index key.
+
+    Observed ASCII lookup indexes store row-3 JIS uppercase cells even
+    when the displayed title/body text remains lowercase.
+    """
+
+    chars = []
+    for ch in text:
+        if "a" <= ch <= "z":
+            ch = chr(ord(ch) - 0x20)
+        elif "\uff41" <= ch <= "\uff5a":
+            ch = chr(ord(ch) - 0x20)
+        chars.append(ch)
     if reverse:
         chars.reverse()
     out = bytearray()

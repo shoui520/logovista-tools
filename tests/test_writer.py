@@ -123,6 +123,11 @@ def test_private_renderer_directive_span_is_hidden_from_rendered_output() -> Non
 
 
 def test_search_key_encoder_uses_jis_cells_and_reverses_by_character() -> None:
+    assert encode_search_key("alpha").hex(" ") == "23 41 23 4c 23 50 23 48 23 41"
+    assert encode_search_key("alpha") == encode_search_key("ALPHA")
+    assert encode_search_key("ａｌｐｈａ") == encode_search_key("ALPHA")
+    gaiji = GaijiAllocator()
+    assert encode_search_key("é", gaiji) != encode_search_key("É", gaiji)
     assert len(encode_search_key("AC入試")) == 8
     assert encode_search_key("AC入試", reverse=True).endswith(encode_search_key("A"))
 
@@ -247,8 +252,8 @@ def test_tagged_index_writer_parses_grouped_targets() -> None:
 
     assert result.search_groups == 2
     assert result.leaf_rows == 3
-    assert [row["key"] for row in rows if row["kind"] == "leaf"] == ["run", "run", "walk"]
-    assert [row["target_key"] for row in rows if row["kind"] == "leaf"] == ["run", "running", "walk"]
+    assert [row["key"] for row in rows if row["kind"] == "leaf"] == ["RUN", "RUN", "WALK"]
+    assert [row["target_key"] for row in rows if row["kind"] == "leaf"] == ["RUN", "RUNNING", "WALK"]
 
     many = [
         IndexTarget(key=f"group-{i:03d}", target_key=f"group-{i:03d}", body=IndexPointer(100 + i, 2), title=IndexPointer(200, i * 2))
@@ -270,7 +275,7 @@ def test_tagged_index_writer_parses_grouped_targets() -> None:
     assert result.leaf_pages > 1
     assert result.search_groups == 180
     assert result.leaf_rows == 180
-    assert {row["key"] for row in rows if row["kind"] == "leaf"} == {f"group-{i:03d}" for i in range(180)}
+    assert {row["key"] for row in rows if row["kind"] == "leaf"} == {f"GROUP-{i:03d}" for i in range(180)}
 
 
 def test_index_writer_rejects_single_key_groups_that_cannot_fit_one_leaf() -> None:
@@ -382,7 +387,7 @@ def test_plain_honmon_package_writer_is_readable_by_existing_parsers(tmp_path) -
         emit_row=fh_rows.append,
     )
     assert fh_result.leaf_rows == 4
-    assert {row["key"] for row in fh_rows if row["kind"] == "leaf"} == {"alpha", "裏", "biang", "𰻞"}
+    assert {row["key"] for row in fh_rows if row["kind"] == "leaf"} == {"ALPHA", "裏", "BIANG", "𰻞"}
 
     fk_rows = []
     fk = next(element for element in elements if element.filename == "FKINDEX.DIC")
@@ -397,8 +402,8 @@ def test_plain_honmon_package_writer_is_readable_by_existing_parsers(tmp_path) -
     )
     assert fk_result.search_groups == 4
     assert fk_result.leaf_rows == 4
-    assert {row["key"] for row in fk_rows if row["kind"] == "leaf"} == {"alpha", "裏", "biang", "𰻞"}
-    assert {row["target_key"] for row in fk_rows if row["kind"] == "leaf"} == {"alpha", "裏", "biang"}
+    assert {row["key"] for row in fk_rows if row["kind"] == "leaf"} == {"ALPHA", "裏", "BIANG", "𰻞"}
+    assert {row["target_key"] for row in fk_rows if row["kind"] == "leaf"} == {"ALPHA", "裏", "BIANG"}
 
     bk_rows = []
     bk = next(element for element in elements if element.filename == "BKINDEX.DIC")

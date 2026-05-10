@@ -238,6 +238,14 @@ GENIUSEB FHINDEX read-ish keys -> body HONMON blocks, title FHTITLE blocks
 KOJIEN7 FHINDEX ?ASHURA' -> body HONMON ID-table anchor, title FHTITLE row
 ```
 
+Observed ASCII Latin lookup keys are stored as uppercase row-3 JIS cells. For
+example, GENIUSEB `ALPHA` uses `23 41 23 4c 23 50 23 48 23 41`, and HAESPJPN
+`PONER` uses `23 50 23 4f 23 4e 23 45 23 52`. This is an index-key
+normalization rule; title and body streams can still preserve lowercase display
+text through ordinary `1f04` / `1f05` halfwidth spans. Writer-v0 applies this
+only to ASCII/fullwidth-ASCII letters, not to arbitrary Unicode letters or
+dictionary-local gaiji.
+
 If a dictionary has no `*TITLE.DIC`, the title pointer can equal the body
 pointer.
 
@@ -385,6 +393,11 @@ offset  size  meaning
 The same search key can have multiple target rows. Page boundaries can occur
 inside a group, so the parser carries the current `0x80` search key across
 leaf pages when a page begins with a `0xc0` target row.
+
+Compatible-reader checks confirm that duplicate exact keys return every target
+row in index order. Writer-v0 therefore keeps duplicate keys together on one
+leaf page and rejects a single key group that cannot fit in one page rather
+than emitting ambiguous duplicate branch keys.
 
 Tagged pages can also contain direct rows:
 

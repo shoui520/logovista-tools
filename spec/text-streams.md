@@ -130,7 +130,9 @@ the original fullwidth text in `text` and does not narrow it in `normalized`.
 The conservative HTML renderer keeps this mode boundary as
 `<span class="lv-halfwidth">...</span>` after applying the visible narrowing.
 Search indexes do not carry these display controls, so lookup-key decoders
-still normalize row-3 cells for practical matching.
+still normalize row-3 cells for practical matching. Writer-side index encoding
+normalizes ASCII/fullwidth-ASCII lookup keys to uppercase row-3 JIS cells; this
+does not change lowercase display text in body/title streams.
 
 The corpus-wide `opcode-atlas` command scans expanded text-stream components
 and emits a per-opcode table with payload lengths, component roles, surrounding
