@@ -209,6 +209,27 @@ The child is a 32-bit logical block number. In small dictionaries the high two
 bytes are usually zero, which can make the field look like a 16-bit pointer.
 Large dictionaries such as KOJIEN7 require the full 32 bits.
 
+Branch keys are child upper-bound keys, not child lower-bound keys. During
+lookup, readers descend through the first branch row whose padded key is greater
+than or equal to the encoded search key. This is visible in ordinary LogoVista
+indexes: for example, HAESPJPN `FKINDEX.DIC` root row `えんぶれむ` points to a
+lower branch page whose final row is also `えんぶれむ`. The last branch row of
+the final sibling page normally uses an all-`ff` key as an open-ended sentinel;
+decoded as text this appears as an empty key.
+
+Observed large Japanese indexes use depth-dependent branch key widths:
+
+```text
+nearest parent of leaves      32 key bytes  page words 4020/0020/2020
+one branch level above        30 key bytes  page words 401e/001e/201e
+root above that               28 key bytes  page word  601c
+```
+
+Two-level trees commonly use a `601e` root and `4020` / `2020` lower branch
+pages. Latin-only indexes can shrink below these caps; GENIUSEB uses 14-byte
+branch keys (`600e`, `400e`, `000e`, `200e`) because its upper-bound keys fit.
+The experimental writer follows this upper-bound/sentinel model.
+
 The upper byte/bits of the page word are page flags. Earlier probes treated
 only the low six bits as the slot-size field, but corpus-wide branch-page
 parsing found words such as `6068`; the full low byte is required. Valid
@@ -392,12 +413,10 @@ offset  size  meaning
 
 The same search key can have multiple target rows. Page boundaries can occur
 inside a group, so the parser carries the current `0x80` search key across
-leaf pages when a page begins with a `0xc0` target row.
-
-Compatible-reader checks confirm that duplicate exact keys return every target
-row in index order. Writer-v0 therefore keeps duplicate keys together on one
-leaf page and rejects a single key group that cannot fit in one page rather
-than emitting ambiguous duplicate branch keys.
+leaf pages when a page begins with a `0xc0` target row. Official simple indexes
+also split duplicate keys across adjacent leaves. The branch tree remains
+searchable because branch rows are upper-bound keys; a lookup lands on the
+first duplicate-key leaf and then scans forward through following matches.
 
 Tagged pages can also contain direct rows:
 

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import math
 import unicodedata
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Literal
 
 from .gaiji import ga16_glyph_size, ga16_row_size, gaiji_grid_code_for_index
 from .indexes import IndexPointer
@@ -28,6 +28,7 @@ TITLE_CATALOG_DATA = b"\x01\x00\x00\x00"
 SIMPLE_INDEX_CATALOG_DATA = b"\x02\x01\x55\x40"
 TAGGED_INDEX_CATALOG_DATA = b"\x02\x05\x55\x40"
 RESOURCE_CATALOG_DATA = b"\x00\x00\x00\x00"
+MAX_BRANCH_KEY_BYTES = 32
 
 
 def be16(value: int) -> bytes:
@@ -402,6 +403,8 @@ class GaijiAssignment:
 
 
 GlyphRenderer = Callable[[str, int, int, str], bytes]
+ProgressCallback = Callable[[str], None]
+CompressionMode = Literal["compressed", "literal"]
 
 
 @dataclass
@@ -411,6 +414,7 @@ class GaijiAllocator:
     half_start: int = HALF_GAIJI_START
     full_start: int = FULL_GAIJI_START
     glyph_renderer: GlyphRenderer | None = None
+    force_full: bool = False
     assignments: dict[str, GaijiAssignment] = field(default_factory=dict)
     _half_count: int = 0
     _full_count: int = 0
@@ -427,6 +431,8 @@ class GaijiAllocator:
             return self.assignments[text]
         if prefer_half is None:
             prefer_half = len(text) == 1 and is_halfwidth_gaiji_char(text)
+        if self.force_full:
+            prefer_half = False
         if prefer_half:
             code = gaiji_grid_code_for_index(self.half_start, self._half_count)
             self._half_count += 1
@@ -453,6 +459,29 @@ class GaijiAllocator:
 
     def mapping(self) -> dict[str, str]:
         return {row.key: row.text for row in self.assignments.values()}
+
+
+@dataclass(frozen=True)
+class BodyControl:
+    raw: bytes
+
+
+@dataclass(frozen=True)
+class BodyMarkup:
+    """Small writer-side body IR for HTML/structured-content import.
+
+    This is intentionally narrower than Decoded Model v0. It only represents
+    text plus already-chosen SSED controls needed by the author-core writer.
+    """
+
+    parts: tuple[str | BodyControl, ...]
+
+    @staticmethod
+    def text(value: str) -> "BodyMarkup":
+        return BodyMarkup((value,))
+
+
+WriterBody = str | BodyMarkup
 
 
 def encode_body_text(text: str, gaiji: GaijiAllocator | None = None) -> bytes:
@@ -488,6 +517,18 @@ def encode_body_text(text: str, gaiji: GaijiAllocator | None = None) -> bytes:
         out.extend(be16(gaiji.allocate(ch).code))
     close_halfwidth()
     return bytes(out)
+
+
+def encode_writer_body(body: WriterBody, gaiji: GaijiAllocator | None = None) -> bytes:
+    if isinstance(body, BodyMarkup):
+        out = bytearray()
+        for part in body.parts:
+            if isinstance(part, BodyControl):
+                out.extend(part.raw)
+            else:
+                out.extend(encode_body_text(part, gaiji))
+        return bytes(out)
+    return encode_body_text(body, gaiji)
 
 
 def encode_search_key(text: str, gaiji: GaijiAllocator | None = None, *, reverse: bool = False) -> bytes:
@@ -534,7 +575,7 @@ def encode_title_stream(titles: Iterable[str], gaiji: GaijiAllocator | None = No
 @dataclass(frozen=True)
 class WriterEntry:
     headword: str
-    body: str
+    body: WriterBody
     search_keys: tuple[str, ...] = ()
 
     @property
@@ -559,7 +600,7 @@ def encode_honmon_entry(entry: WriterEntry, gaiji: GaijiAllocator | None = None)
     out.extend(encode_body_text(entry.headword, gaiji))
     out.extend(b"\x1f\x61")
     out.extend(b"\x1f\x0a")
-    out.extend(encode_body_text(entry.body, gaiji))
+    out.extend(encode_writer_body(entry.body, gaiji))
     out.extend(b"\x1f\x0a")
     return bytes(out)
 
@@ -588,9 +629,12 @@ class IndexTarget:
 @dataclass
 class _IndexNode:
     branch_key: bytes
-    page: bytes | None = None
+    records: list[bytes] | None = None
+    tagged_leaf: bool = False
     children: list["_IndexNode"] = field(default_factory=list)
     block: int = 0
+    flags: int = 0
+    branch_key_len: int = 0
 
 
 def _page(rows: bytes, *, leaf: bool, count: int, word: int = 0) -> bytes:
@@ -623,38 +667,49 @@ def _split_keyed_records(records: list[tuple[bytes, bytes]], *, max_bytes: int =
     current: list[tuple[bytes, bytes]] = []
     size = 4
 
-    groups: list[list[tuple[bytes, bytes]]] = []
     for record in records:
-        if groups and groups[-1][0][1] == record[1]:
-            groups[-1].append(record)
-        else:
-            groups.append([record])
-
-    for group in groups:
-        group_size = sum(len(record) for record, _branch_key in group)
-        if group_size + 4 > max_bytes:
-            raise ValueError(f"single index key group exceeds page size: {group[0][1].hex()}")
-        if current and size + group_size > max_bytes:
+        row, _branch_key = record
+        if len(row) + 4 > max_bytes:
+            raise ValueError(f"single index record exceeds page size: {record[1].hex()}")
+        if current and size + len(row) > max_bytes:
             pages.append(current)
             current = []
             size = 4
-        current.extend(group)
-        size += group_size
+        current.append(record)
+        size += len(row)
     pages.append(current)
     return pages
 
 
 def _build_leaf_nodes(records: list[tuple[bytes, bytes]]) -> list[_IndexNode]:
     return [
-        _IndexNode(branch_key=group[0][1], page=_page(b"".join(record for record, _key in group), leaf=True, count=len(group)))
+        _IndexNode(branch_key=group[-1][1], records=[record for record, _key in group])
         for group in _split_keyed_records(records)
     ]
 
 
-def _build_parent_level(children: list[_IndexNode]) -> list[_IndexNode]:
+def _build_leaf_nodes_from_pages(pages: list[tuple[bytes, list[bytes]]], *, tagged_leaf: bool = False) -> list[_IndexNode]:
+    return [_IndexNode(branch_key=branch_key, records=records, tagged_leaf=tagged_leaf) for branch_key, records in pages]
+
+
+def _branch_key_len_cap(distance_from_leaves: int) -> int:
+    # Real LogoVista indexes keep the widest separator keys nearest the leaves.
+    # Large Japanese indexes observed in the corpus use 32-byte keys for the
+    # parent-of-leaves level, 30-byte keys above that, and 28-byte root keys
+    # above that. Short Latin-only indexes still shrink to the actual key width.
+    return max(2, MAX_BRANCH_KEY_BYTES - (2 * max(0, distance_from_leaves - 1)))
+
+
+def _build_parent_level(children: list[_IndexNode], *, distance_from_leaves: int) -> list[_IndexNode]:
     if not children:
         return []
-    slot_key_len = max(2, max(len(child.branch_key) for child in children))
+    slot_key_len = max(
+        2,
+        min(
+            max(len(child.branch_key) for child in children),
+            _branch_key_len_cap(distance_from_leaves),
+        ),
+    )
     if slot_key_len > 0xFF:
         raise ValueError("branch key length exceeds observed one-byte slot-size field")
     slot_size = slot_key_len + 4
@@ -662,7 +717,7 @@ def _build_parent_level(children: list[_IndexNode]) -> list[_IndexNode]:
     parents: list[_IndexNode] = []
     for start in range(0, len(children), per_page):
         group = children[start : start + per_page]
-        parents.append(_IndexNode(branch_key=group[0].branch_key, children=group))
+        parents.append(_IndexNode(branch_key=group[-1].branch_key, children=group, branch_key_len=slot_key_len))
     return parents
 
 
@@ -680,30 +735,71 @@ def _assign_blocks_level_order(root: _IndexNode, start_block: int) -> list[_Inde
     return ordered
 
 
+def _apply_index_page_flags(root: _IndexNode) -> None:
+    """Mark index pages with the positional flags observed in LogoVista indexes.
+
+    EBWin/LogoVista tolerate several row grammars, but branch/leaf page words
+    are not just a leaf bit plus a payload length.  Official indexes mark the
+    first sibling with 0x4000, the last sibling with 0x2000, and tagged leaves
+    with 0x1000.  A single root page therefore carries both first/last flags.
+    """
+
+    def visit_siblings(nodes: list[_IndexNode]) -> None:
+        for index, node in enumerate(nodes):
+            flags = 0
+            if index == 0:
+                flags |= 0x4000
+            if index == len(nodes) - 1:
+                flags |= 0x2000
+            node.flags = flags
+            if node.children:
+                visit_siblings(node.children)
+
+    root.flags = 0x6000
+    if root.children:
+        visit_siblings(root.children)
+
+
 def _materialize_branch_page(node: _IndexNode) -> bytes:
-    if node.page is not None:
-        return node.page
+    if node.records is not None:
+        leaf_word = node.flags | (0x1000 if node.tagged_leaf else 0)
+        return _page(b"".join(node.records), leaf=True, count=len(node.records), word=leaf_word)
     if not node.children:
         raise ValueError("branch node has no children")
-    slot_key_len = max(2, max(len(child.branch_key) for child in node.children))
+    slot_key_len = node.branch_key_len or max(2, max(min(len(child.branch_key), MAX_BRANCH_KEY_BYTES) for child in node.children))
     if slot_key_len > 0xFF:
         raise ValueError("branch key length exceeds observed one-byte slot-size field")
     rows = bytearray()
-    for child in node.children:
-        rows.extend(child.branch_key[:slot_key_len].ljust(slot_key_len, b"\x00"))
+    for index, child in enumerate(node.children):
+        if index == len(node.children) - 1 and node.flags & 0x2000:
+            key_bytes = b"\xff" * slot_key_len
+        else:
+            key_bytes = child.branch_key[:slot_key_len].ljust(slot_key_len, b"\x00")
+        rows.extend(key_bytes)
         rows.extend(be32(child.block))
-    return _page(bytes(rows), leaf=False, count=len(node.children), word=slot_key_len)
+    return _page(bytes(rows), leaf=False, count=len(node.children), word=node.flags | slot_key_len)
 
 
-def _encode_index_tree(records: list[tuple[bytes, bytes]], *, start_block: int) -> bytes:
-    if not records:
-        return _page(b"", leaf=True, count=0)
-    level = _build_leaf_nodes(records)
+def _encode_index_tree_from_leaf_nodes(leaves: list[_IndexNode], *, start_block: int, tagged_leaf: bool = False) -> bytes:
+    if not leaves:
+        word = 0x6000 | (0x1000 if tagged_leaf else 0)
+        return _page(b"", leaf=True, count=0, word=word)
+    level = leaves
+    distance_from_leaves = 1
     while len(level) > 1:
-        level = _build_parent_level(level)
+        level = _build_parent_level(level, distance_from_leaves=distance_from_leaves)
+        distance_from_leaves += 1
     root = level[0]
+    _apply_index_page_flags(root)
     ordered = _assign_blocks_level_order(root, start_block)
     return b"".join(_materialize_branch_page(node) for node in ordered)
+
+
+def _encode_index_tree(records: list[tuple[bytes, bytes]], *, start_block: int, tagged_leaf: bool = False) -> bytes:
+    leaves = _build_leaf_nodes(records)
+    for node in leaves:
+        node.tagged_leaf = tagged_leaf
+    return _encode_index_tree_from_leaf_nodes(leaves, start_block=start_block, tagged_leaf=tagged_leaf)
 
 
 def encode_simple_index_pages(
@@ -731,21 +827,63 @@ def encode_tagged_index_pages(
     groups: dict[str, list[IndexTarget]] = {}
     for target in targets:
         groups.setdefault(target.key, []).append(target)
-    records: list[tuple[bytes, bytes]] = []
+    grouped_records: list[tuple[bytes, bytes, list[bytes]]] = []
     for key in sorted(groups, key=lambda value: encode_search_key(value, gaiji, reverse=reverse_keys)):
         key_bytes = encode_search_key(key, gaiji, reverse=reverse_keys)
         rows = groups[key]
-        records.append((b"\x80" + bytes([len(key_bytes)]) + be16(len(rows)) + key_bytes, key_bytes))
+        header = b"\x80" + bytes([len(key_bytes)]) + be16(len(rows)) + key_bytes
+        target_records: list[bytes] = []
         for row in rows:
             target_key = row.target_key or row.key
             target_bytes = encode_search_key(target_key, gaiji, reverse=reverse_keys)
-            records.append(
-                (
-                    b"\xc0" + bytes([len(target_bytes)]) + target_bytes + pointer_pair(row.body, row.title),
-                    key_bytes,
-                )
-            )
-    return _encode_index_tree(records, start_block=start_block)
+            target_records.append(b"\xc0" + bytes([len(target_bytes)]) + target_bytes + pointer_pair(row.body, row.title))
+        grouped_records.append((key_bytes, header, target_records))
+    pages = _split_tagged_record_pages(grouped_records)
+    leaves = _build_leaf_nodes_from_pages(pages, tagged_leaf=True)
+    return _encode_index_tree_from_leaf_nodes(leaves, start_block=start_block, tagged_leaf=True)
+
+
+def _split_tagged_record_pages(groups: list[tuple[bytes, bytes, list[bytes]]]) -> list[tuple[bytes, list[bytes]]]:
+    """Split tagged index groups into leaf pages, allowing group continuation.
+
+    A tagged group starts with an ``0x80`` header and has one or more ``0xc0``
+    targets. Large groups may continue onto following leaf pages without a
+    repeated header; readers carry the current group key across leaf pages.
+    """
+
+    pages: list[tuple[bytes, list[bytes]]] = []
+    current_records: list[bytes] = []
+    current_branch_key = b""
+    current_size = 4
+
+    def flush() -> None:
+        nonlocal current_records, current_branch_key, current_size
+        if current_records:
+            pages.append((current_branch_key, current_records))
+        current_records = []
+        current_branch_key = b""
+        current_size = 4
+
+    def add_record(record: bytes, branch_key: bytes) -> None:
+        nonlocal current_branch_key, current_size
+        if len(record) + 4 > BLOCK_SIZE:
+            raise ValueError(f"single tagged index record exceeds page size: {branch_key.hex()}")
+        current_branch_key = branch_key
+        current_records.append(record)
+        current_size += len(record)
+
+    for key_bytes, header, targets in groups:
+        if targets and len(header) + len(targets[0]) + 4 > BLOCK_SIZE:
+            raise ValueError(f"single tagged index key header plus target exceeds page size: {key_bytes.hex()}")
+        if current_records and current_size + len(header) + (len(targets[0]) if targets else 0) > BLOCK_SIZE:
+            flush()
+        add_record(header, key_bytes)
+        for target in targets:
+            if current_size + len(target) > BLOCK_SIZE:
+                flush()
+            add_record(target, key_bytes)
+    flush()
+    return pages
 
 
 def encode_uni_resource(allocator: GaijiAllocator) -> bytes:
@@ -814,60 +952,81 @@ def encode_ga16_resource(
     return bytes(header) + bytes(payload)
 
 
-def render_vector_gaiji_glyph(
-    text: str,
-    width: int,
-    height: int,
-    _space: str,
-    *,
-    font_path: Path,
-    face_index: int = 0,
-    threshold: int = 220,
-) -> bytes:
+class VectorGlyphRenderer:
     """Render a user-supplied vector font glyph into GA16 1bpp bytes.
 
     This is a fallback path.  It keeps aspect ratio and thresholds grayscale
     antialiasing to the 1bpp GA16 target.  The project never bundles fonts.
     """
 
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-    except ImportError as exc:  # pragma: no cover - depends on optional local tooling
-        raise RuntimeError("Pillow is required for vector gaiji rendering") from exc
+    def __init__(self, font_path: Path, *, face_index: int = 0, threshold: int = 220) -> None:
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+        except ImportError as exc:  # pragma: no cover - depends on optional local tooling
+            raise RuntimeError("Pillow is required for vector gaiji rendering") from exc
+        self.font_path = Path(font_path)
+        self.face_index = face_index
+        self.threshold = threshold
+        self.Image = Image
+        self.ImageDraw = ImageDraw
+        self.ImageFont = ImageFont
+        self._font_cache: dict[int, ImageFont.FreeTypeFont] = {}
 
-    def text_bbox(font: ImageFont.FreeTypeFont) -> tuple[int, int, int, int]:
-        probe = Image.new("L", (256, 256), 255)
-        return ImageDraw.Draw(probe).textbbox((0, 0), text, font=font)
+    def _font(self, size: int):
+        cached = self._font_cache.get(size)
+        if cached is None:
+            cached = self.ImageFont.truetype(str(self.font_path), size=size, index=self.face_index)
+            self._font_cache[size] = cached
+        return cached
 
-    chosen = None
-    for size in range(64, 3, -1):
-        font = ImageFont.truetype(str(font_path), size=size, index=face_index)
-        bbox = text_bbox(font)
-        bw = bbox[2] - bbox[0]
-        bh = bbox[3] - bbox[1]
-        if bw <= width and bh <= height:
-            chosen = (font, bbox, bw, bh)
-            break
-    if chosen is None:
-        font = ImageFont.truetype(str(font_path), size=4, index=face_index)
-        bbox = text_bbox(font)
-        chosen = (font, bbox, bbox[2] - bbox[0], bbox[3] - bbox[1])
+    def _text_bbox(self, text: str, font) -> tuple[int, int, int, int]:
+        probe = self.Image.new("L", (256, 256), 255)
+        return self.ImageDraw.Draw(probe).textbbox((0, 0), text, font=font)
 
-    font, bbox, bw, bh = chosen
-    image = Image.new("L", (width, height), 255)
-    draw = ImageDraw.Draw(image)
-    draw.text(((width - bw) // 2 - bbox[0], (height - bh) // 2 - bbox[1]), text, font=font, fill=0)
-    mono = image.point(lambda px: 0 if px < threshold else 255, mode="1").convert("L")
-    row_size = ga16_row_size(width)
-    out = bytearray()
-    pixels = mono.load()
-    for y in range(height):
-        row = bytearray(row_size)
-        for x in range(width):
-            if pixels[x, y] < 128:
-                row[x // 8] |= 0x80 >> (x % 8)
-        out.extend(row)
-    return bytes(out)
+    def __call__(self, text: str, width: int, height: int, _space: str) -> bytes:
+        chosen = None
+        for size in range(64, 3, -1):
+            font = self._font(size)
+            bbox = self._text_bbox(text, font)
+            bw = bbox[2] - bbox[0]
+            bh = bbox[3] - bbox[1]
+            if bw <= width and bh <= height:
+                chosen = (font, bbox, bw, bh)
+                break
+        if chosen is None:
+            font = self._font(4)
+            bbox = self._text_bbox(text, font)
+            chosen = (font, bbox, bbox[2] - bbox[0], bbox[3] - bbox[1])
+
+        font, bbox, bw, bh = chosen
+        image = self.Image.new("L", (width, height), 255)
+        draw = self.ImageDraw.Draw(image)
+        draw.text(((width - bw) // 2 - bbox[0], (height - bh) // 2 - bbox[1]), text, font=font, fill=0)
+        mono = image.point(lambda px: 0 if px < self.threshold else 255, mode="1").convert("L")
+        row_size = ga16_row_size(width)
+        out = bytearray()
+        pixels = mono.load()
+        for y in range(height):
+            row = bytearray(row_size)
+            for x in range(width):
+                if pixels[x, y] < 128:
+                    row[x // 8] |= 0x80 >> (x % 8)
+            out.extend(row)
+        return bytes(out)
+
+
+def render_vector_gaiji_glyph(
+    text: str,
+    width: int,
+    height: int,
+    space: str,
+    *,
+    font_path: Path,
+    face_index: int = 0,
+    threshold: int = 220,
+) -> bytes:
+    renderer = VectorGlyphRenderer(font_path, face_index=face_index, threshold=threshold)
+    return renderer(text, width, height, space)
 
 
 @dataclass(frozen=True)
@@ -886,14 +1045,30 @@ def build_plain_honmon_package(
     entries: Iterable[WriterEntry],
     include_tagged_indexes: bool = True,
     glyph_renderer: GlyphRenderer | None = None,
+    compression: CompressionMode = "compressed",
+    progress: ProgressCallback | None = None,
+    gaiji_half_start: int = HALF_GAIJI_START,
+    gaiji_full_start: int = FULL_GAIJI_START,
+    force_full_gaiji: bool = False,
 ) -> PlainPackage:
     """Build an in-memory plain body-stream SSED package."""
 
     entry_list = list(entries)
-    gaiji = GaijiAllocator(glyph_renderer=glyph_renderer)
+    if progress:
+        progress(f"entries loaded: {len(entry_list)}")
+    gaiji = GaijiAllocator(
+        half_start=gaiji_half_start,
+        full_start=gaiji_full_start,
+        glyph_renderer=glyph_renderer,
+        force_full=force_full_gaiji,
+    )
 
     honmon_expanded, body_offsets = encode_honmon_stream(entry_list, gaiji)
+    if progress:
+        progress(f"HONMON expanded: {len(honmon_expanded)} bytes; gaiji={len(gaiji.assignments)}")
     title_expanded, title_offsets = encode_title_stream([entry.headword for entry in entry_list], gaiji)
+    if progress:
+        progress(f"TITLE expanded: {len(title_expanded)} bytes; gaiji={len(gaiji.assignments)}")
 
     honmon_start = 2
     honmon_blocks = logical_block_count(honmon_expanded)
@@ -977,11 +1152,15 @@ def build_plain_honmon_package(
         fkindex_expanded = encode_tagged_index_pages(tagged_forward_targets, start_block=fkindex_start, gaiji=gaiji)
         fkindex_blocks = logical_block_count(fkindex_expanded)
         cursor += fkindex_blocks
+        if progress:
+            progress(f"FKINDEX expanded: {len(fkindex_expanded)} bytes")
 
     fhindex_start = cursor
     fhindex_expanded = encode_simple_index_pages(forward_targets, start_block=fhindex_start, gaiji=gaiji)
     fhindex_blocks = logical_block_count(fhindex_expanded)
     cursor += fhindex_blocks
+    if progress:
+        progress(f"FHINDEX expanded: {len(fhindex_expanded)} bytes")
 
     if include_tagged_indexes:
         assert bkindex_start is None and bktitle_start is not None
@@ -1005,10 +1184,14 @@ def build_plain_honmon_package(
         )
         bkindex_blocks = logical_block_count(bkindex_expanded)
         cursor += bkindex_blocks
+        if progress:
+            progress(f"BKINDEX expanded: {len(bkindex_expanded)} bytes")
 
     bhindex_start = cursor
     bhindex_expanded = encode_simple_index_pages(backward_targets, start_block=bhindex_start, gaiji=gaiji, reverse_keys=True)
     bhindex_blocks = logical_block_count(bhindex_expanded)
+    if progress:
+        progress(f"BHINDEX expanded: {len(bhindex_expanded)} bytes")
 
     half = gaiji.half_assignments
     full = gaiji.full_assignments
@@ -1051,13 +1234,22 @@ def build_plain_honmon_package(
                 SsedInfoComponent("GA16HALF", 0xF2, 0, 0, b"\x00\x00\x00\x00"),
             ]
         )
+    if compression == "compressed":
+        component_encoder = encode_sseddata
+    elif compression == "literal":
+        component_encoder = encode_sseddata_literal
+    else:
+        raise ValueError(f"unknown compression mode: {compression}")
+
+    if progress:
+        progress(f"encoding SSEDDATA components with {compression} compression")
     files = {
         f"{dict_id}.IDX": encode_ssedinfo(title, components),
-        "HONMON.DIC": encode_sseddata(honmon_expanded, start_block=honmon_start, kind=0x00),
-        "FHINDEX.DIC": encode_sseddata(fhindex_expanded, start_block=fhindex_start, kind=0x91),
-        "BHINDEX.DIC": encode_sseddata(bhindex_expanded, start_block=bhindex_start, kind=0x71),
-        "FHTITLE.DIC": encode_sseddata(title_expanded, start_block=fhtitle_start, kind=0x05),
-        "BHTITLE.DIC": encode_sseddata(title_expanded, start_block=bhtitle_start, kind=0x07),
+        "HONMON.DIC": component_encoder(honmon_expanded, start_block=honmon_start, kind=0x00),
+        "FHINDEX.DIC": component_encoder(fhindex_expanded, start_block=fhindex_start, kind=0x91),
+        "BHINDEX.DIC": component_encoder(bhindex_expanded, start_block=bhindex_start, kind=0x71),
+        "FHTITLE.DIC": component_encoder(title_expanded, start_block=fhtitle_start, kind=0x05),
+        "BHTITLE.DIC": component_encoder(title_expanded, start_block=bhtitle_start, kind=0x07),
     }
 
     if include_tagged_indexes:
@@ -1066,17 +1258,19 @@ def build_plain_honmon_package(
         assert fkindex_expanded is not None and bkindex_expanded is not None
         files.update(
             {
-                "FKTITLE.DIC": encode_sseddata(title_expanded, start_block=fktitle_start, kind=0x04),
-                "BKTITLE.DIC": encode_sseddata(title_expanded, start_block=bktitle_start, kind=0x06),
-                "FKINDEX.DIC": encode_sseddata(fkindex_expanded, start_block=fkindex_start, kind=0x90),
-                "BKINDEX.DIC": encode_sseddata(bkindex_expanded, start_block=bkindex_start, kind=0x70),
+                "FKTITLE.DIC": component_encoder(title_expanded, start_block=fktitle_start, kind=0x04),
+                "BKTITLE.DIC": component_encoder(title_expanded, start_block=bktitle_start, kind=0x06),
+                "FKINDEX.DIC": component_encoder(fkindex_expanded, start_block=fkindex_start, kind=0x90),
+                "BKINDEX.DIC": component_encoder(bkindex_expanded, start_block=bkindex_start, kind=0x70),
             }
         )
 
     if gaiji_required:
         files[f"{dict_id}.uni"] = encode_uni_resource(gaiji)
-        files["GA16HALF"] = encode_ga16_resource(half, width=8, start_code=HALF_GAIJI_START)
-        files["GA16FULL"] = encode_ga16_resource(full, width=16, start_code=FULL_GAIJI_START)
+        files["GA16HALF"] = encode_ga16_resource(half, width=8, start_code=gaiji_half_start)
+        files["GA16FULL"] = encode_ga16_resource(full, width=16, start_code=gaiji_full_start)
+    if progress:
+        progress(f"package files encoded: {len(files)}")
 
     return PlainPackage(
         dict_id=dict_id,

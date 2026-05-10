@@ -498,6 +498,13 @@ The pass added several concrete format details:
 - Branch-page slot size uses the full low byte:
   `slot_size = (page_word & 0xff) + 4`. The upper byte/bits are page flags, and
   valid observed slots include 6-byte rows.
+- Branch-page keys are child upper bounds, not child lower bounds. HAESPJPN,
+  MEIKYOU2, DAIJIRN4, KOJIEN7, and GENIUSEB all show parent rows matching the
+  final key of the child branch/page. Final sibling branch rows use all-`ff`
+  sentinel keys, which decode as empty keys in text reports. Large Japanese
+  indexes use 32-byte upper-bound keys nearest leaves, 30 bytes one branch
+  level above, and 28 bytes above that; Latin-only indexes can shrink to the
+  actual key width.
 - One `INDEX.DIC` outlier is text-like rather than a B-tree page component:
   `KQSYNONM` component type `0x27` is handled as a text stream.
 - `COLSCR.DIC` records can wrap PNG payloads with the same `data` + little

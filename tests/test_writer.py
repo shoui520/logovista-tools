@@ -1,8 +1,10 @@
 import pytest
+import json
+import zipfile
 
 from logovista_tools.entries import decode_tokens, iter_entry_slices_with_boundaries, tokens_to_html, tokens_to_text
 from logovista_tools.gaiji import parse_ga16_resource, parse_uni_resource
-from logovista_tools.indexes import IndexPointer, scan_index_component
+from logovista_tools.indexes import IndexPointer, parse_internal_page, parse_simple_leaf_page, scan_index_component
 from logovista_tools.spans import decode_lossless_spans
 from logovista_tools.ssed import BLOCK_SIZE, expand_sseddata_bytes, expand_sseddata_file, parse_sseddata_header, parse_ssedinfo
 from logovista_tools.writer import (
@@ -23,11 +25,54 @@ from logovista_tools.writer import (
     encode_title_stream,
     encode_uni_record,
     encode_uni_resource,
+    encode_writer_body,
     rows_to_ga16_glyph,
     SsedInfoComponent,
     GaijiAllocator,
     write_plain_package,
 )
+from logovista_tools.writer_import import html_to_body_markup, import_entries, structured_content_to_body_markup
+
+
+def page_words(data: bytes) -> list[int]:
+    return [int.from_bytes(data[pos : pos + 2], "big") for pos in range(0, len(data), BLOCK_SIZE)]
+
+
+def _raw_branch_key(data: bytes, page_index: int, row_index: int) -> bytes:
+    page = data[page_index * BLOCK_SIZE : (page_index + 1) * BLOCK_SIZE]
+    word = int.from_bytes(page[:2], "big")
+    slot = (word & 0xFF) + 4
+    pos = 4 + ((row_index - 1) * slot)
+    return page[pos : pos + slot - 4]
+
+
+def _lookup_simple_index(data: bytes, start_block: int, key: bytes) -> list[str]:
+    page_index = 0
+    while True:
+        page = data[page_index * BLOCK_SIZE : (page_index + 1) * BLOCK_SIZE]
+        word = int.from_bytes(page[:2], "big")
+        if word & 0x8000:
+            rows, unknown = parse_simple_leaf_page(
+                "FHINDEX.DIC",
+                page,
+                page_index,
+                start_block + page_index,
+                gaiji="placeholder",
+                gaiji_map={},
+            )
+            assert unknown == 0
+            return [row.key for row in rows if encode_search_key(row.key) == key]
+        slot = (word & 0xFF) + 4
+        count = int.from_bytes(page[2:4], "big")
+        for row_index in range(count):
+            pos = 4 + (row_index * slot)
+            row_key = page[pos : pos + slot - 4]
+            child = int.from_bytes(page[pos + slot - 4 : pos + slot], "big") - start_block
+            if key <= row_key:
+                page_index = child
+                break
+        else:  # pragma: no cover - malformed branch pages should always have a sentinel
+            raise AssertionError("branch page had no matching upper-bound row")
 
 
 def test_sseddata_literal_encoder_roundtrips_multiple_chunks() -> None:
@@ -122,6 +167,37 @@ def test_private_renderer_directive_span_is_hidden_from_rendered_output() -> Non
     assert "".join(span.normalized or "" for span in visible_text) == "visible"
 
 
+def test_html_import_translates_supported_tags_to_controls() -> None:
+    body = html_to_body_markup('<div>plain <b>bold</b><sub class="rubi">sub</sub><br><span style="vertical-align: super">sup</span></div>')
+    raw = encode_writer_body(body, GaijiAllocator())
+    tokens, stats = decode_tokens(raw)
+
+    assert b"\x1f\xe0\x00\x04" in raw
+    assert b"\x1f\x06" in raw
+    assert b"\x1f\x0e" in raw
+    assert stats["unknown_controls"] == 0
+    assert "plain boldsub" in tokens_to_text(tokens).replace("\n", "")
+
+
+def test_structured_content_import_flattens_blocks_and_preserves_basic_style() -> None:
+    content = {
+        "type": "structured-content",
+        "content": [
+            {"tag": "span", "style": {"fontWeight": "bold"}, "content": "head"},
+            {"tag": "div", "content": ["body", {"tag": "rt", "content": "ruby"}]},
+        ],
+    }
+    body = structured_content_to_body_markup(content)
+    raw = encode_writer_body(body, GaijiAllocator())
+    tokens, stats = decode_tokens(raw)
+
+    assert b"\x1f\xe0\x00\x04" in raw
+    assert b"\x1f\x0e" in raw
+    assert stats["unknown_controls"] == 0
+    assert "head" in tokens_to_text(tokens)
+    assert "bodyruby" in tokens_to_text(tokens).replace("\n", "")
+
+
 def test_search_key_encoder_uses_jis_cells_and_reverses_by_character() -> None:
     assert encode_search_key("alpha").hex(" ") == "23 41 23 4c 23 50 23 48 23 41"
     assert encode_search_key("alpha") == encode_search_key("ALPHA")
@@ -130,6 +206,38 @@ def test_search_key_encoder_uses_jis_cells_and_reverses_by_character() -> None:
     assert encode_search_key("é", gaiji) != encode_search_key("É", gaiji)
     assert len(encode_search_key("AC入試")) == 8
     assert encode_search_key("AC入試", reverse=True).endswith(encode_search_key("A"))
+
+
+def test_writer_import_reads_koujien_csv_and_yomitan_zip(tmp_path) -> None:
+    csv_path = tmp_path / "sample.csv"
+    csv_path.write_text(
+        'Title,Html\n'
+        'あ,"<div class=""midashi"">あ</div><div><b>太字</b><sub class=""rubi"">るび</sub></div>"\n',
+        encoding="utf-8",
+    )
+    entries, report = import_entries(csv_path, input_format="koujien-csv", limit=None, merge_duplicates=True, skip_forms=True, progress_every=0)
+    assert report["rows_read"] == 1
+    assert len(entries) == 1
+    assert entries[0].headword == "あ"
+
+    zip_path = tmp_path / "sample.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("index.json", json.dumps({"title": "Sample Yomitan", "format": 3}, ensure_ascii=False))
+        archive.writestr(
+            "term_bank_1.json",
+            json.dumps(
+                [
+                    ["run", "run", "n", "", 0, [{"type": "structured-content", "content": {"tag": "b", "content": "走る"}}], 1, ""],
+                    ["run", "run", "forms", "", 0, ["skip me"], 1, ""],
+                ],
+                ensure_ascii=False,
+            ),
+        )
+    entries, report = import_entries(zip_path, input_format="yomitan", limit=None, merge_duplicates=True, skip_forms=True, progress_every=0)
+    assert report["rows_read"] == 2
+    assert report["rows_skipped"] == 1
+    assert len(entries) == 1
+    assert entries[0].headword == "run"
 
 
 def test_uni_and_ga16_resource_encoders_roundtrip(tmp_path) -> None:
@@ -200,8 +308,30 @@ def test_simple_index_writer_splits_pages_and_parses_as_branch_plus_leaves() -> 
     assert result.leaf_pages > 1
     assert result.leaf_rows == 300
     assert result.unknown_leaf_bytes == 0
+    words = page_words(pages)
+    assert words[0] & 0x6000 == 0x6000
+    assert words[1] & 0xE000 == 0xC000
+    assert words[-1] & 0xE000 == 0xA000
     leaf_keys = [row["key"] for row in rows if row["kind"] == "leaf"]
     assert leaf_keys == sorted(leaf_keys)
+
+    internal = list(parse_internal_page("FHINDEX.DIC", pages[:BLOCK_SIZE], 0, 100, gaiji="placeholder", gaiji_map={}))
+    first_child = internal[0].child_block - 100
+    first_child_rows, unknown = parse_simple_leaf_page(
+        "FHINDEX.DIC",
+        pages[first_child * BLOCK_SIZE : (first_child + 1) * BLOCK_SIZE],
+        first_child,
+        internal[0].child_block,
+        gaiji="placeholder",
+        gaiji_map={},
+    )
+    assert unknown == 0
+    assert internal[0].key == first_child_rows[-1].key
+    assert internal[-1].key == ""
+    assert set(_raw_branch_key(pages, 0, len(internal))) == {0xFF}
+    assert _lookup_simple_index(pages, 100, encode_search_key("k000")) == ["K000"]
+    assert _lookup_simple_index(pages, 100, encode_search_key("k150")) == ["K150"]
+    assert _lookup_simple_index(pages, 100, encode_search_key("k299")) == ["K299"]
 
 
 def test_simple_index_writer_generates_multi_level_branches() -> None:
@@ -230,6 +360,11 @@ def test_simple_index_writer_generates_multi_level_branches() -> None:
     assert result.leaf_pages > result.internal_pages
     assert result.leaf_rows == 900
     assert result.unknown_leaf_bytes == 0
+    internal_words = [word for word in page_words(pages) if not (word & 0x8000)]
+    assert internal_words[0] & 0x6000 == 0x6000
+    assert any(word & 0x4000 for word in internal_words[1:])
+    assert any(word & 0x2000 for word in internal_words[1:])
+    assert max(word & 0xFF for word in internal_words) <= 32
 
 
 def test_tagged_index_writer_parses_grouped_targets() -> None:
@@ -252,6 +387,7 @@ def test_tagged_index_writer_parses_grouped_targets() -> None:
 
     assert result.search_groups == 2
     assert result.leaf_rows == 3
+    assert page_words(pages) == [0xF000]
     assert [row["key"] for row in rows if row["kind"] == "leaf"] == ["RUN", "RUN", "WALK"]
     assert [row["target_key"] for row in rows if row["kind"] == "leaf"] == ["RUN", "RUNNING", "WALK"]
 
@@ -275,10 +411,14 @@ def test_tagged_index_writer_parses_grouped_targets() -> None:
     assert result.leaf_pages > 1
     assert result.search_groups == 180
     assert result.leaf_rows == 180
+    words = page_words(pages)
+    assert words[0] & 0x6000 == 0x6000
+    assert words[1] & 0xF000 == 0xD000
+    assert words[-1] & 0xF000 == 0xB000
     assert {row["key"] for row in rows if row["kind"] == "leaf"} == {f"GROUP-{i:03d}" for i in range(180)}
 
 
-def test_index_writer_rejects_single_key_groups_that_cannot_fit_one_leaf() -> None:
+def test_simple_index_writer_splits_duplicate_keys_across_leaves() -> None:
     duplicate_simple = [
         IndexTarget(
             key="duplicate",
@@ -287,9 +427,27 @@ def test_index_writer_rejects_single_key_groups_that_cannot_fit_one_leaf() -> No
         )
         for i in range(180)
     ]
-    with pytest.raises(ValueError, match="single index key group"):
-        encode_simple_index_pages(duplicate_simple, start_block=100)
+    rows = []
+    pages = encode_simple_index_pages(duplicate_simple, start_block=100)
+    result = scan_index_component(
+        "FHINDEX.DIC",
+        0x91,
+        pages,
+        100,
+        gaiji="placeholder",
+        gaiji_map={},
+        emit_row=rows.append,
+    )
 
+    assert result.leaf_pages > 1
+    assert result.leaf_rows == 180
+    assert result.unknown_leaf_bytes == 0
+    assert {row["key"] for row in rows if row["kind"] == "leaf"} == {"DUPLICATE"}
+    assert any((word & 0xE000) == 0xC000 for word in page_words(pages))
+    assert any((word & 0xE000) == 0xA000 for word in page_words(pages))
+
+
+def test_tagged_index_writer_splits_large_groups_across_continuation_leaves() -> None:
     duplicate_tagged = [
         IndexTarget(
             key="duplicate",
@@ -299,8 +457,25 @@ def test_index_writer_rejects_single_key_groups_that_cannot_fit_one_leaf() -> No
         )
         for i in range(180)
     ]
-    with pytest.raises(ValueError, match="single index key group"):
-        encode_tagged_index_pages(duplicate_tagged, start_block=100)
+    rows = []
+    pages = encode_tagged_index_pages(duplicate_tagged, start_block=100)
+    result = scan_index_component(
+        "FKINDEX.DIC",
+        0x90,
+        pages,
+        100,
+        gaiji="placeholder",
+        gaiji_map={},
+        emit_row=rows.append,
+    )
+
+    assert result.search_groups == 1
+    assert result.leaf_pages > 1
+    assert result.leaf_rows == 180
+    assert result.unknown_leaf_bytes == 0
+    assert {row["key"] for row in rows if row["kind"] == "leaf"} == {"DUPLICATE"}
+    assert any((word & 0xF000) == 0xD000 for word in page_words(pages))
+    assert any((word & 0xF000) == 0xB000 for word in page_words(pages))
 
 
 def test_plain_honmon_package_writer_is_readable_by_existing_parsers(tmp_path) -> None:

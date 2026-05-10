@@ -82,6 +82,7 @@ from .windows import (
     parse_aux_index_text,
     vlpljbl_classification_to_json,
 )
+from .writer_import import build_writer_import_package
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -1607,6 +1608,24 @@ def cmd_dump_ir(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_write_plain(args: argparse.Namespace) -> int:
+    try:
+        report = build_writer_import_package(args)
+    except Exception as exc:
+        print(f"write-plain: {exc}", file=sys.stderr)
+        if getattr(args, "debug", False):
+            traceback.print_exc()
+        return 2
+    print(
+        f"wrote {report['dict_id']} entries={report['entries']} "
+        f"gaiji={report['gaiji']['total']} out={report['output']}",
+        file=sys.stderr,
+    )
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="logovista-tools",
@@ -2200,6 +2219,43 @@ def build_parser() -> argparse.ArgumentParser:
     p_dump_ir.add_argument("--json", action="store_true", help="Also print machine-readable summary JSON.")
     add_jobs_argument(p_dump_ir)
     p_dump_ir.set_defaults(include_raw=True, include_padding=True, index_boundaries=True, func=cmd_dump_ir)
+
+    p_write_plain = sub.add_parser(
+        "write-plain",
+        help="Build an experimental author-core plain-HONMON SSED package from CSV or Yomitan input.",
+    )
+    p_write_plain.add_argument("input", type=Path, help="KOUJIEN-style CSV or Yomitan v3 zip.")
+    p_write_plain.add_argument("--out-dir", type=Path, required=True, help="Output directory; package is written under OUT/DICID.")
+    p_write_plain.add_argument("--input-format", choices=("auto", "koujien-csv", "yomitan"), default="auto")
+    p_write_plain.add_argument("--dict-id", help="SSED catalog stem to write. Defaults to a sanitized input filename.")
+    p_write_plain.add_argument("--title", help="SSED catalog title. Defaults to source metadata or filename.")
+    p_write_plain.add_argument("--limit", type=int, help="Import at most N source rows for smoke tests.")
+    p_write_plain.add_argument("--progress-every", type=int, default=10000, help="Print import progress every N source rows; 0 disables.")
+    p_write_plain.add_argument("--simple-only", action="store_true", help="Emit only FH/BH simple indexes and titles.")
+    p_write_plain.add_argument(
+        "--compression",
+        choices=("compressed", "literal"),
+        default="compressed",
+        help="SSEDDATA component compression. literal is a noncanonical, size-inflating diagnostic mode for private stress tests.",
+    )
+    p_write_plain.add_argument("--gaiji-font", type=Path, help="User-supplied font for generated GA16 bitmap glyphs.")
+    p_write_plain.add_argument(
+        "--gaiji-layout",
+        choices=("split", "full-a121"),
+        default="split",
+        help=(
+            "Gaiji allocation layout. split uses GA16HALF A121 and GA16FULL B121. "
+            "full-a121 forces all generated gaiji into GA16FULL from A121 for large CJK stress dictionaries."
+        ),
+    )
+    p_write_plain.add_argument("--font-face-index", type=int, default=0)
+    p_write_plain.add_argument("--font-threshold", type=int, default=220)
+    p_write_plain.add_argument("--include-yomitan-forms", action="store_true", help="Import Yomitan rows tagged as forms instead of skipping them.")
+    p_write_plain.add_argument("--no-merge-duplicates", action="store_true", help="Keep duplicate headword rows as separate body entries.")
+    p_write_plain.add_argument("--force", action="store_true", help="Replace an existing output package directory.")
+    p_write_plain.add_argument("--debug", action="store_true", help="Print traceback on import/build failure.")
+    p_write_plain.add_argument("--json", action="store_true", help="Print package build report JSON.")
+    p_write_plain.set_defaults(func=cmd_write_plain)
 
     p_gaiji_report = sub.add_parser(
         "gaiji-report",
