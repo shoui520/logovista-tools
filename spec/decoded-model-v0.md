@@ -347,6 +347,17 @@ Common span kind meanings:
 | `unknown_control` | `0x1f` opcode not structurally classified. |
 | `problem` | Invalid/truncated/unclassified bytes. |
 
+Rendered-private directive spans do not require a separate span kind. They are
+normal `text`, `gaiji`, `break`, `media_ref`, or `control` spans with
+`hidden: true` while enclosed by `1fe2` / `1fe3`.
+
+For text-stream rendering, `1f04` / `1f05` define halfwidth conversion mode.
+Inside that mode, JIS row-3 fullwidth ASCII cells are narrowed in the
+`normalized` field. Outside that mode, `text` and `normalized` preserve the
+fullwidth character. HTML output preserves the control boundary with an
+`lv-halfwidth` span. Index keys are a separate lookup representation and may
+normalize row-3 cells even though they do not carry display-mode controls.
+
 Every span has:
 
 ```text
@@ -417,6 +428,14 @@ Unknown or not-yet-semantic controls are still valid model records. For example,
 `1f1a` and `1f1c` currently have fixed two-byte payloads and neutral tags; the
 model should preserve them without naming them `bold`, `color`, or `layout`
 until renderer evidence supports that.
+
+Private renderer directives are also preserved rather than flattened away.
+`1fe2` / `1fe3` spans wrap hidden directive text such as `IMG:`, `RUB:`,
+`SMC:`, `IDX:`, `HTM:`, `SQL:`, `GTH:`, and `<PlaySound>...`. Lossless spans
+keep these bytes and mark the enclosed text with `hidden: true`; rendered
+plain/HTML output suppresses the directive text until a higher-level resolver
+converts a known prefix into an image, ruby annotation, sound link, or other
+structured object.
 
 ## Entry
 
@@ -1173,8 +1192,12 @@ Decoded Model v0 intentionally names gaps instead of hiding them:
 - Some `.uni` files have parsed mappings plus small unclassified trailers.
 - Dense-HONMON dictionaries require product-family dereference paths.
 - Official renderer parity is not represented as a hard guarantee.
-- Writer generation requires additional rules for collation, page splitting,
-  control selection, and generated gaiji allocation.
+- Writer generation is now being tested through experimental Python primitives
+  for the plain/core SSED subset. The implemented proof covers SSEDINFO,
+  literal-only SSEDDATA, body/title streams, simple/tagged index pages, and
+  generated `.uni` / GA16 resources. Remaining writer work is hardening those
+  rules against broader fixtures, not changing Decoded Model v0 into a new
+  dictionary format.
 
 These gaps do not block the model draft. They define the work that must happen
 before exporter and writer output can claim higher compatibility.

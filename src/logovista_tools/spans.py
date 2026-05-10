@@ -54,6 +54,7 @@ class Span:
     gaiji_space: str | None = None
     resolved: str | None = None
     image_backed: bool | None = None
+    hidden: bool | None = None
     issue: str | None = None
 
     def as_dict(self, *, include_raw: bool = True) -> dict[str, Any]:
@@ -74,6 +75,7 @@ class Span:
             ("gaiji_space", self.gaiji_space),
             ("resolved", self.resolved),
             ("image_backed", self.image_backed),
+            ("hidden", self.hidden),
             ("issue", self.issue),
         ):
             if value is not None:
@@ -200,6 +202,8 @@ def decode_lossless_spans(
     )
     result.stats["bytes_total"] = len(data)
     i = 0
+    halfwidth_depth = 0
+    private_depth = 0
     while i < len(data):
         b = data[i]
 
@@ -270,7 +274,7 @@ def decode_lossless_spans(
             if op == 0x0A:
                 result.stats["known_controls"] += 1
                 result.stats["breaks"] += 1
-                _add_span(result, Span("break", start, start + length, _span_raw_hex(result, raw), op=op_hex))
+                _add_span(result, Span("break", start, start + length, _span_raw_hex(result, raw), op=op_hex, hidden=True if private_depth else None))
                 i += length
                 continue
 
@@ -279,7 +283,15 @@ def decode_lossless_spans(
                 result.stats["media"] += 1
                 _add_span(
                     result,
-                    Span("media_ref", start, start + length, _span_raw_hex(result, raw), op=op_hex, payload_hex=payload.hex()),
+                    Span(
+                        "media_ref",
+                        start,
+                        start + length,
+                        _span_raw_hex(result, raw),
+                        op=op_hex,
+                        payload_hex=payload.hex(),
+                        hidden=True if private_depth else None,
+                    ),
                 )
                 i += length
                 continue
@@ -290,12 +302,18 @@ def decode_lossless_spans(
                 0x00,
                 0x02,
                 0x03,
-                0x04,
-                0x05,
                 0x1A,
                 0x1C,
             ):
                 tag = start_tag or end_tag
+                if op == 0x04:
+                    halfwidth_depth += 1
+                elif op == 0xE2:
+                    private_depth += 1
+                elif op == 0x05 and halfwidth_depth:
+                    halfwidth_depth -= 1
+                elif op == 0xE3 and private_depth:
+                    private_depth -= 1
                 if start_tag in {"link", "url"}:
                     result.stats["links"] += 1
                 result.stats["known_controls"] += 1
@@ -309,6 +327,7 @@ def decode_lossless_spans(
                         op=op_hex,
                         payload_hex=payload.hex() or None,
                         tag=tag,
+                        hidden=True if private_depth and op != 0xE3 else None,
                     ),
                 )
                 i += length
@@ -347,7 +366,7 @@ def decode_lossless_spans(
         if b == 0x0A:
             raw = data[i : i + 1]
             result.stats["breaks"] += 1
-            _add_span(result, Span("break", i, i + 1, _span_raw_hex(result, raw)))
+            _add_span(result, Span("break", i, i + 1, _span_raw_hex(result, raw), hidden=True if private_depth else None))
             i += 1
             continue
 
@@ -355,10 +374,21 @@ def decode_lossless_spans(
             raw = data[i : i + 2]
             text = decode_jis_pair(raw)
             if text:
-                normalized = normalize_fullwidth_ascii(text)
+                normalized = normalize_fullwidth_ascii(text) if halfwidth_depth else text
                 result.stats["jis_pairs"] += 1
                 result.stats["jis_bytes"] += 2
-                _add_span(result, Span("text", i, i + 2, _span_raw_hex(result, raw), text=text, normalized=normalized))
+                _add_span(
+                    result,
+                    Span(
+                        "text",
+                        i,
+                        i + 2,
+                        _span_raw_hex(result, raw),
+                        text=text,
+                        normalized=normalized,
+                        hidden=True if private_depth else None,
+                    ),
+                )
             else:
                 result.stats["invalid_jis_pairs"] += 1
                 _record_issue(
@@ -409,6 +439,7 @@ def decode_lossless_spans(
                     gaiji_space="half" if b < 0xB0 else "full",
                     resolved=resolved,
                     image_backed=image_backed,
+                    hidden=True if private_depth else None,
                 ),
             )
             i += 2
@@ -417,7 +448,18 @@ def decode_lossless_spans(
         if 0x20 <= b <= 0x7E:
             raw = data[i : i + 1]
             result.stats["ascii_bytes"] += 1
-            _add_span(result, Span("ascii", i, i + 1, _span_raw_hex(result, raw), text=chr(b), normalized=chr(b)))
+            _add_span(
+                result,
+                Span(
+                    "ascii",
+                    i,
+                    i + 1,
+                    _span_raw_hex(result, raw),
+                    text=chr(b),
+                    normalized=chr(b),
+                    hidden=True if private_depth else None,
+                ),
+            )
             i += 1
             continue
 

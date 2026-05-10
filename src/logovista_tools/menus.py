@@ -321,6 +321,8 @@ def parse_menu_stream(
 
     line = _LineBuilder(line_index=1, byte_start=0)
     i = 0
+    halfwidth_depth = 0
+    private_depth = 0
     while i < len(data):
         b = data[i]
         if b == 0:
@@ -332,13 +334,16 @@ def parse_menu_stream(
             stats["controls"] += 1
 
             if op == 0x09:
-                if i + 4 <= len(data):
+                if i + 4 <= len(data) and not private_depth:
                     line.section_codes.append(data[i + 2 : i + 4].hex())
                     stats["sections"] += 1
                 i += 4
                 continue
 
             if op == 0x0A:
+                if private_depth:
+                    i += 2
+                    continue
                 record = flush_line(line, byte_end=i + 2)
                 if record is not None:
                     records.append(record)
@@ -348,11 +353,17 @@ def parse_menu_stream(
                 continue
 
             if op in (0x42, 0x43):
+                if private_depth:
+                    i += 2
+                    continue
                 line.active_link = _ActiveLink(control=f"1f{op:02x}", start_offset=i)
                 i += 2
                 continue
 
             if op == 0x4A:
+                if private_depth:
+                    i += 18
+                    continue
                 payload = data[i + 2 : i + 18]
                 line.active_link = _ActiveLink(
                     control="1f4a",
@@ -365,26 +376,43 @@ def parse_menu_stream(
             if op in (0x62, 0x63):
                 payload = data[i + 2 : i + 8]
                 destination = parse_menu_destination(payload) if len(payload) == 6 else None
-                if destination is not None:
+                if destination is not None and not private_depth:
                     stats["destinations"] += 1
                     if destination.is_null:
                         stats["null_destinations"] += 1
-                finish_active_link(line, end_offset=i + 8, destination=destination)
-                stats["links"] += 1
+                if not private_depth:
+                    finish_active_link(line, end_offset=i + 8, destination=destination)
+                    stats["links"] += 1
                 i += 8
                 continue
 
             if op == 0x6A:
-                finish_active_link(line, end_offset=i + 2, destination=None)
-                stats["links"] += 1
+                if not private_depth:
+                    finish_active_link(line, end_offset=i + 2, destination=None)
+                    stats["links"] += 1
                 i += 2
                 continue
 
             if op in (0x41, 0xE0, 0xE2):
+                if op == 0xE2:
+                    private_depth += 1
                 i += 4
                 continue
 
-            if op in (0x00, 0x02, 0x03, 0x04, 0x05, 0x61, 0xE1, 0xE3):
+            if op == 0x04:
+                halfwidth_depth += 1
+                i += 2
+                continue
+
+            if op == 0x05:
+                if halfwidth_depth:
+                    halfwidth_depth -= 1
+                i += 2
+                continue
+
+            if op in (0x00, 0x02, 0x03, 0x61, 0xE1, 0xE3):
+                if op == 0xE3 and private_depth:
+                    private_depth -= 1
                 i += 2
                 continue
 
@@ -395,15 +423,17 @@ def parse_menu_stream(
         if i + 1 < len(data) and 0x21 <= b <= 0x7E and 0x21 <= data[i + 1] <= 0x7E:
             text = decode_jis_pair(data[i : i + 2])
             if text:
-                line.add_text(normalize_fullwidth_ascii(text))
+                if not private_depth:
+                    line.add_text(normalize_fullwidth_ascii(text) if halfwidth_depth else text)
                 stats["jis_pairs"] += 1
             i += 2
             continue
 
         if i + 1 < len(data) and 0xA1 <= b <= 0xFE:
-            value = gaiji_text(b, data[i + 1], gaiji, gaiji_map)
-            if value:
-                line.add_text(value)
+            if not private_depth:
+                value = gaiji_text(b, data[i + 1], gaiji, gaiji_map)
+                if value:
+                    line.add_text(value)
             stats["gaiji"] += 1
             i += 2
             continue

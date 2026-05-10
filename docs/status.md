@@ -125,6 +125,17 @@ LogoVista dictionary model.
   destinations, and COLSCR/PCMDATA media references.
 - Strict, forensic, and lenient text-span parsing modes for sampled body
   slices and entry-level IR dumps.
+- Experimental author-core SSED writer primitives in Python. Current coverage
+  includes normal-layout `SSEDINFO` encoding, valid literal-only `SSEDDATA`
+  compression, block/pointer helpers, body-stream `HONMON.DIC` entry encoding,
+  title stream encoding, simple and tagged index page encoding with branch/leaf
+  page splitting, `1f04`/`1f05` halfwidth ASCII display spans, deterministic
+  Unicode-to-JIS/gaiji allocation, `.uni` emission, and `GA16HALF` /
+  `GA16FULL` emission. Synthetic roundtrip tests validate these bytes through
+  the existing parser.
+- `1fe2`/`1fe3` is now modeled as a private renderer-directive span rather
+  than visible color text. Plain and HTML body renderers suppress directive
+  strings such as `SQL:`, `IMG:`, and `RUB:` while lossless spans preserve them.
 - Observed `1f0b`/`1f0c` literal/preformatted body spans.
 - Observed `1f3b`/`1f5b` URL body spans.
 - Observed `1f1a`/`1f1c` fixed two-byte-argument controls and
@@ -163,7 +174,9 @@ LogoVista dictionary model.
   separate SQLCipher/SQLite package family.
 - Broader LVLMultiView corpus coverage. This is also deferred and remains a
   separate package-family reader target, not an SSED writer target.
-- LogoVista writer support.
+- Full LogoVista writer support. The current writer code is a research
+  primitive layer for clean plain-HONMON SSED packages, not a complete package
+  authoring product.
 
 ## Known Limitations
 
@@ -273,6 +286,8 @@ Next priorities:
 7. **Exporter layer.** After the decoded model stabilizes, implement debug HTML
    first, then Yomitan structured v3 and MDict as views over the same model
    rather than separate parsers.
-8. **Writer research.** Start only after the model can round-trip addresses,
-   indexes, gaiji/media references, and dense-anchor relationships with
-   measurable unknowns near zero on the corpus.
+8. **Writer research.** Continue the experimental Python author-core path:
+   harden primitive encoders, add more index-generation fixtures, build small
+   generated dictionaries from non-proprietary sample data, and compare
+   original/re-emitted model objects for core SSED structures. This remains
+   scoped to plain body-stream HONMON packages with title/index/gaiji resources.

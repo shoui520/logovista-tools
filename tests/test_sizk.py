@@ -72,7 +72,9 @@ def make_sizk_package(tmp_path: Path) -> Path:
         + bytes.fromhex("1f090004")
         + jis_text("作品")
         + bytes.fromhex("1f0a1f090031")
+        + bytes.fromhex("1f04")
         + jis_text("ｓｈｉｚｕｋｕ．ｍｐ３")
+        + bytes.fromhex("1f05")
     )
     (package / "HONMON.DIC").write_bytes(make_sseddata(entry))
     (package / "shizuku.uni").write_bytes(

@@ -32,8 +32,8 @@ The stream also contains `0x1f` control opcodes. Important controls observed:
 ```text
 1f 02             entry/wrapper start in some streams
 1f 03             entry/wrapper end in some streams
-1f 04             style or text span start
-1f 05             style or text span end
+1f 04             halfwidth conversion span start
+1f 05             halfwidth conversion span end
 1f 06 / 1f 07     subscript start/end
 1f 09 xx xx       entry marker, commonly 1f 09 00 01
 1f 0a             line break
@@ -60,13 +60,30 @@ The stream also contains `0x1f` control opcodes. Important controls observed:
 1f 6d             media/reference end
 1f e0 xx xx       bold-ish start
 1f e1             bold-ish end
-1f e2 xx xx       color/style start
-1f e3             color/style end
+1f e2 xx xx       private renderer directive start
+1f e3             private renderer directive end
 ```
 
 The current extractor does not claim full semantic knowledge of every control.
 It uses enough structure to preserve line breaks and avoid mixing payload bytes
 into visible text.
+
+EBWin/EBDump are useful renderer witnesses, but they also support EPWING,
+EBXA-C, and other Electronic Book families. Viewer strings such as `<SUP>`,
+`<SUB>`, `<LINK>`, `<FIG>`, and `<WAV>` are therefore not automatically treated
+as SSED opcode semantics. A viewer-derived label is only promoted here when it
+matches controls observed in LogoVista/SSED expanded streams. The strongest
+current viewer-derived promotion is `1f04`/`1f05`: EBDump documents that pair
+directly as halfwidth conversion.
+
+`1f e2` / `1f e3` are no longer treated as visible color/style spans. A full
+Windows corpus pass shows that they wrap renderer directives such as `IMG:`,
+`RUB:`, `SMC:`, `IDX:`, `HTM:`, `SQL:`, `GTH:`, `BOX:`, and
+`<PlaySound>...`. The directive text is part of the raw model and remains
+present in lossless spans, but plain/HTML body rendering suppresses it so
+entries do not leak implementation strings such as `ＳＱＬ：` or
+`ＩＭＧ：０００１．ｂｍｐ` into user-facing text. The renderer semantics of each
+directive prefix are still being cataloged separately.
 
 `1f 0b` / `1f 0c` are observed as a zero-argument paired span. The safest
 current label is literal/preformatted. ROYALEGR uses the pair around
@@ -102,6 +119,17 @@ sound/media start and end range. In HAESPJPN, treating this as a 15-byte
 payload leaks one binary byte into the text stream and produces mojibake before
 labels such as `→音声1`. `1f 4d` media starts have an 18-byte payload in the
 same dictionary family.
+
+`1f 04` / `1f 05` are a text-mode span pair, not a generic style pair. EBDump
+documents them as `半角開始` / `半角終了`: plain-text output converts JIS row-3
+fullwidth ASCII cells inside this span to halfwidth ASCII. Raw bodies still
+store Latin letters as JIS cells such as `2341` for `Ａ`; the span controls
+define the display/export width. Outside the span, the decoded model preserves
+the original fullwidth text in `text` and does not narrow it in `normalized`.
+The conservative HTML renderer keeps this mode boundary as
+`<span class="lv-halfwidth">...</span>` after applying the visible narrowing.
+Search indexes do not carry these display controls, so lookup-key decoders
+still normalize row-3 cells for practical matching.
 
 The corpus-wide `opcode-atlas` command scans expanded text-stream components
 and emits a per-opcode table with payload lengths, component roles, surrounding

@@ -31,6 +31,7 @@ are still allowed to change as more products are tested.
 | `SSEDINFO` / `SSEDDATA` expansion | High for observed SSED dictionaries |
 | EPWING-like component block mapping | High |
 | Body-stream `HONMON.DIC` extraction | High for supported dictionaries |
+| Text-stream controls and renderer-private spans | High structural coverage; directive resolvers still being cataloged |
 | Dense HONMON ID-anchor dereferencing | Strong, still corpus-driven |
 | `*INDEX.DIC` / `*TITLE.DIC` parsing | High for the current SSED corpus |
 | `.uni`, `GA16HALF`, `GA16FULL` gaiji resources | High for observed variants |
@@ -39,7 +40,7 @@ are still allowed to change as more products are tested.
 | LVED/WebView2 `main.data` / `.dbc` SQLCipher payloads | Separate deferred package family; validated for observed OXFPEU4/KQCMPROS packages |
 | LVLMultiView SQLite packages | Separate deferred package family; classified for observed ESPRANT2/YROPPO/MOROKU packages |
 | SIZK read-aloud HTML/audio packages | Supported for the observed 30-package NHK set |
-| LogoVista writer support | Not implemented |
+| LogoVista writer support | Experimental Python author-core primitives for plain SSED |
 
 The current development direction is:
 
@@ -49,6 +50,29 @@ The current development direction is:
 4. use exporters and writer experiments as views over that model.
 
 See [Project Status and Roadmap](docs/status.md) for the longer capability list.
+
+The first writer work is intentionally narrow. It targets synthetic/core SSED
+authoring primitives, not full repacking of historical packages:
+
+```text
+implemented experimentally:
+  SSEDINFO encoding
+  literal-only SSEDDATA encoding
+  block/pointer helpers
+  HONMON body-stream encoding
+  TITLE stream encoding
+  simple/tagged INDEX page encoding
+  1f04/1f05 halfwidth ASCII display spans
+  Unicode -> JIS/gaiji allocation
+  .uni and GA16HALF/GA16FULL resource encoding
+
+not implemented:
+  platform sidecars
+  dense-HONMON authoring
+  renderer DB authoring
+  COLSCR/PCMDATA authoring
+  official LogoVista reader compatibility testing
+```
 
 The current authoritative corpus harness is `dump-package-models`. A
 path-aware, resumable, chunked model pass over the local LogoVista collection

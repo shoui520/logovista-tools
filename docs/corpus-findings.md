@@ -391,7 +391,7 @@ global zero-argument opcode from it.
 Most frequent and structurally important controls from the atlas:
 
 ```text
-1f04 / 1f05   generic style/text span pair
+1f04 / 1f05   halfwidth conversion span pair
 1f09          section/entry marker with 2-byte payload
 1f0a          line break
 1f41 / 1f61   headword/title span pair
@@ -400,8 +400,15 @@ Most frequent and structurally important controls from the atlas:
 1f4a / 1f6a   jump/link/media range pair; 1f4a has 16-byte payload
 1f4d / 1f6d   media/reference pair; 1f4d has 18-byte payload
 1fe0 / 1fe1   bold-ish span pair; 1fe0 has 2-byte payload
-1fe2 / 1fe3   color/style span pair; 1fe2 has 2-byte payload
+1fe2 / 1fe3   private renderer directive span pair; 1fe2 has 2-byte payload
 ```
+
+The `1fe2` / `1fe3` pair is common and should not be rendered as ordinary
+visible body text. Its payload text carries renderer directives such as `IMG:`,
+`RUB:`, `SMC:`, `IDX:`, `HTM:`, `SQL:`, `GTH:`, `BOX:`, and
+`<PlaySound>...`. Earlier `color/style` wording was too weak: corpus evidence
+shows this pair is the wrapper for hidden renderer/private metadata, with
+directive-specific semantics still requiring separate resolvers.
 
 ## Full Component Forensics Pass
 

@@ -168,6 +168,7 @@ def gaiji_text(first: int, second: int, mode: str, gaiji_map: dict[str, str]) ->
 
 def control_tag_for_start(op: int) -> str | None:
     return {
+        0x04: "halfwidth",
         0x06: "sub",
         0x0B: "literal",
         0x0E: "sup",
@@ -182,12 +183,13 @@ def control_tag_for_start(op: int) -> str | None:
         0x4A: "link",
         0x4D: "media",
         0xE0: "bold",
-        0xE2: "color",
+        0xE2: "private",
     }.get(op)
 
 
 def control_tag_for_end(op: int) -> str | None:
     return {
+        0x05: "halfwidth",
         0x07: "sub",
         0x0C: "literal",
         0x0F: "sup",
@@ -202,7 +204,7 @@ def control_tag_for_end(op: int) -> str | None:
         0x6A: "link",
         0x6D: "media",
         0xE1: "bold",
-        0xE3: "color",
+        0xE3: "private",
     }.get(op)
 
 
@@ -231,6 +233,8 @@ def decode_tokens(
         "legacy_controls": 0,
     }
     i = 0
+    halfwidth_depth = 0
+    private_depth = 0
     while i < len(data):
         b = data[i]
 
@@ -239,7 +243,8 @@ def decode_tokens(
             continue
 
         if b == 0x0A:
-            tokens.append(Break())
+            if not private_depth:
+                tokens.append(Break())
             i += 1
             continue
 
@@ -254,19 +259,22 @@ def decode_tokens(
             if op == 0x09:
                 payload = data[i + 2 : i + 4]
                 stats["sections"] += 1
-                if preserve_sections and len(payload) == 2:
+                if preserve_sections and len(payload) == 2 and not private_depth:
                     tokens.append(Section(payload.hex()))
                 i += 2 + CONTROL_ARG_LENGTHS[op]
                 continue
             if op == 0x0A:
-                tokens.append(Break())
+                if not private_depth:
+                    tokens.append(Break())
                 i += 2
                 continue
             if op == 0x4D:
                 arg_len = CONTROL_ARG_LENGTHS[op]
                 payload = data[i + 2 : i + 2 + arg_len]
                 stats["media"] += 1
-                if preserve_media:
+                if private_depth:
+                    pass
+                elif preserve_media:
                     tokens.append(Media(payload.hex()))
                 else:
                     tokens.append(StartTag("media"))
@@ -275,11 +283,23 @@ def decode_tokens(
             start_tag = control_tag_for_start(op)
             end_tag = control_tag_for_end(op)
             if start_tag is not None:
-                tokens.append(StartTag(start_tag))
+                if op == 0x04:
+                    halfwidth_depth += 1
+                if op == 0xE2:
+                    private_depth += 1
+                if not private_depth or op == 0xE2:
+                    if start_tag != "private":
+                        tokens.append(StartTag(start_tag))
                 if start_tag in {"link", "url"}:
                     stats["links"] += 1
             elif end_tag is not None:
-                tokens.append(EndTag(end_tag))
+                if op == 0x05 and halfwidth_depth:
+                    halfwidth_depth -= 1
+                if op == 0xE3:
+                    if private_depth:
+                        private_depth -= 1
+                elif not private_depth:
+                    tokens.append(EndTag(end_tag))
             elif op not in (0x02, 0x03, 0x04, 0x05, 0x00, 0x1A, 0x1C):
                 stats["unknown_controls"] += 1
             i += 2 + CONTROL_ARG_LENGTHS.get(op, 0)
@@ -288,22 +308,24 @@ def decode_tokens(
         if i + 1 < len(data) and 0x21 <= b <= 0x7E and 0x21 <= data[i + 1] <= 0x7E:
             text = decode_jis_pair(data[i : i + 2])
             if text:
-                tokens.append(Text(normalize_fullwidth_ascii(text)))
                 stats["jis_pairs"] += 1
+                if not private_depth:
+                    tokens.append(Text(normalize_fullwidth_ascii(text) if halfwidth_depth else text))
             i += 2
             continue
 
         if i + 1 < len(data) and 0xA1 <= b <= 0xFE:
             key = f"{b:02x}{data[i + 1]:02x}"
-            if key in gaiji_map:
-                tokens.append(Text(gaiji_map[key]))
-            elif preserve_image_gaiji and key in image_gaiji_keys:
-                tokens.append(Image(key))
-                stats["image_gaiji"] += 1
-            else:
-                value = gaiji_text(b, data[i + 1], gaiji, gaiji_map)
-                if value:
-                    tokens.append(Text(value))
+            if not private_depth:
+                if key in gaiji_map:
+                    tokens.append(Text(gaiji_map[key]))
+                elif preserve_image_gaiji and key in image_gaiji_keys:
+                    tokens.append(Image(key))
+                    stats["image_gaiji"] += 1
+                else:
+                    value = gaiji_text(b, data[i + 1], gaiji, gaiji_map)
+                    if value:
+                        tokens.append(Text(value))
             stats["gaiji"] += 1
             i += 2
             continue
@@ -378,12 +400,14 @@ def tokens_to_html(
         "em": "em",
         "head": "span",
         "color": "span",
+        "halfwidth": "span",
         "literal": "span",
         "url": "span",
     }
     attrs = {
         "head": ' class="lv-head"',
         "color": ' class="lv-color"',
+        "halfwidth": ' class="lv-halfwidth"',
         "literal": ' class="lv-literal"',
         "url": ' class="lv-url"',
     }

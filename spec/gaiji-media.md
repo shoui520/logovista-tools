@@ -473,6 +473,41 @@ These images can be copied into Yomitan, MDict, or HTML output packages and
 referenced with normal inline `<img>` tags for gaiji that have no usable
 Unicode mapping.
 
+## Authoring Gaiji Resources
+
+The experimental author-core writer treats gaiji as dictionary-local output,
+matching observed LogoVista packages:
+
+```text
+Unicode scalar/sequence -> native JIS/CP932 cell when representable
+otherwise              -> allocated local gaiji code
+half-width gaiji       -> A121... grid, GA16HALF 8x16
+full-width gaiji       -> B121... grid, GA16FULL 16x16
+.uni                   -> primary Unicode display mapping
+GA16                   -> 1bpp bitmap display fallback
+```
+
+The observed 16-byte `Ver2` `.uni` record has only two UTF-16 code-unit slots
+for each display/fallback/legacy field. Writer code must therefore preserve BMP
+characters and one surrogate-pair scalar directly, but reject longer Unicode
+sequences instead of silently truncating them. Longer fallback/search strings
+need a future side table or a documented degradation report; they do not fit in
+the native `.uni` field.
+
+Loose `GA16FULL` / `GA16HALF` files should also be declared in the
+`SSEDINFO` catalog as resource components. Observed packages use type `0xf1`
+for `GA16FULL` and `0xf2` for `GA16HALF`, with `start=0`, `end=0`, and zero
+component data. EBWin-style readers may ignore an otherwise valid loose GA16
+file if the catalog declaration is absent.
+
+For bitmap generation, the preferred user-supplied font sources are Windows
+bitmap-capable Japanese fonts such as MS Gothic / MS Mincho families. They are
+not bundled and should be passed by local path. For characters unsupported by
+those fonts, a user-supplied vector fallback can be rasterized into the GA16
+grid with an explicit degradation report. Vector fallback should preserve
+aspect ratio and fit to the target cell; horizontal crushing is a last-resort
+policy because it damages many symbols.
+
 ## Gaiji Readiness Buckets
 
 `gaiji-readiness` separates display readiness from search/fallback readiness.
