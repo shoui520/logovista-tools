@@ -136,6 +136,13 @@ LogoVista dictionary model.
   the existing parser. Writer-v0 keeps all rows for an identical index key on
   one leaf page; if one key group cannot fit, it fails loudly instead of
   emitting duplicate branch keys with ambiguous lookup behavior.
+- Experimental standalone Python reader core in `src/lvcore-experimental`.
+  This is a clean reimplementation and does not import `logovista_tools`.
+  Current SSED coverage includes package-family detection, SSEDINFO parsing,
+  plain/LogoFontCipher `SSEDDATA` loading, chunked component reads, text spans,
+  `.uni` mappings, GA16 bitmap resource headers/glyph slicing, title/index row
+  parsing, limited HONMON entry slicing, exact index lookup, and body-pointer
+  dereferencing. LVED and LVLMultiView are detected but deliberately deferred.
 - `1fe2`/`1fe3` is now modeled as a private renderer-directive span rather
   than visible color text. Plain and HTML body renderers suppress directive
   strings such as `SQL:`, `IMG:`, and `RUB:` while lossless spans preserve them.

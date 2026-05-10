@@ -41,6 +41,7 @@ are still allowed to change as more products are tested.
 | LVLMultiView SQLite packages | Separate deferred package family; classified for observed ESPRANT2/YROPPO/MOROKU packages |
 | SIZK read-aloud HTML/audio packages | Supported for the observed 30-package NHK set |
 | LogoVista writer support | Experimental Python author-core primitives for plain SSED |
+| Reader core reimplementation | Experimental standalone Python `lvcore` under `src/lvcore-experimental` |
 
 The current development direction is:
 
@@ -73,6 +74,12 @@ not implemented:
   COLSCR/PCMDATA authoring
   official LogoVista reader compatibility testing
 ```
+
+`src/lvcore-experimental` is a separate reader-core experiment. It does not
+import `logovista_tools`; it reimplements SSED package detection, SSEDINFO /
+SSEDDATA parsing, text spans, `.uni` / GA16 resources, titles, indexes, entry
+slicing, exact index lookup, and body-pointer dereferencing behind a small API
+and CLI. LVED and LVLMultiView are detected but intentionally deferred.
 
 The current authoritative corpus harness is `dump-package-models`. A
 path-aware, resumable, chunked model pass over the local LogoVista collection
