@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from logovista_tools.ssed import expand_sseddata_file, parse_sseddata_header, parse_ssedinfo
-from logovista_tools.writer import WriterEntry, build_plain_honmon_package, encode_sseddata, rows_to_ga16_glyph, write_plain_package
-from logovista_tools.writer_verify import verify_written_package
+from logovista_tools.writer import IndexPointer, IndexTarget, WriterEntry, build_plain_honmon_package, encode_simple_index_pages, encode_sseddata, encode_tagged_index_pages, rows_to_ga16_glyph, write_plain_package
+from logovista_tools.writer_verify import _is_ff_sentinel, _padded_key, index_page_infos, verify_written_package
 
 
 def _write_branchy_package(path: Path) -> Path:
@@ -83,3 +83,82 @@ def test_verify_written_package_rejects_missing_final_sentinel(tmp_path: Path) -
 
     assert not report.ok
     assert any(issue["code"] == "missing_ff_sentinel" for issue in report.issues)
+
+
+def test_tagged_leaf_high_key_comes_from_group_header_not_target_key() -> None:
+    body = IndexPointer(100, 0)
+    title = IndexPointer(200, 0)
+    targets = [
+        IndexTarget(key=f"key{i:04d}", target_key=f"zz-target-{i:04d}", body=body, title=title)
+        for i in range(180)
+    ]
+    data = encode_tagged_index_pages(targets, start_block=5000)
+    pages = index_page_infos(data, 0x90, 5000)
+
+    branch_pages = [page for page in pages.values() if not page.leaf]
+    assert branch_pages
+    for page in branch_pages:
+        for row in page.branch_rows:
+            if _is_ff_sentinel(row.key):
+                continue
+            child = pages[row.child_page_index]
+            assert row.key == _padded_key(child.high_key, len(row.key))
+
+
+def test_index_writer_keeps_branch_prefix_groups_searchable() -> None:
+    body = IndexPointer(100, 0)
+    title = IndexPointer(200, 0)
+    prefix = "M" * 18
+    targets = [
+        *(IndexTarget(key=f"B{i:04d}{'B' * 17}", body=body, title=title) for i in range(33)),
+        *(IndexTarget(key=f"{prefix}{i:04d}", body=body, title=title) for i in range(8)),
+        *(IndexTarget(key=f"Z{i:04d}{'Z' * 17}", body=body, title=title) for i in range(33)),
+    ]
+
+    for data, component_type in (
+        (encode_simple_index_pages(targets, start_block=5000), 0x91),
+        (
+            encode_tagged_index_pages(
+                [IndexTarget(key=row.key, target_key=row.key, body=row.body, title=row.title) for row in targets],
+                start_block=6000,
+            ),
+            0x90,
+        ),
+    ):
+        pages = index_page_infos(data, component_type, 5000 if component_type == 0x91 else 6000)
+        seen: dict[bytes, int] = {}
+        for page in pages.values():
+            if page.leaf:
+                for key in page.lookup_keys:
+                    seen.setdefault(key, page.page_index)
+        for key, expected_page in seen.items():
+            start_block = 5000 if component_type == 0x91 else 6000
+            # Import lazily to keep this assertion near the fixture.
+            from logovista_tools.writer_verify import traverse_index_key
+
+            assert traverse_index_key(data, start_block, key, pages) == expected_page
+
+
+def test_index_writer_keeps_parent_branch_prefix_groups_searchable() -> None:
+    body = IndexPointer(100, 0)
+    title = IndexPointer(200, 0)
+    targets = [
+        *(IndexTarget(key=f"B{i:04d}{'B' * 20}", body=body, title=title) for i in range(2100)),
+        *(IndexTarget(key=f"{'M' * 18}{i:04d}", body=body, title=title) for i in range(120)),
+        *(IndexTarget(key=f"Z{i:04d}{'Z' * 20}", body=body, title=title) for i in range(2100)),
+    ]
+
+    data = encode_simple_index_pages(targets, start_block=7000)
+    pages = index_page_infos(data, 0x91, 7000)
+    assert sum(1 for page in pages.values() if not page.leaf) > 1
+
+    seen: dict[bytes, int] = {}
+    for page in pages.values():
+        if page.leaf:
+            for key in page.lookup_keys:
+                seen.setdefault(key, page.page_index)
+
+    from logovista_tools.writer_verify import traverse_index_key
+
+    for key, expected_page in seen.items():
+        assert traverse_index_key(data, 7000, key, pages) == expected_page

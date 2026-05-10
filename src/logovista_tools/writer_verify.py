@@ -146,10 +146,11 @@ def _simple_leaf_keys(page: bytes) -> list[bytes]:
     return keys
 
 
-def _tagged_leaf_keys(page: bytes, current_key: bytes | None) -> tuple[list[bytes], bytes | None]:
+def _tagged_leaf_keys(page: bytes, current_key: bytes | None) -> tuple[list[bytes], bytes | None, bytes | None]:
     count = _be16(page, 2)
     pos = 4
     keys: list[bytes] = []
+    page_high_key: bytes | None = None
     subrecord = 0
     while subrecord < count and pos + 2 <= len(page):
         tag = page[pos]
@@ -163,6 +164,7 @@ def _tagged_leaf_keys(page: bytes, current_key: bytes | None) -> tuple[list[byte
                 break
             key = page[pos : pos + key_len]
             keys.append(key)
+            page_high_key = key
             pos += key_len + 12
             subrecord += 1
             continue
@@ -172,6 +174,7 @@ def _tagged_leaf_keys(page: bytes, current_key: bytes | None) -> tuple[list[byte
                 break
             pos += 2
             current_key = page[pos : pos + key_len]
+            page_high_key = current_key
             pos += key_len
             subrecord += 1
             continue
@@ -187,7 +190,9 @@ def _tagged_leaf_keys(page: bytes, current_key: bytes | None) -> tuple[list[byte
             continue
 
         break
-    return keys, current_key
+    if page_high_key is None and keys:
+        page_high_key = current_key or keys[-1]
+    return keys, current_key, page_high_key
 
 
 def _branch_rows(page: bytes, component_start: int) -> list[BranchRow]:
@@ -213,6 +218,48 @@ def _branch_rows(page: bytes, component_start: int) -> list[BranchRow]:
     return rows
 
 
+def _branch_page_high_key(rows: list[BranchRow]) -> bytes:
+    for row in reversed(rows):
+        if not _is_ff_sentinel(row.key):
+            return row.key
+    return b""
+
+
+def _resolve_branch_high_keys(pages: dict[int, PageInfo]) -> None:
+    """Resolve branch high keys from descendant pages.
+
+    A branch row stores an upper-bound key for its child, except the final row
+    of a final sibling page may be an all-``ff`` sentinel. The page's own high
+    key is therefore the high key of its final child, not necessarily the last
+    non-sentinel row stored on the page.
+    """
+
+    resolving: set[int] = set()
+    resolved: set[int] = set()
+
+    def resolve(page_index: int) -> bytes:
+        page = pages.get(page_index)
+        if page is None:
+            return b""
+        if page.leaf or page_index in resolved:
+            return page.high_key
+        if page_index in resolving:
+            return page.high_key
+        resolving.add(page_index)
+        if page.branch_rows:
+            last_child = pages.get(page.branch_rows[-1].child_page_index)
+            if last_child is not None:
+                page.high_key = resolve(last_child.page_index)
+            else:
+                page.high_key = _branch_page_high_key(page.branch_rows)
+        resolving.remove(page_index)
+        resolved.add(page_index)
+        return page.high_key
+
+    for page_index in list(pages):
+        resolve(page_index)
+
+
 def index_page_infos(data: bytes, component_type: int, component_start: int) -> dict[int, PageInfo]:
     pages: dict[int, PageInfo] = {}
     current_tagged_key: bytes | None = None
@@ -227,29 +274,32 @@ def index_page_infos(data: bytes, component_type: int, component_start: int) -> 
                 logical_block=logical_block,
                 word=word,
                 leaf=False,
-                high_key=rows[-1].key if rows else b"",
+                high_key=_branch_page_high_key(rows),
                 branch_rows=rows,
             )
             continue
 
         if component_type in TAGGED_INDEX_TYPES:
-            keys, current_tagged_key = _tagged_leaf_keys(page, current_tagged_key)
+            keys, current_tagged_key, page_high_key = _tagged_leaf_keys(page, current_tagged_key)
         elif component_type in SIMPLE_INDEX_TYPES:
             keys = _simple_leaf_keys(page)
+            page_high_key = keys[-1] if keys else b""
         else:
             keys = []
+            page_high_key = b""
         pages[page_index] = PageInfo(
             page_index=page_index,
             logical_block=logical_block,
             word=word,
             leaf=True,
-            high_key=keys[-1] if keys else b"",
+            high_key=page_high_key or b"",
             lookup_keys=keys,
         )
+    _resolve_branch_high_keys(pages)
     return pages
 
 
-def traverse_index_key(data: bytes, component_start: int, key: bytes) -> int | None:
+def traverse_index_key(data: bytes, component_start: int, key: bytes, pages: dict[int, PageInfo] | None = None) -> int | None:
     page_index = 0
     seen: set[int] = set()
     page_count = len(data) // BLOCK_SIZE
@@ -258,6 +308,10 @@ def traverse_index_key(data: bytes, component_start: int, key: bytes) -> int | N
         page = data[page_index * BLOCK_SIZE : (page_index + 1) * BLOCK_SIZE]
         word = _be16(page, 0)
         if _is_leaf(word):
+            info = pages.get(page_index) if pages is not None else None
+            if info is not None and info.high_key and key > info.high_key and not (word & 0x2000):
+                page_index += 1
+                continue
             return page_index
         rows = _branch_rows(page, component_start)
         for row in rows:
@@ -265,6 +319,9 @@ def traverse_index_key(data: bytes, component_start: int, key: bytes) -> int | N
                 page_index = row.child_page_index
                 break
         else:
+            if not (word & 0x2000):
+                page_index += 1
+                continue
             return None
     return None
 
@@ -408,7 +465,7 @@ def _verify_index_structure(component: ComponentBytes, issues: list[VerifyIssue]
 
     for key, rows in positions.items():
         first_expected_page = leaf_sequence[rows[0]][1]
-        found_page = traverse_index_key(data, component.start, key)
+        found_page = traverse_index_key(data, component.start, key, pages)
         metrics["traversal_checks"] += 1
         if found_page != first_expected_page:
             issues.append(

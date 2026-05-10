@@ -8,8 +8,10 @@ a full historical package repacker and it does not emit platform sidecars.
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 import math
 import unicodedata
@@ -29,6 +31,9 @@ SIMPLE_INDEX_CATALOG_DATA = b"\x02\x01\x55\x40"
 TAGGED_INDEX_CATALOG_DATA = b"\x02\x05\x55\x40"
 RESOURCE_CATALOG_DATA = b"\x00\x00\x00\x00"
 MAX_BRANCH_KEY_BYTES = 32
+HASH_MATCH_BYTES = 3
+MAX_HASH_CHAIN = 32
+PARALLEL_COMPRESS_MIN_CHUNKS = 16
 
 
 def be16(value: int) -> bytes:
@@ -166,20 +171,28 @@ def _encode_sseddata_chunk(chunk: bytes) -> bytes:
 
     init = Counter(chunk).most_common(1)[0][0] if chunk else 0
     window = bytearray([init]) * WINDOW_SIZE
-    positions_by_value: dict[int, set[int]] = {init: set(range(WINDOW_SIZE))}
+    hash_positions: dict[bytes, deque[int]] = {}
     wintop = 0
     commands = bytearray()
     n_commands = 0
     pos = 0
 
+    def window_key(source: int) -> bytes:
+        return bytes(window[(source + step) % WINDOW_SIZE] for step in range(HASH_MATCH_BYTES))
+
+    def add_hash_position(source: int) -> None:
+        key = window_key(source)
+        hash_positions.setdefault(key, deque(maxlen=MAX_HASH_CHAIN)).append(source)
+
+    for source in range(WINDOW_SIZE):
+        add_hash_position(source)
+
     def write_window(value: int) -> None:
         nonlocal wintop
-        old = window[wintop]
-        old_positions = positions_by_value.get(old)
-        if old_positions is not None:
-            old_positions.discard(wintop)
-        window[wintop] = value
-        positions_by_value.setdefault(value, set()).add(wintop)
+        written_at = wintop
+        window[written_at] = value
+        for delta in range(-(HASH_MATCH_BYTES - 1), 1):
+            add_hash_position((written_at + delta) % WINDOW_SIZE)
         wintop = (wintop + 1) % WINDOW_SIZE
 
     while pos < len(chunk):
@@ -188,13 +201,15 @@ def _encode_sseddata_chunk(chunk: bytes) -> bytes:
         best_len = 0
         best_source = 0
 
-        for source in sorted(positions_by_value.get(chunk[pos], ())):
-            match_len = _window_match_length(window, wintop, source, chunk, pos, max_copy)
-            if match_len > best_len:
-                best_len = match_len
-                best_source = source
-                if best_len == max_copy:
-                    break
+        if max_copy >= HASH_MATCH_BYTES:
+            key = bytes(chunk[pos : pos + HASH_MATCH_BYTES])
+            for source in reversed(hash_positions.get(key, ())):
+                match_len = _window_match_length(window, wintop, source, chunk, pos, max_copy)
+                if match_len > best_len:
+                    best_len = match_len
+                    best_source = source
+                    if best_len == max_copy:
+                        break
 
         if best_len and pos + best_len == len(chunk):
             literal = 0
@@ -224,7 +239,7 @@ def _encode_sseddata_chunk(chunk: bytes) -> bytes:
     return b"\x00\x00" + be16(n_commands) + bytes([init]) + bytes(commands)
 
 
-def encode_sseddata(expanded: bytes, *, start_block: int, kind: int = 0) -> bytes:
+def encode_sseddata(expanded: bytes, *, start_block: int, kind: int = 0, jobs: int | None = None) -> bytes:
     """Encode expanded component bytes as compressed ``SSEDDATA``.
 
     The encoder is intentionally conservative and greedy. It does not attempt
@@ -238,7 +253,14 @@ def encode_sseddata(expanded: bytes, *, start_block: int, kind: int = 0) -> byte
     expanded = pad_to_block(expanded)
     n_blocks = logical_block_count(expanded)
     chunks = _expanded_chunks(expanded)
-    payloads = [_encode_sseddata_chunk(chunk) for chunk in chunks]
+    if jobs is None:
+        jobs = os.cpu_count() or 1
+    if jobs > 1 and len(chunks) >= PARALLEL_COMPRESS_MIN_CHUNKS:
+        chunksize = max(1, len(chunks) // (jobs * 4))
+        with ProcessPoolExecutor(max_workers=jobs) as executor:
+            payloads = list(executor.map(_encode_sseddata_chunk, chunks, chunksize=chunksize))
+    else:
+        payloads = [_encode_sseddata_chunk(chunk) for chunk in chunks]
     return _make_sseddata(chunks=chunks, chunk_payloads=payloads, start_block=start_block, n_blocks=n_blocks, kind=kind)
 
 
@@ -662,12 +684,22 @@ def _split_records(records: list[bytes]) -> list[list[bytes]]:
     return pages
 
 
-def _split_keyed_records(records: list[tuple[bytes, bytes]], *, max_bytes: int = BLOCK_SIZE) -> list[list[tuple[bytes, bytes]]]:
+def _branch_prefix(key: bytes, width: int) -> bytes:
+    return key[:width].ljust(width, b"\x00")
+
+
+def _split_keyed_records(
+    records: list[tuple[bytes, bytes]],
+    *,
+    max_bytes: int = BLOCK_SIZE,
+    branch_prefix_len: int | None = None,
+) -> list[list[tuple[bytes, bytes]]]:
     pages: list[list[tuple[bytes, bytes]]] = []
     current: list[tuple[bytes, bytes]] = []
     size = 4
 
-    for record in records:
+    def add_record(record: tuple[bytes, bytes]) -> None:
+        nonlocal current, size
         row, _branch_key = record
         if len(row) + 4 > max_bytes:
             raise ValueError(f"single index record exceeds page size: {record[1].hex()}")
@@ -677,14 +709,49 @@ def _split_keyed_records(records: list[tuple[bytes, bytes]], *, max_bytes: int =
             size = 4
         current.append(record)
         size += len(row)
+
+    if branch_prefix_len is None:
+        for record in records:
+            add_record(record)
+    else:
+        groups: list[list[tuple[bytes, bytes]]] = []
+        current_group: list[tuple[bytes, bytes]] = []
+        current_prefix: bytes | None = None
+        for record in records:
+            prefix = _branch_prefix(record[1], branch_prefix_len)
+            if current_group and prefix != current_prefix:
+                groups.append(current_group)
+                current_group = []
+            current_prefix = prefix
+            current_group.append(record)
+        if current_group:
+            groups.append(current_group)
+
+        for group in groups:
+            group_size = sum(len(row) for row, _key in group)
+            if group_size + 4 <= max_bytes:
+                if current and size + group_size > max_bytes:
+                    pages.append(current)
+                    current = []
+                    size = 4
+                current.extend(group)
+                size += group_size
+                continue
+
+            # Rare fallback for an oversized branch-prefix group. This keeps
+            # the writer total, while verify-written-package will still flag
+            # any exact traversal ambiguity that cannot fit in one leaf page.
+            for record in group:
+                add_record(record)
     pages.append(current)
     return pages
 
 
 def _build_leaf_nodes(records: list[tuple[bytes, bytes]]) -> list[_IndexNode]:
+    branch_prefix_len = min(max((len(key) for _row, key in records), default=0), _branch_key_len_cap(1)) or None
     return [
         _IndexNode(branch_key=group[-1][1], records=[record for record, _key in group])
-        for group in _split_keyed_records(records)
+        for group in _split_keyed_records(records, branch_prefix_len=branch_prefix_len)
     ]
 
 
@@ -715,9 +782,44 @@ def _build_parent_level(children: list[_IndexNode], *, distance_from_leaves: int
     slot_size = slot_key_len + 4
     per_page = max(1, (BLOCK_SIZE - 4) // slot_size)
     parents: list[_IndexNode] = []
-    for start in range(0, len(children), per_page):
-        group = children[start : start + per_page]
-        parents.append(_IndexNode(branch_key=group[-1].branch_key, children=group, branch_key_len=slot_key_len))
+
+    prefix_groups: list[list[_IndexNode]] = []
+    current_group: list[_IndexNode] = []
+    current_prefix: bytes | None = None
+    for child in children:
+        prefix = _branch_prefix(child.branch_key, slot_key_len)
+        if current_group and prefix != current_prefix:
+            prefix_groups.append(current_group)
+            current_group = []
+        current_prefix = prefix
+        current_group.append(child)
+    if current_group:
+        prefix_groups.append(current_group)
+
+    current_children: list[_IndexNode] = []
+
+    def flush() -> None:
+        nonlocal current_children
+        if current_children:
+            parents.append(_IndexNode(branch_key=current_children[-1].branch_key, children=current_children, branch_key_len=slot_key_len))
+        current_children = []
+
+    for group in prefix_groups:
+        if len(group) <= per_page:
+            if current_children and len(current_children) + len(group) > per_page:
+                flush()
+            current_children.extend(group)
+            continue
+
+        # Oversized same-prefix groups are structurally ambiguous under the
+        # observed fixed-width upper-bound branch rows. Keep the writer total;
+        # the verifier will report any remaining unreachable keys.
+        for start in range(0, len(group), per_page):
+            if current_children:
+                flush()
+            current_children.extend(group[start : start + per_page])
+            flush()
+    flush()
     return parents
 
 
@@ -872,7 +974,22 @@ def _split_tagged_record_pages(groups: list[tuple[bytes, bytes, list[bytes]]]) -
         current_records.append(record)
         current_size += len(record)
 
-    for key_bytes, header, targets in groups:
+    branch_prefix_len = min(max((len(key_bytes) for key_bytes, _header, _targets in groups), default=0), _branch_key_len_cap(1)) or 0
+    prefix_groups: list[list[tuple[bytes, bytes, list[bytes]]]] = []
+    current_group: list[tuple[bytes, bytes, list[bytes]]] = []
+    current_prefix: bytes | None = None
+    for group in groups:
+        key_bytes = group[0]
+        prefix = _branch_prefix(key_bytes, branch_prefix_len) if branch_prefix_len else key_bytes
+        if current_group and prefix != current_prefix:
+            prefix_groups.append(current_group)
+            current_group = []
+        current_prefix = prefix
+        current_group.append(group)
+    if current_group:
+        prefix_groups.append(current_group)
+
+    def add_tagged_group(key_bytes: bytes, header: bytes, targets: list[bytes]) -> None:
         if targets and len(header) + len(targets[0]) + 4 > BLOCK_SIZE:
             raise ValueError(f"single tagged index key header plus target exceeds page size: {key_bytes.hex()}")
         if current_records and current_size + len(header) + (len(targets[0]) if targets else 0) > BLOCK_SIZE:
@@ -882,6 +999,23 @@ def _split_tagged_record_pages(groups: list[tuple[bytes, bytes, list[bytes]]]) -
             if current_size + len(target) > BLOCK_SIZE:
                 flush()
             add_record(target, key_bytes)
+
+    for prefix_group in prefix_groups:
+        total_size = sum(len(header) + sum(len(target) for target in targets) for _key_bytes, header, targets in prefix_group)
+        if total_size + 4 <= BLOCK_SIZE:
+            if current_records and current_size + total_size > BLOCK_SIZE:
+                flush()
+            for key_bytes, header, targets in prefix_group:
+                add_record(header, key_bytes)
+                for target in targets:
+                    add_record(target, key_bytes)
+            continue
+
+        # Fallback for an oversized branch-prefix group. Exact duplicate groups
+        # can legitimately continue across leaves; distinct keys sharing only a
+        # truncated branch prefix remain verifier-visible if they cannot fit.
+        for key_bytes, header, targets in prefix_group:
+            add_tagged_group(key_bytes, header, targets)
     flush()
     return pages
 
@@ -1243,13 +1377,22 @@ def build_plain_honmon_package(
 
     if progress:
         progress(f"encoding SSEDDATA components with {compression} compression")
+
+    def encode_component(name: str, expanded: bytes, start_block: int, kind: int) -> bytes:
+        if progress:
+            progress(f"encoding {name}: expanded={len(expanded)} bytes")
+        encoded = component_encoder(expanded, start_block=start_block, kind=kind)
+        if progress:
+            progress(f"encoded {name}: file={len(encoded)} bytes")
+        return encoded
+
     files = {
         f"{dict_id}.IDX": encode_ssedinfo(title, components),
-        "HONMON.DIC": component_encoder(honmon_expanded, start_block=honmon_start, kind=0x00),
-        "FHINDEX.DIC": component_encoder(fhindex_expanded, start_block=fhindex_start, kind=0x91),
-        "BHINDEX.DIC": component_encoder(bhindex_expanded, start_block=bhindex_start, kind=0x71),
-        "FHTITLE.DIC": component_encoder(title_expanded, start_block=fhtitle_start, kind=0x05),
-        "BHTITLE.DIC": component_encoder(title_expanded, start_block=bhtitle_start, kind=0x07),
+        "HONMON.DIC": encode_component("HONMON.DIC", honmon_expanded, honmon_start, 0x00),
+        "FHINDEX.DIC": encode_component("FHINDEX.DIC", fhindex_expanded, fhindex_start, 0x91),
+        "BHINDEX.DIC": encode_component("BHINDEX.DIC", bhindex_expanded, bhindex_start, 0x71),
+        "FHTITLE.DIC": encode_component("FHTITLE.DIC", title_expanded, fhtitle_start, 0x05),
+        "BHTITLE.DIC": encode_component("BHTITLE.DIC", title_expanded, bhtitle_start, 0x07),
     }
 
     if include_tagged_indexes:
@@ -1258,10 +1401,10 @@ def build_plain_honmon_package(
         assert fkindex_expanded is not None and bkindex_expanded is not None
         files.update(
             {
-                "FKTITLE.DIC": component_encoder(title_expanded, start_block=fktitle_start, kind=0x04),
-                "BKTITLE.DIC": component_encoder(title_expanded, start_block=bktitle_start, kind=0x06),
-                "FKINDEX.DIC": component_encoder(fkindex_expanded, start_block=fkindex_start, kind=0x90),
-                "BKINDEX.DIC": component_encoder(bkindex_expanded, start_block=bkindex_start, kind=0x70),
+                "FKTITLE.DIC": encode_component("FKTITLE.DIC", title_expanded, fktitle_start, 0x04),
+                "BKTITLE.DIC": encode_component("BKTITLE.DIC", title_expanded, bktitle_start, 0x06),
+                "FKINDEX.DIC": encode_component("FKINDEX.DIC", fkindex_expanded, fkindex_start, 0x90),
+                "BKINDEX.DIC": encode_component("BKINDEX.DIC", bkindex_expanded, bkindex_start, 0x70),
             }
         )
 

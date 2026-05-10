@@ -261,11 +261,20 @@ KOJIEN7 FHINDEX ?ASHURA' -> body HONMON ID-table anchor, title FHTITLE row
 
 Observed ASCII Latin lookup keys are stored as uppercase row-3 JIS cells. For
 example, GENIUSEB `ALPHA` uses `23 41 23 4c 23 50 23 48 23 41`, and HAESPJPN
-`PONER` uses `23 50 23 4f 23 4e 23 45 23 52`. This is an index-key
-normalization rule; title and body streams can still preserve lowercase display
-text through ordinary `1f04` / `1f05` halfwidth spans. Writer-v0 applies this
-only to ASCII/fullwidth-ASCII letters, not to arbitrary Unicode letters or
-dictionary-local gaiji.
+`PONER` uses `23 50 23 4f 23 4e 23 45 23 52`. This is an index-key encoding
+rule; title and body streams can still preserve lowercase display text through
+ordinary `1f04` / `1f05` halfwidth spans.
+
+Searchable dictionaries also emit lookup aliases that are not identical to the
+visible headword. Japanese headword separators, spaces, punctuation, and
+hyphen-like marks are commonly absent from the lookup key, and katakana reading
+keys can be folded to hiragana. KOUJIEN-style display text such as
+`あん‐き 【安危】` therefore needs at least a reading lookup alias like `あんき`
+and usually a bracketed spelling alias like `安危`. This alias policy lives in
+the index rows, not in the title/body renderer. Writer-v0 preserves display
+strings while emitting raw and normalized lookup aliases; dictionary-local
+gaiji are still allocated when a lookup key cannot be represented in native
+JIS/CP932 cells.
 
 If a dictionary has no `*TITLE.DIC`, the title pointer can equal the body
 pointer.

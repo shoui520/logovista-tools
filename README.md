@@ -53,7 +53,8 @@ The current development direction is:
 See [Project Status and Roadmap](docs/status.md) for the longer capability list.
 
 The first writer work is intentionally narrow. It targets synthetic/core SSED
-authoring primitives, not full repacking of historical packages:
+authoring primitives and clean plain-HONMON package generation, not full
+repacking of historical packages:
 
 ```text
 implemented experimentally:
@@ -65,6 +66,7 @@ implemented experimentally:
   simple/tagged INDEX page encoding
   structural writer verification
   1f04/1f05 halfwidth ASCII display spans
+  lookup-key alias normalization
   Unicode -> JIS/gaiji allocation
   .uni and GA16HALF/GA16FULL resource encoding
 
@@ -75,6 +77,13 @@ not implemented:
   COLSCR/PCMDATA authoring
   external retail-reader compatibility certification
 ```
+
+The writer emits both display strings and lookup aliases. Lookup aliases are
+allowed to normalize input more aggressively than body/title display text:
+compatibility forms are normalized, katakana can be folded to hiragana for
+Japanese lookup keys, and lookup-blocking punctuation, spaces, and hyphen-like
+characters are removed. This matches the practical requirement that a displayed
+headword such as `あん‐き` must still be searchable as `あんき`.
 
 `src/lvcore-experimental` is a separate reader-core experiment. It does not
 import `logovista_tools`; it reimplements SSED package detection, SSEDINFO /

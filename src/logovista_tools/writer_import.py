@@ -7,6 +7,7 @@ import html
 import json
 import re
 import sys
+import unicodedata
 import zipfile
 from collections import Counter
 from dataclasses import dataclass, field
@@ -264,6 +265,38 @@ class SsedHtmlParser(HTMLParser):
         self.builder.text(data)
 
 
+class HeadwordHtmlParser(HTMLParser):
+    """Extract search/title text from source headword markup.
+
+    KOUJIEN-style CSV exports can place renderer HTML directly in the title
+    column, including ``object`` nodes for inline gaiji/icons. Those bytes are
+    useful body evidence, but they are not valid LogoVista lookup keys. For the
+    writer v0 importer we keep textual child content such as ruby/superscript
+    and drop image/object placeholders from headword/search keys.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self.html_tags: Counter[str] = Counter()
+        self.dropped_images = 0
+
+    def handle_starttag(self, tag: str, attrs_list: list[tuple[str, str | None]]) -> None:
+        tag = tag.lower()
+        self.html_tags[tag] += 1
+        if tag in {"br", "rn", "wbr", "hr"}:
+            self.parts.append(" ")
+        if tag in {"img", "object"}:
+            self.dropped_images += 1
+
+    def handle_data(self, data: str) -> None:
+        if data:
+            self.parts.append(data)
+
+    def text(self) -> str:
+        return clean_headword("".join(self.parts))
+
+
 def html_to_body_markup(source: str, stats: MarkupStats | None = None) -> BodyMarkup:
     stats = stats or MarkupStats()
     parser = SsedHtmlParser(stats)
@@ -365,17 +398,24 @@ class ImportAccumulator:
     rows_skipped: int = 0
     long_key_drops: int = 0
     duplicate_rows_merged: int = 0
+    search_keys_emitted: int = 0
+    search_aliases_emitted: int = 0
+    headword_html_tags: Counter[str] = field(default_factory=Counter)
+    headword_images_dropped: int = 0
     markup_stats: MarkupStats = field(default_factory=MarkupStats)
     _entries: dict[str, WriterEntry] = field(default_factory=dict)
     _order: list[str] = field(default_factory=list)
 
-    def add(self, headword: str, body: BodyMarkup, search_keys: Iterable[str] = ()) -> None:
+    def add(self, headword: str, body: BodyMarkup, search_keys: Iterable[str] = (), *, include_headword_key: bool = True) -> None:
         headword = clean_headword(headword)
         if not headword:
             self.rows_skipped += 1
             return
-        keys = tuple(dict.fromkeys(clean_headword(key) for key in (search_keys or (headword,)) if clean_headword(key)))
-        if headword not in keys:
+        expanded_keys: list[str] = []
+        for key in (search_keys or (headword,)):
+            expanded_keys.extend(lookup_key_aliases(key))
+        keys = tuple(dict.fromkeys(key for key in expanded_keys if key))
+        if include_headword_key and headword not in keys:
             keys = (headword, *keys)
         valid_keys: list[str] = []
         probe = GaijiAllocator()
@@ -389,6 +429,8 @@ class ImportAccumulator:
         if not valid_keys:
             self.rows_skipped += 1
             return
+        self.search_keys_emitted += len(valid_keys)
+        self.search_aliases_emitted += len(valid_keys) - (1 if include_headword_key and headword in valid_keys else 0)
         if self.merge_duplicates and headword in self._entries:
             existing = self._entries[headword]
             merged_keys = tuple(dict.fromkeys((*existing.keys, *valid_keys)))
@@ -407,6 +449,152 @@ class ImportAccumulator:
 
     def entries(self) -> list[WriterEntry]:
         return [self._entries[key] for key in self._order]
+
+    def clean_title(self, value: str) -> str:
+        text = str(value or "")
+        if "<" not in text or ">" not in text:
+            return clean_headword(text)
+        parser = HeadwordHtmlParser()
+        parser.feed(text)
+        parser.close()
+        self.headword_html_tags.update(parser.html_tags)
+        self.headword_images_dropped += parser.dropped_images
+        return parser.text()
+
+
+def katakana_to_hiragana(value: str) -> str:
+    out: list[str] = []
+    for ch in value:
+        code = ord(ch)
+        if ch == "ヴ":
+            # Historic Japanese indexes commonly avoid U+3094, which is not
+            # encodable in the JIS cell set used by SSED indexes.
+            out.append("う")
+        elif 0x30A1 <= code <= 0x30FA:
+            out.append(chr(code - 0x60))
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+SEARCH_IGNORABLE_CHARS = {
+    " ",
+    "\u3000",
+    "\t",
+    "\n",
+    "\r",
+    "-",
+    "\u2010",  # hyphen
+    "\u2011",
+    "\u2012",
+    "\u2013",
+    "\u2014",
+    "\u2015",
+    "\u2212",
+    "\uff0d",
+    "\u30fb",
+    "\uff65",
+    "・",
+    "_",
+    "\uff3f",
+    ".",
+    "\uff0e",
+    "\u3002",
+    ",",
+    "\uff0c",
+    "\u3001",
+    "/",
+    "\uff0f",
+    "\\",
+    "\uff3c",
+    ":",
+    "\uff1a",
+    ";",
+    "\uff1b",
+    "'",
+    "\u2018",
+    "\u2019",
+    "\u02bc",
+    '"',
+    "\u201c",
+    "\u201d",
+    "(",
+    ")",
+    "\uff08",
+    "\uff09",
+    "[",
+    "]",
+    "\uff3b",
+    "\uff3d",
+    "{",
+    "}",
+    "\uff5b",
+    "\uff5d",
+    "「",
+    "」",
+    "『",
+    "』",
+    "【",
+    "】",
+    "［",
+    "］",
+    "〈",
+    "〉",
+    "《",
+    "》",
+}
+
+
+def is_lookup_ignorable(ch: str) -> bool:
+    if ch in SEARCH_IGNORABLE_CHARS:
+        return True
+    category = unicodedata.category(ch)
+    return category.startswith("Z") or category.startswith("P") or category == "Cf"
+
+
+def normalize_lookup_key(value: str) -> str:
+    text = unicodedata.normalize("NFKC", clean_headword(value))
+    text = katakana_to_hiragana(text)
+    return "".join(ch for ch in text if not is_lookup_ignorable(ch))
+
+
+def lookup_key_aliases(value: str, *, include_raw: bool = True) -> tuple[str, ...]:
+    text = clean_headword(value)
+    normalized = normalize_lookup_key(text)
+    aliases: list[str] = []
+    if include_raw and text:
+        aliases.append(text)
+    if normalized and (normalized != text or not include_raw):
+        aliases.append(normalized)
+    return tuple(dict.fromkeys(aliases))
+
+
+def strip_koujien_title_labels(value: str) -> str:
+    text = clean_headword(value)
+    text = re.sub(r"【.*?】", "", text)
+    text = re.sub(r"［.*?］", "", text)
+    text = re.sub(r"\\[.*?\\]", "", text)
+    text = re.sub(r"（[^（）]*詞）$", "", text)
+    text = re.sub(r"（音節）$", "", text)
+    return clean_headword(text)
+
+
+def koujien_title_search_keys(title: str) -> tuple[str, ...]:
+    base = strip_koujien_title_labels(title)
+    keys: list[str] = []
+
+    keys.extend(lookup_key_aliases(base, include_raw=False))
+
+    # If the title has a bracketed kanji/variant spelling, preserve that as an
+    # additional lookup form.  We intentionally do not split on Japanese middle
+    # dots inside this bracket, because those often express orthographic
+    # alternatives whose exact policy varies by source.
+    for match in re.finditer(r"【(.*?)】", title):
+        bracket = clean_headword(match.group(1))
+        if bracket:
+            keys.extend(lookup_key_aliases(bracket, include_raw=False))
+
+    return tuple(dict.fromkeys(key for key in keys if key))
 
 
 def clean_headword(value: str) -> str:
@@ -428,7 +616,8 @@ def iter_koujien_csv(path: Path, accumulator: ImportAccumulator, *, limit: int |
             stats = MarkupStats()
             body = html_to_body_markup(html_body, stats)
             accumulator.markup_stats.merge(stats)
-            accumulator.add(title, body, (title,))
+            clean_title = accumulator.clean_title(title)
+            accumulator.add(clean_title, body, koujien_title_search_keys(clean_title), include_headword_key=False)
             if progress_every and accumulator.rows_read % progress_every == 0:
                 print(f"import csv rows={accumulator.rows_read} entries={len(accumulator._entries)}", file=sys.stderr)
             if limit and accumulator.rows_read >= limit:
@@ -531,6 +720,10 @@ def import_entries(path: Path, *, input_format: str, limit: int | None, merge_du
         "rows_skipped": accumulator.rows_skipped,
         "duplicate_rows_merged": accumulator.duplicate_rows_merged,
         "long_key_drops": accumulator.long_key_drops,
+        "search_keys_emitted": accumulator.search_keys_emitted,
+        "search_aliases_emitted": accumulator.search_aliases_emitted,
+        "headword_html_tags": dict(sorted(accumulator.headword_html_tags.items())),
+        "headword_images_dropped": accumulator.headword_images_dropped,
         "entries": len(entries),
         "markup": accumulator.markup_stats.as_dict(),
     }

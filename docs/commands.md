@@ -1467,6 +1467,19 @@ streams, FK/FH/BK/BH indexes, and dictionary-local `.uni` / GA16 resources when
 gaiji are required. `--compression literal` is retained only as a noncanonical,
 size-inflating diagnostic mode for private stress tests.
 
+The writer separates display text from lookup aliases. Body and title text keep
+their display spelling, but index keys are generated from raw and normalized
+aliases. The current normalization emits compatibility-normalized aliases,
+strips punctuation/separators/spaces/hyphen-like characters that would block
+lookup, folds katakana to hiragana for Japanese lookup keys, and preserves
+source-specific aliases such as bracketed KOUJIEN headword spellings. This is
+necessary for entries displayed with separators, for example `あん‐き`, to be
+found by a plain lookup key such as `あんき`.
+
+JSON reports include import counts, duplicate merges, skipped rows, long-key
+drops, emitted search-key/alias counts, headword-markup cleanup counts,
+flattened markup/media counts, gaiji allocation counts, and output file sizes.
+
 ### `verify-written-package`
 
 Verify a writer-generated plain-HONMON SSED package as a whole:
@@ -1489,8 +1502,10 @@ title/body pointer component ranges and row boundaries
 .uni / GA16 resource consistency
 ```
 
-The command exits with status `0` only when no structural errors are found.
-Warnings are included in the report but do not make the package fail.
+The traversal check follows observed sibling-page behavior, including duplicate
+keys and branch-prefix groups that continue into adjacent leaf pages. The
+command exits with status `0` only when no structural errors are found. Warnings
+are included in the report but do not make the package fail.
 
 ### `fulldb`
 

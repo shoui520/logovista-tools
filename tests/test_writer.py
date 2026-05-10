@@ -31,7 +31,7 @@ from logovista_tools.writer import (
     GaijiAllocator,
     write_plain_package,
 )
-from logovista_tools.writer_import import html_to_body_markup, import_entries, structured_content_to_body_markup
+from logovista_tools.writer_import import html_to_body_markup, import_entries, normalize_lookup_key, structured_content_to_body_markup
 
 
 def page_words(data: bytes) -> list[int]:
@@ -238,6 +238,67 @@ def test_writer_import_reads_koujien_csv_and_yomitan_zip(tmp_path) -> None:
     assert report["rows_skipped"] == 1
     assert len(entries) == 1
     assert entries[0].headword == "run"
+
+
+def test_koujien_csv_import_cleans_headword_html_before_indexing(tmp_path) -> None:
+    csv_path = tmp_path / "sample.csv"
+    csv_path.write_text(
+        'Title,Html\n'
+        '"<object class=""icon"" data=""ALPH.svg""></object>C<sup>4</sup>I<sup>2</sup>","body"\n'
+        '"al-<object class=""gaiji"" data=""A157.svg""></object>Ala","body"\n',
+        encoding="utf-8",
+    )
+
+    entries, report = import_entries(csv_path, input_format="koujien-csv", limit=None, merge_duplicates=True, skip_forms=True, progress_every=0)
+
+    assert [entry.headword for entry in entries] == ["C4I2", "al-Ala"]
+    assert [entry.keys for entry in entries] == [("C4I2",), ("alAla",)]
+    assert report["headword_html_tags"] == {"object": 2, "sup": 2}
+    assert report["headword_images_dropped"] == 2
+
+
+def test_koujien_csv_import_emits_normalized_japanese_search_aliases(tmp_path) -> None:
+    csv_path = tmp_path / "sample.csv"
+    csv_path.write_text(
+        'Title,Html\n'
+        '"あん‐き 【安危】","body"\n'
+        '"アセアン【ASEAN】","body"\n',
+        encoding="utf-8",
+    )
+
+    entries, report = import_entries(csv_path, input_format="koujien-csv", limit=None, merge_duplicates=True, skip_forms=True, progress_every=0)
+
+    assert entries[0].headword == "あん‐き 【安危】"
+    assert entries[0].keys == ("あんき", "安危")
+    assert entries[1].keys == ("あせあん", "ASEAN")
+    assert report["search_keys_emitted"] == 4
+    assert report["search_aliases_emitted"] == 4
+
+
+def test_yomitan_import_also_emits_normalized_search_aliases(tmp_path) -> None:
+    zip_path = tmp_path / "sample.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("index.json", json.dumps({"title": "Sample Yomitan", "format": 3}, ensure_ascii=False))
+        archive.writestr(
+            "term_bank_1.json",
+            json.dumps(
+                [["あん‐き", "あん‐き", "n", "", 0, ["body"], 1, ""]],
+                ensure_ascii=False,
+            ),
+        )
+
+    entries, report = import_entries(zip_path, input_format="yomitan", limit=None, merge_duplicates=True, skip_forms=True, progress_every=0)
+
+    assert entries[0].headword == "あん‐き"
+    assert entries[0].keys == ("あん‐き", "あんき")
+    assert report["search_keys_emitted"] == 2
+
+
+def test_lookup_key_normalization_drops_lookup_blocking_punctuation_and_spacing() -> None:
+    assert normalize_lookup_key(" あん‐き 【安危】 ") == "あんき安危"
+    assert normalize_lookup_key("アメリカン・ドリーム") == "あめりかんどりーむ"
+    assert normalize_lookup_key("ＡＣ 入試") == "AC入試"
+    assert normalize_lookup_key("foo-bar, baz") == "foobarbaz"
 
 
 def test_uni_and_ga16_resource_encoders_roundtrip(tmp_path) -> None:

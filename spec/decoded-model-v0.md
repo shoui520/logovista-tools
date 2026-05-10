@@ -1197,9 +1197,11 @@ Decoded Model v0 intentionally names gaps instead of hiding them:
 - Writer generation is now being tested through experimental Python primitives
   for the plain/core SSED subset. The implemented proof covers SSEDINFO,
   compressed SSEDDATA, body/title streams, simple/tagged index pages, and
-  generated `.uni` / GA16 resources. Remaining writer work is hardening those
-  rules against broader fixtures, not changing Decoded Model v0 into a new
-  dictionary format.
+  generated `.uni` / GA16 resources. The writer now also treats lookup aliases
+  as separate index data from display text, including punctuation/space/hyphen
+  stripping and Japanese katakana-to-hiragana aliases where appropriate.
+  Remaining writer work is hardening those rules against broader fixtures, not
+  changing Decoded Model v0 into a new dictionary format.
 
 These gaps do not block the model draft. They define the work that must happen
 before exporter and writer output can claim higher compatibility.

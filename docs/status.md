@@ -127,8 +127,8 @@ LogoVista dictionary model.
   slices and entry-level IR dumps.
 - Experimental author-core SSED writer primitives in Python. Current coverage
   includes normal-layout `SSEDINFO` encoding, compressed `SSEDDATA` emission
-  with a literal-only diagnostic mode, block/pointer helpers, body-stream
-  `HONMON.DIC` entry encoding,
+  with a literal-only diagnostic mode, parallel chunk compression for large
+  components, block/pointer helpers, body-stream `HONMON.DIC` entry encoding,
   title stream encoding, simple and tagged index page encoding with branch/leaf
   page splitting, upper-bound branch keys, final-sibling `ff` sentinels,
   depth-capped branch key widths, `1f04`/`1f05` halfwidth ASCII display spans,
@@ -136,13 +136,18 @@ LogoVista dictionary model.
   `GA16HALF` / `GA16FULL` emission. Synthetic tests validate both parser
   roundtrip and branch traversal invariants. ASCII/fullwidth-ASCII index keys
   are normalized to uppercase JIS row-3 cells while body/title display text
-  stays unchanged. Duplicate simple keys and large tagged groups may span
-  adjacent leaves, matching observed LogoVista index behavior.
+  stays unchanged. Importers also emit normalized lookup aliases that strip
+  lookup-blocking punctuation, spaces, and hyphen-like characters, apply Unicode
+  compatibility normalization, and fold katakana to hiragana for Japanese
+  lookup keys. Duplicate simple keys and large tagged groups may span adjacent
+  leaves, matching observed LogoVista index behavior.
 - `verify-written-package` validates writer output as a package, not just as
   individual parseable components. It checks `SSEDINFO` ranges against
   `SSEDDATA` headers, expanded sizes, branch upper-bound rows, final `ff`
   sentinels, exact traversal landing pages, duplicate-key contiguity,
   body/title pointer row boundaries, and `.uni` / GA16 resource consistency.
+  Its traversal model accounts for same-key and same-branch-prefix groups that
+  continue across adjacent sibling leaf pages.
 - Experimental standalone Python reader core in `src/lvcore-experimental`.
   This is a clean reimplementation and does not import `logovista_tools`.
   Current SSED coverage includes package-family detection, SSEDINFO parsing,
@@ -305,7 +310,7 @@ Next priorities:
    first, then Yomitan structured v3 and MDict as views over the same model
    rather than separate parsers.
 8. **Writer research.** Continue the experimental Python author-core path:
-   harden primitive encoders, add more index-generation fixtures, build small
-   generated dictionaries from non-proprietary sample data, and compare
+   harden primitive encoders, keep expanding index-generation fixtures, test
+   full generated dictionaries privately from lawful local inputs, and compare
    original/re-emitted model objects for core SSED structures. This remains
    scoped to plain body-stream HONMON packages with title/index/gaiji resources.
