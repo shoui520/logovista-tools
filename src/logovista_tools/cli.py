@@ -83,6 +83,7 @@ from .windows import (
     vlpljbl_classification_to_json,
 )
 from .writer_import import build_writer_import_package
+from .writer_verify import verify_written_package
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -1626,6 +1627,32 @@ def cmd_write_plain(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_verify_written_package(args: argparse.Namespace) -> int:
+    try:
+        report = verify_written_package(args.path)
+    except Exception as exc:
+        print(f"verify-written-package: {exc}", file=sys.stderr)
+        if getattr(args, "debug", False):
+            traceback.print_exc()
+        return 2
+    if args.json:
+        print(json.dumps(report.as_dict(), ensure_ascii=False, indent=2))
+    else:
+        status = "ok" if report.ok else "failed"
+        print(f"{status}: {report.package_path}")
+        print(f"errors={report.errors} warnings={report.warnings} entries={report.metrics.get('entries', 0)}")
+        for issue in report.issues[: args.max_issues]:
+            location = issue.get("component") or ""
+            if issue.get("page_index") is not None:
+                location += f" page={issue['page_index']}"
+            if issue.get("row_index") is not None:
+                location += f" row={issue['row_index']}"
+            print(f"{issue['severity']} {issue['code']} {location}: {issue['message']}")
+        if len(report.issues) > args.max_issues:
+            print(f"... {len(report.issues) - args.max_issues} more issues")
+    return 0 if report.ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="logovista-tools",
@@ -2256,6 +2283,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_write_plain.add_argument("--debug", action="store_true", help="Print traceback on import/build failure.")
     p_write_plain.add_argument("--json", action="store_true", help="Print package build report JSON.")
     p_write_plain.set_defaults(func=cmd_write_plain)
+
+    p_verify_written = sub.add_parser(
+        "verify-written-package",
+        help="Verify structural correctness of a writer-generated plain-HONMON SSED package.",
+    )
+    p_verify_written.add_argument("path", type=Path, help="Package directory or SSEDINFO .IDX file.")
+    p_verify_written.add_argument("--json", action="store_true", help="Print full verification report JSON.")
+    p_verify_written.add_argument("--max-issues", type=int, default=50, help="Maximum issues to print in text mode.")
+    p_verify_written.add_argument("--debug", action="store_true", help="Print traceback on verifier failure.")
+    p_verify_written.set_defaults(func=cmd_verify_written_package)
 
     p_gaiji_report = sub.add_parser(
         "gaiji-report",

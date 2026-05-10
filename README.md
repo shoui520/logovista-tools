@@ -63,6 +63,7 @@ implemented experimentally:
   HONMON body-stream encoding
   TITLE stream encoding
   simple/tagged INDEX page encoding
+  structural writer verification
   1f04/1f05 halfwidth ASCII display spans
   Unicode -> JIS/gaiji allocation
   .uni and GA16HALF/GA16FULL resource encoding

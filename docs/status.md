@@ -138,6 +138,11 @@ LogoVista dictionary model.
   are normalized to uppercase JIS row-3 cells while body/title display text
   stays unchanged. Duplicate simple keys and large tagged groups may span
   adjacent leaves, matching observed LogoVista index behavior.
+- `verify-written-package` validates writer output as a package, not just as
+  individual parseable components. It checks `SSEDINFO` ranges against
+  `SSEDDATA` headers, expanded sizes, branch upper-bound rows, final `ff`
+  sentinels, exact traversal landing pages, duplicate-key contiguity,
+  body/title pointer row boundaries, and `.uni` / GA16 resource consistency.
 - Experimental standalone Python reader core in `src/lvcore-experimental`.
   This is a clean reimplementation and does not import `logovista_tools`.
   Current SSED coverage includes package-family detection, SSEDINFO parsing,

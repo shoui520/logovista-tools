@@ -1446,6 +1446,52 @@ Useful options:
 --gaiji placeholder                 keep half-width and full-width placeholders
 ```
 
+### `write-plain`
+
+Build an experimental author-core plain-HONMON SSED package from a supported
+text source. This is a writer research command, not a historical package
+repacker.
+
+```bash
+logovista-tools write-plain KOUJIEN7.csv \
+  --out-dir /tmp/writer-out \
+  --dict-id KOUJSMK \
+  --title "Writer Smoke" \
+  --compression compressed \
+  --json
+```
+
+Supported input formats are KOUJIEN-style CSV and Yomitan v3 zip packages.
+The command emits a self-contained SSED package with `HONMON.DIC`, title
+streams, FK/FH/BK/BH indexes, and dictionary-local `.uni` / GA16 resources when
+gaiji are required. `--compression literal` is retained only as a noncanonical,
+size-inflating diagnostic mode for private stress tests.
+
+### `verify-written-package`
+
+Verify a writer-generated plain-HONMON SSED package as a whole:
+
+```bash
+logovista-tools verify-written-package /tmp/writer-out/KOUJSMK
+logovista-tools verify-written-package /tmp/writer-out/KOUJSMK --json
+```
+
+Checks include:
+
+```text
+SSEDINFO block ranges and component overlaps
+SSEDDATA header kind/start/end and expanded byte size
+branch upper-bound keys
+final-sibling ff sentinel rows
+forward/backward traversal landing pages
+duplicate-key contiguity
+title/body pointer component ranges and row boundaries
+.uni / GA16 resource consistency
+```
+
+The command exits with status `0` only when no structural errors are found.
+Warnings are included in the report but do not make the package fail.
+
 ### `fulldb`
 
 Extract formatted bodies from LogoVista products that declare a `DictFULLDB`
