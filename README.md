@@ -72,14 +72,15 @@ not implemented:
   dense-HONMON authoring
   renderer DB authoring
   COLSCR/PCMDATA authoring
-  official LogoVista reader compatibility testing
+  external retail-reader compatibility certification
 ```
 
 `src/lvcore-experimental` is a separate reader-core experiment. It does not
 import `logovista_tools`; it reimplements SSED package detection, SSEDINFO /
 SSEDDATA parsing, text spans, `.uni` / GA16 resources, titles, indexes, entry
-slicing, exact index lookup, and body-pointer dereferencing behind a small API
-and CLI. LVED and LVLMultiView are detected but intentionally deferred.
+slicing, exact index lookup, and body-pointer dereferencing for body-stream
+HONMON entries behind a small API and CLI. LVED and LVLMultiView are detected
+but intentionally deferred.
 
 The current authoritative corpus harness is `dump-package-models`. A
 path-aware, resumable, chunked model pass over the local LogoVista collection
@@ -231,8 +232,8 @@ preferred planning input because it keeps SSED, LVED, and LVLMultiView package
 families explicit:
 
 ```bash
-logovista-tools dump-package-models /home/shoui/Agents/CodexMax/LogoVista \
-  --out-dir /home/shoui/Agents/CodexMax/LogoVista/reports/model-v0 \
+logovista-tools dump-package-models /path/to/LogoVista \
+  --out-dir /path/to/reports/model-v0 \
   --jobs 0 \
   --resume \
   --progress \

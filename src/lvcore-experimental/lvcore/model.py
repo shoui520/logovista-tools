@@ -11,7 +11,7 @@ from typing import Any
 class PackageFamily(str, Enum):
     SSED = "ssed"
     LVED = "lved_sqlcipher"
-    LVLMULTI = "lvlmultiview"
+    LVLMULTI = "multiview_sqlite"
     UNKNOWN = "unknown"
 
 

@@ -142,7 +142,8 @@ LogoVista dictionary model.
   plain/LogoFontCipher `SSEDDATA` loading, chunked component reads, text spans,
   `.uni` mappings, GA16 bitmap resource headers/glyph slicing, title/index row
   parsing, limited HONMON entry slicing, exact index lookup, and body-pointer
-  dereferencing. LVED and LVLMultiView are detected but deliberately deferred.
+  dereferencing for body-stream HONMON entries. LVED and LVLMultiView are
+  detected but deliberately deferred.
 - `1fe2`/`1fe3` is now modeled as a private renderer-directive span rather
   than visible color text. Plain and HTML body renderers suppress directive
   strings such as `SQL:`, `IMG:`, and `RUB:` while lossless spans preserve them.
@@ -176,7 +177,7 @@ LogoVista dictionary model.
   into a stable schema that every parser/exporter/writer experiment can target.
 - Formal private-corpus regression baselines generated from redacted profiles.
 - Shared typed address/component objects used by every parser and exporter.
-- Official-renderer parity checks.
+- Compatible-reader behavior fixtures for generated SSED primitives.
 - Dictionary-specific semantic profiles for section codes, named images, and
   virtual selectors.
 - Broader LVED/WebView2 corpus coverage beyond observed OXFPEU4/KQCMPROS

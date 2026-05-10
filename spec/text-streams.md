@@ -88,9 +88,9 @@ directive prefix are still being cataloged separately.
 `1f 0b` / `1f 0c` are observed as a zero-argument paired span. The safest
 current label is literal/preformatted. ROYALEGR uses the pair around
 box-drawing table rows, where spacing matters. NKGORIN2 uses it around ASCII
-numeric character references such as `&#x4E05;`, which strongly suggests the
-official renderer treats this region specially instead of as ordinary JIS body
-text.
+numeric character references such as `&#x4E05;`, which strongly suggests
+compatible renderers treat this region specially instead of as ordinary JIS
+body text.
 
 `1f 3b` / `1f 5b` are observed as a zero-argument paired URL span in GEN2001.
 The span encloses URL display text and an italicized duplicate URL line.

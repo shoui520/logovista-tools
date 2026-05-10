@@ -768,8 +768,8 @@ corpus roots. This is the corpus-scale harness that should feed capability
 matrix and writer-readiness planning.
 
 ```bash
-logovista-tools dump-package-models /home/shoui/Agents/CodexMax/LogoVista \
-  --out-dir /home/shoui/Agents/CodexMax/LogoVista/reports/model-v0 \
+logovista-tools dump-package-models /path/to/LogoVista \
+  --out-dir /path/to/reports/model-v0 \
   --jobs 0 \
   --resume \
   --progress \

@@ -45,6 +45,11 @@ START_TAGS = {
     0xE2: "private",
 }
 
+SEMANTIC_CONTROL_TAGS = {
+    0x1A: "tab_column",
+    0x1C: "media_layout",
+}
+
 END_TAGS = {
     0x05: "halfwidth",
     0x07: "sub",
@@ -138,19 +143,28 @@ def decode_text_stream(data: bytes, gaiji: dict[str, str] | None = None) -> Deco
             i += 1
             continue
         if b == 0x0A:
-            spans.append(Span(kind="line_break", raw=data[i : i + 1], offset=i, length=1, hidden=bool(private)))
+            spans.append(Span(kind="break", raw=data[i : i + 1], offset=i, length=1, hidden=bool(private)))
             if not private:
                 text_parts.append("\n")
             i += 1
             continue
         if i + 1 < len(data) and data[i : i + 2] == b"\x11\x03":
-            spans.append(Span(kind="legacy_control", raw=data[i : i + 2], offset=i, length=2, hidden=bool(private)))
+            spans.append(
+                Span(
+                    kind="control",
+                    raw=data[i : i + 2],
+                    offset=i,
+                    length=2,
+                    hidden=bool(private),
+                    attrs={"tag": "title_separator"},
+                )
+            )
             i += 2
             continue
         if b == 0x1F and i + 1 < len(data):
             op = data[i + 1]
             if op == 0x0A:
-                spans.append(Span(kind="line_break", raw=data[i : i + 2], offset=i, length=2, op=op, hidden=bool(private)))
+                spans.append(Span(kind="break", raw=data[i : i + 2], offset=i, length=2, op=op, hidden=bool(private)))
                 if not private:
                     text_parts.append("\n")
                 i += 2
@@ -166,7 +180,7 @@ def decode_text_stream(data: bytes, gaiji: dict[str, str] | None = None) -> Deco
             elif op == 0xE3 and private:
                 private -= 1
 
-            tag = START_TAGS.get(op) or END_TAGS.get(op)
+            tag = START_TAGS.get(op) or END_TAGS.get(op) or SEMANTIC_CONTROL_TAGS.get(op)
             known = tag is not None or op in {0x00, 0x02, 0x03, 0x09, 0x1A, 0x1C}
             if not known:
                 unknown_controls += 1
@@ -174,7 +188,7 @@ def decode_text_stream(data: bytes, gaiji: dict[str, str] | None = None) -> Deco
             if op == 0x09:
                 kind = "section"
             elif op == 0x4D:
-                kind = "media"
+                kind = "media_ref"
             spans.append(
                 Span(
                     kind=kind,

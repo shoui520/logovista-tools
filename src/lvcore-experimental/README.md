@@ -5,12 +5,12 @@ It intentionally does not import `logovista_tools`.
 
 Current scope:
 
-- detect SSED / LVED / LVLMultiView package families;
+- detect SSED / LVED SQLCipher / LVLMultiView SQLite package families;
 - parse SSEDINFO catalogs;
 - load plain and LogoFontCipher-encrypted SSEDDATA components;
 - expand SSED chunks and read component slices;
 - parse dictionary-local `.uni` gaiji mappings;
-- decode SSED text streams into spans;
+- decode SSED text streams into model-like spans;
 - parse title/index rows;
 - slice readable HONMON body-stream entries;
 - expose a small CLI for inspection and lookup experiments.

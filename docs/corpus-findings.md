@@ -11,8 +11,8 @@ directory while preserving package paths with deterministic hashes.
 Latest local pass:
 
 ```bash
-logovista-tools dump-package-models /home/shoui/Agents/CodexMax/LogoVista \
-  --out-dir /home/shoui/Agents/CodexMax/LogoVista/reports/model-v0 \
+logovista-tools dump-package-models /path/to/LogoVista \
+  --out-dir /path/to/reports/model-v0 \
   --jobs 0 \
   --resume \
   --progress \
@@ -39,8 +39,8 @@ The corresponding model-derived capability matrix is generated with:
 
 ```bash
 logovista-tools capability-matrix \
-  --model-dir /home/shoui/Agents/CodexMax/LogoVista/reports/model-v0 \
-  --out-dir /home/shoui/Agents/CodexMax/LogoVista/reports/capability-from-model
+  --model-dir /path/to/reports/model-v0 \
+  --out-dir /path/to/reports/capability-from-model
 ```
 
 The matrix records capability fields for raw HONMON body availability, index
@@ -644,7 +644,7 @@ The matrix makes the next reverse-engineering priorities more concrete:
 
 ## HONMON/IDX Corpus Audit
 
-The local `LOGOVISTA_ALL` corpus was audited with raw SSED expansion, raw
+An older mixed mobile SSED corpus was audited with raw SSED expansion, raw
 index-derived body boundaries, body-slice sampling, 32-byte HONMON record
 probing, and title-component probing. SQLite and `DictFULLDB` body text were
 not used to decide whether raw HONMON/IDX produced readable body entries.
@@ -974,7 +974,7 @@ plugin code. The official viewer also ships replacement renderers under
 `fix/00000020/HC0020.dll` and other legacy renderers alongside the product
 `DIC/EJJE200/HC014F.dll`.
 
-Corpus audit over `/mnt/j/Agents/CodexMaxJ/LOGOVISTA_SSED_DICTS_WINDOWS` found:
+The Windows SSED corpus HC renderer audit found:
 
 ```text
 HC files:                         145

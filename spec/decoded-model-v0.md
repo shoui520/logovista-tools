@@ -341,7 +341,7 @@ Common span kind meanings:
 | `ascii` | Literal ASCII byte. |
 | `break` | LogoVista line break control or legacy `0x0a`. |
 | `section` | `1f09 xxxx` section marker. |
-| `control` | Structurally known control with neutral or known tag. |
+| `control` | Structurally known control with conservative or known tag. |
 | `media_ref` | Media/image/audio control with payload. |
 | `gaiji` | Dictionary-local external character. |
 | `unknown_control` | `0x1f` opcode not structurally classified. |
@@ -1188,11 +1188,12 @@ not a direct port of Python probes.
 
 Decoded Model v0 intentionally names gaps instead of hiding them:
 
-- Some control opcodes are structurally known but renderer-neutral.
+- Some control opcodes are structurally known, but exact presentation remains
+  conservative rather than fully reproduced.
 - Some media payloads are byte-addressed but not codec-classified.
 - Some `.uni` files have parsed mappings plus small unclassified trailers.
 - Dense-HONMON dictionaries require product-family dereference paths.
-- Official renderer parity is not represented as a hard guarantee.
+- Compatible-reader parity is not represented as a hard guarantee.
 - Writer generation is now being tested through experimental Python primitives
   for the plain/core SSED subset. The implemented proof covers SSEDINFO,
   compressed SSEDDATA, body/title streams, simple/tagged index pages, and
