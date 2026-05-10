@@ -9,9 +9,13 @@ from pathlib import Path
 LVCORE_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-experimental"
 sys.path.insert(0, str(LVCORE_SRC))
 
-from lvcore import PackageFamily, detect_family, open_package  # noqa: E402
+from lvcore import Address, PackageFamily, SearchProfile, detect_family, open_package  # noqa: E402
+from lvcore.document import InlineKind, build_entry_document  # noqa: E402
 from lvcore.gaiji import ga16_glyph_size, parse_ga16  # noqa: E402
+from lvcore.model import Entry  # noqa: E402
+from lvcore.render import HtmlProfile, render_html, render_text  # noqa: E402
 from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE  # noqa: E402
+from lvcore.text import decode_text_stream  # noqa: E402
 
 
 def be16(value: int) -> bytes:
@@ -148,6 +152,8 @@ def test_lvcore_detects_and_reads_synthetic_ssed(tmp_path: Path) -> None:
     assert "first entry" in entries[0].text
     assert package.titles() == ["alpha"]
     assert package.search_index("alpha")[0]["component"] == "FHINDEX.DIC"
+    assert package.search_index("alpha", profile=SearchProfile.FORWARD)[0]["component"] == "FHINDEX.DIC"
+    assert package.search_index("alpha", profile=SearchProfile.BACKWARD) == []
     assert package.entry_at(package.search_entries("alpha")[0].address).headword == "alpha"
 
 
@@ -163,6 +169,102 @@ def test_lvcore_cli_outputs_json(tmp_path: Path) -> None:
     data = json.loads(result.stdout)
     assert data["package"]["family"] == "ssed"
     assert data["package"]["title"] == "Synthetic"
+
+
+def test_lvcore_entry_document_and_friendly_rendering_from_spans() -> None:
+    raw = body_text("<alpha>") + b"\x1f\x0a" + body_text("body & text")
+    decoded = decode_text_stream(raw)
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "HONMON.DIC"), "<alpha>", decoded.text, decoded.spans)
+
+    document = build_entry_document(entry)
+    html = render_html(document)
+    text = render_text(document)
+
+    assert len(document.blocks) == 2
+    assert "&lt;alpha&gt;" in html
+    assert "body &amp; text" in html
+    assert "body & text" in text
+    assert "offset" not in html
+    assert "opcode" not in html
+
+
+def test_lvcore_debug_render_exposes_unknown_control_but_friendly_hides_it() -> None:
+    raw = b"\x1f\x99" + body_text("visible")
+    decoded = decode_text_stream(raw)
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "HONMON.DIC"), "visible", decoded.text, decoded.spans)
+    document = entry.document()
+
+    friendly = render_html(document)
+    debug = render_html(document, profile=HtmlProfile.DEBUG)
+
+    assert "visible" in friendly
+    assert "unknown:99" not in friendly
+    assert "unknown:99" in debug
+    assert any(diagnostic.code == "unknown_control" for diagnostic in document.diagnostics)
+
+
+def test_lvcore_private_renderer_directives_are_hidden_from_friendly_output() -> None:
+    raw = b"\x1f\xe2\x00\x07" + body_text("SQL:") + b"\x1f\xe3" + body_text("visible")
+    decoded = decode_text_stream(raw)
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "HONMON.DIC"), "visible", decoded.text, decoded.spans)
+
+    document = entry.document()
+    html = entry.html()
+
+    assert "visible" in html
+    assert "SQL" not in html
+    assert any(diagnostic.code == "private_renderer_directive" for diagnostic in document.diagnostics)
+
+
+def test_lvcore_gaiji_document_nodes_and_render_policies() -> None:
+    raw = b"\xa1\x26" + b"\xa1\x27"
+    decoded = decode_text_stream(raw, {"a126": "é"})
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "HONMON.DIC"), "gaiji", decoded.text, decoded.spans)
+    document = entry.document()
+    gaiji_nodes = [node for block in document.blocks for node in block.inlines if node.kind == InlineKind.GAIJI]
+
+    assert [node.code for node in gaiji_nodes] == ["a126", "a127"]
+    assert "é" in render_text(document)
+    assert "&lt;hA126&gt;" in render_html(document, profile=HtmlProfile.DEBUG)
+    assert any(diagnostic.code == "unresolved_gaiji" for diagnostic in document.diagnostics)
+
+
+def test_lvcore_media_refs_become_resources_and_safe_placeholders() -> None:
+    raw = b"\x1f\x4d" + bytes(range(18)) + body_text("caption")
+    decoded = decode_text_stream(raw)
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "HONMON.DIC"), "media", decoded.text, decoded.spans)
+    document = entry.document()
+    html = render_html(document)
+
+    assert len(document.resources) == 1
+    assert document.resources[0].id == "media-1"
+    assert "lvcore-resource://media-1" in html
+    assert bytes(range(18)).hex() not in html
+    assert any(diagnostic.code == "unresolved_media_ref" for diagnostic in document.diagnostics)
+
+
+def test_lvcore_cli_render_and_validate_commands(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    render_result = subprocess.run(
+        [sys.executable, "-m", "lvcore", "render", str(tmp_path), "alpha", "--format", "html", "--limit", "1"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    assert "first entry" in render_result.stdout
+    assert "offset" not in render_result.stdout
+
+    validate_result = subprocess.run(
+        [sys.executable, "-m", "lvcore", "validate", str(tmp_path), "--json"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    data = json.loads(validate_result.stdout)
+    assert data["ok"] is True
+    assert data["sample_entries_rendered"] == 1
 
 
 def test_lvcore_detects_deferred_families(tmp_path: Path) -> None:

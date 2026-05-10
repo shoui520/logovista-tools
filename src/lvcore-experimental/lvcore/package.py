@@ -10,7 +10,8 @@ from .detect import detect_family
 from .errors import UnsupportedPackageError
 from .gaiji import Ga16Resource, GaijiMap, load_gaiji_map, parse_ga16
 from .index import IndexParse, parse_index
-from .model import Address, Component, ComponentRole, Entry, PackageFamily, PackageInfo
+from .model import Address, Component, ComponentRole, Entry, PackageFamily, PackageInfo, SearchProfile
+from .render import HtmlProfile, render_html, render_text
 from .ssed import BLOCK_SIZE, CHUNK_SIZE, Catalog, SsedData, find_file_case_insensitive, parse_catalog
 from .text import DecodeResult, decode_text_stream
 
@@ -218,9 +219,25 @@ class LogoVistaPackage:
             out[item.name] = parse_index(self.expanded(item), item.start_block, item.type, self.gaiji.mapping)
         return out
 
-    def search_index(self, term: str, *, limit: int = 20) -> list[dict[str, object]]:
+    @staticmethod
+    def _index_component_matches_profile(component: Component, profile: SearchProfile) -> bool:
+        name = component.name.upper()
+        if profile in {SearchProfile.NATIVE, SearchProfile.EXACT}:
+            return True
+        if profile == SearchProfile.FORWARD:
+            return name.startswith(("FK", "FH", "KW"))
+        if profile == SearchProfile.BACKWARD:
+            return name.startswith(("BK", "BH"))
+        return True
+
+    def search_index(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[dict[str, object]]:
+        if isinstance(profile, str):
+            profile = SearchProfile(profile)
         hits: list[dict[str, object]] = []
         for name, parsed in self.indexes().items():
+            component = self.component(name)
+            if component is not None and not self._index_component_matches_profile(component, profile):
+                continue
             for row in parsed.rows:
                 if row.key == term or row.target_key == term:
                     hits.append({"component": name, **row.to_dict()})
@@ -228,10 +245,12 @@ class LogoVistaPackage:
                         return hits
         return hits
 
-    def search_entries(self, term: str, *, limit: int = 20) -> list[Entry]:
+    def search_entries(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[Entry]:
+        if isinstance(profile, str):
+            profile = SearchProfile(profile)
         out: list[Entry] = []
         seen: set[tuple[int, int]] = set()
-        for hit in self.search_index(term, limit=limit * 4):
+        for hit in self.search_index(term, limit=limit * 4, profile=profile):
             body = hit.get("body")
             if not isinstance(body, dict):
                 continue
@@ -247,6 +266,85 @@ class LogoVistaPackage:
             if len(out) >= limit:
                 break
         return out
+
+    def entry_document(self, entry: Entry):
+        return entry.document()
+
+    def render_entry_html(
+        self,
+        entry: Entry,
+        *,
+        profile: HtmlProfile | str = HtmlProfile.FRIENDLY,
+        include_diagnostics: bool = False,
+    ) -> str:
+        if isinstance(profile, str):
+            profile = HtmlProfile(profile)
+        return render_html(entry.document(), profile=profile, include_diagnostics=include_diagnostics)
+
+    def render_entry_text(self, entry: Entry) -> str:
+        return render_text(entry.document())
+
+    def entry_diagnostics(self, entry: Entry) -> tuple[object, ...]:
+        return entry.document().diagnostics
+
+    def validate(self, *, sample_entries: int = 3) -> dict[str, object]:
+        diagnostics_by_severity = {"info": 0, "warning": 0, "error": 0}
+        diagnostics_by_area: dict[str, int] = {}
+        entries_checked = 0
+        render_ok = 0
+        entry_errors: list[str] = []
+
+        for entry in self.iter_entries(limit=sample_entries):
+            entries_checked += 1
+            try:
+                document = entry.document()
+                render_html(document)
+                render_text(document)
+                render_ok += 1
+                for diagnostic in document.diagnostics:
+                    diagnostics_by_severity[diagnostic.severity.value] = diagnostics_by_severity.get(diagnostic.severity.value, 0) + 1
+                    diagnostics_by_area[diagnostic.area.value] = diagnostics_by_area.get(diagnostic.area.value, 0) + 1
+            except Exception as exc:  # pragma: no cover - defensive validation report path
+                diagnostics_by_severity["error"] = diagnostics_by_severity.get("error", 0) + 1
+                entry_errors.append(f"{entry.address.block}:{entry.address.offset}: {exc}")
+
+        index_stats = {
+            name: {
+                "rows": len(parsed.rows),
+                "internal_rows": len(parsed.internal_rows),
+                "leaf_pages": parsed.leaf_pages,
+                "internal_pages": parsed.internal_pages,
+                "unknown_leaf_bytes": parsed.unknown_leaf_bytes,
+            }
+            for name, parsed in self.indexes().items()
+        }
+        return {
+            "package": self.info.to_dict(),
+            "component_count": len(self.components),
+            "components": [
+                {
+                    "name": component.name,
+                    "role": component.role.value,
+                    "type": f"{component.type:02x}",
+                    "present": component.path is not None,
+                }
+                for component in self.components
+            ],
+            "gaiji": {
+                "uni_records": len(self.gaiji.records),
+                "unicode_mappings": len(self.gaiji.mapping),
+                "ga16_resources": len(self.ga16),
+            },
+            "indexes": index_stats,
+            "sample_entries_checked": entries_checked,
+            "sample_entries_rendered": render_ok,
+            "diagnostics": {
+                "by_severity": diagnostics_by_severity,
+                "by_area": diagnostics_by_area,
+                "entry_errors": entry_errors,
+            },
+            "ok": diagnostics_by_severity.get("error", 0) == 0 and not entry_errors,
+        }
 
     def summary(self) -> dict[str, object]:
         return {

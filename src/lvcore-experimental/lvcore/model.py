@@ -26,6 +26,13 @@ class ComponentRole(str, Enum):
     UNKNOWN = "unknown"
 
 
+class SearchProfile(str, Enum):
+    NATIVE = "native"
+    EXACT = "exact"
+    FORWARD = "forward"
+    BACKWARD = "backward"
+
+
 @dataclass(frozen=True, order=True)
 class Address:
     """Logical SSED address."""
@@ -129,6 +136,34 @@ class Entry:
     headword: str
     text: str
     spans: tuple[Span, ...]
+
+    def document(self):
+        from .document import build_entry_document
+
+        return build_entry_document(self)
+
+    def render_html(self, profile: str = "friendly", *, include_diagnostics: bool = False) -> str:
+        from .render import HtmlProfile, render_html
+
+        return render_html(self.document(), profile=HtmlProfile(profile.replace("-", "_")), include_diagnostics=include_diagnostics)
+
+    def html(self) -> str:
+        return self.render_html()
+
+    def plain_text(self) -> str:
+        from .render import render_text
+
+        return render_text(self.document())
+
+    def diagnostics(self):
+        return self.document().diagnostics
+
+    def inspect(self) -> dict[str, Any]:
+        return {
+            "address": self.address.to_dict(),
+            "end_address": self.end_address.to_dict(),
+            "raw_spans": [span.to_dict() for span in self.spans],
+        }
 
     def to_dict(self) -> dict[str, Any]:
         return {

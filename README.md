@@ -88,9 +88,10 @@ headword such as `あん‐き` must still be searchable as `あんき`.
 `src/lvcore-experimental` is a separate reader-core experiment. It does not
 import `logovista_tools`; it reimplements SSED package detection, SSEDINFO /
 SSEDDATA parsing, text spans, `.uni` / GA16 resources, titles, indexes, entry
-slicing, exact index lookup, and body-pointer dereferencing for body-stream
-HONMON entries behind a small API and CLI. LVED and LVLMultiView are detected
-but intentionally deferred.
+slicing, native index lookup, body-pointer dereferencing for body-stream
+HONMON entries, structured entry documents, diagnostics, resource references,
+and friendly/debug rendering behind a small API and CLI. LVED and LVLMultiView
+are detected but intentionally deferred.
 
 The current authoritative corpus harness is `dump-package-models`. A
 path-aware, resumable, chunked model pass over the local LogoVista collection

@@ -9,7 +9,9 @@ from typing import Any
 
 from .detect import detect_family
 from .errors import UnsupportedPackageError
+from .model import SearchProfile
 from .package import open_package
+from .render import HtmlProfile
 
 
 def emit(data: Any) -> None:
@@ -71,10 +73,67 @@ def cmd_indexes(args: argparse.Namespace) -> int:
 def cmd_search(args: argparse.Namespace) -> int:
     package = open_package(args.path)
     if args.entries:
-        emit({"query": args.term, "entries": [entry.to_dict() for entry in package.search_entries(args.term, limit=args.limit)]})
+        emit(
+            {
+                "query": args.term,
+                "search_profile": args.search_profile,
+                "entries": [entry.to_dict() for entry in package.search_entries(args.term, limit=args.limit, profile=args.search_profile)],
+            }
+        )
         return 0
-    emit({"query": args.term, "hits": package.search_index(args.term, limit=args.limit)})
+    emit({"query": args.term, "search_profile": args.search_profile, "hits": package.search_index(args.term, limit=args.limit, profile=args.search_profile)})
     return 0
+
+
+def cmd_render(args: argparse.Namespace) -> int:
+    package = open_package(args.path)
+    entries = package.search_entries(args.term, limit=args.limit, profile=args.search_profile)
+    profile = HtmlProfile(args.profile.replace("-", "_"))
+
+    if args.format == "json":
+        emit(
+            {
+                "query": args.term,
+                "profile": profile.value,
+                "search_profile": args.search_profile,
+                "entries": [
+                    {
+                        "address": entry.address.to_dict(),
+                        "headword": entry.headword,
+                        "html": package.render_entry_html(entry, profile=profile, include_diagnostics=args.diagnostics),
+                        "text": package.render_entry_text(entry),
+                        "diagnostics": [diagnostic.to_dict() for diagnostic in entry.diagnostics()] if args.diagnostics else [],
+                    }
+                    for entry in entries
+                ],
+            }
+        )
+        return 0
+
+    if args.format == "text":
+        for index, entry in enumerate(entries):
+            if index:
+                print()
+            print(package.render_entry_text(entry))
+        return 0
+
+    for entry in entries:
+        print(package.render_entry_html(entry, profile=profile, include_diagnostics=args.diagnostics))
+    return 0
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    package = open_package(args.path)
+    report = package.validate(sample_entries=args.sample_entries)
+    if args.json:
+        emit(report)
+    else:
+        print(f"family: {report['package']['family']}")
+        print(f"title: {report['package']['title']}")
+        print(f"components: {report['component_count']}")
+        print(f"sample entries rendered: {report['sample_entries_rendered']}/{report['sample_entries_checked']}")
+        print(f"diagnostics: {report['diagnostics']['by_severity']}")
+    return 0 if report.get("ok") else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -111,8 +170,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_search.add_argument("path", type=Path)
     p_search.add_argument("term")
     p_search.add_argument("--limit", type=int, default=20)
+    p_search.add_argument("--search-profile", choices=[profile.value for profile in SearchProfile], default=SearchProfile.NATIVE.value)
     p_search.add_argument("--entries", action="store_true", help="Dereference body pointers and return entries")
     p_search.set_defaults(func=cmd_search)
+
+    p_render = sub.add_parser("render", help="Search and render entries through the document renderer")
+    p_render.add_argument("path", type=Path)
+    p_render.add_argument("term")
+    p_render.add_argument("--limit", type=int, default=3)
+    p_render.add_argument("--search-profile", choices=[profile.value for profile in SearchProfile], default=SearchProfile.NATIVE.value)
+    p_render.add_argument("--profile", choices=[*(profile.value for profile in HtmlProfile), "logovista-like"], default=HtmlProfile.FRIENDLY.value)
+    p_render.add_argument("--format", choices=["html", "text", "json"], default="html")
+    p_render.add_argument("--diagnostics", action="store_true", help="Include diagnostics in rendered output")
+    p_render.set_defaults(func=cmd_render)
+
+    p_validate = sub.add_parser("validate", help="Validate reader-side open/search/decode/render safety")
+    p_validate.add_argument("path", type=Path)
+    p_validate.add_argument("--sample-entries", type=int, default=3)
+    p_validate.add_argument("--json", action="store_true")
+    p_validate.set_defaults(func=cmd_validate)
     return parser
 
 
