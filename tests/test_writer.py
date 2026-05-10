@@ -16,6 +16,7 @@ from logovista_tools.writer import (
     encode_jis_cell,
     encode_search_key,
     encode_simple_index_pages,
+    encode_sseddata,
     encode_sseddata_literal,
     encode_ssedinfo,
     encode_tagged_index_pages,
@@ -37,6 +38,17 @@ def test_sseddata_literal_encoder_roundtrips_multiple_chunks() -> None:
     assert expanded.startswith(payload)
     assert len(expanded) % BLOCK_SIZE == 0
     assert expanded[len(payload) :] == bytes(len(expanded) - len(payload))
+
+
+def test_sseddata_compressed_encoder_roundtrips_and_reduces_repetitive_data() -> None:
+    payload = (b"abc abc abc abc " * 3000) + bytes(range(256)) * 8
+    encoded = encode_sseddata(payload, start_block=12, kind=3)
+    literal = encode_sseddata_literal(payload, start_block=12, kind=3)
+    expanded = expand_sseddata_bytes(encoded)
+
+    assert expanded.startswith(payload)
+    assert expanded[len(payload) :] == bytes(len(expanded) - len(payload))
+    assert len(encoded) < len(literal) // 3
 
 
 def test_ssedinfo_encoder_roundtrips_component_table(tmp_path) -> None:
@@ -239,7 +251,7 @@ def test_tagged_index_writer_parses_grouped_targets() -> None:
     assert [row["target_key"] for row in rows if row["kind"] == "leaf"] == ["run", "running", "walk"]
 
     many = [
-        IndexTarget(key="group", target_key=f"group-{i:03d}", body=IndexPointer(100 + i, 2), title=IndexPointer(200, i * 2))
+        IndexTarget(key=f"group-{i:03d}", target_key=f"group-{i:03d}", body=IndexPointer(100 + i, 2), title=IndexPointer(200, i * 2))
         for i in range(180)
     ]
     rows = []
@@ -256,9 +268,34 @@ def test_tagged_index_writer_parses_grouped_targets() -> None:
     )
     assert result.internal_pages == 1
     assert result.leaf_pages > 1
-    assert result.search_groups == 1
+    assert result.search_groups == 180
     assert result.leaf_rows == 180
-    assert {row["key"] for row in rows if row["kind"] == "leaf"} == {"group"}
+    assert {row["key"] for row in rows if row["kind"] == "leaf"} == {f"group-{i:03d}" for i in range(180)}
+
+
+def test_index_writer_rejects_single_key_groups_that_cannot_fit_one_leaf() -> None:
+    duplicate_simple = [
+        IndexTarget(
+            key="duplicate",
+            body=IndexPointer(block=10 + i, offset=2),
+            title=IndexPointer(block=20, offset=i * 2),
+        )
+        for i in range(180)
+    ]
+    with pytest.raises(ValueError, match="single index key group"):
+        encode_simple_index_pages(duplicate_simple, start_block=100)
+
+    duplicate_tagged = [
+        IndexTarget(
+            key="duplicate",
+            target_key=f"duplicate-{i:03d}",
+            body=IndexPointer(block=10 + i, offset=2),
+            title=IndexPointer(block=20, offset=i * 2),
+        )
+        for i in range(180)
+    ]
+    with pytest.raises(ValueError, match="single index key group"):
+        encode_tagged_index_pages(duplicate_tagged, start_block=100)
 
 
 def test_plain_honmon_package_writer_is_readable_by_existing_parsers(tmp_path) -> None:

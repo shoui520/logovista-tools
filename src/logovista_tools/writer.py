@@ -8,6 +8,7 @@ a full historical package repacker and it does not emit platform sidecars.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 import math
@@ -16,7 +17,7 @@ from typing import Callable, Iterable
 
 from .gaiji import ga16_glyph_size, ga16_row_size, gaiji_grid_code_for_index
 from .indexes import IndexPointer
-from .ssed import BLOCK_SIZE, CHUNK_SIZE, SSEDDATA_MAGIC, SSEDINFO_MAGIC
+from .ssed import BLOCK_SIZE, CHUNK_SIZE, SSEDDATA_MAGIC, SSEDINFO_MAGIC, WINDOW_SIZE
 
 
 HALF_GAIJI_START = 0xA121
@@ -62,6 +63,11 @@ def pointer_to_component_offset(start_block: int, pointer: IndexPointer) -> int:
     return (pointer.block - start_block) * BLOCK_SIZE + pointer.offset
 
 
+def _expanded_chunks(expanded: bytes) -> list[bytes]:
+    expanded = pad_to_block(expanded)
+    return [expanded[pos : pos + CHUNK_SIZE] for pos in range(0, len(expanded), CHUNK_SIZE)] or [bytes(BLOCK_SIZE)]
+
+
 def encode_sseddata_literal(expanded: bytes, *, start_block: int, kind: int = 0) -> bytes:
     """Encode expanded component bytes as a valid literal-only ``SSEDDATA``.
 
@@ -75,7 +81,7 @@ def encode_sseddata_literal(expanded: bytes, *, start_block: int, kind: int = 0)
         raise ValueError("SSEDDATA kind must fit in one byte")
     expanded = pad_to_block(expanded)
     n_blocks = logical_block_count(expanded)
-    chunks = [expanded[pos : pos + CHUNK_SIZE] for pos in range(0, len(expanded), CHUNK_SIZE)] or [bytes(BLOCK_SIZE)]
+    chunks = _expanded_chunks(expanded)
 
     header_len = 64 + 4 * len(chunks)
     offsets: list[int] = []
@@ -108,6 +114,131 @@ def encode_sseddata_literal(expanded: bytes, *, start_block: int, kind: int = 0)
     for payload in chunk_payloads:
         out.extend(payload)
     return bytes(out)
+
+
+def _make_sseddata(
+    *,
+    chunks: list[bytes],
+    chunk_payloads: list[bytes],
+    start_block: int,
+    n_blocks: int,
+    kind: int,
+) -> bytes:
+    header_len = 64 + 4 * len(chunks)
+    offsets: list[int] = []
+    cursor = header_len
+    for payload in chunk_payloads:
+        offsets.append(cursor)
+        cursor += len(payload)
+
+    header = bytearray(64)
+    header[:8] = SSEDDATA_MAGIC
+    header[0x0F] = kind
+    header[0x16:0x18] = be16(len(chunks))
+    header[0x18:0x1C] = be32(start_block)
+    header[0x1C:0x20] = be32(start_block + n_blocks - 1)
+
+    out = bytearray(header)
+    for offset in offsets:
+        out.extend(be32(offset))
+    for payload in chunk_payloads:
+        out.extend(payload)
+    return bytes(out)
+
+
+def _window_match_length(window: bytearray, wintop: int, source: int, chunk: bytes, pos: int, max_len: int) -> int:
+    scratch = bytearray(window)
+    out = 0
+    while out < max_len:
+        read_index = (source + out) % WINDOW_SIZE
+        value = scratch[read_index]
+        if value != chunk[pos + out]:
+            break
+        scratch[(wintop + out) % WINDOW_SIZE] = value
+        out += 1
+    return out
+
+
+def _encode_sseddata_chunk(chunk: bytes) -> bytes:
+    if len(chunk) > CHUNK_SIZE:
+        raise ValueError(f"SSEDDATA chunk exceeds {CHUNK_SIZE} bytes")
+
+    init = Counter(chunk).most_common(1)[0][0] if chunk else 0
+    window = bytearray([init]) * WINDOW_SIZE
+    positions_by_value: dict[int, set[int]] = {init: set(range(WINDOW_SIZE))}
+    wintop = 0
+    commands = bytearray()
+    n_commands = 0
+    pos = 0
+
+    def write_window(value: int) -> None:
+        nonlocal wintop
+        old = window[wintop]
+        old_positions = positions_by_value.get(old)
+        if old_positions is not None:
+            old_positions.discard(wintop)
+        window[wintop] = value
+        positions_by_value.setdefault(value, set()).add(wintop)
+        wintop = (wintop + 1) % WINDOW_SIZE
+
+    while pos < len(chunk):
+        remaining = len(chunk) - pos
+        max_copy = min(15, remaining)
+        best_len = 0
+        best_source = 0
+
+        for source in sorted(positions_by_value.get(chunk[pos], ())):
+            match_len = _window_match_length(window, wintop, source, chunk, pos, max_copy)
+            if match_len > best_len:
+                best_len = match_len
+                best_source = source
+                if best_len == max_copy:
+                    break
+
+        if best_len and pos + best_len == len(chunk):
+            literal = 0
+            literal_written = False
+        else:
+            if best_len == remaining:
+                best_len -= 1
+            literal = chunk[pos + best_len]
+            literal_written = True
+
+        wp = (best_source - wintop) % WINDOW_SIZE if best_len else 0
+        commands.append((wp >> 4) & 0xFF)
+        commands.append(((wp & 0x0F) << 4) | best_len)
+        commands.append(literal)
+        n_commands += 1
+        if n_commands > 0xFFFF:
+            raise ValueError("SSEDDATA chunk command count exceeds uint16")
+
+        for _step in range(best_len):
+            value = window[(wp + wintop) % WINDOW_SIZE]
+            write_window(value)
+            pos += 1
+        if literal_written:
+            write_window(literal)
+            pos += 1
+
+    return b"\x00\x00" + be16(n_commands) + bytes([init]) + bytes(commands)
+
+
+def encode_sseddata(expanded: bytes, *, start_block: int, kind: int = 0) -> bytes:
+    """Encode expanded component bytes as compressed ``SSEDDATA``.
+
+    The encoder is intentionally conservative and greedy. It does not attempt
+    to reproduce vendor byte-for-byte compression, but it emits standard
+    LogoVista chunks that roundtrip through the normal expander and avoid the
+    severe size inflation of literal-only diagnostics.
+    """
+
+    if not 0 <= kind <= 0xFF:
+        raise ValueError("SSEDDATA kind must fit in one byte")
+    expanded = pad_to_block(expanded)
+    n_blocks = logical_block_count(expanded)
+    chunks = _expanded_chunks(expanded)
+    payloads = [_encode_sseddata_chunk(chunk) for chunk in chunks]
+    return _make_sseddata(chunks=chunks, chunk_payloads=payloads, start_block=start_block, n_blocks=n_blocks, kind=kind)
 
 
 @dataclass(frozen=True)
@@ -479,15 +610,24 @@ def _split_keyed_records(records: list[tuple[bytes, bytes]], *, max_bytes: int =
     pages: list[list[tuple[bytes, bytes]]] = []
     current: list[tuple[bytes, bytes]] = []
     size = 4
-    for record, _branch_key in records:
-        if len(record) + 4 > max_bytes:
-            raise ValueError(f"single index record exceeds page size: {len(record)}")
-        if current and size + len(record) > max_bytes:
+
+    groups: list[list[tuple[bytes, bytes]]] = []
+    for record in records:
+        if groups and groups[-1][0][1] == record[1]:
+            groups[-1].append(record)
+        else:
+            groups.append([record])
+
+    for group in groups:
+        group_size = sum(len(record) for record, _branch_key in group)
+        if group_size + 4 > max_bytes:
+            raise ValueError(f"single index key group exceeds page size: {group[0][1].hex()}")
+        if current and size + group_size > max_bytes:
             pages.append(current)
             current = []
             size = 4
-        current.append((record, _branch_key))
-        size += len(record)
+        current.extend(group)
+        size += group_size
     pages.append(current)
     return pages
 
@@ -901,11 +1041,11 @@ def build_plain_honmon_package(
         )
     files = {
         f"{dict_id}.IDX": encode_ssedinfo(title, components),
-        "HONMON.DIC": encode_sseddata_literal(honmon_expanded, start_block=honmon_start, kind=0x00),
-        "FHINDEX.DIC": encode_sseddata_literal(fhindex_expanded, start_block=fhindex_start, kind=0x91),
-        "BHINDEX.DIC": encode_sseddata_literal(bhindex_expanded, start_block=bhindex_start, kind=0x71),
-        "FHTITLE.DIC": encode_sseddata_literal(title_expanded, start_block=fhtitle_start, kind=0x05),
-        "BHTITLE.DIC": encode_sseddata_literal(title_expanded, start_block=bhtitle_start, kind=0x07),
+        "HONMON.DIC": encode_sseddata(honmon_expanded, start_block=honmon_start, kind=0x00),
+        "FHINDEX.DIC": encode_sseddata(fhindex_expanded, start_block=fhindex_start, kind=0x91),
+        "BHINDEX.DIC": encode_sseddata(bhindex_expanded, start_block=bhindex_start, kind=0x71),
+        "FHTITLE.DIC": encode_sseddata(title_expanded, start_block=fhtitle_start, kind=0x05),
+        "BHTITLE.DIC": encode_sseddata(title_expanded, start_block=bhtitle_start, kind=0x07),
     }
 
     if include_tagged_indexes:
@@ -914,10 +1054,10 @@ def build_plain_honmon_package(
         assert fkindex_expanded is not None and bkindex_expanded is not None
         files.update(
             {
-                "FKTITLE.DIC": encode_sseddata_literal(title_expanded, start_block=fktitle_start, kind=0x04),
-                "BKTITLE.DIC": encode_sseddata_literal(title_expanded, start_block=bktitle_start, kind=0x06),
-                "FKINDEX.DIC": encode_sseddata_literal(fkindex_expanded, start_block=fkindex_start, kind=0x90),
-                "BKINDEX.DIC": encode_sseddata_literal(bkindex_expanded, start_block=bkindex_start, kind=0x70),
+                "FKTITLE.DIC": encode_sseddata(title_expanded, start_block=fktitle_start, kind=0x04),
+                "BKTITLE.DIC": encode_sseddata(title_expanded, start_block=bktitle_start, kind=0x06),
+                "FKINDEX.DIC": encode_sseddata(fkindex_expanded, start_block=fkindex_start, kind=0x90),
+                "BKINDEX.DIC": encode_sseddata(bkindex_expanded, start_block=bkindex_start, kind=0x70),
             }
         )
 

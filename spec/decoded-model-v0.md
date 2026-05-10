@@ -1194,7 +1194,7 @@ Decoded Model v0 intentionally names gaps instead of hiding them:
 - Official renderer parity is not represented as a hard guarantee.
 - Writer generation is now being tested through experimental Python primitives
   for the plain/core SSED subset. The implemented proof covers SSEDINFO,
-  literal-only SSEDDATA, body/title streams, simple/tagged index pages, and
+  compressed SSEDDATA, body/title streams, simple/tagged index pages, and
   generated `.uni` / GA16 resources. Remaining writer work is hardening those
   rules against broader fixtures, not changing Decoded Model v0 into a new
   dictionary format.

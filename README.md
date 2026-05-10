@@ -57,7 +57,7 @@ authoring primitives, not full repacking of historical packages:
 ```text
 implemented experimentally:
   SSEDINFO encoding
-  literal-only SSEDDATA encoding
+  compressed SSEDDATA encoding, with literal-only diagnostic mode retained
   block/pointer helpers
   HONMON body-stream encoding
   TITLE stream encoding

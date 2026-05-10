@@ -126,13 +126,16 @@ LogoVista dictionary model.
 - Strict, forensic, and lenient text-span parsing modes for sampled body
   slices and entry-level IR dumps.
 - Experimental author-core SSED writer primitives in Python. Current coverage
-  includes normal-layout `SSEDINFO` encoding, valid literal-only `SSEDDATA`
-  compression, block/pointer helpers, body-stream `HONMON.DIC` entry encoding,
+  includes normal-layout `SSEDINFO` encoding, compressed `SSEDDATA` emission
+  with a literal-only diagnostic mode, block/pointer helpers, body-stream
+  `HONMON.DIC` entry encoding,
   title stream encoding, simple and tagged index page encoding with branch/leaf
   page splitting, `1f04`/`1f05` halfwidth ASCII display spans, deterministic
   Unicode-to-JIS/gaiji allocation, `.uni` emission, and `GA16HALF` /
   `GA16FULL` emission. Synthetic roundtrip tests validate these bytes through
-  the existing parser.
+  the existing parser. Writer-v0 keeps all rows for an identical index key on
+  one leaf page; if one key group cannot fit, it fails loudly instead of
+  emitting duplicate branch keys with ambiguous lookup behavior.
 - `1fe2`/`1fe3` is now modeled as a private renderer-directive span rather
   than visible color text. Plain and HTML body renderers suppress directive
   strings such as `SQL:`, `IMG:`, and `RUB:` while lossless spans preserve them.
