@@ -25,8 +25,8 @@ stream. The observed files have these traits:
 - entropy is close to random data;
 - decrypts as SQLCipher 4 with 4096-byte pages.
 
-EBWin cannot recover body text from this package family because there is no
-SSED/HONMON body stream to compose.
+SSED/HONMON-oriented readers cannot recover body text from this package family
+because there is no SSED/HONMON body stream to compose.
 
 ## Viewer Access Path
 

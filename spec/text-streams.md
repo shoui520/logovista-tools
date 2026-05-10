@@ -41,22 +41,22 @@ The stream also contains `0x1f` control opcodes. Important controls observed:
 1f 0e / 1f 0f     superscript start/end
 1f 10 / 1f 11     italic-ish start/end
 1f 12 / 1f 13     emphasis-ish start/end
-1f 1a xx xx       fixed-argument layout/style control; semantics still neutral
-1f 1c xx xx       fixed-argument layout/style control; observed before media refs
+1f 1a xx xx       tab/column position control
+1f 1c xx xx       media block layout control; observed before media refs
 1f 3b / 1f 5b     URL span start/end
 1f 41 xx xx       headword span start
 1f 61             headword span end
-1f 42             link-ish start
-1f 62 ...         link-ish end with payload
-1f 43             menu/text-index link-ish start
-1f 63 ...         menu/text-index link-ish end with payload
-1f 44 ...         extended link-ish start with a 10-byte payload
+1f 42             body/cross-reference link start
+1f 62 ...         body/cross-reference link end with payload
+1f 43             menu/navigation link start
+1f 63 ...         menu/navigation link end with payload
+1f 44 ...         extended link start with a 10-byte payload
 1f 49 ...         TOC/internal link start with a 10-byte payload
-1f 64 ...         extended link-ish end with a 6-byte payload
+1f 64 ...         extended link end with a 6-byte payload
 1f 69             TOC/internal link end
-1f 4a ...         jump/link/media start with a 16-byte payload
-1f 6a             jump/link/media end
-1f 4d ...         media/reference start with an 18-byte payload
+1f 4a ...         jump/audio range start with a 16-byte payload
+1f 6a             jump/audio range end
+1f 4d ...         inline media/reference start with an 18-byte payload
 1f 6d             media/reference end
 1f e0 xx xx       bold-ish start
 1f e1             bold-ish end
@@ -68,13 +68,13 @@ The current extractor does not claim full semantic knowledge of every control.
 It uses enough structure to preserve line breaks and avoid mixing payload bytes
 into visible text.
 
-EBWin/EBDump are useful renderer witnesses, but they also support EPWING,
-EBXA-C, and other Electronic Book families. Viewer strings such as `<SUP>`,
-`<SUB>`, `<LINK>`, `<FIG>`, and `<WAV>` are therefore not automatically treated
-as SSED opcode semantics. A viewer-derived label is only promoted here when it
-matches controls observed in LogoVista/SSED expanded streams. The strongest
-current viewer-derived promotion is `1f04`/`1f05`: EBDump documents that pair
-directly as halfwidth conversion.
+Renderer-compatible behavior is treated as evidence only when it matches
+controls observed in LogoVista/SSED expanded streams. Electronic Book-family
+tools also handle EPWING, EBXA-C, and related formats, so generic labels such
+as `<SUP>`, `<SUB>`, `<LINK>`, `<FIG>`, and `<WAV>` are not automatically
+imported as SSED opcode semantics. The strongest promoted behavior remains
+`1f04`/`1f05`, which is the halfwidth-conversion span pair used by LogoVista
+text streams.
 
 `1f e2` / `1f e3` are no longer treated as visible color/style spans. A full
 Windows corpus pass shows that they wrap renderer directives such as `IMG:`,
@@ -95,11 +95,12 @@ text.
 `1f 3b` / `1f 5b` are observed as a zero-argument paired URL span in GEN2001.
 The span encloses URL display text and an italicized duplicate URL line.
 
-`1f 1a` and `1f 1c` have two-byte payloads. `1f1a` is common in nihonshi and
-IPHYCHE5 around display runs such as reading/date spans. `1f1c 2000` is common
-in IPHYCHE5 immediately before `1f4d` media references. The renderer semantics
-are still neutral in the toolkit; the important structural fact is that the two
-payload bytes must be consumed.
+`1f 1a` and `1f 1c` have two-byte payloads. `1f1a` is used in nihonshi and
+IPHYCHE5 in table-like runs: era-name/readings/date columns and chemical
+element table columns. The current model tags it as `tab_column` and preserves
+the raw payload as the column/position value. `1f1c 2000` is observed in
+IPHYCHE5 immediately before `1f4d` media references; the current model tags it
+as `media_layout`. Both controls are nonprinting.
 
 `1f 44` / `1f 64` are an extended link pair. The start control has a 10-byte
 payload; the end control has a 6-byte payload. ROYALEGR and KQSYNONM use this
@@ -120,8 +121,8 @@ payload leaks one binary byte into the text stream and produces mojibake before
 labels such as `→音声1`. `1f 4d` media starts have an 18-byte payload in the
 same dictionary family.
 
-`1f 04` / `1f 05` are a text-mode span pair, not a generic style pair. EBDump
-documents them as `半角開始` / `半角終了`: plain-text output converts JIS row-3
+`1f 04` / `1f 05` are a text-mode span pair, not a generic style pair.
+Compatible plain-text behavior treats them as `半角開始` / `半角終了`: JIS row-3
 fullwidth ASCII cells inside this span to halfwidth ASCII. Raw bodies still
 store Latin letters as JIS cells such as `2341` for `Ａ`; the span controls
 define the display/export width. Outside the span, the decoded model preserves

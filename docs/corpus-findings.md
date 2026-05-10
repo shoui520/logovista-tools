@@ -158,8 +158,9 @@ truncated gaiji:                   0
 
 The full scan produced several corrections to the text-stream model:
 
-- `1f1a` and `1f1c` are fixed two-byte-argument controls. They are structurally
-  recognized, but their exact renderer semantics remain neutral.
+- `1f1a` is a nonprinting tab/column position control used by table-like
+  display runs, and `1f1c` is a nonprinting media-layout control observed
+  before `1f4d` media references. Both have fixed two-byte payloads.
 - `1f44` / `1f64` are an extended link pair with 10-byte and 6-byte payloads.
 - JIS cell decoding needs CP932 and Shift_JIS-2004 fallback after ISO-2022-JP.
   This accounts for extension symbols such as `①`, `㎏`, `❾`, and `◦`.
@@ -395,10 +396,12 @@ Most frequent and structurally important controls from the atlas:
 1f09          section/entry marker with 2-byte payload
 1f0a          line break
 1f41 / 1f61   headword/title span pair
-1f42 / 1f62   body/menu link pair; 1f62 has 6-byte pointer payload
-1f43 / 1f63   menu/text-index link pair; 1f63 has 6-byte pointer payload
-1f4a / 1f6a   jump/link/media range pair; 1f4a has 16-byte payload
-1f4d / 1f6d   media/reference pair; 1f4d has 18-byte payload
+1f1a          tab/column position control with 2-byte payload
+1f1c          media block layout control with 2-byte payload
+1f42 / 1f62   body/cross-reference link pair; 1f62 has 6-byte pointer payload
+1f43 / 1f63   menu/navigation link pair; 1f63 has 6-byte pointer payload
+1f4a / 1f6a   jump/audio range pair; 1f4a has 16-byte payload
+1f4d / 1f6d   inline media/reference pair; 1f4d has 18-byte payload
 1fe0 / 1fe1   bold-ish span pair; 1fe0 has 2-byte payload
 1fe2 / 1fe3   private renderer directive span pair; 1fe2 has 2-byte payload
 ```

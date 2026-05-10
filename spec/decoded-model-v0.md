@@ -424,10 +424,11 @@ structural_only
 unknown
 ```
 
-Unknown or not-yet-semantic controls are still valid model records. For example,
-`1f1a` and `1f1c` currently have fixed two-byte payloads and neutral tags; the
-model should preserve them without naming them `bold`, `color`, or `layout`
-until renderer evidence supports that.
+Structurally known controls can still have cautious semantics. For example,
+`1f1a` is modeled as a nonprinting `tab_column` control with a two-byte
+position payload, and `1f1c` is modeled as a nonprinting `media_layout`
+control when it precedes media references. The model preserves the raw payload
+even when a renderer/exporter does not yet reproduce the exact visual layout.
 
 Private renderer directives are also preserved rather than flattened away.
 `1fe2` / `1fe3` spans wrap hidden directive text such as `IMG:`, `RUB:`,

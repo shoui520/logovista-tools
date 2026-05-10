@@ -148,7 +148,7 @@ LogoVista dictionary model.
   strings such as `SQL:`, `IMG:`, and `RUB:` while lossless spans preserve them.
 - Observed `1f0b`/`1f0c` literal/preformatted body spans.
 - Observed `1f3b`/`1f5b` URL body spans.
-- Observed `1f1a`/`1f1c` fixed two-byte-argument controls and
+- Observed `1f1a` tab/column positioning, `1f1c` media-layout controls, and
   `1f44`/`1f64` extended link controls.
 - Full text-stream opcode atlas over 7,026,978,819 expanded bytes. The only
   singleton anomaly is the known vendor title-stream defect
@@ -197,8 +197,8 @@ LogoVista dictionary model.
   plain body streams.
 - Not every product that declares `DictFULLDB` has an unreadable `HONMON.DIC`;
   several still have readable raw body streams. Audit the raw layer first.
-- Some control opcodes are structurally recognized with neutral tags, but their
-  exact renderer presentation is not fully modeled.
+- Some control opcodes are structurally recognized with conservative tags, but
+  their exact renderer presentation is not fully modeled.
 - The observed SSED corpus has one known physical tail anomaly:
   `NANDOKU3` ends with a lone final `0x1f` byte after the last decoded text
   cell. It is covered and reported as a truncated control, not guessed.

@@ -298,6 +298,10 @@ def decode_lossless_spans(
 
             start_tag = control_tag_for_start(op)
             end_tag = control_tag_for_end(op)
+            neutral_tag = {
+                0x1A: "tab_column",
+                0x1C: "media_layout",
+            }.get(op)
             if start_tag is not None or end_tag is not None or op in (
                 0x00,
                 0x02,
@@ -305,7 +309,7 @@ def decode_lossless_spans(
                 0x1A,
                 0x1C,
             ):
-                tag = start_tag or end_tag
+                tag = start_tag or end_tag or neutral_tag
                 if op == 0x04:
                     halfwidth_depth += 1
                 elif op == 0xE2:

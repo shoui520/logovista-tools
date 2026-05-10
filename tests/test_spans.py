@@ -54,6 +54,17 @@ def test_observed_extended_link_controls_are_known_spans() -> None:
     assert decoded.stats["links"] == 1
 
 
+def test_observed_layout_controls_keep_semantic_tags() -> None:
+    decoded = decode_lossless_spans(b"\x1f\x1a\x00\x06\x1f\x1c\x20\x00")
+
+    assert decoded.stats["unknown_controls"] == 0
+    assert decoded.control_ops == {"1a": 1, "1c": 1}
+    assert [(span.op, span.tag, span.payload_hex) for span in decoded.spans] == [
+        ("1a", "tab_column", "0006"),
+        ("1c", "media_layout", "2000"),
+    ]
+
+
 def test_cp932_extension_jis_cells_decode_as_text() -> None:
     decoded = decode_lossless_spans(b"\x2d\x21\x2d\x54\x2c\x29\x23\x3f")
 

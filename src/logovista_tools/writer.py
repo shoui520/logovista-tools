@@ -1031,7 +1031,7 @@ def build_plain_honmon_package(
         )
     if gaiji_required:
         # Real SSED packages declare loose GA16 resources in the SSEDINFO
-        # catalog with zero block addresses.  EBWin appears to use this catalog
+        # catalog with zero block addresses. Compatible readers use this catalog
         # declaration to discover the sidecar files.
         components.extend(
             [

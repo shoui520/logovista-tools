@@ -417,7 +417,7 @@ glyph_offset = 0x800 + glyph_index * glyph_bytes
 
 Rows are stored top-to-bottom. Bits inside each row are MSB-first, and set bits
 are ink pixels. In HAESPJPN, this renders `A126` as `é` and `A138` as `ñ`,
-matching EBWin and the `.uni` text mapping.
+matching compatible-reader behavior and the `.uni` text mapping.
 
 Two code-addressing views are observed:
 
@@ -497,8 +497,8 @@ the native `.uni` field.
 Loose `GA16FULL` / `GA16HALF` files should also be declared in the
 `SSEDINFO` catalog as resource components. Observed packages use type `0xf1`
 for `GA16FULL` and `0xf2` for `GA16HALF`, with `start=0`, `end=0`, and zero
-component data. EBWin-style readers may ignore an otherwise valid loose GA16
-file if the catalog declaration is absent.
+component data. Some compatible readers may ignore an otherwise valid loose
+GA16 file if the catalog declaration is absent.
 
 For bitmap generation, the preferred user-supplied font sources are Windows
 bitmap-capable Japanese fonts such as MS Gothic / MS Mincho families. They are
