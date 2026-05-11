@@ -34,6 +34,25 @@ raw HONMON/body bytes
 Friendly output is the default. Raw offsets, raw opcodes, raw bytes, component
 internals, and index page internals are explicit inspection/debug features.
 
+HTML rendering is profile-driven:
+
+- `friendly` is the default reader profile. It emits safe, readable HTML and
+  hides raw opcodes, offsets, pointer payloads, dense-anchor bytes, hidden
+  directives, and diagnostic details unless diagnostics are explicitly
+  requested.
+- `semantic` emits app-neutral HTML with stable `lv-block-*`, `lv-inline-*`,
+  and `data-*` structure. It is intended for dictionary applications that want
+  their own styling while still receiving a predictable document tree.
+- `logovista-like` is a conservative visual-intent profile. It uses
+  `lv-lvlike-*` classes for behavior we currently understand, while avoiding
+  claims of exact renderer parity.
+- `debug` is explicit inspection output. It may expose control IDs, raw span
+  metadata, body-source details, gaiji codes, media IDs, link payloads, and full
+  diagnostics.
+
+Plain text rendering is not an HTML profile. It stays readable, prefers
+Unicode gaiji, and avoids raw control or offset leakage.
+
 ## Public Concepts
 
 The stable conceptual model should remain:
@@ -130,9 +149,10 @@ readable and uses Unicode gaiji where available plus compact media labels.
 
 URL spans and pointer-bearing reference spans are represented as semantic link
 nodes. External URL links are emitted only for safe URL schemes. Internal
-references use `lvcore-entry://...` placeholders when a target pointer is
-recoverable. Unresolved links preserve visible label text and diagnostics, while
-debug rendering may expose raw payloads and pointer details.
+references use opaque `lvcore-entry://ref-*` placeholders in non-debug HTML
+when a target pointer is recoverable. Unresolved links preserve visible label
+text and diagnostics, while debug rendering may expose raw payloads and pointer
+details.
 
 ## Search
 

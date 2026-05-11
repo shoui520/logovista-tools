@@ -1043,7 +1043,7 @@ class LogoVistaPackage:
         include_diagnostics: bool = False,
     ) -> str:
         if isinstance(profile, str):
-            profile = HtmlProfile(profile)
+            profile = HtmlProfile(profile.replace("-", "_"))
         return render_html(entry.document(), profile=profile, include_diagnostics=include_diagnostics)
 
     def render_entry_text(self, entry: Entry) -> str:

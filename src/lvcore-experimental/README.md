@@ -47,7 +47,10 @@ PYTHONPATH=src/lvcore-experimental python3 -m lvcore body-source /path/to/_DCT_D
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore entries /path/to/_DCT_DICT --limit 5
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore search /path/to/_DCT_DICT term --search-profile forward --json
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore search /path/to/_DCT_DICT term --json --debug
-PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT term --search-profile native --format html
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT term --search-profile native --format html --profile friendly
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT term --search-profile native --format html --profile semantic
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT term --search-profile native --format html --profile logovista-like
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT term --search-profile native --format html --profile debug
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore validate /path/to/_DCT_DICT --sample-search-hits 5 --json
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate /path/to/corpus --json --full --jobs 0
 ```
@@ -82,6 +85,26 @@ Gaiji, media, and links are app-facing document concepts:
 - URL and internal reference spans become semantic link nodes when the target
   can be recovered. Unresolved link targets keep visible label text and record
   diagnostics; friendly output does not expose raw pointer bytes.
+
+HTML rendering has four explicit profiles:
+
+- `friendly`: default reader-facing HTML. It favors readable, escaped,
+  resolved output and hides raw opcodes, offsets, dense-anchor bytes, pointer
+  payloads, and private renderer directives.
+- `semantic`: app-neutral HTML. It uses stable `lv-block-*`, `lv-inline-*`,
+  and `data-block-kind` / `data-kind` attributes so reader applications can
+  style the document without knowing LogoVista internals.
+- `logovista-like`: conservative visual-intent profile. It preserves currently
+  understood LogoVista-like structure with `lv-lvlike-*` classes, but it is not
+  a pixel-perfect renderer contract.
+- `debug`: inspection HTML. It may expose control IDs, raw span metadata,
+  body-source diagnostics, gaiji codes, media IDs, link payloads, and diagnostic
+  details. Use this profile for reverse-engineering and tests, not normal
+  reader output.
+
+Plain text rendering is separate from HTML profiles. It keeps readable entry
+text, uses Unicode gaiji where available, and does not expose raw controls or
+offsets.
 
 SSED body-source kinds are distinct from package families:
 

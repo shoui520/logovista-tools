@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from enum import Enum
+import hashlib
 from html import escape
+import json
 from typing import Callable, Iterable
 from urllib.parse import urlsplit
 
@@ -50,6 +52,13 @@ def _is_safe_url(value: str) -> bool:
     return parsed.scheme.lower() in {"http", "https", "mailto"} and bool(parsed.netloc or parsed.scheme == "mailto")
 
 
+def _public_href(href: str, *, profile: HtmlProfile) -> str:
+    if profile != HtmlProfile.DEBUG and href.startswith("lvcore-entry://"):
+        digest = hashlib.sha1(href.encode("utf-8")).hexdigest()[:12]
+        return f"lvcore-entry://ref-{digest}"
+    return href
+
+
 def _gaiji_text(node: InlineNode, policy: GaijiPolicy) -> str:
     if policy == GaijiPolicy.DEBUG_RAW_CODE and node.code:
         return f"<h{node.code.upper()}>"
@@ -89,6 +98,10 @@ def _render_gaiji_html(
             f'<span class="lv-gaiji-debug" data-code="{escape(node.code or "")}" '
             f'data-resource-id="{escape(resource_id)}">{text}</span>'
         )
+    if profile == HtmlProfile.SEMANTIC:
+        return f'<span class="lv-inline lv-inline-gaiji" data-kind="gaiji">{text}</span>'
+    if profile == HtmlProfile.LOGOVISTA_LIKE and node.text:
+        return f'<span class="lv-lvlike-gaiji">{text}</span>'
     if gaiji_policy in {GaijiPolicy.BITMAP_PREFERRED, GaijiPolicy.BITMAP_ONLY} and resource_id:
         fallback = text if gaiji_policy == GaijiPolicy.BITMAP_PREFERRED and node.text else "□"
         return (
@@ -132,8 +145,18 @@ def _render_link_html(
 
     if href and (href.startswith("lvcore-entry://") or _is_safe_url(href)):
         class_name = "lv-link lv-link-url" if kind == "url" else "lv-link lv-link-internal"
-        return f'<a class="{class_name}" href="{escape(href, quote=True)}"{debug_attrs}>{children}</a>'
-    return f'<span class="lv-link lv-link-unresolved"{debug_attrs}>{children}</span>'
+        if profile == HtmlProfile.SEMANTIC:
+            class_name = f"lv-inline lv-inline-link {class_name}"
+        elif profile == HtmlProfile.LOGOVISTA_LIKE:
+            class_name = f"lv-lvlike-link {class_name}"
+        public_href = _public_href(href, profile=profile)
+        return f'<a class="{class_name}" href="{escape(public_href, quote=True)}"{debug_attrs}>{children}</a>'
+    class_name = "lv-link lv-link-unresolved"
+    if profile == HtmlProfile.SEMANTIC:
+        class_name = "lv-inline lv-inline-link lv-link lv-link-unresolved"
+    elif profile == HtmlProfile.LOGOVISTA_LIKE:
+        class_name = "lv-lvlike-link lv-link lv-link-unresolved"
+    return f'<span class="{class_name}"{debug_attrs}>{children}</span>'
 
 
 def _render_inline_html(
@@ -144,7 +167,10 @@ def _render_inline_html(
     resource_url_mapper: ResourceUrlMapper | None = None,
 ) -> str:
     if node.kind == InlineKind.TEXT:
-        return escape(node.text or "")
+        text = escape(node.text or "")
+        if profile == HtmlProfile.SEMANTIC:
+            return f'<span class="lv-inline lv-inline-text">{text}</span>'
+        return text
     if node.kind == InlineKind.LINE_BREAK:
         return "<br>"
     if node.kind == InlineKind.GAIJI:
@@ -158,6 +184,16 @@ def _render_inline_html(
                 f'<span class="lv-media-ref-debug" data-resource-id="{escape(resource_id)}" '
                 f'data-resource-kind="{escape(str(node.attrs.get("resource_kind") or "media"))}" '
                 f'data-payload="{payload}">[{label}:{escape(resource_id)}]</span>'
+            )
+        if profile == HtmlProfile.SEMANTIC:
+            return (
+                f'<span class="lv-inline lv-inline-resource lv-media-ref" data-kind="{escape(str(node.attrs.get("resource_kind") or "media"))}" '
+                f'data-resource-url="{escape(_resource_url(resource_id, resource_url_mapper), quote=True)}">[{label}]</span>'
+            )
+        if profile == HtmlProfile.LOGOVISTA_LIKE:
+            return (
+                f'<span class="lv-lvlike-media lv-media-ref" data-resource-url="{escape(_resource_url(resource_id, resource_url_mapper), quote=True)}">'
+                f'[{label}]</span>'
             )
         return (
             f'<span class="lv-media-ref" data-resource-url="{escape(_resource_url(resource_id, resource_url_mapper), quote=True)}" '
@@ -181,8 +217,14 @@ def _render_inline_html(
         return children
     start, end = tag
     class_name = f"lv-{node.kind.value}"
+    if profile == HtmlProfile.SEMANTIC:
+        class_name = f"lv-inline lv-inline-{node.kind.value}"
+    elif profile == HtmlProfile.LOGOVISTA_LIKE:
+        class_name = f"lv-lvlike-{node.kind.value}"
     if start == "span":
         return f'<span class="{class_name}">{children}</span>'
+    if profile in {HtmlProfile.SEMANTIC, HtmlProfile.LOGOVISTA_LIKE}:
+        return f'<{start} class="{class_name}">{children}</{end}>'
     return f"<{start}>{children}</{end}>"
 
 
@@ -198,9 +240,17 @@ def _render_block_html(
         for node in block.inlines
     )
     if block.kind == BlockKind.HEADING:
+        if profile == HtmlProfile.SEMANTIC:
+            return f'<section class="lv-block lv-block-heading" data-block-kind="heading"><h3 class="lv-heading">{body}</h3></section>'
+        if profile == HtmlProfile.LOGOVISTA_LIKE:
+            return f'<div class="lv-lvlike-heading lv-heading">{body}</div>'
         return f'<h3 class="lv-heading">{body}</h3>'
     if block.kind in {BlockKind.MEDIA, BlockKind.IMAGE, BlockKind.AUDIO}:
+        if profile == HtmlProfile.SEMANTIC:
+            return f'<section class="lv-block lv-block-{block.kind.value}" data-block-kind="{block.kind.value}">{body}</section>'
         return f'<div class="lv-{block.kind.value}">{body}</div>'
+    if profile == HtmlProfile.SEMANTIC:
+        return f'<section class="lv-block lv-block-{block.kind.value}" data-block-kind="{block.kind.value}">{body}</section>'
     class_name = "lv-paragraph" if profile != HtmlProfile.LOGOVISTA_LIKE else "lv-body-line"
     return f'<p class="{class_name}">{body}</p>'
 
@@ -216,7 +266,13 @@ def render_html(
     """Render an EntryDocument to safe HTML."""
 
     classes = ["lv-entry", f"lv-profile-{profile.value}"]
-    parts = [f'<article class="{" ".join(classes)}">']
+    if profile == HtmlProfile.SEMANTIC:
+        classes.append("lv-entry-semantic")
+    elif profile == HtmlProfile.LOGOVISTA_LIKE:
+        classes.append("lv-entry-logovista-like")
+    elif profile == HtmlProfile.DEBUG:
+        classes.append("lv-entry-debug")
+    parts = [f'<article class="{" ".join(classes)}" data-render-profile="{escape(profile.value)}">']
     for block in document.blocks:
         parts.append(_render_block_html(block, profile=profile, gaiji_policy=gaiji_policy, resource_url_mapper=resource_url_mapper))
     if include_diagnostics or profile == HtmlProfile.DEBUG:
@@ -224,11 +280,15 @@ def render_html(
         parts.append("<h4>Diagnostics</h4>")
         parts.append("<ul>")
         for diagnostic in document.diagnostics:
+            details = ""
+            if profile == HtmlProfile.DEBUG:
+                details_json = json.dumps(diagnostic.details, ensure_ascii=False, sort_keys=True)
+                details = f' data-details="{escape(details_json, quote=True)}"'
             parts.append(
                 '<li class="lv-diagnostic" '
                 f'data-severity="{escape(diagnostic.severity.value)}" '
                 f'data-area="{escape(diagnostic.area.value)}" '
-                f'data-code="{escape(diagnostic.code)}">'
+                f'data-code="{escape(diagnostic.code)}"{details}>'
                 f"{escape(diagnostic.message)}</li>"
             )
         parts.append("</ul>")

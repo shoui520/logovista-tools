@@ -293,7 +293,7 @@ def build_entry_document(entry: Entry) -> EntryDocument:
         if span.kind == "gaiji":
             unresolved = _gaiji_unresolved(span)
             resource_counter += 1
-            resource_id = f"gaiji-{span.code or resource_counter}"
+            resource_id = f"gaiji-{resource_counter}"
             resources.append(
                 ResourceRef(
                     id=resource_id,

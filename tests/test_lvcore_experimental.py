@@ -10,8 +10,8 @@ from pathlib import Path
 LVCORE_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-experimental"
 sys.path.insert(0, str(LVCORE_SRC))
 
-from lvcore import Address, PackageFamily, SearchHit, SearchProfile, SearchResults, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
-from lvcore.document import InlineKind, build_entry_document  # noqa: E402
+from lvcore import Address, Diagnostic, DiagnosticArea, Location, PackageFamily, SearchHit, SearchProfile, SearchResults, Severity, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
+from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, build_entry_document  # noqa: E402
 from lvcore.gaiji import ga16_glyph_size, parse_ga16  # noqa: E402
 from lvcore.model import Entry  # noqa: E402
 from lvcore.opcodes import OpcodeCategory, behavior_for  # noqa: E402
@@ -677,8 +677,10 @@ def test_lvcore_internal_link_renders_semantic_target_without_raw_payload() -> N
     debug = render_html(document, profile=HtmlProfile.DEBUG)
 
     assert "see also" in html
-    assert '<a class="lv-link lv-link-internal" href="lvcore-entry://2/10"' in html
+    assert '<a class="lv-link lv-link-internal" href="lvcore-entry://ref-' in html
+    assert "lvcore-entry://2/10" not in html
     assert target.hex() not in html
+    assert 'href="lvcore-entry://2/10"' in debug
     assert 'data-end-payload="000000020010"' in debug
     assert not any(diagnostic.code == "unresolved_link_target" for diagnostic in document.diagnostics)
 
@@ -710,8 +712,8 @@ def test_lvcore_gaiji_document_nodes_and_render_policies() -> None:
     assert "é" in render_text(document)
     assert "é" in render_html(document)
     assert "é" in render_html(document, gaiji_policy=GaijiPolicy.BITMAP_PREFERRED)
-    assert "lvcore-resource://gaiji-a126" in render_html(document, gaiji_policy=GaijiPolicy.BITMAP_PREFERRED)
-    assert "lvcore-resource://gaiji-a127" in render_html(document, gaiji_policy=GaijiPolicy.BITMAP_ONLY)
+    assert "lvcore-resource://gaiji-1" in render_html(document, gaiji_policy=GaijiPolicy.BITMAP_PREFERRED)
+    assert "lvcore-resource://gaiji-2" in render_html(document, gaiji_policy=GaijiPolicy.BITMAP_ONLY)
     assert "&lt;hA126&gt;" in render_html(document, profile=HtmlProfile.DEBUG)
     assert any(diagnostic.code == "unresolved_gaiji" for diagnostic in document.diagnostics)
 
@@ -751,6 +753,158 @@ def test_lvcore_image_and_audio_media_refs_are_first_class_resources() -> None:
     assert "[image]" in text and "[audio]" in text
 
 
+def test_lvcore_renderer_profiles_are_distinct_and_hide_or_show_raw_details() -> None:
+    diagnostic = Diagnostic(
+        severity=Severity.WARNING,
+        area=DiagnosticArea.BODY,
+        message="unsupported <body> & source",
+        code="unsupported_body_source",
+        location=Location(component="HONMON.DIC", block=2, offset=16),
+        details={"body_source": "dense_anchor_table", "offset": 16},
+    )
+    document = EntryDocument(
+        blocks=(
+            BlockNode(
+                BlockKind.HEADING,
+                (InlineNode(InlineKind.TEXT, text="head <&>"),),
+            ),
+            BlockNode(
+                BlockKind.PARAGRAPH,
+                (
+                    InlineNode(InlineKind.TEXT, text="body <raw> & "),
+                    InlineNode(InlineKind.GAIJI, text="é", code="a126", resource_id="gaiji-1"),
+                    InlineNode(
+                        InlineKind.LINK,
+                        children=(InlineNode(InlineKind.TEXT, text="see <target>"),),
+                        attrs={
+                            "start_op": "42",
+                            "start_payload": "",
+                            "link_target": {
+                                "kind": "internal",
+                                "href": "lvcore-entry://2/10",
+                                "status": "resolved",
+                                "end_payload": "000000020010",
+                            },
+                        },
+                    ),
+                    InlineNode(
+                        InlineKind.MEDIA_REF,
+                        resource_id="media-1",
+                        attrs={"label": "image <1>", "resource_kind": "image", "payload_hex": "001122"},
+                    ),
+                    InlineNode(InlineKind.UNKNOWN_CONTROL, attrs={"op": "99", "payload": "deadbeef"}),
+                ),
+            ),
+        ),
+        resources=(),
+        diagnostics=(diagnostic,),
+        metadata={
+            "raw_spans": [{"offset": 7, "op": "e2", "raw": "1fe20007"}],
+            "address": {"component": "HONMON.DIC", "block": 2, "offset": 0},
+        },
+    )
+
+    friendly = render_html(document)
+    semantic = render_html(document, profile=HtmlProfile.SEMANTIC)
+    logovista_like = render_html(document, profile=HtmlProfile.LOGOVISTA_LIKE)
+    debug = render_html(document, profile=HtmlProfile.DEBUG)
+
+    for html in (friendly, semantic, logovista_like):
+        assert "head &lt;&amp;&gt;" in html
+        assert "body &lt;raw&gt; &amp;" in html
+        assert "deadbeef" not in html
+        assert "1fe20007" not in html
+        assert "000000020010" not in html
+        assert "lvcore-entry://2/10" not in html
+        assert "lvcore-entry://ref-" in html
+
+    assert 'data-render-profile="friendly"' in friendly
+    assert "lv-entry-semantic" in semantic
+    assert 'data-block-kind="heading"' in semantic
+    assert "lv-inline-text" in semantic
+    assert "lv-inline-resource" in semantic
+    assert "lv-entry-logovista-like" in logovista_like
+    assert "lv-lvlike-heading" in logovista_like
+    assert "lv-lvlike-link" in logovista_like
+    assert "lv-body-line" in logovista_like
+
+    assert "lv-entry-debug" in debug
+    assert 'href="lvcore-entry://2/10"' in debug
+    assert 'data-end-payload="000000020010"' in debug
+    assert 'data-payload="001122"' in debug
+    assert 'data-payload="deadbeef"' in debug
+    assert "Raw spans" in debug
+    assert "1fe20007" in debug
+    assert "dense_anchor_table" in debug
+    assert "unsupported &lt;body&gt; &amp; source" in debug
+
+    assert "lv-diagnostics" not in friendly
+    friendly_with_diagnostics = render_html(document, include_diagnostics=True)
+    assert "lv-diagnostics" in friendly_with_diagnostics
+    assert "unsupported &lt;body&gt; &amp; source" in friendly_with_diagnostics
+
+
+def test_lvcore_renderer_escapes_external_links_and_resource_mapper_urls() -> None:
+    document = EntryDocument(
+        blocks=(
+            BlockNode(
+                BlockKind.PARAGRAPH,
+                (
+                    InlineNode(
+                        InlineKind.LINK,
+                        children=(InlineNode(InlineKind.TEXT, text="https://example.test/?q=<x>&ok=1"),),
+                        attrs={"link_target": {"kind": "url", "status": "content"}},
+                    ),
+                    InlineNode(
+                        InlineKind.MEDIA_REF,
+                        resource_id="media-1",
+                        attrs={"label": "image & asset", "resource_kind": "image", "payload_hex": "cafebabe"},
+                    ),
+                ),
+            ),
+        )
+    )
+
+    html = render_html(
+        document,
+        resource_url_mapper=lambda resource_id: f"https://assets.example/{resource_id}?q=<x>&ok=1",
+    )
+
+    assert 'href="https://example.test/?q=&lt;x&gt;&amp;ok=1"' in html
+    assert 'data-resource-url="https://assets.example/media-1?q=&lt;x&gt;&amp;ok=1"' in html
+    assert "[image &amp; asset]" in html
+    assert "cafebabe" not in html
+
+
+def test_lvcore_unresolved_body_source_placeholder_is_clean() -> None:
+    diagnostic = Diagnostic(
+        severity=Severity.ERROR,
+        area=DiagnosticArea.BODY,
+        message="Entry body is not yet supported for this LogoVista body source.",
+        code="unsupported_body_source",
+        details={"body_source": "dense_anchor_table", "anchor_raw": "00010203"},
+    )
+    document = EntryDocument(
+        blocks=(
+            BlockNode(
+                BlockKind.PARAGRAPH,
+                (InlineNode(InlineKind.TEXT, text="Entry body is not yet supported for this LogoVista body source."),),
+            ),
+        ),
+        diagnostics=(diagnostic,),
+        metadata={"raw_spans": [{"anchor_raw": "00010203"}]},
+    )
+
+    friendly = render_html(document)
+    debug = render_html(document, profile=HtmlProfile.DEBUG)
+    text = render_text(document)
+
+    assert "Entry body is not yet supported" in friendly
+    assert "00010203" not in friendly
+    assert "Entry body is not yet supported" in text
+    assert "00010203" in debug
+
+
 def test_lvcore_cli_render_and_validate_commands(tmp_path: Path) -> None:
     make_synthetic_package(tmp_path)
     render_result = subprocess.run(
@@ -762,6 +916,72 @@ def test_lvcore_cli_render_and_validate_commands(tmp_path: Path) -> None:
     )
     assert "first entry" in render_result.stdout
     assert "offset" not in render_result.stdout
+
+    semantic_result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "lvcore",
+            "render",
+            str(tmp_path),
+            "alpha",
+            "--format",
+            "html",
+            "--profile",
+            "semantic",
+            "--limit",
+            "1",
+        ],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    assert "lv-entry-semantic" in semantic_result.stdout
+
+    logovista_like_result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "lvcore",
+            "render",
+            str(tmp_path),
+            "alpha",
+            "--format",
+            "html",
+            "--profile",
+            "logovista-like",
+            "--limit",
+            "1",
+        ],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    assert "lv-entry-logovista-like" in logovista_like_result.stdout
+
+    debug_result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "lvcore",
+            "render",
+            str(tmp_path),
+            "alpha",
+            "--format",
+            "html",
+            "--profile",
+            "debug",
+            "--limit",
+            "1",
+        ],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    assert "lv-entry-debug" in debug_result.stdout
 
     validate_result = subprocess.run(
         [sys.executable, "-m", "lvcore", "validate", str(tmp_path), "--json"],
