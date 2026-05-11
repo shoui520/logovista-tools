@@ -3,16 +3,33 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
 from pathlib import Path
+import sqlite3
+import tempfile
 from typing import Iterable
 
+from .body_source import (
+    BodyPointerInspection,
+    BodySourceInfo,
+    BodySourceSupport,
+    Confidence,
+    SQLITE_MAGIC,
+    SidecarBody,
+    SidecarInfo,
+    SsedBodySourceKind,
+    find_column,
+    sqlite_columns,
+    strip_html,
+)
+from .crypto import decrypt_logofont, decrypt_logofont_prefix
 from .detect import detect_family
 from .diagnostics import Diagnostic, DiagnosticArea, Location, Severity
 from .errors import UnsupportedPackageError
 from .gaiji import Ga16Resource, GaijiMap, load_gaiji_map, parse_ga16
 from .index import IndexRow
 from .index import IndexParse, parse_index
-from .model import Address, Component, ComponentRole, Entry, PackageFamily, PackageInfo, SearchProfile
+from .model import Address, Component, ComponentRole, Entry, PackageFamily, PackageInfo, SearchProfile, Span
 from .render import HtmlProfile, render_html, render_text
 from .search import SearchHit, SearchResults, natural_backward_key, normalize_query, query_candidates
 from .ssed import BLOCK_SIZE, CHUNK_SIZE, Catalog, SsedData, find_file_case_insensitive, parse_catalog
@@ -60,6 +77,18 @@ class LogoVistaPackage:
         self._index_cache: dict[str, IndexParse] = {}
         self._marker_cache: dict[str, list[int]] = {}
         self._body_pointer_cache: dict[str, list[int]] = {}
+        self._body_source_cache: BodySourceInfo | None = None
+        self._sqlite_sidecar_cache: dict[str, Path] = {}
+        self._sqlite_schema_cache: dict[str, SidecarInfo | None] = {}
+        self._tempdir: tempfile.TemporaryDirectory[str] | None = None
+
+    def __del__(self) -> None:  # pragma: no cover - best-effort cleanup
+        tempdir = getattr(self, "_tempdir", None)
+        if tempdir is not None:
+            try:
+                tempdir.cleanup()
+            except Exception:
+                pass
 
     @property
     def title(self) -> str:
@@ -68,6 +97,9 @@ class LogoVistaPackage:
     @property
     def dict_id(self) -> str:
         return self.catalog.dict_id
+
+    def package_family(self) -> PackageFamily:
+        return self.info.family
 
     def component(self, name: str) -> Component | None:
         return self._component_by_name.get(name.lower())
@@ -130,6 +162,129 @@ class LogoVistaPackage:
     def honmon_component(self) -> Component | None:
         candidates = self.components_by_role(ComponentRole.HONMON)
         return candidates[0] if candidates else None
+
+    def _sidecar_file_candidates(self) -> list[Path]:
+        candidates: list[Path] = []
+        try:
+            children = sorted(self.info.root.iterdir(), key=lambda path: path.name.lower())
+        except OSError:
+            return candidates
+        for child in children:
+            if not child.is_file():
+                continue
+            lower = child.name.lower()
+            if lower == "vlpljbl.bin":
+                continue
+            if lower.startswith("vlpljbl") or child.suffix.lower() in {".db", ".sqlite", ".sqlite3", ".sql"}:
+                candidates.append(child)
+        return candidates
+
+    @staticmethod
+    def _sqlite_storage(path: Path) -> str | None:
+        try:
+            raw = path.read_bytes()[:2048]
+        except OSError:
+            return None
+        if raw.startswith(SQLITE_MAGIC):
+            return "plain"
+        try:
+            prefix = decrypt_logofont_prefix(raw, size=64)
+        except Exception:
+            return None
+        if prefix.startswith(SQLITE_MAGIC):
+            return "logofont_cipher"
+        return None
+
+    def _sqlite_path_for_sidecar(self, path: Path, storage: str) -> Path:
+        key = str(path)
+        if storage == "plain":
+            return path
+        if key in self._sqlite_sidecar_cache:
+            return self._sqlite_sidecar_cache[key]
+        if self._tempdir is None:
+            self._tempdir = tempfile.TemporaryDirectory(prefix="lvcore-sidecar-")
+        decrypted = Path(self._tempdir.name) / f"{path.name}.sqlite"
+        decrypted.write_bytes(decrypt_logofont(path.read_bytes()))
+        self._sqlite_sidecar_cache[key] = decrypted
+        return decrypted
+
+    @staticmethod
+    def _row_count(con: sqlite3.Connection, table: str) -> int | None:
+        try:
+            return int(con.execute(f'select count(*) from "{table}"').fetchone()[0])
+        except sqlite3.DatabaseError:
+            return None
+
+    def _inspect_sqlite_sidecar(self, path: Path) -> SidecarInfo | None:
+        key = str(path)
+        if key in self._sqlite_schema_cache:
+            return self._sqlite_schema_cache[key]
+        storage = self._sqlite_storage(path)
+        if storage is None:
+            self._sqlite_schema_cache[key] = None
+            return None
+        sqlite_path = self._sqlite_path_for_sidecar(path, storage)
+        try:
+            con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+        except sqlite3.DatabaseError:
+            self._sqlite_schema_cache[key] = None
+            return None
+        try:
+            tables = [row[0] for row in con.execute("select name from sqlite_master where type='table' order by name")]
+            for table in ("t_contents", "HONBUN"):
+                if table not in tables:
+                    continue
+                columns = sqlite_columns(con, table)
+                if table == "HONBUN":
+                    id_col = find_column(columns, "ID", "f_DataId", "f_data_id")
+                    title_col = find_column(columns, "Title_UTF8", "Title_SJIS", "Title", "f_Title")
+                    html_col = find_column(columns, "Contents_HTML_box", "Contents_HTML_list", "f_Html", "f_contents")
+                    plain_col = find_column(columns, "f_Plane", "f_body", "Body")
+                    if id_col and (html_col or plain_col or title_col):
+                        info = SidecarInfo(
+                            path=path,
+                            kind="honbun",
+                            storage=storage,
+                            table=table,
+                            id_column=id_col,
+                            title_column=title_col,
+                            html_column=html_col,
+                            plain_column=plain_col,
+                            row_count=self._row_count(con, table),
+                        )
+                        self._sqlite_schema_cache[key] = info
+                        return info
+                else:
+                    id_col = find_column(columns, "f_DataId", "f_data_id", "f_data_id", "f_array_no")
+                    title_col = find_column(columns, "f_Title", "f_title", "f_midashi", "f_midashi_hyoki")
+                    html_col = find_column(columns, "f_Html", "f_contents", "f_body")
+                    plain_col = find_column(columns, "f_Plane", "f_body")
+                    if id_col and (html_col or plain_col):
+                        info = SidecarInfo(
+                            path=path,
+                            kind="t_contents",
+                            storage=storage,
+                            table=table,
+                            id_column=id_col,
+                            title_column=title_col,
+                            html_column=html_col,
+                            plain_column=plain_col,
+                            row_count=self._row_count(con, table),
+                        )
+                        self._sqlite_schema_cache[key] = info
+                        return info
+            self._sqlite_schema_cache[key] = SidecarInfo(path=path, kind="sqlite_unmapped", storage=storage, notes=tuple(tables[:8]))
+            return self._sqlite_schema_cache[key]
+        finally:
+            con.close()
+
+    def _body_sidecars(self) -> tuple[SidecarInfo, ...]:
+        rows: list[SidecarInfo] = []
+        for path in self._sidecar_file_candidates():
+            sidecar = self._inspect_sqlite_sidecar(path)
+            if sidecar is not None:
+                rows.append(sidecar)
+        return tuple(rows)
 
     @staticmethod
     def _marker_offsets(reader: SsedData, *, limit: int | None = None) -> list[int]:
@@ -223,6 +378,134 @@ class LogoVistaPackage:
         self._body_pointer_cache[key] = sorted(offsets)
         return self._body_pointer_cache[key]
 
+    def _decode_anchor_at(self, component: Component, start: int, *, max_bytes: int = 96) -> tuple[str, int]:
+        reader = self.data(component)
+        data = reader.read(start, min(max_bytes, max(reader.expanded_size - start, 0)))
+        next_marker = data.find(ENTRY_MARKER, 1)
+        if next_marker > 0:
+            data = data[:next_marker]
+        decoded = decode_text_stream(data, self.gaiji.mapping)
+        compact = "".join(ch for ch in decoded.text if not ch.isspace() and ch != "\x00")
+        if compact.isdigit() and 4 <= len(compact) <= 16:
+            return compact, len(data)
+        return "", len(data)
+
+    def _dense_anchor_evidence(self, component: Component) -> dict[str, object]:
+        pointer_offsets = self._body_pointer_offsets(component)
+        sample_offsets = pointer_offsets[:64]
+        if not sample_offsets:
+            sample_offsets = self._markers_for_component(component, limit=64)[:64]
+        ids: list[str] = []
+        lengths: list[int] = []
+        for offset in sample_offsets:
+            anchor_id, size = self._decode_anchor_at(component, offset)
+            if anchor_id:
+                ids.append(anchor_id)
+            lengths.append(size)
+        numeric_ratio = len(ids) / len(sample_offsets) if sample_offsets else 0.0
+        common_gap = None
+        unique_offsets = sorted(set(pointer_offsets[:4096]))
+        gaps = [b - a for a, b in zip(unique_offsets, unique_offsets[1:]) if b > a]
+        if gaps:
+            counts: dict[int, int] = {}
+            for gap in gaps:
+                counts[gap] = counts.get(gap, 0) + 1
+            common_gap = max(counts.items(), key=lambda item: (item[1], -item[0]))[0]
+        dense_record_size = common_gap if common_gap in {16, 32, 40, 48, 64, 80, 96, 112, 128, 160, 320} else None
+        if dense_record_size is None and lengths:
+            median = int(sorted(lengths)[len(lengths) // 2])
+            if median <= 160:
+                dense_record_size = median
+        return {
+            "anchor_ids": ids,
+            "numeric_ratio": numeric_ratio,
+            "sample_count": len(sample_offsets),
+            "common_gap": common_gap,
+            "dense_record_size": dense_record_size,
+        }
+
+    def _choose_body_sidecar(self, sidecars: tuple[SidecarInfo, ...]) -> SidecarInfo | None:
+        renderable = [sidecar for sidecar in sidecars if sidecar.table and sidecar.id_column and (sidecar.html_column or sidecar.plain_column)]
+        if not renderable:
+            return None
+        for sidecar in renderable:
+            lower = sidecar.path.name.lower()
+            if lower.startswith("vlpljbl") and sidecar.kind in {"t_contents", "honbun"}:
+                return sidecar
+        return renderable[0]
+
+    def body_source(self) -> BodySourceInfo:
+        if self._body_source_cache is not None:
+            return self._body_source_cache
+        honmon = self.honmon_component()
+        if honmon is None or honmon.path is None:
+            self._body_source_cache = BodySourceInfo(
+                package_family=self.info.family,
+                support=BodySourceSupport.UNSUPPORTED,
+                confidence=Confidence.PROVEN,
+                notes=("missing HONMON component",),
+            )
+            return self._body_source_cache
+        reader = self.data(honmon)
+        marker_count = len(self._markers_for_component(honmon, limit=2000000))
+        marker_density = marker_count / max(reader.expanded_size, 1)
+        sidecar_paths = tuple(self._sidecar_file_candidates())
+        evidence = self._dense_anchor_evidence(honmon)
+        numeric_ratio = float(evidence["numeric_ratio"])
+        is_dense = numeric_ratio >= 0.6 and int(evidence["sample_count"]) >= 4
+        sidecars = self._body_sidecars() if is_dense else ()
+        chosen_sidecar = self._choose_body_sidecar(sidecars)
+
+        if is_dense:
+            if chosen_sidecar is not None:
+                if chosen_sidecar.kind == "honbun":
+                    kind = SsedBodySourceKind.HONBUN_SIDECAR
+                elif chosen_sidecar.path.name.lower().startswith("vlpljbl"):
+                    kind = SsedBodySourceKind.RENDERER_SQLITE_SIDECAR
+                else:
+                    kind = SsedBodySourceKind.DENSE_ANCHOR_WITH_SIDECAR
+                support = BodySourceSupport.PARTIALLY_RENDERABLE
+                provider = "sqlite_sidecar"
+                sidecar_kind = chosen_sidecar.kind
+                notes = ("HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",)
+            else:
+                kind = SsedBodySourceKind.DENSE_ANCHOR_TABLE
+                support = BodySourceSupport.DEFERRED
+                provider = "dense_anchor_deferred"
+                sidecar_kind = None
+                notes = ("HONMON body pointers resolve to short numeric anchor records; no supported body sidecar found",)
+        else:
+            kind = SsedBodySourceKind.BODY_STREAM
+            support = BodySourceSupport.RENDERABLE
+            provider = "honmon_body_stream"
+            sidecar_kind = None
+            notes = ("HONMON body pointers resolve directly into readable body-stream data",)
+
+        self._body_source_cache = BodySourceInfo(
+            package_family=self.info.family,
+            ssed_kind=kind,
+            support=support,
+            confidence=Confidence.INFERRED if is_dense else Confidence.PROVEN,
+            honmon_component=honmon.name,
+            expanded_size=reader.expanded_size,
+            marker_count=marker_count,
+            marker_density=round(marker_density, 8),
+            dense_record_size=evidence.get("dense_record_size") if is_dense else None,
+            anchor_count=len(evidence.get("anchor_ids") or ()) if is_dense else None,
+            sidecar_paths=sidecar_paths,
+            sidecar_kind=sidecar_kind,
+            render_provider=provider,
+            notes=notes,
+            sidecars=sidecars,
+        )
+        return self._body_source_cache
+
+    def validate_body_source(self) -> BodySourceInfo:
+        return self.body_source()
+
+    def supports_entry_rendering(self) -> bool:
+        return self.body_source().support in {BodySourceSupport.RENDERABLE, BodySourceSupport.PARTIALLY_RENDERABLE}
+
     @staticmethod
     def _next_after(sorted_offsets: list[int], start: int) -> int | None:
         lo = 0
@@ -286,6 +569,136 @@ class LogoVistaPackage:
             text=decoded.text.strip("\x00"),
             spans=decoded.spans,
             entry_diagnostics=diagnostics,
+        )
+
+    def inspect_body_pointer(self, address: Address) -> BodyPointerInspection:
+        honmon = self.component_for_address(address, role=ComponentRole.HONMON)
+        if honmon is None:
+            return BodyPointerInspection(
+                diagnostics=(
+                    Diagnostic(
+                        severity=Severity.ERROR,
+                        area=DiagnosticArea.BODY,
+                        code="body_pointer_outside_honmon",
+                        message="body pointer does not resolve to a HONMON component",
+                        location=self._location_for_address(address, role=ComponentRole.HONMON),
+                    ),
+                )
+            )
+        start = self._relative_offset(honmon, address)
+        anchor_id, length = self._decode_anchor_at(honmon, start)
+        raw_text_hash = hashlib.sha256(anchor_id.encode("utf-8")).hexdigest()[:16] if anchor_id else None
+        return BodyPointerInspection(anchor_id=anchor_id or None, raw_text_hash=raw_text_hash, raw_text_length=len(anchor_id), record_offset=start, record_length=length)
+
+    @staticmethod
+    def _anchor_query_values(anchor_id: str, sidecar: SidecarInfo) -> tuple[object, ...]:
+        values: list[object] = [anchor_id]
+        stripped = anchor_id.lstrip("0") or "0"
+        if stripped != anchor_id:
+            values.append(stripped)
+        if sidecar.kind != "honbun":
+            try:
+                values.append(int(stripped))
+            except ValueError:
+                pass
+        return tuple(dict.fromkeys(values))
+
+    def _fetch_sidecar_body(self, sidecar: SidecarInfo, anchor_id: str) -> SidecarBody | None:
+        if not sidecar.table or not sidecar.id_column:
+            return None
+        sqlite_path = self._sqlite_path_for_sidecar(sidecar.path, sidecar.storage)
+        try:
+            con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+            con.row_factory = sqlite3.Row
+        except sqlite3.DatabaseError:
+            return None
+        try:
+            select_columns = [sidecar.id_column]
+            for column in (sidecar.title_column, sidecar.html_column, sidecar.plain_column):
+                if column and column not in select_columns:
+                    select_columns.append(column)
+            quoted = ", ".join(f'"{column}"' for column in select_columns)
+            sql = f'select {quoted} from "{sidecar.table}" where "{sidecar.id_column}"=? limit 1'
+            row = None
+            for value in self._anchor_query_values(anchor_id, sidecar):
+                row = con.execute(sql, (value,)).fetchone()
+                if row is not None:
+                    break
+            if row is None:
+                return None
+            title = str(row[sidecar.title_column]) if sidecar.title_column and row[sidecar.title_column] is not None else ""
+            html_value = str(row[sidecar.html_column]) if sidecar.html_column and row[sidecar.html_column] is not None else ""
+            plain_value = str(row[sidecar.plain_column]) if sidecar.plain_column and row[sidecar.plain_column] is not None else ""
+            text = plain_value.strip() or strip_html(html_value) or title.strip()
+            return SidecarBody(title=strip_html(title), text=text, html=html_value or None, source=sidecar)
+        finally:
+            con.close()
+
+    def _placeholder_entry(
+        self,
+        address: Address,
+        *,
+        headword: str,
+        code: str,
+        message: str,
+        severity: Severity = Severity.WARNING,
+        details: dict[str, object] | None = None,
+    ) -> Entry:
+        placeholder = "Entry body is not yet supported for this LogoVista body source."
+        diagnostic = Diagnostic(
+            severity=severity,
+            area=DiagnosticArea.BODY,
+            code=code,
+            message=message,
+            location=self._location_for_address(address, role=ComponentRole.HONMON),
+            details=details or {},
+        )
+        qualified = self._qualified_address(address, role=ComponentRole.HONMON)
+        return Entry(
+            address=qualified,
+            end_address=qualified,
+            headword=headword,
+            text=placeholder,
+            spans=(Span(kind="text", text=placeholder),),
+            entry_diagnostics=(diagnostic,),
+        )
+
+    def _entry_from_sidecar(self, hit: SearchHit, sidecar: SidecarInfo, inspection: BodyPointerInspection) -> Entry:
+        anchor_id = inspection.anchor_id
+        if not anchor_id:
+            return self._placeholder_entry(
+                hit.body,
+                headword=hit.heading,
+                code="dense_anchor_missing_id",
+                message="dense HONMON record did not expose a numeric anchor id",
+                severity=Severity.ERROR,
+            )
+        body = self._fetch_sidecar_body(sidecar, anchor_id)
+        if body is None:
+            return self._placeholder_entry(
+                hit.body,
+                headword=hit.heading,
+                code="sidecar_body_not_found",
+                message="body sidecar did not contain a row for the dense HONMON anchor",
+                severity=Severity.ERROR,
+                details={"sidecar": sidecar.path.name, "sidecar_kind": sidecar.kind},
+            )
+        note = Diagnostic(
+            severity=Severity.INFO,
+            area=DiagnosticArea.BODY,
+            code="sidecar_body_resolved",
+            message="entry body resolved from SSED sidecar database",
+            location=self._location_for_address(hit.body, role=ComponentRole.HONMON),
+            details={"sidecar": sidecar.path.name, "sidecar_kind": sidecar.kind},
+        )
+        text = body.text or body.title or hit.heading
+        return Entry(
+            address=hit.body,
+            end_address=hit.body,
+            headword=body.title or hit.heading,
+            text=text,
+            spans=(Span(kind="text", text=text),),
+            entry_diagnostics=(note,),
         )
 
     def titles(self, component: str | Component | None = None, *, limit: int | None = None) -> list[str]:
@@ -468,6 +881,7 @@ class LogoVistaPackage:
             page=row.page,
             row=row.row,
             raw_row=row,
+            body_source=self.body_source().to_dict(debug=False),
             _package=self,
         )
 
@@ -530,7 +944,39 @@ class LogoVistaPackage:
         return out
 
     def entry_for_hit(self, hit: SearchHit) -> Entry:
-        return self.entry_at(hit.body)
+        source = self.body_source()
+        if source.ssed_kind == SsedBodySourceKind.BODY_STREAM:
+            return self.entry_at(hit.body)
+        if source.ssed_kind in {
+            SsedBodySourceKind.DENSE_ANCHOR_TABLE,
+            SsedBodySourceKind.DENSE_MARKER_TABLE,
+            SsedBodySourceKind.DENSE_ANCHOR_WITH_SIDECAR,
+            SsedBodySourceKind.RENDERER_SQLITE_SIDECAR,
+            SsedBodySourceKind.DICTFULLDB_SIDECAR,
+            SsedBodySourceKind.HONBUN_SIDECAR,
+            SsedBodySourceKind.VLPLJBL_SIDECAR,
+            SsedBodySourceKind.SIDECAR_UNKNOWN,
+        }:
+            inspection = self.inspect_body_pointer(hit.body)
+            sidecar = self._choose_body_sidecar(source.sidecars)
+            if sidecar is not None:
+                return self._entry_from_sidecar(hit, sidecar, inspection)
+            return self._placeholder_entry(
+                hit.body,
+                headword=hit.heading,
+                code="unsupported_body_source",
+                message="SSED dense HONMON body source is not renderable without a supported sidecar",
+                severity=Severity.ERROR,
+                details={"body_source": source.ssed_kind.value},
+            )
+        return self._placeholder_entry(
+            hit.body,
+            headword=hit.heading,
+            code="unsupported_body_source",
+            message="entry body source is not supported by lvcore",
+            severity=Severity.ERROR,
+            details={"body_source": source.ssed_kind.value},
+        )
 
     def render_hit_html(
         self,
@@ -572,6 +1018,7 @@ class LogoVistaPackage:
             by_code[diagnostic.code] = by_code.get(diagnostic.code, 0) + 1
 
     def validate(self, *, sample_entries: int = 3, sample_search_hits: int = 5) -> dict[str, object]:
+        body_source = self.body_source()
         diagnostics_by_severity = {"info": 0, "warning": 0, "error": 0}
         diagnostics_by_area: dict[str, int] = {}
         diagnostics_by_code: dict[str, int] = {}
@@ -579,17 +1026,18 @@ class LogoVistaPackage:
         render_ok = 0
         entry_errors: list[str] = []
 
-        for entry in self.iter_entries(limit=sample_entries):
-            entries_checked += 1
-            try:
-                document = entry.document()
-                render_html(document)
-                render_text(document)
-                render_ok += 1
-                self._count_diagnostics(document.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
-            except Exception as exc:  # pragma: no cover - defensive validation report path
-                diagnostics_by_severity["error"] = diagnostics_by_severity.get("error", 0) + 1
-                entry_errors.append(f"{entry.address.block}:{entry.address.offset}: {exc}")
+        if body_source.ssed_kind == SsedBodySourceKind.BODY_STREAM:
+            for entry in self.iter_entries(limit=sample_entries):
+                entries_checked += 1
+                try:
+                    document = entry.document()
+                    render_html(document)
+                    render_text(document)
+                    render_ok += 1
+                    self._count_diagnostics(document.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
+                except Exception as exc:  # pragma: no cover - defensive validation report path
+                    diagnostics_by_severity["error"] = diagnostics_by_severity.get("error", 0) + 1
+                    entry_errors.append(f"{entry.address.block}:{entry.address.offset}: {exc}")
 
         index_rows_sampled = 0
         search_hits_dereferenced = 0
@@ -642,6 +1090,7 @@ class LogoVistaPackage:
         }
         return {
             "package": self.info.to_dict(),
+            "body_source": body_source.to_dict(debug=True),
             "component_count": len(self.components),
             "components": [
                 {
@@ -678,6 +1127,7 @@ class LogoVistaPackage:
     def summary(self) -> dict[str, object]:
         return {
             "package": self.info.to_dict(),
+            "body_source": self.body_source().to_dict(debug=False),
             "components": [component.to_dict() for component in self.components],
             "gaiji": {
                 "records": len(self.gaiji.records),

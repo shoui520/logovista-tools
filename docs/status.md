@@ -155,8 +155,11 @@ LogoVista dictionary model.
   `.uni` mappings, GA16 bitmap resource headers/glyph slicing, title/index row
   parsing, limited HONMON entry slicing, native exact/forward/backward index
   lookup, `SearchResults` / `SearchHit` reader-facing models, title-pointer
-  heading resolution, body-pointer dereferencing for body-stream HONMON
-  entries, and entry-range resolution from known body pointers, markers, and
+  heading resolution, body-source classification, body-pointer dereferencing
+  for direct body-stream HONMON entries, dense HONMON anchor detection, safe
+  placeholder diagnostics for unresolved dense body sources, conservative
+  SQLite sidecar resolution for `t_contents` / `HONBUN`-style dense-anchor
+  bodies, and entry-range resolution from known body pointers, markers, and
   component bounds. It builds structured `EntryDocument` trees from spans,
   collects recoverable diagnostics, preserves media references as resources,
   and renders friendly/semantic/LogoVista-like/debug HTML plus plain text.

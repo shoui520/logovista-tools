@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -9,7 +10,7 @@ from pathlib import Path
 LVCORE_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-experimental"
 sys.path.insert(0, str(LVCORE_SRC))
 
-from lvcore import Address, PackageFamily, SearchHit, SearchProfile, SearchResults, detect_family, normalize_query, open_package  # noqa: E402
+from lvcore import Address, PackageFamily, SearchHit, SearchProfile, SearchResults, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
 from lvcore.document import InlineKind, build_entry_document  # noqa: E402
 from lvcore.gaiji import ga16_glyph_size, parse_ga16  # noqa: E402
 from lvcore.model import Entry  # noqa: E402
@@ -202,6 +203,48 @@ def make_reader_workflow_package(root: Path) -> None:
     (root / "BHINDEX.DIC").write_bytes(literal_sseddata(simple_index(backward_rows), start_block=bhindex_start, kind=0x71))
 
 
+def make_dense_anchor_package(root: Path, *, with_sidecar: bool = False) -> None:
+    honmon_start = 2
+    title_start = 3
+    index_start = 4
+    terms = ["alpha", "beta", "gamma", "delta"]
+    honmon = bytearray()
+    body_offsets: list[int] = []
+    titles = bytearray()
+    title_offsets: list[int] = []
+    rows = []
+    for index, term in enumerate(terms, start=1):
+        anchor = f"{index:08d}"
+        body_offsets.append(len(honmon))
+        honmon.extend(b"\x1f\x09\x00\x01\x1f\x41\x01\x60" + body_text(anchor) + b"\x1f\x61\x1f\x0a")
+        title_offsets.append(len(titles))
+        titles.extend(body_text(term) + b"\x1f\x0a")
+        rows.append((term, honmon_start, body_offsets[-1], title_start, title_offsets[-1]))
+
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("FHTITLE.DIC", 0x05, title_start, title_start, b"\x01\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start, b"\x02\x01\x55\x40"),
+    ]
+    root.mkdir(exist_ok=True)
+    (root / "DENSE.IDX").write_bytes(ssedinfo("Dense", components))
+    (root / "HONMON.DIC").write_bytes(literal_sseddata(bytes(honmon), start_block=honmon_start, kind=0))
+    (root / "FHTITLE.DIC").write_bytes(literal_sseddata(bytes(titles), start_block=title_start, kind=5))
+    (root / "FHINDEX.DIC").write_bytes(literal_sseddata(simple_index(rows), start_block=index_start, kind=0x91))
+    if with_sidecar:
+        con = sqlite3.connect(root / "body.db")
+        try:
+            con.execute("create table t_contents (f_DataId integer primary key, f_Title text, f_Html text, f_Plane text)")
+            for index, term in enumerate(terms, start=1):
+                con.execute(
+                    "insert into t_contents values (?, ?, ?, ?)",
+                    (index, term, f"<div>{term} sidecar html</div>", f"{term} sidecar body"),
+                )
+            con.commit()
+        finally:
+            con.close()
+
+
 def test_lvcore_detects_and_reads_synthetic_ssed(tmp_path: Path) -> None:
     make_synthetic_package(tmp_path)
 
@@ -276,6 +319,51 @@ def test_lvcore_search_hit_dereference_document_and_entry_range(tmp_path: Path) 
     assert "first entry" in html
     assert "first entry" in text
     assert "offset" not in html
+
+
+def test_lvcore_body_source_classifies_body_stream(tmp_path: Path) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+    source = package.body_source()
+
+    assert source.ssed_kind == SsedBodySourceKind.BODY_STREAM
+    assert source.support.value == "renderable"
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+    assert "first entry" in package.render_hit_text(hit)
+
+
+def test_lvcore_dense_anchor_without_sidecar_is_deferred_and_safe(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path)
+    package = open_package(tmp_path)
+    source = package.body_source()
+
+    assert source.ssed_kind == SsedBodySourceKind.DENSE_ANCHOR_TABLE
+    assert source.support.value == "deferred"
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+    entry = package.entry_for_hit(hit)
+    html = package.render_entry_html(entry)
+    text = package.render_entry_text(entry)
+
+    assert "Entry body is not yet supported" in text
+    assert "00000001" not in html
+    assert "00000001" not in text
+    assert any(diagnostic.code == "unsupported_body_source" for diagnostic in entry.diagnostics())
+    assert hit.to_dict(debug=True)["body_source"]["ssed_kind"] == "dense_anchor_table"
+
+
+def test_lvcore_dense_anchor_with_sqlite_sidecar_renders_body(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path, with_sidecar=True)
+    package = open_package(tmp_path)
+    source = package.body_source()
+
+    assert source.ssed_kind == SsedBodySourceKind.DENSE_ANCHOR_WITH_SIDECAR
+    assert source.support.value == "partially_renderable"
+    hit = package.search("beta", profile=SearchProfile.EXACT).hits[0]
+    entry = package.entry_for_hit(hit)
+
+    assert entry.headword == "beta"
+    assert "beta sidecar body" in package.render_entry_text(entry)
+    assert any(diagnostic.code == "sidecar_body_resolved" for diagnostic in entry.diagnostics())
 
 
 def test_lvcore_title_dereference_failure_falls_back_to_key(tmp_path: Path) -> None:
@@ -424,6 +512,47 @@ def test_lvcore_cli_search_debug_and_render_profiles(tmp_path: Path) -> None:
         env={"PYTHONPATH": str(LVCORE_SRC)},
     )
     assert "third entry" in render_result.stdout
+
+
+def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> None:
+    dense = tmp_path / "_DCT_DENSE"
+    make_dense_anchor_package(dense, with_sidecar=True)
+    lved = tmp_path / "_DCT_LVED"
+    lved.mkdir()
+    (lved / "main.data").write_bytes(b"not real")
+
+    body_result = subprocess.run(
+        [sys.executable, "-m", "lvcore", "body-source", str(dense), "--json"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    body_data = json.loads(body_result.stdout)
+    assert body_data["body_source"]["ssed_kind"] == "dense_anchor_with_sidecar"
+
+    validate_result = subprocess.run(
+        [sys.executable, "-m", "lvcore", "validate", str(dense), "--json", "--debug"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    validate_data = json.loads(validate_result.stdout)
+    assert validate_data["body_source"]["ssed_kind"] == "dense_anchor_with_sidecar"
+    assert validate_data["sample_search_hits_rendered_html"] >= 1
+
+    corpus_result = subprocess.run(
+        [sys.executable, "-m", "lvcore", "corpus-validate", str(tmp_path), "--json", "--jobs", "1"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    corpus_data = json.loads(corpus_result.stdout)
+    assert corpus_data["family_counts"]["ssed"] == 1
+    assert corpus_data["family_counts"]["lved_sqlcipher"] == 1
+    assert corpus_data["ssed_body_source_kind_counts"]["dense_anchor_with_sidecar"] == 1
 
 
 def test_lvcore_detects_deferred_families(tmp_path: Path) -> None:

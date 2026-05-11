@@ -13,6 +13,10 @@ The current Python implementation intentionally does not import
 `logovista_tools`. It is a disciplined reimplementation used to test the shape
 of the future Rust core.
 
+The writer proof-of-concept in the broader repository is separate. It is a
+reverse-engineering checkpoint, not lvcore's compatibility target. lvcore should
+be judged against real LogoVista packages.
+
 ## Layering
 
 The body pipeline is:
@@ -44,6 +48,7 @@ RenderedHtml
 RenderedText
 Resource
 Diagnostic
+BodySource
 Inspector
 ```
 
@@ -146,6 +151,38 @@ search-hit-to-entry-to-render paths. It reports sampled index rows, dereference
 counts, render counts, and diagnostic counts. It is reader-safety validation,
 not writer verification.
 
+## Body Sources
+
+Package-family detection and SSED body-source classification are separate.
+LVED SQLCipher and LVLMultiView are package families and remain deferred. SSED
+dictionaries can still have several body-source shapes:
+
+- `body_stream`: native indexes point directly into readable `HONMON.DIC`
+  entries;
+- `dense_anchor_table` / `dense_marker_table`: `HONMON.DIC` holds compact
+  marker or anchor records. Those bytes are not final dictionary bodies;
+- `dense_anchor_with_sidecar`: dense anchors can be mapped to a sibling body
+  store;
+- `renderer_sqlite_sidecar`, `dictfulldb_sidecar`, `honbun_sidecar`, and
+  `vlpljbl_sidecar`: specific sidecar-backed body sources observed around SSED
+  packages.
+
+Search hits keep their native body/title pointers, but entry resolution is
+body-source-aware. Direct body-stream packages use `HONMON.DIC` slicing. Dense
+anchor packages inspect the anchor and attempt a supported sidecar lookup. If
+no provider can resolve the body, friendly rendering receives a placeholder
+entry with diagnostics instead of raw anchor bytes.
+
+Current sidecar support is deliberately conservative. lvcore can resolve tiny
+synthetic and observed SQLite body stores with `t_contents` or `HONBUN`-style
+schemas when the dense anchor ID maps cleanly to the sidecar row. Unmapped,
+encrypted, or schema-unknown sidecars are classified and reported as deferred;
+the reader does not fake a body by decoding anchor records.
+
+`body-source`, `validate`, and `corpus-validate` expose body-source information
+in JSON. Debug output may include anchor IDs, raw pointers, sidecar names, and
+mapping status. Friendly output must not.
+
 ## Future Rust and C ABI
 
 The future Rust library should preserve this layering. The future C ABI should
@@ -162,6 +199,7 @@ lv_rendered_html_t
 lv_rendered_text_t
 lv_resource_t
 lv_diagnostics_t
+lv_body_source_t
 lv_error_t
 ```
 

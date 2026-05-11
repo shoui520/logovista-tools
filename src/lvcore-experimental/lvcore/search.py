@@ -75,6 +75,7 @@ class SearchHit:
     page: int | None = None
     row: int | None = None
     raw_row: IndexRow | None = field(default=None, repr=False, compare=False)
+    body_source: dict[str, Any] | None = field(default=None, repr=False, compare=False)
     _package: Any = field(default=None, repr=False, compare=False)
 
     def entry(self):
@@ -108,6 +109,7 @@ class SearchHit:
                     "page": self.page,
                     "row": self.row,
                     "raw_row": self.raw_row.to_dict() if self.raw_row else None,
+                    "body_source": self.body_source,
                 }
             )
         return data

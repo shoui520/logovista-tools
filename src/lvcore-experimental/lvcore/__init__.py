@@ -6,6 +6,7 @@ model, starting with SSED.
 """
 
 from .detect import detect_family
+from .body_source import BodySourceInfo, BodySourceSupport, Confidence, SsedBodySourceKind
 from .diagnostics import Diagnostic, DiagnosticArea, Location, Severity
 from .document import BlockNode, EntryDocument, InlineNode, ResourceRef
 from .model import Address, Component, PackageFamily, PackageInfo, SearchProfile, Span
@@ -17,6 +18,9 @@ __all__ = [
     "Address",
     "BlockNode",
     "Component",
+    "BodySourceInfo",
+    "BodySourceSupport",
+    "Confidence",
     "Diagnostic",
     "DiagnosticArea",
     "EntryDocument",
@@ -31,6 +35,7 @@ __all__ = [
     "SearchProfile",
     "SearchHit",
     "SearchResults",
+    "SsedBodySourceKind",
     "Severity",
     "Span",
     "detect_family",
