@@ -25,7 +25,7 @@ from .body_source import (
 from .crypto import decrypt_logofont, decrypt_logofont_prefix
 from .detect import detect_family
 from .diagnostics import Diagnostic, DiagnosticArea, Location, Severity
-from .errors import UnsupportedPackageError
+from .errors import FormatError, UnsupportedPackageError
 from .gaiji import Ga16Resource, GaijiMap, load_gaiji_map, parse_ga16
 from .index import IndexRow
 from .index import IndexParse, parse_index
@@ -988,7 +988,21 @@ class LogoVistaPackage:
     def entry_for_hit(self, hit: SearchHit) -> Entry:
         source = self.body_source()
         if source.ssed_kind == SsedBodySourceKind.BODY_STREAM:
-            return self.entry_at(hit.body)
+            try:
+                return self.entry_at(hit.body)
+            except (FormatError, KeyError, ValueError, OSError) as exc:
+                return self._placeholder_entry(
+                    hit.body,
+                    headword=hit.heading,
+                    code="body_pointer_unresolved",
+                    message="body pointer could not be resolved to a readable HONMON entry",
+                    severity=Severity.ERROR,
+                    details={
+                        "body": hit.body.to_dict(),
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                )
         if source.ssed_kind in {
             SsedBodySourceKind.DENSE_ANCHOR_TABLE,
             SsedBodySourceKind.DENSE_MARKER_TABLE,

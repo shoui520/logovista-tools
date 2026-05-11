@@ -88,6 +88,10 @@ def read_pointer_pair(data: bytes, pos: int) -> tuple[Address, Address]:
     return Address(be32(data, pos), be16(data, pos + 4)), Address(be32(data, pos + 6), be16(data, pos + 10))
 
 
+def valid_body_pointer(address: Address) -> bool:
+    return address.block > 0
+
+
 def parse_internal_page(page: bytes, page_index: int, gaiji: dict[str, str] | None) -> list[InternalRow]:
     word = be16(page, 0)
     count = be16(page, 2)
@@ -126,6 +130,9 @@ def parse_simple_leaf(page: bytes, page_index: int, gaiji: dict[str, str] | None
         else:
             body, title = read_pointer_pair(page, pos)
             pos += 12
+        if not valid_body_pointer(body):
+            unknown += 1
+            continue
         rows.append(IndexRow(key=key, target_key=key, body=body, title=title, page=page_index, row=row_index))
     return rows, unknown
 
@@ -167,6 +174,10 @@ def parse_tagged_leaf(page: bytes, page_index: int, gaiji: dict[str, str] | None
             else:
                 body, title = read_pointer_pair(page, pos)
                 pos += 12
+            if not valid_body_pointer(body):
+                unknown += 1
+                subrecord += 1
+                continue
             rows.append(
                 IndexRow(
                     key=current_key or target,

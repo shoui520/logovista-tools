@@ -7,17 +7,21 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 LVCORE_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-experimental"
 sys.path.insert(0, str(LVCORE_SRC))
 
 from lvcore import Address, Diagnostic, DiagnosticArea, Location, PackageFamily, SearchHit, SearchProfile, SearchResults, Severity, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
 from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, build_entry_document  # noqa: E402
+from lvcore.errors import FormatError  # noqa: E402
 from lvcore.gaiji import ga16_glyph_size, parse_ga16  # noqa: E402
+from lvcore.index import parse_index  # noqa: E402
 from lvcore.model import Entry  # noqa: E402
 from lvcore.opcodes import OpcodeCategory, behavior_for  # noqa: E402
 from lvcore.render import GaijiPolicy, HtmlProfile, render_html, render_text  # noqa: E402
-from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE  # noqa: E402
+from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE, expand_sseddata  # noqa: E402
 from lvcore.text import decode_text_stream  # noqa: E402
 
 
@@ -267,6 +271,156 @@ def make_dense_anchor_package(root: Path, *, with_sidecar: bool = False) -> None
             con.commit()
         finally:
             con.close()
+
+
+def make_bad_body_pointer_package(root: Path, *, component_end_block: int = 2, body_block: int = 9999) -> None:
+    honmon_start = 2
+    title_start = 4
+    index_start = 5
+    body = body_text("safe") + b"\x1f\x0a"
+    title = body_text("bad pointer") + b"\x1f\x0a"
+    index = simple_index([("bad", body_block, 0, title_start, 0)])
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, component_end_block, b"\x02\x00\x00\x00"),
+        ("FHTITLE.DIC", 0x05, title_start, title_start, b"\x01\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start, b"\x02\x01\x55\x40"),
+    ]
+    root.mkdir(exist_ok=True)
+    (root / "BADPTR.IDX").write_bytes(ssedinfo("Bad Pointer", components))
+    (root / "HONMON.DIC").write_bytes(literal_sseddata(body, start_block=honmon_start, kind=0))
+    (root / "FHTITLE.DIC").write_bytes(literal_sseddata(title, start_block=title_start, kind=5))
+    (root / "FHINDEX.DIC").write_bytes(literal_sseddata(index, start_block=index_start, kind=0x91))
+
+
+def test_lvcore_malformed_ssedinfo_fails_with_clear_format_error(tmp_path: Path) -> None:
+    (tmp_path / "BAD.IDX").write_bytes(b"SSEDINFO" + b"\x00" * 20)
+
+    with pytest.raises(FormatError, match="could not parse SSEDINFO component table"):
+        open_package(tmp_path)
+
+
+def test_lvcore_truncated_sseddata_component_fails_with_format_error(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    (tmp_path / "HONMON.DIC").write_bytes(b"SSEDDATA\x00")
+    package = open_package(tmp_path)
+
+    with pytest.raises(FormatError, match="SSEDDATA header truncated"):
+        package.expanded("HONMON.DIC")
+
+
+def test_lvcore_invalid_chunk_header_fails_with_format_error() -> None:
+    data = bytearray(68)
+    data[:8] = b"SSEDDATA"
+    data[0x16:0x18] = be16(1)
+    data[0x18:0x1C] = be32(2)
+    data[0x1C:0x20] = be32(2)
+    data[64:68] = be32(68)
+    data.extend(b"\x00\x00\x00\x01\x00")
+
+    with pytest.raises(FormatError, match="SSEDDATA chunk command stream truncated"):
+        expand_sseddata(bytes(data))
+
+
+def test_lvcore_invalid_index_row_is_counted_not_crashed() -> None:
+    key = index_key("broken")
+    page = be16(0x8000) + be16(1) + bytes([len(key)]) + key + b"\x00"
+    parsed = parse_index(pad_block(page), start_block=4, component_type=0x91)
+
+    assert parsed.rows == ()
+    assert parsed.unknown_leaf_bytes == 1
+
+
+def test_lvcore_bad_body_pointer_returns_diagnostic_placeholder(tmp_path: Path) -> None:
+    make_bad_body_pointer_package(tmp_path)
+    package = open_package(tmp_path)
+    hit = package.search("bad", profile=SearchProfile.EXACT).hits[0]
+
+    entry = package.entry_for_hit(hit)
+    html = package.render_entry_html(entry)
+    text = package.render_entry_text(entry)
+
+    assert "Entry body is not yet supported" in text
+    assert "9999" not in html
+    assert "body pointer could not be resolved" in entry.diagnostics()[0].message
+    assert entry.diagnostics()[0].code == "body_pointer_unresolved"
+
+
+def test_lvcore_bad_component_size_reports_cleanly_during_validation(tmp_path: Path) -> None:
+    make_bad_body_pointer_package(tmp_path, component_end_block=3, body_block=3)
+    package = open_package(tmp_path)
+
+    report = package.validate(sample_entries=0, sample_search_hits=1)
+
+    assert report["sample_search_hits_dereferenced"] == 1
+    assert report["sample_search_hits_rendered_html"] == 1
+    assert report["diagnostics"]["by_code"]["body_pointer_unresolved"] == 1
+    assert report["diagnostics"]["search_errors"] == []
+
+
+def test_lvcore_truncated_honmon_entry_is_rendered_with_diagnostics_not_raw_leak() -> None:
+    raw = body_text("visible") + b"\x1f\x44\x00"
+    decoded = decode_text_stream(raw)
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "HONMON.DIC"), "visible", decoded.text, decoded.spans)
+    document = entry.document()
+    html = render_html(document)
+    debug = render_html(document, profile=HtmlProfile.DEBUG)
+
+    assert "visible" in html
+    assert "1f44" not in html.lower()
+    assert "unclosed_style" in debug
+    assert any(diagnostic.code == "unclosed_style" for diagnostic in document.diagnostics)
+
+
+def test_lvcore_malformed_gaiji_reference_is_diagnostic_and_friendly_safe() -> None:
+    decoded = decode_text_stream(b"\xa1")
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, 1, "HONMON.DIC"), "bad gaiji", decoded.text, decoded.spans)
+    document = entry.document()
+    html = render_html(document)
+    debug = render_html(document, profile=HtmlProfile.DEBUG)
+
+    assert "a1" not in html.lower()
+    assert "unknown_byte" in debug
+    assert any(diagnostic.code == "unknown_byte" for diagnostic in document.diagnostics)
+
+
+def test_lvcore_malformed_media_reference_is_diagnostic_and_friendly_safe() -> None:
+    decoded = decode_text_stream(b"\x1f\x4d\x00")
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, 3, "HONMON.DIC"), "bad media", decoded.text, decoded.spans)
+    document = entry.document()
+    html = render_html(document)
+    debug = render_html(document, profile=HtmlProfile.DEBUG)
+
+    assert "lvcore-resource://media-1" in html
+    assert "1f4d" not in html.lower()
+    assert "00" not in html
+    assert "data-payload=\"00\"" in debug
+    assert any(diagnostic.code == "unresolved_media_ref" for diagnostic in document.diagnostics)
+
+
+def test_lvcore_invalid_sqlite_sidecar_is_deferred_without_anchor_leak(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path)
+    (tmp_path / "body.db").write_bytes(b"not a sqlite database")
+    package = open_package(tmp_path)
+
+    source = package.body_source()
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+    entry = package.entry_for_hit(hit)
+    html = package.render_entry_html(entry)
+
+    assert source.ssed_kind == SsedBodySourceKind.DENSE_ANCHOR_TABLE
+    assert "00000001" not in html
+    assert any(diagnostic.code == "unsupported_body_source" for diagnostic in entry.diagnostics())
+
+
+def test_lvcore_invalid_text_encoding_bytes_are_recoverable_diagnostics() -> None:
+    decoded = decode_text_stream(b"\x80\xff\x21")
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, 3, "HONMON.DIC"), "bad text", decoded.text, decoded.spans)
+    document = entry.document()
+    html = render_html(document)
+
+    assert html
+    assert decoded.unknown_bytes >= 2
+    assert any(diagnostic.code == "unknown_byte" for diagnostic in document.diagnostics)
 
 
 def test_lvcore_detects_and_reads_synthetic_ssed(tmp_path: Path) -> None:

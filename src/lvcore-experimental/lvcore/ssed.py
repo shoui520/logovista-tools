@@ -185,6 +185,8 @@ def load_sseddata_bytes(raw: bytes) -> tuple[bytes, str]:
 def parse_data_header(data: bytes, storage: str = "plain") -> SsedHeader:
     if data[:8] != SSEDDATA:
         raise FormatError("not SSEDDATA")
+    if len(data) < 0x20:
+        raise FormatError("SSEDDATA header truncated")
     return SsedHeader(
         kind=data[0x0F],
         chunk_count=be16(data, 0x16),
@@ -216,7 +218,7 @@ def expand_chunk(data: bytes, offset: int) -> bytes:
 
     for command_index in range(command_count):
         if pos + 3 > len(data):
-            break
+            raise FormatError("SSEDDATA chunk command stream truncated")
         b0, b1, literal = data[pos], data[pos + 1], data[pos + 2]
         pos += 3
         window_offset = (b0 << 4) | (b1 >> 4)
