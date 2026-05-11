@@ -112,7 +112,11 @@ reader reports include title status and heading-source counters so native rows
 that intentionally reuse the body pointer as the title pointer are counted as
 safe heading fallback rather than title failures. Sidecar summaries also
 separate body-critical stores from media/resource, examples/idioms, search,
-kanji-support, ancillary, non-SQLite, and unknown roles.
+kanji-support, ancillary, non-SQLite, and unknown roles. Index summaries count
+component types, rows by component type, malformed leaf rows, unsupported
+component types, and grouped-continuation rows; body decode telemetry records
+unknown control and byte totals from sampled entries without exposing entry
+text.
 
 ## Windows SSED Corpus Profile
 

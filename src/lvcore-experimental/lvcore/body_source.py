@@ -175,8 +175,12 @@ def strip_html(value: str) -> str:
     return html.unescape(HTML_TAG_RE.sub("", value or "")).strip()
 
 
+def quote_sql_identifier(name: str) -> str:
+    return '"' + str(name).replace('"', '""') + '"'
+
+
 def sqlite_columns(con: sqlite3.Connection, table: str) -> list[str]:
-    return [str(row[1]) for row in con.execute(f'pragma table_info("{table}")')]
+    return [str(row[1]) for row in con.execute(f"pragma table_info({quote_sql_identifier(table)})")]
 
 
 def find_column(columns: list[str], *candidates: str) -> str | None:

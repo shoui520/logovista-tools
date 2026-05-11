@@ -159,6 +159,9 @@ That command validates the reader path: open package, classify family/body
 source, parse native indexes/titles, sample search hits, dereference entries,
 render friendly HTML/plain text, and aggregate diagnostics. It distinguishes
 deferred SSED body sources from deferred LVED/LVLMultiView package families.
+Its JSON summary includes native index component/row counters, grouped
+continuation counts, title status counters, resource diagnostics, and body
+decode telemetry for private compatibility audits.
 
 ## Install
 

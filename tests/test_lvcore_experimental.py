@@ -5,6 +5,7 @@ import json
 import sqlite3
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -14,15 +15,15 @@ LVCORE_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-experimental"
 sys.path.insert(0, str(LVCORE_SRC))
 
 from lvcore import Address, Diagnostic, DiagnosticArea, Location, PackageFamily, SearchHit, SearchProfile, SearchResults, Severity, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
-from lvcore.body_source import SidecarRole, classify_sqlite_sidecar_role  # noqa: E402
+from lvcore.body_source import SidecarRole, classify_sqlite_sidecar_role, quote_sql_identifier, sqlite_columns  # noqa: E402
 from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, LinkTargetKind, ResourceKind, ResourceRef, ResourceStatus, build_entry_document  # noqa: E402
 from lvcore.errors import FormatError  # noqa: E402
 from lvcore.gaiji import ga16_glyph_size, parse_ga16  # noqa: E402
 from lvcore.index import parse_index  # noqa: E402
-from lvcore.model import Entry  # noqa: E402
+from lvcore.model import Component, ComponentRole, Entry  # noqa: E402
 from lvcore.opcodes import OpcodeCategory, behavior_for  # noqa: E402
 from lvcore.render import GaijiPolicy, HtmlProfile, render_html, render_text  # noqa: E402
-from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE, expand_sseddata  # noqa: E402
+from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE, expand_sseddata, parse_catalog  # noqa: E402
 from lvcore.text import decode_text_stream  # noqa: E402
 
 
@@ -213,6 +214,53 @@ def simple_index(rows: list[tuple[str, int, int, int, int]]) -> bytes:
     return bytes(encoded)
 
 
+def leaf_page(records: list[bytes], *, word: int = 0x8000) -> bytes:
+    return pad_block(be16(word) + be16(len(records)) + b"".join(records))
+
+
+def direct_index_record(key: str, body_block: int = 10, body_offset: int = 0, title_block: int = 20, title_offset: int = 0) -> bytes:
+    raw = index_key(key)
+    return bytes([0x00, len(raw)]) + raw + be32(body_block) + be16(body_offset) + be32(title_block) + be16(title_offset)
+
+
+def tagged_direct_body_only_record(key: str, body_block: int = 10, body_offset: int = 0) -> bytes:
+    raw = index_key(key)
+    return bytes([0x00, len(raw)]) + raw + be32(body_block) + be16(body_offset)
+
+
+def tagged_group_record(key: str, count: int = 1) -> bytes:
+    raw = index_key(key)
+    return bytes([0x80, len(raw)]) + be16(count) + raw
+
+
+def tagged_target_record(target: str, body_block: int = 10, body_offset: int = 0, title_block: int = 20, title_offset: int = 0) -> bytes:
+    raw = index_key(target)
+    return bytes([0xC0, len(raw)]) + raw + be32(body_block) + be16(body_offset) + be32(title_block) + be16(title_offset)
+
+
+def tagged_target_body_only_record(target: str, body_block: int = 10, body_offset: int = 0) -> bytes:
+    raw = index_key(target)
+    return bytes([0xC0, len(raw)]) + raw + be32(body_block) + be16(body_offset)
+
+
+def title_group_record(key: str, title_block: int = 20, title_offset: int = 0, count: int = 1) -> bytes:
+    raw = index_key(key)
+    return bytes([0x80, len(raw)]) + be32(count) + raw + be32(title_block) + be16(title_offset)
+
+
+def compact_body_target_record(tag: int = 0xC0, body_block: int = 10, body_offset: int = 0) -> bytes:
+    return bytes([tag]) + be32(body_block) + be16(body_offset)
+
+
+def multi_group_record(key: str, count: int = 1) -> bytes:
+    raw = index_key(key)
+    return bytes([0x80, len(raw)]) + be32(count) + raw
+
+
+def multi_target_record(body_block: int = 10, body_offset: int = 0, title_block: int = 20, title_offset: int = 0) -> bytes:
+    return bytes([0xC0]) + be32(body_block) + be16(body_offset) + be32(title_block) + be16(title_offset)
+
+
 def tagged_index(group_key: str, rows: list[tuple[str, int, int, int, int]]) -> bytes:
     encoded = bytearray(be16(0x8000) + be16(1 + len(rows)))
     raw_group = index_key(group_key)
@@ -322,6 +370,36 @@ def make_body_pointer_title_package(root: Path, *, with_unused_title: bool = Fal
     (root / "FHINDEX.DIC").write_bytes(literal_sseddata(simple_index([row]), start_block=index_start, kind=0x91))
 
 
+def make_special_index_package(root: Path, *, component_type: int, grouped: bool) -> None:
+    honmon_start = 2
+    title_start = 3
+    index_start = 4
+    body = body_text("special") + b"\x1f\x0a" + body_text("special body") + b"\x1f\x0a"
+    title = body_text("special title") + b"\x1f\x0a"
+    if component_type == 0x80:
+        title_name, title_type, index_name = "KWTITLE.DIC", 0x03, "KWINDEX.DIC"
+        records = [title_group_record("special", title_start, 0), compact_body_target_record(0xB0, honmon_start, 0)] if grouped else [direct_index_record("special", honmon_start, 0, title_start, 0)]
+    elif component_type == 0x81:
+        title_name, title_type, index_name = "CRTITLE.DIC", 0x0A, "CRINDEX.DIC"
+        records = [title_group_record("special", title_start, 0), compact_body_target_record(0xC0, honmon_start, 0)] if grouped else [direct_index_record("special", honmon_start, 0, title_start, 0)]
+    elif component_type == 0xA1:
+        title_name, title_type, index_name = "MUL1_1_1.DIC", 0x0D, "MUL1_1_2.DIC"
+        records = [multi_group_record("special"), multi_target_record(honmon_start, 0, title_start, 0)] if grouped else [direct_index_record("special", honmon_start, 0, title_start, 0)]
+    else:  # pragma: no cover - helper misuse
+        raise AssertionError(component_type)
+    index = leaf_page(records)
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        (title_name, title_type, title_start, title_start, b"\x01\x00\x00\x00"),
+        (index_name, component_type, index_start, index_start, b"\x02\x01\x55\x40"),
+    ]
+    root.mkdir(exist_ok=True)
+    (root / "SPECIAL.IDX").write_bytes(ssedinfo("Special Index", components))
+    (root / "HONMON.DIC").write_bytes(literal_sseddata(body, start_block=honmon_start, kind=0))
+    (root / title_name).write_bytes(literal_sseddata(title, start_block=title_start, kind=title_type))
+    (root / index_name).write_bytes(literal_sseddata(index, start_block=index_start, kind=component_type))
+
+
 def make_tagged_target_package(root: Path) -> None:
     honmon_start = 2
     title_start = 3
@@ -410,6 +488,16 @@ def test_lvcore_malformed_ssedinfo_fails_with_clear_format_error(tmp_path: Path)
 
     with pytest.raises(FormatError, match="could not parse SSEDINFO component table"):
         open_package(tmp_path)
+
+
+def test_lvcore_invalid_component_ranges_do_not_expose_negative_block_counts(tmp_path: Path) -> None:
+    component = Component("BAD.DIC", 0x00, 8, 7, role=ComponentRole.HONMON)
+    assert component.block_count == 0
+    assert component.to_dict()["blocks"] == 0
+
+    (tmp_path / "BAD.IDX").write_bytes(ssedinfo("Bad Range", [("HONMON.DIC", 0x00, 8, 7, b"\x02\x00\x00\x00")]))
+    with pytest.raises(FormatError, match="invalid block range"):
+        parse_catalog(tmp_path / "BAD.IDX")
 
 
 def test_lvcore_truncated_sseddata_component_fails_with_format_error(tmp_path: Path) -> None:
@@ -536,6 +624,33 @@ def test_lvcore_invalid_text_encoding_bytes_are_recoverable_diagnostics() -> Non
     assert any(diagnostic.code == "unknown_byte" for diagnostic in document.diagnostics)
 
 
+def test_lvcore_decode_telemetry_is_reported_once_by_validation(tmp_path: Path) -> None:
+    honmon_start = 2
+    title_start = 3
+    index_start = 4
+    body = b"\x1f\x09\x00\x01\x1f\x41\x00\x00" + body_text("bad") + b"\x1f\x61\x1f\x0a" + b"\x80\xff\x1f\x99" + body_text("visible") + b"\x1f\x0a"
+    title = body_text("bad") + b"\x1f\x0a"
+    index = simple_index([("bad", honmon_start, 0, title_start, 0)])
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("FHTITLE.DIC", 0x05, title_start, title_start, b"\x01\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start, b"\x02\x01\x55\x40"),
+    ]
+    (tmp_path / "BADTEXT.IDX").write_bytes(ssedinfo("Bad Text", components))
+    (tmp_path / "HONMON.DIC").write_bytes(literal_sseddata(body, start_block=honmon_start, kind=0))
+    (tmp_path / "FHTITLE.DIC").write_bytes(literal_sseddata(title, start_block=title_start, kind=5))
+    (tmp_path / "FHINDEX.DIC").write_bytes(literal_sseddata(index, start_block=index_start, kind=0x91))
+
+    package = open_package(tmp_path)
+    report = package.validate(sample_entries=1, sample_search_hits=1)
+    entry = package.search_entries("bad", profile=SearchProfile.EXACT)[0]
+
+    assert report["decode_telemetry"] == {"unknown_controls": 1, "unknown_bytes": 2}
+    assert entry.decode_unknown_controls == 1
+    assert entry.decode_unknown_bytes == 2
+    assert entry.to_dict(debug=True)["decode_telemetry"] == {"unknown_controls": 1, "unknown_bytes": 2}
+
+
 def test_lvcore_detects_and_reads_synthetic_ssed(tmp_path: Path) -> None:
     make_synthetic_package(tmp_path)
 
@@ -613,6 +728,129 @@ def test_lvcore_backward_only_index_supports_exact_and_suffix_search(tmp_path: P
     assert [hit.display_key for hit in native.hits] == ["alpha"]
 
 
+def test_lvcore_parses_keyword_index_direct_and_grouped_rows() -> None:
+    direct = parse_index(leaf_page([direct_index_record("direct")]), 1, 0x80)
+    assert [(row.key, row.row_type, row.title.block) for row in direct.rows] == [("direct", "direct", 20)]
+    assert direct.row_type_counts["direct"] == 1
+
+    grouped_b0 = parse_index(leaf_page([title_group_record("kw"), compact_body_target_record(0xB0, 11, 2)]), 1, 0x80)
+    assert [(row.key, row.target_key, row.body.block, row.title.block, row.inherited_title) for row in grouped_b0.rows] == [
+        ("kw", "kw", 11, 20, True)
+    ]
+    assert grouped_b0.row_type_counts["target"] == 1
+    assert grouped_b0.row_type_counts["tag_b0"] == 1
+
+    grouped_c0 = parse_index(leaf_page([title_group_record("kw"), compact_body_target_record(0xC0, 12, 4)]), 1, 0x80)
+    assert [(row.key, row.body.block, row.title.block, row.inherited_title) for row in grouped_c0.rows] == [("kw", 12, 20, True)]
+    assert grouped_c0.row_type_counts["tag_c0"] == 1
+
+
+def test_lvcore_parses_keyword_continuation_target_across_pages() -> None:
+    data = leaf_page([title_group_record("kw", count=2)]) + leaf_page([compact_body_target_record(0xC0, 11, 2)])
+    parsed = parse_index(data, 1, 0x80)
+    assert [(row.key, row.body.block, row.title.block, row.group_page, row.inherited_title) for row in parsed.rows] == [
+        ("kw", 11, 20, 0, True)
+    ]
+    assert parsed.continuation_groups == 1
+    assert parsed.dangling_continuation_rows == 0
+
+
+def test_lvcore_parses_cross_reference_index_direct_grouped_and_continuation() -> None:
+    direct = parse_index(leaf_page([direct_index_record("cross")]), 1, 0x81)
+    assert [(row.key, row.row_type, row.title.block) for row in direct.rows] == [("cross", "direct", 20)]
+
+    grouped = parse_index(leaf_page([title_group_record("cross"), compact_body_target_record(0xC0, 13, 6)]), 1, 0x81)
+    assert [(row.key, row.body.block, row.title.block, row.inherited_title) for row in grouped.rows] == [("cross", 13, 20, True)]
+
+    continued = parse_index(leaf_page([title_group_record("cross", count=2)]) + leaf_page([compact_body_target_record(0xC0, 14, 8)]), 1, 0x81)
+    assert [(row.key, row.body.block, row.title.block, row.group_page, row.inherited_title) for row in continued.rows] == [
+        ("cross", 14, 20, 0, True)
+    ]
+    assert continued.continuation_groups == 1
+
+
+def test_lvcore_parses_multi_selector_index_direct_grouped_and_continuation() -> None:
+    direct = parse_index(leaf_page([direct_index_record("multi")]), 1, 0xA1)
+    assert [(row.key, row.row_type, row.title.block) for row in direct.rows] == [("multi", "direct", 20)]
+
+    grouped = parse_index(leaf_page([multi_group_record("multi"), multi_target_record(15, 10, 25, 12)]), 1, 0xA1)
+    assert [(row.key, row.body.block, row.title.block, row.inherited_title) for row in grouped.rows] == [("multi", 15, 25, False)]
+
+    continued = parse_index(leaf_page([multi_group_record("multi", count=2)]) + leaf_page([multi_target_record(16, 14, 26, 16)]), 1, 0xA1)
+    assert [(row.key, row.body.block, row.title.block, row.group_page) for row in continued.rows] == [("multi", 16, 26, 0)]
+    assert continued.continuation_groups == 1
+
+
+def test_lvcore_parses_direct_rows_inside_tagged_index_families() -> None:
+    tagged_forward = parse_index(leaf_page([direct_index_record("direct")]), 1, 0x90)
+    tagged_backward = parse_index(leaf_page([direct_index_record("direct")]), 1, 0x70)
+    body_only = parse_index(leaf_page([tagged_direct_body_only_record("body")]), 1, 0x30)
+
+    assert [(row.key, row.title.block, row.row_type) for row in tagged_forward.rows] == [("direct", 20, "direct")]
+    assert [(row.key, row.title.block, row.row_type) for row in tagged_backward.rows] == [("direct", 20, "direct")]
+    assert [(row.key, row.body.block, row.title.block, row.row_type) for row in body_only.rows] == [("body", 10, 10, "direct")]
+
+
+def test_lvcore_parses_tagged_group_continuation_for_existing_families() -> None:
+    tagged = parse_index(
+        leaf_page([tagged_group_record("parent", count=2)]) + leaf_page([tagged_target_record("child", 17, 2, 27, 4)]),
+        1,
+        0x90,
+    )
+    body_only = parse_index(
+        leaf_page([tagged_group_record("parent", count=2)]) + leaf_page([tagged_target_body_only_record("child", 18, 6)]),
+        1,
+        0x30,
+    )
+
+    assert [(row.key, row.target_key, row.body.block, row.title.block, row.group_page) for row in tagged.rows] == [
+        ("parent", "child", 17, 27, 0)
+    ]
+    assert [(row.key, row.target_key, row.body.block, row.title.block, row.group_page) for row in body_only.rows] == [
+        ("parent", "child", 18, 18, 0)
+    ]
+    assert tagged.continuation_groups == 1
+    assert body_only.continuation_groups == 1
+
+
+def test_lvcore_index_parser_reports_malformed_and_unsupported_rows() -> None:
+    malformed = parse_index(be16(0x8000) + be16(1) + bytes([0x80, 10]) + b"\x00", 1, 0x80)
+    assert malformed.rows == ()
+    assert malformed.malformed_leaf_rows == 1
+    assert malformed.diagnostics[0].code == "malformed_group_leaf_row"
+
+    unsupported = parse_index(leaf_page([direct_index_record("ignored")]), 1, 0x27)
+    assert unsupported.rows == ()
+    assert unsupported.unsupported_component_type == 0x27
+    assert unsupported.unsupported_leaf_pages == 1
+    assert unsupported.diagnostics[0].code == "unsupported_component_type"
+
+    unsupported_branch_only = parse_index(be16(0x0002) + be16(1) + b"\x00" * 6, 1, 0x27)
+    assert unsupported_branch_only.rows == ()
+    assert unsupported_branch_only.internal_pages == 1
+    assert unsupported_branch_only.unsupported_component_type == 0x27
+    assert unsupported_branch_only.diagnostics[0].code == "unsupported_component_type"
+
+
+@pytest.mark.parametrize("component_type,grouped", [(0x80, False), (0x80, True), (0x81, False), (0x81, True), (0xA1, False), (0xA1, True)])
+def test_lvcore_search_hit_title_resolution_from_special_index_rows(tmp_path: Path, component_type: int, grouped: bool) -> None:
+    make_special_index_package(tmp_path, component_type=component_type, grouped=grouped)
+    package = open_package(tmp_path)
+
+    hit = package.search("special", profile=SearchProfile.EXACT).hits[0]
+    debug = hit.to_dict(debug=True)
+
+    assert hit.heading == "special title"
+    assert hit.heading_source == "title"
+    assert hit.title_status == "resolved"
+    assert "title_resolution" not in hit.to_dict()
+    assert debug["title_resolution"]["status"] == "resolved"
+    assert debug["raw_row"]["row_type"] == ("target" if grouped else "direct")
+    if component_type in {0x80, 0x81} and grouped:
+        assert debug["raw_row"]["inherited_title"] is True
+        assert debug["raw_row"]["group_key"] == "special"
+
+
 def test_lvcore_tagged_target_key_matching_and_deduplication(tmp_path: Path) -> None:
     make_tagged_target_package(tmp_path)
     package = open_package(tmp_path)
@@ -668,6 +906,59 @@ def test_lvcore_repeated_search_uses_cached_values_without_changing_results(tmp_
     assert exact_cache_keys_after_first == sorted(package._exact_search_cache)
     assert "fhindex.dic" in package._search_value_cache
     assert "fhindex.dic" in package._exact_search_cache
+
+
+def test_lvcore_search_entries_does_not_swallow_unexpected_exceptions(tmp_path: Path) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+
+    def explode(hit: SearchHit) -> Entry:
+        raise RuntimeError("unexpected failure")
+
+    package.entry_for_hit = explode  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="unexpected failure"):
+        package.search_entries("alpha", profile=SearchProfile.EXACT)
+
+
+def test_lvcore_search_entries_keeps_recoverable_deferred_placeholders(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path)
+    package = open_package(tmp_path)
+
+    entries = package.search_entries("alpha", profile=SearchProfile.EXACT)
+
+    assert len(entries) == 1
+    assert "Entry body is not yet supported" in entries[0].text
+    assert any(diagnostic.code == "unsupported_body_source" for diagnostic in entries[0].diagnostics())
+
+
+def test_lvcore_sqlite_identifier_quoting_escapes_embedded_quotes() -> None:
+    con = sqlite3.connect(":memory:")
+    try:
+        table = 'odd"table'
+        column = 'strange"column'
+        con.execute(f"create table {quote_sql_identifier(table)} ({quote_sql_identifier(column)} integer)")
+        con.execute(f"insert into {quote_sql_identifier(table)} ({quote_sql_identifier(column)}) values (7)")
+
+        assert quote_sql_identifier(table) == '"odd""table"'
+        assert sqlite_columns(con, table) == [column]
+        value = con.execute(f"select {quote_sql_identifier(column)} from {quote_sql_identifier(table)}").fetchone()[0]
+        assert value == 7
+    finally:
+        con.close()
+
+
+def test_lvcore_package_context_manager_closes_and_cleans_temp_workspace(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    with open_package(tmp_path) as package:
+        assert package.search("alpha", profile=SearchProfile.EXACT).hits
+        package._tempdir = tempfile.TemporaryDirectory()
+        temp_path = Path(package._tempdir.name)
+        assert temp_path.exists()
+
+    assert not temp_path.exists()
+    with pytest.raises(RuntimeError, match="closed"):
+        package.search("alpha", profile=SearchProfile.EXACT)
+    package.close()
 
 
 def test_lvcore_search_hit_dereference_document_and_entry_range(tmp_path: Path) -> None:

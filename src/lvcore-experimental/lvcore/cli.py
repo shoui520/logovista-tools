@@ -222,10 +222,12 @@ def _corpus_validate_one(path_str: str, sample_entries: int, sample_search_hits:
             "sidecar_resolution": report.get("sidecar_resolution"),
             "sidecar_roles": report.get("sidecar_roles"),
             "resource_resolution": report.get("resource_resolution"),
+            "decode_telemetry": report.get("decode_telemetry"),
             "title_dereference": report.get("title_dereference"),
             "component_count": report.get("component_count"),
             "gaiji": report.get("gaiji"),
             "indexes": report.get("indexes"),
+            "index_summary": report.get("index_summary"),
             "title_components": report.get("title_components"),
             "diagnostics": report.get("diagnostics"),
             "sample_entries_checked": report.get("sample_entries_checked"),
@@ -356,6 +358,12 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "missing_row": 0,
         "unsupported_body_source": 0,
     }
+    index_component_type_counts: dict[str, int] = {}
+    index_rows_by_component_type: dict[str, int] = {}
+    index_unsupported_component_types: dict[str, int] = {}
+    index_malformed_leaf_rows = 0
+    index_continuation_groups = 0
+    index_dangling_continuation_rows = 0
     sidecar_role_counts: dict[str, int] = {}
     supported_sidecar_role_counts: dict[str, int] = {}
     unsupported_sidecar_role_counts: dict[str, int] = {}
@@ -372,6 +380,7 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "unresolved_media": {},
         "unresolved_link": {},
     }
+    decode_telemetry_counts = {"unknown_controls": 0, "unknown_bytes": 0}
     title_dereference_counts = {
         "attempts": 0,
         "resolved": 0,
@@ -433,6 +442,16 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
             supported_sidecar_role_counts[key] = supported_sidecar_role_counts.get(key, 0) + int(count)
         for key, count in (sidecar_roles.get("unsupported_role_counts") or {}).items():
             unsupported_sidecar_role_counts[key] = unsupported_sidecar_role_counts.get(key, 0) + int(count)
+        index_summary = row.get("index_summary") or {}
+        for key, count in (index_summary.get("component_type_counts") or {}).items():
+            index_component_type_counts[key] = index_component_type_counts.get(key, 0) + int(count)
+        for key, count in (index_summary.get("rows_by_component_type") or {}).items():
+            index_rows_by_component_type[key] = index_rows_by_component_type.get(key, 0) + int(count)
+        for _name, component_type in (index_summary.get("unsupported_component_types") or {}).items():
+            index_unsupported_component_types[component_type] = index_unsupported_component_types.get(component_type, 0) + 1
+        index_malformed_leaf_rows += int(index_summary.get("malformed_leaf_rows") or 0)
+        index_continuation_groups += int(index_summary.get("continuation_groups") or 0)
+        index_dangling_continuation_rows += int(index_summary.get("dangling_continuation_rows") or 0)
         for key, count in (row.get("resource_resolution") or {}).items():
             if isinstance(count, dict):
                 reason_bucket = resource_resolution_by_reason.setdefault(key.removesuffix("_by_reason"), {})
@@ -440,6 +459,8 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
                     reason_bucket[reason] = reason_bucket.get(reason, 0) + int(reason_count)
                 continue
             resource_resolution_counts[key] = resource_resolution_counts.get(key, 0) + int(count)
+        for key, count in (row.get("decode_telemetry") or {}).items():
+            decode_telemetry_counts[key] = decode_telemetry_counts.get(key, 0) + int(count)
         title_deref = row.get("title_dereference") or {}
         title_dereference_counts["attempts"] += int(title_deref.get("attempts") or 0)
         title_dereference_counts["resolved"] += int(title_deref.get("resolved") or 0)
@@ -499,11 +520,20 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "open_failure_count": family_counts.get("error", 0),
         "render_summary": render_summary,
         "sidecar_resolution_counts": sidecar_resolution_counts,
+        "index_summary": {
+            "component_type_counts": index_component_type_counts,
+            "rows_by_component_type": index_rows_by_component_type,
+            "unsupported_component_types": index_unsupported_component_types,
+            "malformed_leaf_rows": index_malformed_leaf_rows,
+            "continuation_groups": index_continuation_groups,
+            "dangling_continuation_rows": index_dangling_continuation_rows,
+        },
         "sidecar_role_counts": sidecar_role_counts,
         "supported_sidecar_role_counts": supported_sidecar_role_counts,
         "unsupported_sidecar_role_counts": unsupported_sidecar_role_counts,
         "resource_resolution_counts": resource_resolution_counts,
         "resource_resolution_by_reason": resource_resolution_by_reason,
+        "decode_telemetry_counts": decode_telemetry_counts,
         "title_dereference_counts": title_dereference_counts,
         "failure_count": len(failures),
         "diagnostics": {
@@ -637,7 +667,6 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.func(args))
     except UnsupportedPackageError as exc:
         parser.error(str(exc))
-        return 2
 
 
 if __name__ == "__main__":

@@ -22,6 +22,19 @@ Use this checklist when reviewing changes under `src/lvcore-experimental`.
 - EntryDocument, LinkTarget, and ResourceRef changes stay enum/string-field
   friendly so a future Rust API and opaque C ABI can represent them cleanly.
 
+## Native Indexes
+
+- Known SSED index component families are parsed or explicitly diagnosed; no
+  recognized index component should produce silent empty rows.
+- Tagged, body-only tagged, keyword, cross-reference, and MULTI selector group
+  context carries across leaf pages when continuation target pages occur.
+- Direct `0x00` rows inside tagged-family leaves remain supported.
+- Group-inherited title pointers are available in debug row metadata but do not
+  leak into friendly search output.
+- Validation/corpus-validation reports index component type counts, rows by
+  component type, malformed rows, unsupported component types, and continuation
+  counts.
+
 ## Rendering And Diagnostics
 
 - Friendly HTML and plain text remain readable and escaped.

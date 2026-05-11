@@ -137,6 +137,13 @@ def parse_catalog(path: Path) -> Catalog:
     score, _preferred, count_offset, record_start, components = parsed[0]
     if score != len(components):
         raise FormatError(f"could not identify SSEDINFO filename layout: {path}")
+    invalid_ranges = [
+        component.name or f"component[{component.index}]"
+        for component in components
+        if component.end_block < component.start_block and (component.start_block or component.end_block)
+    ]
+    if invalid_ranges:
+        raise FormatError(f"SSEDINFO component has invalid block range: {', '.join(invalid_ranges[:3])}")
     return Catalog(path=path, title=title, components=tuple(components), count_offset=count_offset, record_start=record_start)
 
 
@@ -164,7 +171,9 @@ class SsedHeader:
 
     @property
     def expanded_size(self) -> int:
-        return (self.end_block - self.start_block + 1) * BLOCK_SIZE
+        if self.end_block < self.start_block and (self.start_block or self.end_block):
+            raise FormatError("SSEDDATA header has invalid block range")
+        return max(0, self.end_block - self.start_block + 1) * BLOCK_SIZE
 
 
 def load_sseddata_bytes(raw: bytes) -> tuple[bytes, str]:

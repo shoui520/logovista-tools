@@ -21,6 +21,7 @@ from .body_source import (
     SsedBodySourceKind,
     classify_sqlite_sidecar_role,
     find_column,
+    quote_sql_identifier,
     sqlite_columns,
     strip_html,
 )
@@ -87,14 +88,42 @@ class LogoVistaPackage:
         self._sqlite_sidecar_cache: dict[str, Path] = {}
         self._sqlite_schema_cache: dict[str, SidecarInfo | None] = {}
         self._tempdir: tempfile.TemporaryDirectory[str] | None = None
+        self._closed = False
 
     def __del__(self) -> None:  # pragma: no cover - best-effort cleanup
-        tempdir = getattr(self, "_tempdir", None)
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def __enter__(self) -> "LogoVistaPackage":
+        self._ensure_open()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._data_cache.clear()
+        self._index_cache.clear()
+        self._search_value_cache.clear()
+        self._exact_search_cache.clear()
+        self._marker_cache.clear()
+        self._body_pointer_cache.clear()
+        self._body_source_cache = None
+        self._sqlite_sidecar_cache.clear()
+        self._sqlite_schema_cache.clear()
+        tempdir = self._tempdir
+        self._tempdir = None
         if tempdir is not None:
-            try:
-                tempdir.cleanup()
-            except Exception:
-                pass
+            tempdir.cleanup()
+        self._closed = True
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("LogoVistaPackage is closed")
 
     @property
     def title(self) -> str:
@@ -108,9 +137,11 @@ class LogoVistaPackage:
         return self.info.family
 
     def component(self, name: str) -> Component | None:
+        self._ensure_open()
         return self._component_by_name.get(name.lower())
 
     def components_by_role(self, role: ComponentRole) -> tuple[Component, ...]:
+        self._ensure_open()
         return tuple(component for component in self.components if component.role == role)
 
     def component_for_address(self, address: Address, *, role: ComponentRole | None = None) -> Component | None:
@@ -125,6 +156,7 @@ class LogoVistaPackage:
         return None
 
     def data(self, component: str | Component) -> SsedData:
+        self._ensure_open()
         name = component.name if isinstance(component, Component) else component
         key = name.lower()
         if key not in self._data_cache:
@@ -137,9 +169,11 @@ class LogoVistaPackage:
         return self._data_cache[key]
 
     def expanded(self, component: str | Component) -> bytes:
+        self._ensure_open()
         return self.data(component).expand()
 
     def decode_component(self, component: str | Component) -> DecodeResult:
+        self._ensure_open()
         return decode_text_stream(self.expanded(component), self.gaiji.mapping)
 
     def read_address(self, address: Address, size: int, *, role: ComponentRole | None = None) -> bytes:
@@ -170,6 +204,7 @@ class LogoVistaPackage:
         return candidates[0] if candidates else None
 
     def _sidecar_file_candidates(self) -> list[Path]:
+        self._ensure_open()
         candidates: list[Path] = []
         try:
             children = sorted(self.info.root.iterdir(), key=lambda path: path.name.lower())
@@ -219,7 +254,7 @@ class LogoVistaPackage:
     @staticmethod
     def _row_count(con: sqlite3.Connection, table: str) -> int | None:
         try:
-            return int(con.execute(f'select count(*) from "{table}"').fetchone()[0])
+            return int(con.execute(f"select count(*) from {quote_sql_identifier(table)}").fetchone()[0])
         except sqlite3.DatabaseError:
             return None
 
@@ -421,6 +456,8 @@ class LogoVistaPackage:
                 headword=head,
                 text=text,
                 spans=decoded.spans,
+                decode_unknown_controls=decoded.unknown_controls,
+                decode_unknown_bytes=decoded.unknown_bytes,
             )
             count += 1
             if limit is not None and count >= limit:
@@ -444,6 +481,10 @@ class LogoVistaPackage:
         return self._body_pointer_cache[key]
 
     def _decode_anchor_at(self, component: Component, start: int, *, max_bytes: int = 96) -> tuple[str, int]:
+        # Observed dense HONMON sidecar packages expose short decimal anchor
+        # identifiers in the raw HONMON record. Non-numeric records are left
+        # unresolved instead of guessed; a future provider can add another
+        # anchor scheme when corpus evidence is strong enough.
         reader = self.data(component)
         data = reader.read(start, min(max_bytes, max(reader.expanded_size - start, 0)))
         next_marker = data.find(ENTRY_MARKER, 1)
@@ -640,6 +681,8 @@ class LogoVistaPackage:
             text=decoded.text.strip("\x00"),
             spans=decoded.spans,
             entry_diagnostics=diagnostics,
+            decode_unknown_controls=decoded.unknown_controls,
+            decode_unknown_bytes=decoded.unknown_bytes,
         )
 
     def inspect_body_pointer(self, address: Address) -> BodyPointerInspection:
@@ -704,8 +747,11 @@ class LogoVistaPackage:
             for column in (sidecar.title_column, sidecar.html_column, sidecar.plain_column):
                 if column and column not in select_columns:
                     select_columns.append(column)
-            quoted = ", ".join(f'"{column}"' for column in select_columns)
-            sql = f'select {quoted} from "{sidecar.table}" where "{sidecar.id_column}"=? limit 1'
+            quoted = ", ".join(quote_sql_identifier(column) for column in select_columns)
+            sql = (
+                f"select {quoted} from {quote_sql_identifier(sidecar.table)} "
+                f"where {quote_sql_identifier(sidecar.id_column)}=? limit 1"
+            )
             row = None
             for value in self._anchor_query_values(anchor_id, sidecar):
                 row = con.execute(sql, (value,)).fetchone()
@@ -1186,13 +1232,7 @@ class LogoVistaPackage:
         ]
 
     def search_entries(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[Entry]:
-        out: list[Entry] = []
-        for hit in self.search(term, limit=limit, profile=profile).hits:
-            try:
-                out.append(self.entry_for_hit(hit))
-            except Exception:
-                continue
-        return out
+        return [self.entry_for_hit(hit) for hit in self.search(term, limit=limit, profile=profile).hits]
 
     def entry_for_hit(self, hit: SearchHit) -> Entry:
         source = self.body_source()
@@ -1469,15 +1509,26 @@ class LogoVistaPackage:
             "unresolved_link": 0,
             "unresolved_link_by_reason": {},
         }
+        decode_counters = {"unknown_controls": 0, "unknown_bytes": 0}
+        decode_counter_seen: set[tuple[int, int, str | None]] = set()
         entries_checked = 0
         render_ok = 0
         entry_errors: list[str] = []
+
+        def count_decode_telemetry(entry: Entry) -> None:
+            key = (entry.address.block, entry.address.offset, entry.address.component)
+            if key in decode_counter_seen:
+                return
+            decode_counter_seen.add(key)
+            decode_counters["unknown_controls"] += entry.decode_unknown_controls
+            decode_counters["unknown_bytes"] += entry.decode_unknown_bytes
 
         if body_source.ssed_kind == SsedBodySourceKind.BODY_STREAM:
             for entry in self.iter_entries(limit=sample_entries):
                 entries_checked += 1
                 try:
                     document = entry.document()
+                    count_decode_telemetry(entry)
                     render_html(document)
                     render_text(document)
                     render_ok += 1
@@ -1526,6 +1577,7 @@ class LogoVistaPackage:
                 entry = self.entry_for_hit(hit)
                 search_hits_dereferenced += 1
                 document = entry.document()
+                count_decode_telemetry(entry)
                 self._count_diagnostics(document.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
                 self._count_document_resources(document.resources, resource_counters)
                 self._count_document_links(document.blocks, resource_counters)
@@ -1544,9 +1596,28 @@ class LogoVistaPackage:
                 "leaf_pages": parsed.leaf_pages,
                 "internal_pages": parsed.internal_pages,
                 "unknown_leaf_bytes": parsed.unknown_leaf_bytes,
+                "component_type": f"{self.component(name).type:02x}" if self.component(name) is not None else None,
+                "unsupported_component_type": f"{parsed.unsupported_component_type:02x}" if parsed.unsupported_component_type is not None else None,
+                "unsupported_leaf_pages": parsed.unsupported_leaf_pages,
+                "malformed_leaf_rows": parsed.malformed_leaf_rows,
+                "row_type_counts": dict(parsed.row_type_counts),
+                "continuation_groups": parsed.continuation_groups,
+                "dangling_continuation_rows": parsed.dangling_continuation_rows,
+                "diagnostics": [diagnostic.to_dict() for diagnostic in parsed.diagnostics],
             }
             for name, parsed in self.indexes().items()
         }
+        index_component_type_counts: dict[str, int] = {}
+        index_rows_by_component_type: dict[str, int] = {}
+        for name, parsed in self.indexes().items():
+            component = self.component(name)
+            component_type = f"{component.type:02x}" if component is not None else "unknown"
+            index_component_type_counts[component_type] = index_component_type_counts.get(component_type, 0) + 1
+            index_rows_by_component_type[component_type] = index_rows_by_component_type.get(component_type, 0) + len(parsed.rows)
+            for diagnostic in parsed.diagnostics:
+                diagnostics_by_severity["warning"] = diagnostics_by_severity.get("warning", 0) + 1
+                diagnostics_by_area[DiagnosticArea.INDEX.value] = diagnostics_by_area.get(DiagnosticArea.INDEX.value, 0) + 1
+                diagnostics_by_code[diagnostic.code] = diagnostics_by_code.get(diagnostic.code, 0) + 1
         sidecar_resolution = {
             "resolved": diagnostics_by_code.get("sidecar_body_resolved", 0),
             "missing_anchor_id": diagnostics_by_code.get("dense_anchor_missing_id", 0),
@@ -1570,6 +1641,7 @@ class LogoVistaPackage:
             "sidecar_resolution": sidecar_resolution,
             "sidecar_roles": sidecar_roles,
             "resource_resolution": resource_resolution,
+            "decode_telemetry": decode_counters,
             "title_dereference": {
                 "attempts": title_attempts,
                 "resolved": title_status_counts.get("resolved", 0),
@@ -1596,6 +1668,18 @@ class LogoVistaPackage:
                 "ga16_resources": len(self.ga16),
             },
             "indexes": index_stats,
+            "index_summary": {
+                "component_type_counts": index_component_type_counts,
+                "rows_by_component_type": index_rows_by_component_type,
+                "unsupported_component_types": {
+                    name: f"{parsed.unsupported_component_type:02x}"
+                    for name, parsed in self.indexes().items()
+                    if parsed.unsupported_component_type is not None
+                },
+                "malformed_leaf_rows": sum(parsed.malformed_leaf_rows for parsed in self.indexes().values()),
+                "continuation_groups": sum(parsed.continuation_groups for parsed in self.indexes().values()),
+                "dangling_continuation_rows": sum(parsed.dangling_continuation_rows for parsed in self.indexes().values()),
+            },
             "title_components": len(self.components_by_role(ComponentRole.TITLE)),
             "sample_entries_checked": entries_checked,
             "sample_entries_rendered": render_ok,

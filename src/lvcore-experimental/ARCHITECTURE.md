@@ -227,6 +227,24 @@ The Python implementation may parse indexes into row caches for simplicity.
 The future Rust core should preserve the same model while traversing native
 index pages efficiently.
 
+The SSED index parser has explicit families rather than a best-effort text
+fallback:
+
+- simple forward/backward/alternate rows: `0x71`, `0x72`, `0x91`, `0x92`;
+- body-only simple rows: `0x60`;
+- tagged forward/backward rows: `0x70`, `0x90`;
+- body-only tagged rows: `0x30`;
+- keyword rows: `0x80`;
+- cross-reference rows: `0x81`;
+- MULTI selector rows: `0xa1`.
+
+Grouped tagged, keyword, cross-reference, and MULTI selector indexes may carry
+their active group key, count hint, and inherited title pointer across leaf page
+boundaries. Parser output keeps that context in debug row metadata while
+friendly search hits expose only reader-facing headings and status. Unknown or
+malformed index rows become diagnostics and validation counters rather than
+silent empty results.
+
 Entry dereferencing uses body pointers, known body-pointer tables, marker
 offsets, and component bounds before falling back to a maximum byte range. If
 the fallback is needed, the entry carries a recoverable diagnostic.

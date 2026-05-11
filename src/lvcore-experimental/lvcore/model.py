@@ -63,7 +63,9 @@ class Component:
 
     @property
     def block_count(self) -> int:
-        return self.end_block - self.start_block + 1 if self.start_block or self.end_block else 0
+        if not (self.start_block or self.end_block):
+            return 0
+        return max(0, self.end_block - self.start_block + 1)
 
     def contains(self, address: Address) -> bool:
         return self.start_block <= address.block <= self.end_block
@@ -168,6 +170,8 @@ class Entry:
     text: str
     spans: tuple[Span, ...]
     entry_diagnostics: tuple[Any, ...] = ()
+    decode_unknown_controls: int = 0
+    decode_unknown_bytes: int = 0
 
     def document(self):
         from .document import build_entry_document
@@ -194,6 +198,8 @@ class Entry:
         return {
             "address": self.address.to_dict(),
             "end_address": self.end_address.to_dict(),
+            "decode_unknown_controls": self.decode_unknown_controls,
+            "decode_unknown_bytes": self.decode_unknown_bytes,
             "span_summaries": [span.to_debug_summary() for span in self.spans],
             "diagnostics": [
                 diagnostic.to_dict() if hasattr(diagnostic, "to_dict") else diagnostic
@@ -216,6 +222,12 @@ class Entry:
             {
                 "address": self.address.to_dict(),
                 "end_address": self.end_address.to_dict(),
+                "decode_telemetry": {
+                    "unknown_controls": self.decode_unknown_controls,
+                    "unknown_bytes": self.decode_unknown_bytes,
+                },
+                "decode_unknown_controls": self.decode_unknown_controls,
+                "decode_unknown_bytes": self.decode_unknown_bytes,
                 "span_summaries": [span.to_debug_summary() for span in self.spans],
             }
         )

@@ -17,7 +17,8 @@ Current scope:
 - parse dictionary-local `.uni` gaiji mappings;
 - decode SSED text streams into model-like spans;
 - classify observed SSED `0x1f` controls through a local behavior atlas;
-- parse title/index rows;
+- parse title streams and native index rows, including simple, tagged,
+  body-only, keyword, cross-reference, and MULTI selector index families;
 - classify SSED body sources separately from package families;
 - slice readable direct `HONMON.DIC` body-stream entries;
 - detect dense HONMON anchor tables and avoid rendering anchor records as
@@ -115,6 +116,14 @@ title status. It hides raw page/pointer internals by default. Add `--debug`
 when inspecting component names, page/row positions, body/title pointers,
 title-resolution details, and raw parsed rows.
 
+Known SSED index component families are either parsed or explicitly diagnosed.
+The current parser handles `0x30`, `0x60`, `0x70`, `0x71`, `0x72`, `0x80`,
+`0x81`, `0x90`, `0x91`, `0x92`, and `0xa1` index pages. Grouped tagged,
+keyword, cross-reference, and MULTI selector rows carry group context across
+leaf page boundaries where continuation target pages occur. Validation reports
+index component type counts, rows by component type, malformed leaf rows,
+unsupported component types, and continuation counts for audit use.
+
 Title pointers are status-bearing. Some native index rows store the body
 pointer in the title-pointer slot, even when other index families in the same
 package have title streams. lvcore treats those rows as a clean heading
@@ -189,8 +198,9 @@ not LVED.
 Reader-side validation includes sidecar-resolution counters for sampled search
 hits: resolved rows, missing anchor IDs, missing sidecar rows, and unsupported
 body-source placeholders. It also reports reason-level gaiji, media, link, and
-title-dereference counters so private corpus audits can separate safe fallback
-behavior from real compatibility gaps. Sidecar reports also classify sibling
+title-dereference counters plus body decode telemetry for unknown controls and
+bytes so private corpus audits can separate safe fallback behavior from real
+compatibility gaps. Sidecar reports also classify sibling
 SQLite and non-SQLite files by observed role, such as body-critical,
 media/resource, examples/idioms, search, kanji-support, ancillary, or unknown.
 

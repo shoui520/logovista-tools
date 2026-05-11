@@ -141,10 +141,13 @@ text-like stream. These are handled as text components, not as structured index
 page trees. KCOMPEJ2 has a loose `RIGHT.DIC` `SSEDDATA` file that is not listed
 in its main `SSEDINFO` catalog.
 
-The toolkit parses the common `FK/FH/BK/BH` page formats, direct and grouped
-`KWINDEX` rows, direct and grouped `CRINDEX` rows, the body-only `0x30`/`0x60`
-variants, simple alternate `0x72`/`0x92` pages, and the `0xa1` MULTI selector
-index variant. The layouts below were
+The toolkit and the clean lvcore reader parser parse the common `FK/FH/BK/BH`
+page formats, direct and grouped `KWINDEX` rows, direct and grouped `CRINDEX`
+rows, the body-only `0x30`/`0x60` variants, simple alternate `0x72`/`0x92`
+pages, and the `0xa1` MULTI selector index variant. Known tagged families
+carry group context across continuation leaf pages; unsupported or malformed
+index rows should be reported as diagnostics instead of silently returning
+empty parse results. The layouts below were
 validated against Japanese, English, Spanish, French, science, medical, and
 collocation dictionaries, including HAESPJPN, GENIUSEB, HAFRAN, NANMED20,
 OUKOKU11, IPHYCHE5, KENCOLLO, KQJCOLLO, KOJIEN7, 45KAGAKU, and KQSYNONM.

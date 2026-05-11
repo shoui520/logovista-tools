@@ -171,9 +171,11 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   Current SSED coverage includes package-family detection, SSEDINFO parsing,
   plain/LogoFontCipher `SSEDDATA` loading, chunked component reads, text spans,
   `.uni` mappings, GA16 bitmap resource headers/glyph slicing, title/index row
-  parsing, limited HONMON entry slicing, native exact/forward/backward index
-  lookup, `SearchResults` / `SearchHit` reader-facing models, title-pointer
-  heading resolution, body-source classification, body-pointer dereferencing
+  parsing for simple, tagged, body-only, keyword, cross-reference, and MULTI
+  selector index families, limited HONMON entry slicing,
+  native exact/forward/backward index lookup,
+  `SearchResults` / `SearchHit` reader-facing models, title-pointer heading
+  resolution, body-source classification, body-pointer dereferencing
   for direct body-stream HONMON entries, dense HONMON anchor detection, safe
   placeholder diagnostics for unresolved dense body sources, conservative
   SQLite sidecar resolution for `t_contents` / `HONBUN`-style dense-anchor
@@ -189,8 +191,9 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   pointer are treated as heading fallback instead of false title failures.
   Reader-side validation now samples search-hit-to-entry-to-render
   behavior in addition to marker-discovered entries and reports reason-level
-  gaiji, media, link, sidecar-role, and title-dereference counters. LVED and
-  LVLMultiView are detected but deliberately deferred.
+  gaiji, media, link, sidecar-role, title-dereference, index-parser, and body
+  decode telemetry counters. LVED and LVLMultiView are detected but
+  deliberately deferred.
 - `lvcore corpus-validate`, a private audit command for the reader path. It
   emits a stable `lvcore.corpus_validate.v1` JSON summary, optional JSONL
   targets/failures/diagnostics streams, progress output, package-family counts,
