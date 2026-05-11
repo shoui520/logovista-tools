@@ -37,6 +37,7 @@ from .text import DecodeResult, decode_text_stream
 
 
 ENTRY_MARKER = b"\x1f\x09\x00\x01"
+SearchValueRow = tuple[IndexRow, tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]
 
 
 def open_package(path: str | Path) -> "LogoVistaPackage":
@@ -75,6 +76,8 @@ class LogoVistaPackage:
         self._component_by_name = {component.name.lower(): component for component in self.components}
         self._data_cache: dict[str, SsedData] = {}
         self._index_cache: dict[str, IndexParse] = {}
+        self._search_value_cache: dict[str, tuple[SearchValueRow, ...]] = {}
+        self._exact_search_cache: dict[str, dict[str, tuple[tuple[IndexRow, str], ...]]] = {}
         self._marker_cache: dict[str, list[int]] = {}
         self._body_pointer_cache: dict[str, list[int]] = {}
         self._body_source_cache: BodySourceInfo | None = None
@@ -841,33 +844,95 @@ class LogoVistaPackage:
     def _row_dedupe_key(row: IndexRow) -> tuple[int, int, int, int]:
         return (row.body.block, row.body.offset, row.title.block, row.title.offset)
 
-    def _row_matches(self, row: IndexRow, query: str, candidates: tuple[str, ...], profile: SearchProfile, *, backward: bool) -> str | None:
-        row_values = [row.key]
+    @staticmethod
+    def _row_key_values(row: IndexRow) -> tuple[str, ...]:
+        values = [row.key]
         if row.target_key and row.target_key != row.key:
-            row_values.append(row.target_key)
+            values.append(row.target_key)
+        return tuple(dict.fromkeys(value for value in values if value))
+
+    def _cached_search_values(
+        self,
+        component_name: str,
+        parsed: IndexParse,
+    ) -> tuple[SearchValueRow, ...]:
+        key = component_name.lower()
+        if key in self._search_value_cache:
+            return self._search_value_cache[key]
+        backward = self._is_backward_index(component_name)
+        cached = []
+        for row in parsed.rows:
+            stored_values = self._row_key_values(row)
+            natural_values = tuple(dict.fromkeys(natural_backward_key(value) if backward else value for value in stored_values))
+            stored_normalized = tuple(dict.fromkeys(normalize_query(value) for value in stored_values if value))
+            natural_normalized = tuple(dict.fromkeys(normalize_query(value) for value in natural_values if value))
+            cached.append((row, stored_values, natural_values, stored_normalized, natural_normalized))
+        self._search_value_cache[key] = tuple(cached)
+        return self._search_value_cache[key]
+
+    def _cached_exact_values(self, component_name: str, parsed: IndexParse) -> dict[str, tuple[tuple[IndexRow, str], ...]]:
+        key = component_name.lower()
+        if key in self._exact_search_cache:
+            return self._exact_search_cache[key]
+        backward = self._is_backward_index(component_name)
+        rows_by_key: dict[str, list[tuple[IndexRow, str]]] = {}
+        for row, stored_values, natural_values, stored_normalized, natural_normalized in self._cached_search_values(component_name, parsed):
+            values: list[tuple[str, str]] = []
+            values.extend(zip(natural_values, natural_normalized))
+            if backward:
+                values.extend((natural_backward_key(value), normalized) for value, normalized in zip(stored_values, stored_normalized))
+            seen: set[tuple[int, int, int, int, str]] = set()
+            for display_value, normalized_value in values:
+                if not normalized_value:
+                    continue
+                dedupe_key = (*self._row_dedupe_key(row), display_value)
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                rows_by_key.setdefault(normalized_value, []).append((row, display_value))
+        self._exact_search_cache[key] = {normalized: tuple(rows) for normalized, rows in rows_by_key.items()}
+        return self._exact_search_cache[key]
+
+    def _row_matches(
+        self,
+        *,
+        stored_values: tuple[str, ...],
+        natural_values: tuple[str, ...],
+        stored_normalized: tuple[str, ...],
+        natural_normalized: tuple[str, ...],
+        query: str,
+        candidates: tuple[str, ...],
+        profile: SearchProfile,
+        backward: bool,
+    ) -> str | None:
         normalized_query = normalize_query(query)
         normalized_candidates = {normalize_query(candidate) for candidate in candidates if candidate}
 
         if profile == SearchProfile.EXACT:
-            for value in row_values:
+            for value in natural_values:
                 if value in candidates or normalize_query(value) in normalized_candidates:
                     return value
+            for value, normalized_value in zip(stored_values, stored_normalized):
+                if value in candidates or normalized_value in normalized_candidates:
+                    return natural_backward_key(value) if backward else value
             return None
 
         if profile == SearchProfile.FORWARD:
-            for value in row_values:
-                normalized_value = normalize_query(value)
+            for value, normalized_value in zip(natural_values, natural_normalized):
                 if normalized_value.startswith(normalized_query) or any(value.startswith(candidate) for candidate in candidates):
                     return value
             return None
 
         if profile == SearchProfile.BACKWARD:
             reversed_query = normalized_query[::-1]
-            for value in row_values:
-                normalized_value = normalize_query(value)
-                natural_value = normalize_query(natural_backward_key(value)) if backward else normalized_value
-                if normalized_value.startswith(reversed_query) or natural_value.endswith(normalized_query):
-                    return value
+            for stored_value, stored_norm, natural_value, natural_norm in zip(
+                stored_values,
+                stored_normalized,
+                natural_values,
+                natural_normalized,
+            ):
+                if stored_norm.startswith(reversed_query) or natural_norm.endswith(normalized_query) or stored_norm.endswith(normalized_query):
+                    return natural_value if backward else stored_value
             return None
 
         return None
@@ -876,6 +941,8 @@ class LogoVistaPackage:
         self,
         query: str,
         profile: SearchProfile,
+        *,
+        include_backward_exact: bool = True,
     ) -> Iterable[tuple[str, Component, IndexRow, str]]:
         candidates = query_candidates(query)
         for name, parsed in self.indexes().items():
@@ -883,8 +950,32 @@ class LogoVistaPackage:
             if component is None or not self._index_component_matches_profile(component, profile):
                 continue
             backward = self._is_backward_index(name)
-            for row in parsed.rows:
-                matched = self._row_matches(row, query, candidates, profile, backward=backward)
+            if profile == SearchProfile.EXACT and backward and not include_backward_exact:
+                continue
+            if profile == SearchProfile.EXACT:
+                yielded: set[tuple[int, int, int, int, str]] = set()
+                for candidate in candidates:
+                    normalized_candidate = normalize_query(candidate)
+                    if not normalized_candidate:
+                        continue
+                    for row, matched in self._cached_exact_values(name, parsed).get(normalized_candidate, ()):
+                        dedupe_key = (*self._row_dedupe_key(row), matched)
+                        if dedupe_key in yielded:
+                            continue
+                        yielded.add(dedupe_key)
+                        yield name, component, row, matched
+                continue
+            for row, stored_values, natural_values, stored_normalized, natural_normalized in self._cached_search_values(name, parsed):
+                matched = self._row_matches(
+                    stored_values=stored_values,
+                    natural_values=natural_values,
+                    stored_normalized=stored_normalized,
+                    natural_normalized=natural_normalized,
+                    query=query,
+                    candidates=candidates,
+                    profile=profile,
+                    backward=backward,
+                )
                 if matched is not None:
                     yield name, component, row, matched
 
@@ -945,7 +1036,13 @@ class LogoVistaPackage:
         hits: list[SearchHit] = []
         seen: set[tuple[int, int, int, int]] = set()
         for effective_profile in profiles:
-            for name, _component, row, matched_key in self._iter_matching_rows(query, effective_profile):
+            before_profile = len(hits)
+            if effective_profile == SearchProfile.EXACT:
+                primary_matches = list(self._iter_matching_rows(query, effective_profile, include_backward_exact=False))
+                row_matches = primary_matches or list(self._iter_matching_rows(query, effective_profile, include_backward_exact=True))
+            else:
+                row_matches = self._iter_matching_rows(query, effective_profile)
+            for name, _component, row, matched_key in row_matches:
                 dedupe_key = self._row_dedupe_key(row)
                 if not debug and dedupe_key in seen:
                     continue
@@ -963,6 +1060,8 @@ class LogoVistaPackage:
                 )
                 if len(hits) >= limit:
                     return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits))
+            if profile == SearchProfile.NATIVE and len(hits) > before_profile:
+                return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits))
         return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits))
 
     def search_index(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[dict[str, object]]:

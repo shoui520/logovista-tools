@@ -177,6 +177,23 @@ def simple_index(rows: list[tuple[str, int, int, int, int]]) -> bytes:
     return bytes(encoded)
 
 
+def tagged_index(group_key: str, rows: list[tuple[str, int, int, int, int]]) -> bytes:
+    encoded = bytearray(be16(0x8000) + be16(1 + len(rows)))
+    raw_group = index_key(group_key)
+    encoded.extend((0x80, len(raw_group)))
+    encoded.extend(be16(len(rows)))
+    encoded.extend(raw_group)
+    for target, body_block, body_offset, title_block, title_offset in rows:
+        raw_target = index_key(target)
+        encoded.extend((0xC0, len(raw_target)))
+        encoded.extend(raw_target)
+        encoded.extend(be32(body_block))
+        encoded.extend(be16(body_offset))
+        encoded.extend(be32(title_block))
+        encoded.extend(be16(title_offset))
+    return bytes(encoded)
+
+
 def make_reader_workflow_package(root: Path) -> None:
     honmon_start = 2
     fhtitle_start = 3
@@ -229,6 +246,47 @@ def make_reader_workflow_package(root: Path) -> None:
     (root / "BHTITLE.DIC").write_bytes(literal_sseddata(bhtitle, start_block=bhtitle_start, kind=7))
     (root / "FHINDEX.DIC").write_bytes(literal_sseddata(simple_index(forward_rows), start_block=fhindex_start, kind=0x91))
     (root / "BHINDEX.DIC").write_bytes(literal_sseddata(simple_index(backward_rows), start_block=bhindex_start, kind=0x71))
+
+
+def make_backward_only_package(root: Path) -> None:
+    honmon_start = 2
+    title_start = 3
+    index_start = 4
+    body = body_text("alpha") + b"\x1f\x0a" + body_text("backward only body") + b"\x1f\x0a"
+    title = body_text("alpha") + b"\x1f\x0a"
+    rows = [("ahpla", honmon_start, 0, title_start, 0)]
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("BHTITLE.DIC", 0x07, title_start, title_start, b"\x01\x00\x00\x00"),
+        ("BHINDEX.DIC", 0x71, index_start, index_start, b"\x02\x01\x55\x40"),
+    ]
+    root.mkdir(exist_ok=True)
+    (root / "BACK.IDX").write_bytes(ssedinfo("Backward Only", components))
+    (root / "HONMON.DIC").write_bytes(literal_sseddata(body, start_block=honmon_start, kind=0))
+    (root / "BHTITLE.DIC").write_bytes(literal_sseddata(title, start_block=title_start, kind=7))
+    (root / "BHINDEX.DIC").write_bytes(literal_sseddata(simple_index(rows), start_block=index_start, kind=0x71))
+
+
+def make_tagged_target_package(root: Path) -> None:
+    honmon_start = 2
+    title_start = 3
+    index_start = 4
+    body = body_text("primary") + b"\x1f\x0a" + body_text("tagged body") + b"\x1f\x0a"
+    title = body_text("primary") + b"\x1f\x0a"
+    rows = [
+        ("alias", honmon_start, 0, title_start, 0),
+        ("alternate", honmon_start, 0, title_start, 0),
+    ]
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("FHTITLE.DIC", 0x05, title_start, title_start, b"\x01\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x90, index_start, index_start, b"\x02\x01\x55\x40"),
+    ]
+    root.mkdir(exist_ok=True)
+    (root / "TAGGED.IDX").write_bytes(ssedinfo("Tagged", components))
+    (root / "HONMON.DIC").write_bytes(literal_sseddata(body, start_block=honmon_start, kind=0))
+    (root / "FHTITLE.DIC").write_bytes(literal_sseddata(title, start_block=title_start, kind=5))
+    (root / "FHINDEX.DIC").write_bytes(literal_sseddata(tagged_index("primary", rows), start_block=index_start, kind=0x90))
 
 
 def make_dense_anchor_package(root: Path, *, with_sidecar: bool = False) -> None:
@@ -480,6 +538,75 @@ def test_lvcore_search_models_and_native_profiles(tmp_path: Path) -> None:
 
     native = package.search("alp", profile=SearchProfile.NATIVE)
     assert [hit.heading for hit in native.hits] == ["alpha", "alpine"]
+
+
+def test_lvcore_backward_only_index_supports_exact_and_suffix_search(tmp_path: Path) -> None:
+    make_backward_only_package(tmp_path)
+    package = open_package(tmp_path)
+
+    exact = package.search("alpha", profile=SearchProfile.EXACT)
+    backward = package.search("ha", profile=SearchProfile.BACKWARD)
+    native = package.search("alpha", profile=SearchProfile.NATIVE)
+
+    assert [hit.display_key for hit in exact.hits] == ["alpha"]
+    assert exact.hits[0].matched_key == "alpha"
+    assert [hit.display_key for hit in backward.hits] == ["alpha"]
+    assert [hit.display_key for hit in native.hits] == ["alpha"]
+
+
+def test_lvcore_tagged_target_key_matching_and_deduplication(tmp_path: Path) -> None:
+    make_tagged_target_package(tmp_path)
+    package = open_package(tmp_path)
+
+    exact = package.search("alias", profile=SearchProfile.EXACT)
+    forward = package.search("al", profile=SearchProfile.FORWARD)
+    debug_forward = package.search("al", profile=SearchProfile.FORWARD, debug=True)
+
+    assert [hit.target_key for hit in exact.hits] == ["alias"]
+    assert [hit.heading for hit in forward.hits] == ["primary"]
+    assert len(forward.hits) == 1
+    assert len(debug_forward.hits) == 2
+    assert {hit.target_key for hit in debug_forward.hits} == {"alias", "alternate"}
+
+
+def test_lvcore_query_normalization_boundaries() -> None:
+    assert normalize_query(" Ａ-Ｂ カナ・テスト ") == "ABかなてすと"
+    assert normalize_query("かな‐れい") == "かなれい"
+    assert normalize_query("漢字ABC") == "漢字ABC"
+    assert normalize_query("alpha*") == "ALPHA*"
+
+
+def test_lvcore_search_hit_dicts_are_friendly_unless_debug(tmp_path: Path) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+
+    friendly = hit.to_dict()
+    debug = hit.to_dict(debug=True)
+
+    assert "body" not in friendly
+    assert "title" not in friendly
+    assert "raw_row" not in friendly
+    assert debug["body"]["component"] == "HONMON.DIC"
+    assert debug["raw_row"]["key"] == "alpha"
+
+
+def test_lvcore_repeated_search_uses_cached_values_without_changing_results(tmp_path: Path) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+
+    exact = package.search("alpha", profile=SearchProfile.EXACT)
+    first = package.search("alp", profile=SearchProfile.FORWARD)
+    cache_keys_after_first = sorted(package._search_value_cache)
+    exact_cache_keys_after_first = sorted(package._exact_search_cache)
+    second = package.search("alp", profile=SearchProfile.FORWARD)
+
+    assert [hit.display_key for hit in exact.hits] == ["alpha"]
+    assert [hit.to_dict(debug=True) for hit in second.hits] == [hit.to_dict(debug=True) for hit in first.hits]
+    assert cache_keys_after_first == sorted(package._search_value_cache)
+    assert exact_cache_keys_after_first == sorted(package._exact_search_cache)
+    assert "fhindex.dic" in package._search_value_cache
+    assert "fhindex.dic" in package._exact_search_cache
 
 
 def test_lvcore_search_hit_dereference_document_and_entry_range(tmp_path: Path) -> None:
