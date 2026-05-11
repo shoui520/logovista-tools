@@ -686,6 +686,14 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
     assert corpus_data["family_counts"]["ssed"] == 1
     assert corpus_data["family_counts"]["lved_sqlcipher"] == 1
     assert corpus_data["ssed_body_source_kind_counts"]["dense_anchor_with_sidecar"] == 1
+    assert corpus_data["ssed_renderable_count"] == 0
+    assert corpus_data["sidecar_backed_count"] == 1
+    assert corpus_data["render_summary"]["search_hits_rendered_html"] >= 1
+    assert corpus_data["render_summary"]["search_hits_rendered_text"] >= 1
+    assert "top_diagnostics_by_area" in corpus_data
+    ssed_target = next(target for target in corpus_data["targets"] if target["package_family"] == "ssed")
+    assert ssed_target["gaiji"]["uni_records"] == 0
+    assert ssed_target["sample_search_hits_rendered_text"] >= 1
 
 
 def test_lvcore_detects_deferred_families(tmp_path: Path) -> None:

@@ -188,11 +188,17 @@ def _corpus_validate_one(path_str: str, sample_entries: int, sample_search_hits:
             "ok": bool(report.get("ok")),
             "package": package.info.to_dict(),
             "body_source": report.get("body_source"),
+            "component_count": report.get("component_count"),
+            "gaiji": report.get("gaiji"),
             "indexes": report.get("indexes"),
+            "title_components": report.get("title_components"),
             "diagnostics": report.get("diagnostics"),
             "sample_entries_checked": report.get("sample_entries_checked"),
+            "sample_entries_rendered": report.get("sample_entries_rendered"),
+            "sample_index_rows_checked": report.get("sample_index_rows_checked"),
             "sample_search_hits_dereferenced": report.get("sample_search_hits_dereferenced"),
             "sample_search_hits_rendered_html": report.get("sample_search_hits_rendered_html"),
+            "sample_search_hits_rendered_text": report.get("sample_search_hits_rendered_text"),
         }
     except Exception as exc:  # pragma: no cover - CLI aggregate defensive path
         return {
@@ -228,6 +234,18 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
     body_kind_counts: dict[str, int] = {}
     support_counts: dict[str, int] = {}
     diagnostics_by_code: dict[str, int] = {}
+    diagnostics_by_area: dict[str, int] = {}
+    render_summary = {
+        "sample_entries_checked": 0,
+        "sample_entries_rendered": 0,
+        "sample_index_rows_checked": 0,
+        "search_hits_dereferenced": 0,
+        "search_hits_rendered_html": 0,
+        "search_hits_rendered_text": 0,
+    }
+    dense_honmon_count = 0
+    sidecar_backed_count = 0
+    renderer_sidecar_like_count = 0
     failures = []
     for row in rows:
         family = str(row.get("package_family"))
@@ -239,11 +257,25 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         support = body_source.get("support")
         if kind:
             body_kind_counts[kind] = body_kind_counts.get(kind, 0) + 1
+            if kind.startswith("dense_"):
+                dense_honmon_count += 1
+            if kind in {"renderer_sqlite_sidecar", "dictfulldb_sidecar", "honbun_sidecar", "vlpljbl_sidecar"}:
+                renderer_sidecar_like_count += 1
         if support:
             support_counts[support] = support_counts.get(support, 0) + 1
+        if body_source.get("sidecar_kind") or body_source.get("sidecars"):
+            sidecar_backed_count += 1
         diagnostics = row.get("diagnostics") or {}
         for code, count in (diagnostics.get("by_code") or {}).items():
             diagnostics_by_code[code] = diagnostics_by_code.get(code, 0) + int(count)
+        for area, count in (diagnostics.get("by_area") or {}).items():
+            diagnostics_by_area[area] = diagnostics_by_area.get(area, 0) + int(count)
+        render_summary["sample_entries_checked"] += int(row.get("sample_entries_checked") or 0)
+        render_summary["sample_entries_rendered"] += int(row.get("sample_entries_rendered") or 0)
+        render_summary["sample_index_rows_checked"] += int(row.get("sample_index_rows_checked") or 0)
+        render_summary["search_hits_dereferenced"] += int(row.get("sample_search_hits_dereferenced") or 0)
+        render_summary["search_hits_rendered_html"] += int(row.get("sample_search_hits_rendered_html") or 0)
+        render_summary["search_hits_rendered_text"] += int(row.get("sample_search_hits_rendered_text") or 0)
 
     summary = {
         "root": str(args.root),
@@ -251,8 +283,17 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "family_counts": family_counts,
         "ssed_body_source_kind_counts": body_kind_counts,
         "ssed_body_source_support_counts": support_counts,
+        "ssed_renderable_count": support_counts.get("renderable", 0),
+        "ssed_deferred_count": support_counts.get("deferred", 0),
+        "ssed_unsupported_or_unknown_count": support_counts.get("unsupported", 0) + support_counts.get("unknown", 0),
+        "dense_honmon_count": dense_honmon_count,
+        "sidecar_backed_count": sidecar_backed_count,
+        "renderer_sidecar_like_count": renderer_sidecar_like_count,
+        "open_failure_count": family_counts.get("error", 0),
+        "render_summary": render_summary,
         "failure_count": len(failures),
         "top_diagnostics_by_code": dict(sorted(diagnostics_by_code.items(), key=lambda item: (-item[1], item[0]))[:30]),
+        "top_diagnostics_by_area": dict(sorted(diagnostics_by_area.items(), key=lambda item: (-item[1], item[0]))[:30]),
         "targets": rows,
     }
     emit(summary)
