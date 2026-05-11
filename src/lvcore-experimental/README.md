@@ -114,9 +114,10 @@ pointers, and raw parsed rows.
 
 The lvcore control model uses behavior-level names derived from observed corpus
 behavior. Friendly output hides private directives and raw control bytes,
-literal/preformatted spans remain readable, URL and link spans become semantic
-link nodes where currently understood, and layout/media controls are preserved
-as diagnostics or resource hints until a richer resolver is available.
+literal/preformatted spans remain readable, URL and pointer-bearing reference
+spans become semantic link nodes where currently understood, and layout/media
+controls are preserved as diagnostics or resource hints until a richer resolver
+is available.
 
 Gaiji, media, and links are app-facing document concepts:
 
@@ -125,10 +126,12 @@ Gaiji, media, and links are app-facing document concepts:
   placeholders with diagnostics.
 - Media, image, and audio controls become `ResourceRef` nodes with stable
   `lvcore-resource://...` placeholder URLs unless a caller provides its own
-  mapper.
-- URL and internal reference spans become semantic link nodes when the target
-  can be recovered. Unresolved link targets keep visible label text and record
-  diagnostics; friendly output does not expose raw pointer bytes.
+  mapper. Media descriptor metadata is preserved for debug/developer use, and
+  package-local resource APIs can report original component addresses or GA16
+  glyph bytes where lvcore knows a safe untouched source.
+- URL and internal reference spans become semantic `LinkTarget` nodes when the
+  target can be recovered. Unresolved link targets keep visible label text and
+  record diagnostics; friendly output does not expose raw pointer bytes.
 
 HTML rendering has four explicit profiles:
 
@@ -176,7 +179,9 @@ not LVED.
 
 Reader-side validation includes sidecar-resolution counters for sampled search
 hits: resolved rows, missing anchor IDs, missing sidecar rows, and unsupported
-body-source placeholders.
+body-source placeholders. It also reports reason-level gaiji, media, link, and
+title-dereference counters so private corpus audits can separate safe fallback
+behavior from real compatibility gaps.
 
 `corpus-validate` is the private full-corpus audit entry point. Its JSON summary
 uses the `lvcore.corpus_validate.v1` schema and reports package-family counts,

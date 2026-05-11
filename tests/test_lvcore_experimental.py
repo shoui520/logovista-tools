@@ -14,7 +14,7 @@ LVCORE_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-experimental"
 sys.path.insert(0, str(LVCORE_SRC))
 
 from lvcore import Address, Diagnostic, DiagnosticArea, Location, PackageFamily, SearchHit, SearchProfile, SearchResults, Severity, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
-from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, ResourceKind, ResourceRef, build_entry_document  # noqa: E402
+from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, LinkTargetKind, ResourceKind, ResourceRef, ResourceStatus, build_entry_document  # noqa: E402
 from lvcore.errors import FormatError  # noqa: E402
 from lvcore.gaiji import ga16_glyph_size, parse_ga16  # noqa: E402
 from lvcore.index import parse_index  # noqa: E402
@@ -160,6 +160,31 @@ def make_synthetic_package(root: Path) -> None:
     root.mkdir(exist_ok=True)
     (root / "TEST.IDX").write_bytes(ssedinfo("Synthetic", components))
     (root / "HONMON.DIC").write_bytes(literal_sseddata(entry, start_block=honmon_start, kind=0))
+    (root / "FHTITLE.DIC").write_bytes(literal_sseddata(title, start_block=title_start, kind=5))
+    (root / "FHINDEX.DIC").write_bytes(literal_sseddata(index, start_block=index_start, kind=0x91))
+
+
+def make_media_resource_package(root: Path) -> None:
+    honmon_start = 2
+    media_start = 3
+    title_start = 4
+    index_start = 5
+    media_payload = b"\x00" * 12 + be32(media_start) + be16(0)
+    entry = body_text("media") + b"\x1f\x0a" + b"\x1f\x4d" + media_payload + body_text("caption") + b"\x1f\x6d\x1f\x0a"
+    title = body_text("media") + b"\x1f\x0a"
+    key = index_key("media")
+    row = bytes([len(key)]) + key + be32(honmon_start) + be16(0) + be32(title_start) + be16(0)
+    index = be16(0x8000) + be16(1) + row
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("COLSCR.DIC", 0xD2, media_start, media_start, b"\x00\x00\x00\x00"),
+        ("FHTITLE.DIC", 0x05, title_start, title_start, b"\x01\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start, b"\x02\x01\x55\x40"),
+    ]
+    root.mkdir(exist_ok=True)
+    (root / "MEDIA.IDX").write_bytes(ssedinfo("Media", components))
+    (root / "HONMON.DIC").write_bytes(literal_sseddata(entry, start_block=honmon_start, kind=0))
+    (root / "COLSCR.DIC").write_bytes(literal_sseddata(b"original media bytes", start_block=media_start, kind=0xD2))
     (root / "FHTITLE.DIC").write_bytes(literal_sseddata(title, start_block=title_start, kind=5))
     (root / "FHINDEX.DIC").write_bytes(literal_sseddata(index, start_block=index_start, kind=0x91))
 
@@ -1058,6 +1083,41 @@ def test_lvcore_internal_link_renders_semantic_target_without_raw_payload() -> N
     assert not any(diagnostic.code == "unresolved_link_target" for diagnostic in document.diagnostics)
 
 
+def test_lvcore_link_targets_are_typed_and_debuggable() -> None:
+    body_target = b"\x00\x00\x00\x02\x00\x10"
+    menu_target = b"\x00\x00\x00\x03\x00\x20"
+    jump_payload = b"\x00\x01\x00\x02" + b"\x00\x00\x00\x04\x00\x30" + b"\x00\x00\x00\x04\x00\x40"
+    raw = (
+        b"\x1f\x42" + body_text("body ref") + b"\x1f\x62" + body_target
+        + b"\x1f\x43" + body_text("menu ref") + b"\x1f\x63" + menu_target
+        + b"\x1f\x4a" + jump_payload + body_text("sound ref") + b"\x1f\x6a"
+    )
+    decoded = decode_text_stream(raw)
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "link"), "link", decoded.text, decoded.spans)
+    document = entry.document()
+    link_nodes = [node for block in document.blocks for node in block.inlines if node.kind == InlineKind.LINK]
+
+    assert [node.attrs["link_target"]["kind"] for node in link_nodes] == [
+        LinkTargetKind.BODY_REFERENCE.value,
+        LinkTargetKind.MENU_NAVIGATION.value,
+        LinkTargetKind.JUMP_OR_AUDIO_RANGE.value,
+    ]
+    assert link_nodes[0].attrs["link_target"]["status"] == "resolved"
+    assert link_nodes[1].attrs["link_target"]["href"] == "lvcore-entry://3/20"
+    assert link_nodes[2].attrs["link_target"]["status"] == "deferred"
+    assert link_nodes[2].attrs["link_target"]["address"] == {"block": 4, "offset": 30}
+    assert link_nodes[2].attrs["link_target"]["end_address"] == {"block": 4, "offset": 40}
+
+    friendly = render_html(document)
+    debug = render_html(document, profile=HtmlProfile.DEBUG)
+
+    assert "body ref" in friendly and "menu ref" in friendly and "sound ref" in friendly
+    assert "000000020010" not in friendly
+    assert "00010002000000040030000000040040" not in friendly
+    assert "lvcore-entry://ref-" in friendly
+    assert "00010002000000040030000000040040" in debug
+
+
 def test_lvcore_unresolved_link_is_diagnostic_and_friendly_safe() -> None:
     payload = bytes(range(10))
     raw = b"\x1f\x49" + payload + body_text("unresolved") + b"\x1f\x69"
@@ -1100,9 +1160,30 @@ def test_lvcore_media_refs_become_resources_and_safe_placeholders() -> None:
 
     assert len(document.resources) == 1
     assert document.resources[0].id == "media-1"
+    assert document.resources[0].status == ResourceStatus.MALFORMED
+    assert document.resources[0].details["reason"] == "malformed_media_pointer"
     assert "lvcore-resource://media-1" in html
     assert bytes(range(18)).hex() not in html
     assert any(diagnostic.code == "unresolved_media_ref" for diagnostic in document.diagnostics)
+
+
+def test_lvcore_media_resource_info_resolves_original_component_address(tmp_path: Path) -> None:
+    make_media_resource_package(tmp_path)
+    package = open_package(tmp_path)
+    hit = package.search("media", profile=SearchProfile.EXACT).hits[0]
+    entry = package.entry_for_hit(hit)
+    document = entry.document()
+    resource = document.resources[0]
+
+    info = package.resource_info(resource)
+
+    assert resource.kind == ResourceKind.MEDIA
+    assert resource.details["target_address"] == {"block": 3, "offset": 0}
+    assert info["status"] == "deferred"
+    assert info["source_component"] == "COLSCR.DIC"
+    assert info["source_offset"] == 0
+    assert info["details"]["reason"] == "media_address_resolved_without_extent"
+    assert package.resource_bytes(resource) is None
 
 
 def test_lvcore_image_and_audio_media_refs_are_first_class_resources() -> None:
@@ -1366,7 +1447,13 @@ def test_lvcore_cli_render_and_validate_commands(tmp_path: Path) -> None:
     data = json.loads(validate_result.stdout)
     assert data["ok"] is True
     assert data["sample_entries_rendered"] == 1
-    assert data["resource_resolution"] == {"unresolved_gaiji": 0, "unresolved_media": 0, "unresolved_link": 0}
+    assert data["resource_resolution"]["unresolved_gaiji"] == 0
+    assert data["resource_resolution"]["unresolved_media"] == 0
+    assert data["resource_resolution"]["unresolved_link"] == 0
+    assert data["resource_resolution"]["unresolved_gaiji_by_reason"] == {}
+    assert data["resource_resolution"]["unresolved_media_by_reason"] == {}
+    assert data["resource_resolution"]["unresolved_link_by_reason"] == {}
+    assert data["title_dereference"]["by_reason"] == {}
 
 
 def test_lvcore_friendly_reader_example_runs_without_raw_internals(tmp_path: Path) -> None:

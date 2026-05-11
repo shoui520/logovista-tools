@@ -130,7 +130,8 @@ def _render_link_html(
     status = str(target.get("status") or "unresolved")
     visible_text = _inline_text(node, gaiji_policy=GaijiPolicy.UNICODE_PREFERRED).strip()
     href = str(target.get("href") or "")
-    if kind == "url" and not href and _is_safe_url(visible_text):
+    is_external = kind in {"url", "external_url"}
+    if is_external and not href and _is_safe_url(visible_text):
         href = visible_text
 
     debug_attrs = ""
@@ -144,13 +145,16 @@ def _render_link_html(
         )
 
     if href and (href.startswith("lvcore-entry://") or _is_safe_url(href)):
-        class_name = "lv-link lv-link-url" if kind == "url" else "lv-link lv-link-internal"
+        class_name = "lv-link lv-link-url" if is_external else "lv-link lv-link-internal"
         if profile == HtmlProfile.SEMANTIC:
             class_name = f"lv-inline lv-inline-link {class_name}"
         elif profile == HtmlProfile.LOGOVISTA_LIKE:
             class_name = f"lv-lvlike-link {class_name}"
         public_href = _public_href(href, profile=profile)
-        return f'<a class="{class_name}" href="{escape(public_href, quote=True)}"{debug_attrs}>{children}</a>'
+        data_link = ""
+        if not is_external:
+            data_link = f' data-lvcore-link="{escape(public_href, quote=True)}"'
+        return f'<a class="{class_name}" href="{escape(public_href, quote=True)}"{data_link}{debug_attrs}>{children}</a>'
     class_name = "lv-link lv-link-unresolved"
     if profile == HtmlProfile.SEMANTIC:
         class_name = "lv-inline lv-inline-link lv-link lv-link-unresolved"

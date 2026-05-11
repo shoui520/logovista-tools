@@ -8,7 +8,19 @@ model, starting with SSED.
 from .detect import detect_family
 from .body_source import BodySourceInfo, BodySourceSupport, Confidence, SsedBodySourceKind
 from .diagnostics import Diagnostic, DiagnosticArea, Location, Severity
-from .document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, LinkTarget, ResourceKind, ResourceRef
+from .document import (
+    BlockKind,
+    BlockNode,
+    EntryDocument,
+    InlineKind,
+    InlineNode,
+    LinkTarget,
+    LinkTargetKind,
+    LinkTargetStatus,
+    ResourceKind,
+    ResourceRef,
+    ResourceStatus,
+)
 from .model import Address, Component, PackageFamily, PackageInfo, SearchProfile, Span
 from .opcodes import OpcodeBehavior, OpcodeCategory, behavior_for
 from .package import LogoVistaPackage, open_package
@@ -31,6 +43,8 @@ __all__ = [
     "InlineKind",
     "InlineNode",
     "LinkTarget",
+    "LinkTargetKind",
+    "LinkTargetStatus",
     "LogoVistaPackage",
     "Location",
     "PackageFamily",
@@ -39,6 +53,7 @@ __all__ = [
     "OpcodeCategory",
     "ResourceRef",
     "ResourceKind",
+    "ResourceStatus",
     "SearchProfile",
     "SearchHit",
     "SearchResults",

@@ -18,13 +18,16 @@ DOCUMENT_MODEL_VERSION = 1
 DEBUG_ATTR_KEYS = {
     "address",
     "anchor_raw",
+    "end_address",
     "end_payload",
+    "details",
     "payload",
     "payload_hex",
     "raw",
     "raw_payload",
     "raw_spans",
     "raw_text",
+    "end_op",
     "span_offset",
     "start_op",
     "start_payload",
@@ -64,6 +67,36 @@ class ResourceKind(str, Enum):
     MEDIA = "media"
     GAIJI = "gaiji"
     UNKNOWN = "unknown"
+
+
+class ResourceStatus(str, Enum):
+    RESOLVED = "resolved"
+    UNRESOLVED = "unresolved"
+    DEFERRED = "deferred"
+    UNSUPPORTED = "unsupported"
+    MALFORMED = "malformed"
+
+
+class LinkTargetKind(str, Enum):
+    EXTERNAL_URL = "external_url"
+    INTERNAL_ADDRESS = "internal_address"
+    MENU_NAVIGATION = "menu_navigation"
+    TOC_INTERNAL = "toc_internal"
+    BODY_REFERENCE = "body_reference"
+    EXTENDED_REFERENCE = "extended_reference"
+    JUMP_OR_AUDIO_RANGE = "jump_or_audio_range"
+    UNRESOLVED = "unresolved"
+    UNKNOWN = "unknown"
+
+
+class LinkTargetStatus(str, Enum):
+    RESOLVED = "resolved"
+    UNRESOLVED = "unresolved"
+    DEFERRED = "deferred"
+    UNSUPPORTED = "unsupported"
+    MALFORMED = "malformed"
+    CONTENT = "content"
+    PENDING = "pending"
 
 
 def _stable_private_ref(value: str) -> str:
@@ -110,6 +143,14 @@ STYLE_END_OPS = {0x07, 0x0F, 0x11, 0x13, 0x5B, 0x62, 0x63, 0x64, 0x69, 0x6A, 0xE
 LINK_START_OPS = {0x3B, 0x42, 0x43, 0x44, 0x49, 0x4A}
 LINK_END_OPS = {0x5B, 0x62, 0x63, 0x64, 0x69, 0x6A}
 LINK_END_TARGET_OPS = {0x62, 0x63, 0x64}
+LINK_START_KINDS = {
+    0x3B: LinkTargetKind.EXTERNAL_URL,
+    0x42: LinkTargetKind.BODY_REFERENCE,
+    0x43: LinkTargetKind.MENU_NAVIGATION,
+    0x44: LinkTargetKind.EXTENDED_REFERENCE,
+    0x49: LinkTargetKind.TOC_INTERNAL,
+    0x4A: LinkTargetKind.JUMP_OR_AUDIO_RANGE,
+}
 
 
 IGNORED_CONTROL_TAGS = {
@@ -128,24 +169,31 @@ class ResourceRef:
     id: str
     kind: ResourceKind
     label: str
+    status: ResourceStatus | str = ResourceStatus.UNRESOLVED
+    mime_type: str | None = None
     component: str | None = None
     code: str | None = None
     source_offset: int | None = None
+    source_path: str | None = None
     details: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+        status = self.status.value if isinstance(self.status, ResourceStatus) else str(self.status)
         data: dict[str, Any] = {
             "id": self.id,
             "kind": self.kind.value,
             "label": self.label,
-            "component": self.component,
-            "source_offset": self.source_offset,
+            "status": status,
+            "mime_type": self.mime_type,
         }
         if debug:
             data["code"] = self.code
+            data["source_path"] = self.source_path
+            data["component"] = self.component
+            data["source_offset"] = self.source_offset
             data["details"] = _public_mapping(self.details, debug=True)
         else:
-            public_details = {key: value for key, value in self.details.items() if key in {"resolved"}}
+            public_details = {key: value for key, value in self.details.items() if key in {"resolved", "reason"}}
             if public_details:
                 data["details"] = public_details
         return data
@@ -153,23 +201,41 @@ class ResourceRef:
 
 @dataclass(frozen=True)
 class LinkTarget:
-    kind: str
+    kind: LinkTargetKind | str
     href: str | None = None
     address: Address | None = None
+    end_address: Address | None = None
+    resource_id: str | None = None
+    label: str | None = None
     raw_payload: str | None = None
-    status: str = "unresolved"
+    start_op: str | None = None
+    end_op: str | None = None
+    start_payload: str | None = None
+    end_payload: str | None = None
+    status: LinkTargetStatus | str = LinkTargetStatus.UNRESOLVED
+    details: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+        kind = self.kind.value if isinstance(self.kind, LinkTargetKind) else str(self.kind)
+        status = self.status.value if isinstance(self.status, LinkTargetStatus) else str(self.status)
         data = {
-            "kind": self.kind,
+            "kind": kind,
             "href": self.href,
-            "status": self.status,
+            "status": status,
+            "label": self.label,
+            "resource_id": self.resource_id,
         }
         if not debug and self.href and self.href.startswith("lvcore-entry://"):
             data["href"] = _stable_private_ref(self.href)
         if debug:
             data["address"] = self.address.to_dict() if self.address else None
+            data["end_address"] = self.end_address.to_dict() if self.end_address else None
             data["raw_payload"] = self.raw_payload
+            data["start_op"] = self.start_op
+            data["end_op"] = self.end_op
+            data["start_payload"] = self.start_payload
+            data["end_payload"] = self.end_payload
+            data["details"] = _public_mapping(self.details, debug=True)
         return data
 
 
@@ -280,14 +346,89 @@ def _address_from_bcd_payload(payload: bytes) -> Address | None:
     return Address(block, offset)
 
 
-def _link_attrs_for_start(span: Span) -> dict[str, Any]:
-    if span.op == 0x3B:
-        target = LinkTarget(kind="url", status="content")
+def _range_from_pcm_payload(payload: bytes) -> tuple[Address, Address] | None:
+    if len(payload) < 16:
+        return None
+    start = _address_from_bcd_payload(payload[4:10])
+    end = _address_from_bcd_payload(payload[10:16])
+    if start is None or end is None:
+        return None
+    return start, end
+
+
+def _media_descriptor_from_payload(payload: bytes) -> dict[str, Any]:
+    descriptor: dict[str, Any] = {
+        "payload_length": len(payload),
+        "resolved": False,
+        "reason": "unresolved_media_payload",
+    }
+    if payload:
+        descriptor["payload_hex"] = payload.hex()
+    if len(payload) != 18:
+        descriptor["status"] = ResourceStatus.MALFORMED.value
+        descriptor["reason"] = "malformed_media_descriptor"
+        return descriptor
+    address = _address_from_bcd_payload(payload[12:18])
+    descriptor.update(
+        {
+            "status": ResourceStatus.DEFERRED.value,
+            "descriptor_prefix": payload[:12].hex(),
+            "pointer_payload": payload[12:18].hex(),
+            "reason": "media_payload_address_only",
+        }
+    )
+    if address is not None:
+        descriptor["target_address"] = address.to_dict()
+        descriptor["target_block"] = address.block
+        descriptor["target_offset"] = address.offset
     else:
-        target = LinkTarget(kind="internal", raw_payload=span.payload.hex() or None, status="pending")
+        descriptor["status"] = ResourceStatus.MALFORMED.value
+        descriptor["reason"] = "malformed_media_pointer"
+    return descriptor
+
+
+def _link_attrs_for_start(span: Span) -> dict[str, Any]:
+    op_hex = f"{span.op:02x}" if span.op is not None else None
+    kind = LINK_START_KINDS.get(span.op, LinkTargetKind.UNKNOWN)
+    if span.op == 0x3B:
+        target = LinkTarget(kind=kind, status=LinkTargetStatus.CONTENT, start_op=op_hex, start_payload=span.payload.hex())
+    elif span.op == 0x4A:
+        address_range = _range_from_pcm_payload(span.payload)
+        if address_range is not None:
+            start, end = address_range
+            target = LinkTarget(
+                kind=kind,
+                address=start,
+                end_address=end,
+                raw_payload=span.payload.hex() or None,
+                start_op=op_hex,
+                start_payload=span.payload.hex(),
+                status=LinkTargetStatus.DEFERRED,
+                details={
+                    "range_start": start.to_dict(),
+                    "range_end": end.to_dict(),
+                    "kind_flags": span.payload[:4].hex(),
+                },
+            )
+        else:
+            target = LinkTarget(
+                kind=kind,
+                raw_payload=span.payload.hex() or None,
+                start_op=op_hex,
+                start_payload=span.payload.hex(),
+                status=LinkTargetStatus.MALFORMED if span.payload else LinkTargetStatus.UNRESOLVED,
+            )
+    else:
+        target = LinkTarget(
+            kind=kind,
+            raw_payload=span.payload.hex() or None,
+            start_op=op_hex,
+            start_payload=span.payload.hex(),
+            status=LinkTargetStatus.PENDING,
+        )
     return {
-        "link_target": target.to_dict(),
-        "start_op": f"{span.op:02x}" if span.op is not None else None,
+        "link_target": target.to_dict(debug=True),
+        "start_op": op_hex,
         "start_payload": span.payload.hex(),
     }
 
@@ -379,10 +520,11 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                     id=resource_id,
                     kind=ResourceKind.GAIJI,
                     label=span.text or "gaiji",
+                    status=ResourceStatus.UNRESOLVED if unresolved else ResourceStatus.RESOLVED,
                     component=entry.address.component,
                     code=span.code,
                     source_offset=span.offset,
-                    details={"resolved": not unresolved},
+                    details={"resolved": not unresolved, "reason": "missing_unicode_mapping" if unresolved else "unicode_mapping"},
                 )
             )
             if unresolved:
@@ -392,7 +534,7 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                     "unresolved_gaiji",
                     "gaiji has no Unicode mapping in the current package context",
                     location=location(span),
-                    details={"code": span.code},
+                    details={"code": span.code, "reason": "missing_unicode_mapping"},
                 )
             node = InlineNode(
                 InlineKind.GAIJI,
@@ -411,13 +553,16 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                 resource_kind = ResourceKind(resource_kind_name)
             except ValueError:
                 resource_kind = ResourceKind.MEDIA
+            descriptor = _media_descriptor_from_payload(span.payload)
+            status = ResourceStatus(descriptor.get("status", ResourceStatus.UNRESOLVED.value))
             resource = ResourceRef(
                 id=f"media-{resource_counter}",
                 kind=resource_kind,
                 label=resource_kind.value,
+                status=status,
                 component=entry.address.component,
                 source_offset=span.offset,
-                details={"payload_hex": span.payload.hex()},
+                details=descriptor,
             )
             resources.append(resource)
             _append_inline(
@@ -426,7 +571,13 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                     InlineNode(
                         InlineKind.MEDIA_REF,
                         resource_id=resource.id,
-                        attrs={"label": resource.label, "resource_kind": resource.kind.value, "payload_hex": span.payload.hex()},
+                        attrs={
+                            "label": resource.label,
+                            "resource_kind": resource.kind.value,
+                            "payload_hex": span.payload.hex(),
+                            "resource_status": status.value,
+                            "media_descriptor": descriptor,
+                        },
                     ),
                     active_styles,
                 ),
@@ -435,9 +586,9 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                 Severity.WARNING,
                 DiagnosticArea.MEDIA,
                 "unresolved_media_ref",
-                "media reference is preserved but not resolved to a payload in document v0",
+                "media reference is preserved but not resolved to a payload",
                 location=location(span),
-                details={"resource_id": resource.id},
+                details={"resource_id": resource.id, "reason": descriptor.get("reason"), "target_address": descriptor.get("target_address")},
             )
             continue
 
@@ -474,21 +625,33 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                                 if address is not None:
                                     target["address"] = address.to_dict()
                                     target["href"] = f"lvcore-entry://{address.block}/{address.offset}"
-                                    target["status"] = "resolved"
+                                    target["status"] = LinkTargetStatus.RESOLVED.value
                                 else:
-                                    target["status"] = "invalid"
-                            elif target.get("kind") == "url":
-                                target["status"] = "content"
+                                    target["status"] = LinkTargetStatus.MALFORMED.value
+                                    target["reason"] = "malformed_address_payload"
+                            elif target.get("kind") in {"url", LinkTargetKind.EXTERNAL_URL.value}:
+                                target["status"] = LinkTargetStatus.CONTENT.value
+                            elif target.get("kind") == LinkTargetKind.JUMP_OR_AUDIO_RANGE.value and target.get("address"):
+                                target["status"] = LinkTargetStatus.DEFERRED.value
                             else:
-                                target["status"] = "unresolved"
-                            if target.get("kind") != "url" and target.get("status") != "resolved":
+                                target["status"] = LinkTargetStatus.UNRESOLVED.value
+                                target["reason"] = "no_decoded_target"
+                            if target.get("kind") not in {"url", LinkTargetKind.EXTERNAL_URL.value} and target.get("status") not in {
+                                LinkTargetStatus.RESOLVED.value,
+                                LinkTargetStatus.DEFERRED.value,
+                            }:
                                 diagnostics.add(
                                     Severity.WARNING,
                                     DiagnosticArea.BODY,
                                     "unresolved_link_target",
                                     "link control did not expose a resolvable target",
                                     location=location(span),
-                                    details={"op": f"{span.op:02x}" if span.op is not None else None, "payload": span.payload.hex()},
+                                    details={
+                                        "op": f"{span.op:02x}" if span.op is not None else None,
+                                        "payload": span.payload.hex(),
+                                        "reason": target.get("reason") or "unresolved_target",
+                                        "kind": target.get("kind"),
+                                    },
                                 )
                     for index in range(len(active_styles) - 1, -1, -1):
                         if active_styles[index].kind == style:

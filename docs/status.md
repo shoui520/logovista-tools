@@ -180,11 +180,13 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   bodies and dict-code-named extensionless `main` sidecars, and entry-range
   resolution from known body pointers, markers, and component bounds. It builds
   structured `EntryDocument` trees from spans,
-  collects recoverable diagnostics, preserves media references as resources,
+  collects recoverable diagnostics, preserves typed links and media references
+  as `LinkTarget` / `ResourceRef` nodes,
   and renders friendly/semantic/LogoVista-like/debug HTML plus plain text.
   Friendly rendering hides raw opcodes and offsets; debug search/render output
   is explicit. Reader-side validation now samples search-hit-to-entry-to-render
-  behavior in addition to marker-discovered entries. LVED and LVLMultiView are
+  behavior in addition to marker-discovered entries and reports reason-level
+  gaiji, media, link, and title-dereference counters. LVED and LVLMultiView are
   detected but deliberately deferred.
 - `lvcore corpus-validate`, a private audit command for the reader path. It
   emits a stable `lvcore.corpus_validate.v1` JSON summary, optional JSONL
@@ -252,7 +254,9 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
 - Not every product that declares `DictFULLDB` has an unreadable `HONMON.DIC`;
   several still have readable raw body streams. Audit the raw layer first.
 - Some control opcodes are structurally recognized with conservative tags, but
-  their exact renderer presentation is not fully modeled.
+  their exact renderer presentation is not fully modeled. The current SSED
+  blocker class is renderer/resource completeness, not unknown `0x1f` byte
+  accounting.
 - The observed SSED corpus has one known physical tail anomaly:
   `NANDOKU3` ends with a lone final `0x1f` byte after the last decoded text
   cell. It is covered and reported as a truncated control, not guessed.

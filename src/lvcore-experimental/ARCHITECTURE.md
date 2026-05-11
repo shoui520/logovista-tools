@@ -130,7 +130,7 @@ construction, rendering, diagnostics, and tests aligned around stable concepts:
 - private renderer directives are hidden in friendly output and shown only by
   diagnostics/debug profiles;
 - literal/preformatted spans preserve readable text;
-- URL and internal-link spans become semantic link nodes when safe;
+- URL and pointer-bearing reference spans become semantic link nodes when safe;
 - tab/column controls are nonprinting layout hints;
 - media-layout controls are nonprinting resource hints;
 - media references become first-class resources or placeholders;
@@ -164,19 +164,24 @@ diagnostic. Debug rendering can expose raw gaiji codes.
 Media, image, audio, and unresolved payload references are first-class resource
 references. Friendly HTML may use stable placeholders such as
 `lvcore-resource://media-1`; raw media opcode payloads must not leak into
-friendly output.
+friendly output. Resource records carry stable IDs plus resolution status,
+reason-level diagnostics, and debug-only payload metadata.
 
 Resource rendering is caller-mappable: the default renderer emits stable
 `lvcore-resource://...` URLs, while applications can provide their own mapper
 when serving bitmap gaiji, images, audio, or other resources. Plain text remains
 readable and uses Unicode gaiji where available plus compact media labels.
+Package-level resource APIs can report original GA16 glyph bytes or media
+component addresses where lvcore has a safe untouched source. Media bytes are
+not transformed, transcoded, resized, or copied by the reader model.
 
 URL spans and pointer-bearing reference spans are represented as semantic link
-nodes. External URL links are emitted only for safe URL schemes. Internal
-references use opaque `lvcore-entry://ref-*` placeholders in non-debug HTML
-when a target pointer is recoverable. Unresolved links preserve visible label
-text and diagnostics, while debug rendering may expose raw payloads and pointer
-details.
+nodes with typed targets such as external URL, body reference, menu navigation,
+TOC/internal reference, extended reference, and jump/audio range. External URL
+links are emitted only for safe URL schemes. Internal references use opaque
+`lvcore-entry://ref-*` placeholders in non-debug HTML when a target pointer is
+recoverable. Unresolved links preserve visible label text and diagnostics,
+while debug rendering may expose decoded payloads and pointer details.
 
 ## Search
 
@@ -227,8 +232,9 @@ the fallback is needed, the entry carries a recoverable diagnostic.
 
 Reader-side validation samples both marker-discovered entries and
 search-hit-to-entry-to-render paths. It reports sampled index rows, dereference
-counts, render counts, and diagnostic counts. It is reader-safety validation,
-not writer verification.
+counts, render counts, diagnostic counts, sidecar resolution, reason-level
+gaiji/media/link status, and title-dereference reason counters. It is
+reader-safety validation, not writer verification.
 
 ## Body Sources
 

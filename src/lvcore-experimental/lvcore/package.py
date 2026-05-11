@@ -25,6 +25,7 @@ from .body_source import (
 from .crypto import decrypt_logofont, decrypt_logofont_prefix
 from .detect import detect_family
 from .diagnostics import Diagnostic, DiagnosticArea, Location, Severity
+from .document import BlockNode, InlineKind, InlineNode, ResourceKind, ResourceRef
 from .errors import FormatError, UnsupportedPackageError
 from .gaiji import Ga16Resource, GaijiMap, load_gaiji_map, parse_ga16
 from .index import IndexRow
@@ -769,6 +770,7 @@ class LogoVistaPackage:
                     code="title_dereference_failed",
                     message="no title component contains the title pointer",
                     location=self._location_for_address(address, role=ComponentRole.TITLE),
+                    details={"reason": "missing_title_component"},
                 ),
             )
         reader = self.data(component)
@@ -781,6 +783,7 @@ class LogoVistaPackage:
                     code="title_dereference_failed",
                     message="title pointer is outside component bounds",
                     location=self._location_for_address(address, role=ComponentRole.TITLE),
+                    details={"reason": "pointer_outside_component"},
                 ),
             )
         data = reader.read(start, min(max_bytes, reader.expanded_size - start))
@@ -804,6 +807,7 @@ class LogoVistaPackage:
                 code="title_dereference_empty",
                 message="title pointer decoded to an empty title",
                 location=self._location_for_address(address, role=ComponentRole.TITLE),
+                details={"reason": "empty_title"},
             ),
         )
 
@@ -1165,6 +1169,115 @@ class LogoVistaPackage:
     def entry_diagnostics(self, entry: Entry) -> tuple[object, ...]:
         return entry.document().diagnostics
 
+    def resource_info(self, resource: ResourceRef | dict[str, object]) -> dict[str, object]:
+        """Return package-local metadata for a document resource.
+
+        This method does not transform or copy media. It reports whether lvcore
+        can point at original package data for a resource and leaves actual
+        presentation to the caller.
+        """
+
+        if isinstance(resource, ResourceRef):
+            resource_id = resource.id
+            kind = resource.kind.value
+            code = resource.code
+            details = dict(resource.details)
+        else:
+            resource_id = str(resource.get("id") or "")
+            kind = str(resource.get("kind") or ResourceKind.UNKNOWN.value)
+            code_value = resource.get("code")
+            code = str(code_value) if code_value is not None else None
+            details_value = resource.get("details") or {}
+            details = dict(details_value) if isinstance(details_value, dict) else {}
+
+        info: dict[str, object] = {
+            "id": resource_id,
+            "kind": kind,
+            "status": "unresolved",
+            "details": {},
+        }
+        if kind == ResourceKind.GAIJI.value and code:
+            try:
+                code_int = int(code, 16)
+            except ValueError:
+                info["status"] = "malformed"
+                info["details"] = {"reason": "malformed_gaiji_code"}
+                return info
+            for ga16 in self.ga16:
+                glyph = ga16.glyph(code_int)
+                if glyph is None:
+                    continue
+                info.update(
+                    {
+                        "status": "resolved",
+                        "mime_type": "application/x-logovista-ga16-bitmap",
+                        "source_path": str(ga16.path),
+                        "byte_length": len(glyph),
+                        "details": {
+                            "reason": "ga16_glyph",
+                            "width": ga16.width,
+                            "height": ga16.height,
+                            "glyph_bytes": ga16.glyph_bytes,
+                        },
+                    }
+                )
+                return info
+            info["details"] = {"reason": "missing_ga16_resource"}
+            return info
+
+        target_address = details.get("target_address")
+        if kind in {ResourceKind.MEDIA.value, ResourceKind.IMAGE.value, ResourceKind.AUDIO.value} and isinstance(target_address, dict):
+            try:
+                address = Address(int(target_address["block"]), int(target_address.get("offset", 0)), str(target_address.get("component")) if target_address.get("component") else None)
+            except (KeyError, TypeError, ValueError):
+                info["status"] = "malformed"
+                info["details"] = {"reason": "malformed_media_target_address"}
+                return info
+            component = self.component_for_address(address, role=ComponentRole.MEDIA)
+            if component is None:
+                info["status"] = "deferred"
+                info["details"] = {"reason": "target_media_component_not_found", "target_address": target_address}
+                return info
+            rel = self._relative_offset(component, address)
+            info.update(
+                {
+                    "status": "deferred",
+                    "source_component": component.name,
+                    "source_offset": rel,
+                    "available_bytes": max(0, self.data(component).expanded_size - rel),
+                    "details": {"reason": "media_address_resolved_without_extent", "target_address": target_address},
+                }
+            )
+            return info
+
+        info["details"] = {"reason": details.get("reason") or "resource_resolution_not_supported"}
+        return info
+
+    def resource_bytes(self, resource: ResourceRef | dict[str, object]) -> bytes | None:
+        """Return untouched resource bytes when lvcore knows an exact extent."""
+
+        if isinstance(resource, ResourceRef):
+            kind = resource.kind.value
+            code = resource.code
+        else:
+            kind = str(resource.get("kind") or ResourceKind.UNKNOWN.value)
+            code_value = resource.get("code")
+            code = str(code_value) if code_value is not None else None
+
+        if kind == ResourceKind.GAIJI.value and code:
+            try:
+                code_int = int(code, 16)
+            except ValueError:
+                return None
+            for ga16 in self.ga16:
+                glyph = ga16.glyph(code_int)
+                if glyph is not None:
+                    return glyph
+        return None
+
+    def resolve_resource(self, resource: ResourceRef | dict[str, object]) -> dict[str, object]:
+        return self.resource_info(resource)
+
     @staticmethod
     def _count_diagnostics(target: tuple[Diagnostic, ...], by_severity: dict[str, int], by_area: dict[str, int], by_code: dict[str, int]) -> None:
         for diagnostic in target:
@@ -1172,11 +1285,80 @@ class LogoVistaPackage:
             by_area[diagnostic.area.value] = by_area.get(diagnostic.area.value, 0) + 1
             by_code[diagnostic.code] = by_code.get(diagnostic.code, 0) + 1
 
+    @staticmethod
+    def _increment_reason(counts: dict[str, int], reason: object) -> None:
+        key = str(reason or "unknown")
+        counts[key] = counts.get(key, 0) + 1
+
+    def _count_document_resources(self, resources: tuple[ResourceRef, ...], counters: dict[str, object]) -> None:
+        gaiji_by_reason = counters.setdefault("unresolved_gaiji_by_reason", {})
+        media_by_reason = counters.setdefault("unresolved_media_by_reason", {})
+        if not isinstance(gaiji_by_reason, dict):
+            gaiji_by_reason = {}
+            counters["unresolved_gaiji_by_reason"] = gaiji_by_reason
+        if not isinstance(media_by_reason, dict):
+            media_by_reason = {}
+            counters["unresolved_media_by_reason"] = media_by_reason
+        for resource in resources:
+            status = resource.status.value if hasattr(resource.status, "value") else str(resource.status)
+            reason = resource.details.get("reason")
+            if resource.kind == ResourceKind.GAIJI:
+                if status == "resolved":
+                    counters["resolved_gaiji"] = int(counters.get("resolved_gaiji", 0)) + 1
+                else:
+                    counters["unresolved_gaiji"] = int(counters.get("unresolved_gaiji", 0)) + 1
+                    self._increment_reason(gaiji_by_reason, reason)
+            elif resource.kind in {ResourceKind.MEDIA, ResourceKind.IMAGE, ResourceKind.AUDIO}:
+                info = self.resource_info(resource)
+                if info.get("status") == "resolved":
+                    counters["resolved_media"] = int(counters.get("resolved_media", 0)) + 1
+                else:
+                    counters["unresolved_media"] = int(counters.get("unresolved_media", 0)) + 1
+                    info_details = info.get("details") if isinstance(info.get("details"), dict) else {}
+                    self._increment_reason(media_by_reason, info_details.get("reason") if isinstance(info_details, dict) else reason)
+
+    @staticmethod
+    def _iter_inline_nodes(blocks: tuple[BlockNode, ...]):
+        stack: list[InlineNode] = [node for block in reversed(blocks) for node in reversed(block.inlines)]
+        while stack:
+            node = stack.pop()
+            yield node
+            stack.extend(reversed(node.children))
+
+    def _count_document_links(self, blocks: tuple[BlockNode, ...], counters: dict[str, object]) -> None:
+        link_by_reason = counters.setdefault("unresolved_link_by_reason", {})
+        if not isinstance(link_by_reason, dict):
+            link_by_reason = {}
+            counters["unresolved_link_by_reason"] = link_by_reason
+        for node in self._iter_inline_nodes(blocks):
+            if node.kind != InlineKind.LINK:
+                continue
+            target = node.attrs.get("link_target") if isinstance(node.attrs, dict) else None
+            target = target if isinstance(target, dict) else {}
+            status = str(target.get("status") or "unresolved")
+            if status in {"resolved", "content", "deferred"}:
+                counters["resolved_link"] = int(counters.get("resolved_link", 0)) + 1
+            else:
+                counters["unresolved_link"] = int(counters.get("unresolved_link", 0)) + 1
+                self._increment_reason(link_by_reason, target.get("reason") or status)
+
     def validate(self, *, sample_entries: int = 3, sample_search_hits: int = 5) -> dict[str, object]:
         body_source = self.body_source()
         diagnostics_by_severity = {"info": 0, "warning": 0, "error": 0}
         diagnostics_by_area: dict[str, int] = {}
         diagnostics_by_code: dict[str, int] = {}
+        title_failure_by_reason: dict[str, int] = {}
+        resource_counters: dict[str, object] = {
+            "resolved_gaiji": 0,
+            "unresolved_gaiji": 0,
+            "unresolved_gaiji_by_reason": {},
+            "resolved_media": 0,
+            "unresolved_media": 0,
+            "unresolved_media_by_reason": {},
+            "resolved_link": 0,
+            "unresolved_link": 0,
+            "unresolved_link_by_reason": {},
+        }
         entries_checked = 0
         render_ok = 0
         entry_errors: list[str] = []
@@ -1190,6 +1372,8 @@ class LogoVistaPackage:
                     render_text(document)
                     render_ok += 1
                     self._count_diagnostics(document.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
+                    self._count_document_resources(document.resources, resource_counters)
+                    self._count_document_links(document.blocks, resource_counters)
                 except Exception as exc:  # pragma: no cover - defensive validation report path
                     diagnostics_by_severity["error"] = diagnostics_by_severity.get("error", 0) + 1
                     entry_errors.append(f"{entry.address.block}:{entry.address.offset}: {exc}")
@@ -1221,10 +1405,15 @@ class LogoVistaPackage:
                     continue
                 hit = results.hits[0]
                 self._count_diagnostics(hit.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
+                for diagnostic in hit.diagnostics:
+                    if diagnostic.code.startswith("title_dereference"):
+                        self._increment_reason(title_failure_by_reason, diagnostic.details.get("reason"))
                 entry = self.entry_for_hit(hit)
                 search_hits_dereferenced += 1
                 document = entry.document()
                 self._count_diagnostics(document.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
+                self._count_document_resources(document.resources, resource_counters)
+                self._count_document_links(document.blocks, resource_counters)
                 render_html(document)
                 search_hits_rendered_html += 1
                 render_text(document)
@@ -1253,12 +1442,23 @@ class LogoVistaPackage:
             "unresolved_gaiji": diagnostics_by_code.get("unresolved_gaiji", 0),
             "unresolved_media": diagnostics_by_code.get("unresolved_media_ref", 0),
             "unresolved_link": diagnostics_by_code.get("unresolved_link_target", 0),
+            "resolved_gaiji": resource_counters["resolved_gaiji"],
+            "resolved_media": resource_counters["resolved_media"],
+            "resolved_link": resource_counters["resolved_link"],
+            "unresolved_gaiji_by_reason": resource_counters["unresolved_gaiji_by_reason"],
+            "unresolved_media_by_reason": resource_counters["unresolved_media_by_reason"],
+            "unresolved_link_by_reason": resource_counters["unresolved_link_by_reason"],
         }
         return {
             "package": self.info.to_dict(),
             "body_source": body_source.to_dict(debug=True),
             "sidecar_resolution": sidecar_resolution,
             "resource_resolution": resource_resolution,
+            "title_dereference": {
+                "failed": diagnostics_by_code.get("title_dereference_failed", 0),
+                "empty": diagnostics_by_code.get("title_dereference_empty", 0),
+                "by_reason": title_failure_by_reason,
+            },
             "component_count": len(self.components),
             "components": [
                 {

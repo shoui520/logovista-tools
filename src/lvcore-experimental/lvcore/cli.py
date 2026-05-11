@@ -221,6 +221,7 @@ def _corpus_validate_one(path_str: str, sample_entries: int, sample_search_hits:
             "body_source": report.get("body_source"),
             "sidecar_resolution": report.get("sidecar_resolution"),
             "resource_resolution": report.get("resource_resolution"),
+            "title_dereference": report.get("title_dereference"),
             "component_count": report.get("component_count"),
             "gaiji": report.get("gaiji"),
             "indexes": report.get("indexes"),
@@ -358,6 +359,19 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "unresolved_gaiji": 0,
         "unresolved_media": 0,
         "unresolved_link": 0,
+        "resolved_gaiji": 0,
+        "resolved_media": 0,
+        "resolved_link": 0,
+    }
+    resource_resolution_by_reason = {
+        "unresolved_gaiji": {},
+        "unresolved_media": {},
+        "unresolved_link": {},
+    }
+    title_dereference_counts = {
+        "failed": 0,
+        "empty": 0,
+        "by_reason": {},
     }
     render_summary = {
         "sample_entries_checked": 0,
@@ -404,7 +418,21 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         for key, count in (row.get("sidecar_resolution") or {}).items():
             sidecar_resolution_counts[key] = sidecar_resolution_counts.get(key, 0) + int(count)
         for key, count in (row.get("resource_resolution") or {}).items():
+            if isinstance(count, dict):
+                reason_bucket = resource_resolution_by_reason.setdefault(key.removesuffix("_by_reason"), {})
+                for reason, reason_count in count.items():
+                    reason_bucket[reason] = reason_bucket.get(reason, 0) + int(reason_count)
+                continue
             resource_resolution_counts[key] = resource_resolution_counts.get(key, 0) + int(count)
+        title_deref = row.get("title_dereference") or {}
+        title_dereference_counts["failed"] += int(title_deref.get("failed") or 0)
+        title_dereference_counts["empty"] += int(title_deref.get("empty") or 0)
+        title_reasons = title_dereference_counts["by_reason"]
+        if not isinstance(title_reasons, dict):
+            title_reasons = {}
+            title_dereference_counts["by_reason"] = title_reasons
+        for reason, count in (title_deref.get("by_reason") or {}).items():
+            title_reasons[reason] = title_reasons.get(reason, 0) + int(count)
         render_summary["sample_entries_checked"] += int(row.get("sample_entries_checked") or 0)
         render_summary["sample_entries_rendered"] += int(row.get("sample_entries_rendered") or 0)
         render_summary["sample_index_rows_checked"] += int(row.get("sample_index_rows_checked") or 0)
@@ -441,6 +469,8 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "render_summary": render_summary,
         "sidecar_resolution_counts": sidecar_resolution_counts,
         "resource_resolution_counts": resource_resolution_counts,
+        "resource_resolution_by_reason": resource_resolution_by_reason,
+        "title_dereference_counts": title_dereference_counts,
         "failure_count": len(failures),
         "diagnostics": {
             "by_severity": diagnostics_by_severity,
