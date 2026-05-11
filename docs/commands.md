@@ -1,6 +1,15 @@
 # CLI Command Reference
 
-This page documents the current command-line interface. Commands are grouped by task: discovery, expansion, extraction, resources, platform sidecars, and validation.
+This page documents the `logovista-tools` command-line interface. Commands are
+grouped by task: discovery, expansion, extraction, resources, platform
+sidecars, writing, and validation.
+
+`src/lvcore-experimental` has its own separate reader-core CLI. It is
+reader-only, does not import `logovista_tools`, and targets real LogoVista
+package compatibility rather than authoring. See
+[`src/lvcore-experimental/README.md`](../src/lvcore-experimental/README.md)
+for `python3 -m lvcore` commands such as `search`, `render`, `validate`, and
+`corpus-validate`.
 
 ## CLI Commands
 
@@ -1445,6 +1454,12 @@ Useful options:
 --gaiji h-placeholder               keep half-width gaiji placeholders only
 --gaiji placeholder                 keep half-width and full-width placeholders
 ```
+
+## Experimental Writer Commands
+
+The writer commands below are proof-of-concept research tools for clean
+plain-HONMON SSED authoring. They are not lvcore reader APIs, not LVED or
+LVLMultiView writers, and not a historical package repacker.
 
 ### `write-plain`
 

@@ -4,10 +4,11 @@ The repository contains code and reverse-engineering notes only. It does not inc
 
 ## Legal Notes
 
-This repository contains code only. Do not commit proprietary dictionary data,
-expanded book images, generated JSONL extractions, gaiji image assets,
-decrypted SQLCipher databases, LVEDVIEWER memory dumps, product serials, or
-local key material.
+This repository contains code and public reverse-engineering notes only. Do not
+commit proprietary dictionary data, expanded book images, generated JSONL
+extractions, private corpus reports, rendered private HTML, gaiji image assets,
+decrypted SQLCipher databases, LVEDVIEWER memory dumps, vendor binaries,
+product serials, recovered keys, or local key material.
 
 You are responsible for ensuring that any dictionary extraction or conversion
 you perform complies with the licenses and laws that apply to your dictionary

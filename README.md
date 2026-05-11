@@ -3,10 +3,19 @@
 `logovista-tools` is a raw-first reverse-engineering toolkit for
 LogoVista/SystemSoft SSED dictionary packages.
 
-The project started as an exporter experiment. It is now aimed at a stronger
-goal: building a lossless, evidence-backed model of LogoVista dictionaries so
-the same understanding can support inspection, extraction, validation,
-exporters, and eventually writer experiments.
+The project started as an exporter experiment. It is now split into two
+deliberately different tracks:
+
+- `logovista-tools`: the raw-first research toolkit, decoded model generator,
+  extractor, verifier, and experimental SSED writer proof of concept.
+- `src/lvcore-experimental`: a clean, from-scratch reader-core proof of
+  concept. It is reader-only, independent from `logovista_tools`, and its
+  compatibility target is the real LogoVista corpus, not writer-generated test
+  packages.
+
+The shared goal is still a lossless, evidence-backed model of LogoVista
+dictionaries, but writer research and reader compatibility are kept separate on
+purpose.
 
 No dictionary data is included in this repository.
 
@@ -15,9 +24,9 @@ flowchart LR
     A["LogoVista package"] --> B["Classified components"]
     B --> C["Raw pointers and addresses"]
     C --> D["Lossless dictionary IR"]
-    D --> E["Debug HTML"]
-    D --> F["Yomitan / MDict"]
-    D --> G["Writer experiments"]
+    D --> E["Debug/export views"]
+    D --> F["Writer POC"]
+    B --> G["lvcore reader POC"]
 ```
 
 ## Status
@@ -37,8 +46,8 @@ are still allowed to change as more products are tested.
 | `.uni`, `GA16HALF`, `GA16FULL` gaiji resources | High for observed variants |
 | `MENU.DIC`, `COLSCR.DIC`, `PCMDATA.DIC` | High byte coverage for the current SSED corpus |
 | Windows / Android / iOS wrappers | Supported per observed package family |
-| LVED/WebView2 `main.data` / `.dbc` SQLCipher payloads | Separate deferred package family; validated for observed OXFPEU4/KQCMPROS packages |
-| LVLMultiView SQLite packages | Separate deferred package family; classified for observed ESPRANT2/YROPPO/MOROKU packages |
+| LVED/WebView2 `main.data` / `.dbc` SQLCipher payloads | Separate deferred package family; limited inspection, not the active SSED track |
+| LVLMultiView SQLite packages | Separate deferred package family; limited inspection, not the active SSED track |
 | SIZK read-aloud HTML/audio packages | Supported for the observed 30-package NHK set |
 | LogoVista writer support | Experimental Python author-core primitives for plain SSED |
 | Reader core reimplementation | Experimental standalone Python `lvcore` under `src/lvcore-experimental` |
@@ -47,8 +56,13 @@ The current development direction is:
 
 1. keep package classification raw-first and evidence-backed;
 2. count and expose unknowns instead of hiding them;
-3. promote the current lossless span JSONL into a documented, stable IR;
-4. use exporters and writer experiments as views over that model.
+3. keep Decoded LogoVista Model v0 as the shared model authority for the
+   research toolkit;
+4. keep the Python writer as a narrow proof of reverse-engineering depth, not
+   as the reader compatibility target;
+5. harden `lvcore-experimental` against real SSED packages with friendly
+   rendering, diagnostics, body-source-aware dereferencing, and corpus
+   validation.
 
 See [Project Status and Roadmap](docs/status.md) for the longer capability list.
 
@@ -87,13 +101,14 @@ headword such as `あん‐き` must still be searchable as `あんき`.
 
 `src/lvcore-experimental` is a separate reader-core experiment. It does not
 import `logovista_tools`; it reimplements SSED package detection, SSEDINFO /
-SSEDDATA parsing, text spans, `.uni` / GA16 resources, titles, indexes, entry
-slicing, native index lookup, body-pointer dereferencing for body-stream
-HONMON entries, structured entry documents, diagnostics, resource references,
-and friendly/debug rendering behind a small API and CLI. LVED and LVLMultiView
-are detected but intentionally deferred.
+SSEDDATA parsing, text spans, `.uni` / GA16 resources, titles, indexes, native
+index lookup, body-source-aware dereferencing, structured entry documents,
+diagnostics, resource references, and friendly/semantic/LogoVista-like/debug
+rendering behind a small API and CLI. LVED and LVLMultiView are detected as
+separate deferred package families. Dense/sidecar SSED is not treated as LVED
+or LVLMultiView; it remains an SSED reader-compatibility concern.
 
-The current authoritative corpus harness is `dump-package-models`. A
+The authoritative `logovista-tools` corpus harness is `dump-package-models`. A
 path-aware, resumable, chunked model pass over the local LogoVista collection
 completed 261 package targets with zero failures:
 
@@ -118,13 +133,26 @@ lossless repack:       green 148, red 54, gray 59
 LVLMultiView. Dense-HONMON packages are recognized SSED packages whose raw
 HONMON is an anchor/dereference layer rather than a self-contained body stream.
 They are readable/classifiable through the model, but external export and
-lossless repack remain stricter until sidecar bodies are promoted into the same
-body-provider abstraction as plain HONMON. Some repack-only red rows are
+lossless repack remain stricter because they must consume or reproduce
+dictionary-specific sidecar body providers. Some repack-only red rows are
 incomplete local corpus packages whose declared files are absent. Those are
 package-integrity blockers, not format facts, and they do not block authoring a
 clean core SSED dictionary. See
 [Corpus Findings](docs/corpus-findings.md) for the exact aggregate and older
 HONMON/component-forensics passes that feed the current model.
+
+The authoritative `lvcore-experimental` corpus harness is separate:
+
+```bash
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate \
+  /path/to/LogoVista \
+  --json --jobs 0 --progress --output-dir /private/reports/lvcore-corpus
+```
+
+That command validates the reader path: open package, classify family/body
+source, parse native indexes/titles, sample search hits, dereference entries,
+render friendly HTML/plain text, and aggregate diagnostics. It distinguishes
+deferred SSED body sources from deferred LVED/LVLMultiView package families.
 
 ## Install
 

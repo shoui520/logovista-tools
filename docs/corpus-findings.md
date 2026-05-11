@@ -2,11 +2,22 @@
 
 Observed dictionary behavior. These notes are evidence from the local corpus, not universal claims about every LogoVista product ever shipped.
 
-## Current Decoded Model Corpus Pass
+## Current Corpus Harnesses
 
-The current authoritative corpus harness is `dump-package-models`, because it
-keeps SSED, LVED SQLCipher, and LVLMultiView packages in one family-aware model
-directory while preserving package paths with deterministic hashes.
+There are now two authoritative corpus harnesses, with different purposes:
+
+- `logovista-tools dump-package-models` is the research/model harness. It keeps
+  SSED, LVED SQLCipher, and LVLMultiView packages in one family-aware model
+  directory while preserving package paths with deterministic hashes.
+- `lvcore corpus-validate` is the reader-compatibility harness for the clean
+  reader core. It validates open/search/dereference/render behavior and reports
+  package-family counts, SSED body-source support, diagnostics, and blockers.
+
+Writer-generated packages are useful sanity checks for the writer proof of
+concept. They are not the compatibility proof for lvcore; lvcore is judged
+against real LogoVista packages.
+
+### Decoded Model Corpus Pass
 
 Latest local pass:
 
@@ -70,8 +81,33 @@ Interpretation rules:
   pointers, and `MUL*.DIC` selector streams can legitimately contain only null
   destinations.
 
-After focused NGYOKTUK and ARCHSIC3 fixes, regenerate the full matrix before
-quoting aggregate readiness counts.
+Regenerate the full model matrix before quoting aggregate readiness counts
+after any focused parser/body-source/gaiji/media fix.
+
+### lvcore Reader Corpus Validation
+
+The lvcore reader-core audit has a separate command shape:
+
+```bash
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate \
+  /path/to/LogoVista \
+  --json \
+  --jobs 0 \
+  --progress \
+  --output-dir /private/reports/lvcore-corpus
+```
+
+The `lvcore.corpus_validate.v1` summary is designed for private compatibility
+audits. It distinguishes:
+
+- SSED packages whose body source is direct `HONMON.DIC`;
+- SSED dense-anchor or sidecar-backed body sources;
+- deferred LVED SQLCipher package families;
+- deferred LVLMultiView package families;
+- unknown or unsupported package families.
+
+It also aggregates diagnostics by severity, area, and code. Normal output avoids
+entry text; debug/private report paths are for local inspection only.
 
 ## Windows SSED Corpus Profile
 
@@ -1485,11 +1521,10 @@ Raw entries are coherent without SQLite after decryption:
 .NET[情報]
 ```
 
-`HC014F.dll` is the product HTML renderer. It imports the normal
-entry/body/gaiji/picture bridge APIs and contains strings for
-`epwing2HtmlBodydata` and `pluginFunction`. It also contains the sidecar names
-`vlpljbl.bin`, `DIC014F`, and `vlpljblF`, which matches the encrypted sidecar
-behavior.
+The package-specific Windows renderer sidecars also point at the same encrypted
+sidecar family, matching the observed `vlpljbl.bin`, `DIC014F`, and
+`vlpljblF` behavior. This is package-correlation evidence, not a dependency of
+the open reader model.
 
 `vlpljblF` decrypts with the same LogoFontCipher key to a SQLite database. It is
 not the primary body stream. It contains 17 tables named `t_Search_1` through
@@ -1644,10 +1679,10 @@ media f_type=3  GIF entry figures          2,744
 `rendererdb` command emits the HTML/plain rows and can write the `media` BLOBs
 as portable image files.
 
-`HC015E.dll` confirms this interpretation. Its strings include
-`pluginFunction2nd`, `epwing2HtmlBodydata`, the sidecar name `vlpljblb`, and SQL
-queries such as `SELECT f_Html FROM t_contents WHERE f_DataId = ?` and
-`SELECT f_name, f_main FROM media WHERE f_name = ?`.
+The package-specific Windows renderer sidecars corroborate this interpretation:
+the observed sidecar names and SQL table/column names match the decrypted
+`vlpljblb` schema. This evidence is used to name the structure; it is not a
+runtime dependency.
 
 `EXINFO.INI` declares `HTML=1`, `HTMLDLL=HC015E.dll`, `IDXCOUNT=3`,
 `IDXINFO0=0000015E.IDX`, `IDXINFO1=select.html`, `IDXINFO2=select2.html`,

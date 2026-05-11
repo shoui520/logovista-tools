@@ -5,7 +5,23 @@ but the internal model is still being refined as the corpus grows.
 
 The important boundary: this is no longer mainly an exporter. Exporters are
 views over the model. The core deliverable is a lossless, evidence-preserving
-LogoVista dictionary model.
+LogoVista dictionary model, plus a clean reader-core proof of concept that can
+eventually become a stable library.
+
+There are two active tracks:
+
+- `logovista-tools` is the research toolkit: package classification, decoded
+  model generation, corpus reports, extractors, verification, and experimental
+  plain-SSED writer research.
+- `src/lvcore-experimental` is a clean from-scratch reader-core proof of
+  concept. It is reader-only, does not import `logovista_tools`, and is judged
+  against real LogoVista packages. Writer-generated packages are useful sanity
+  fixtures, but they are not the lvcore compatibility proof.
+
+LVED SQLCipher and LVLMultiView are separate package families. They are
+classified so corpus reports remain complete, but they remain deferred reader
+targets while SSED compatibility is the active focus. Dense/sidecar SSED
+packages are not LVED/LVLMultiView; they remain SSED body-source variants.
 
 ## Stable / High Confidence
 
@@ -75,12 +91,14 @@ LogoVista dictionary model.
   missing search fallbacks, and true display-unresolved codes.
 - Standalone `SPINDEX.DIC` inspection for observed Windows suffix-index
   resources.
-- LVED/WebView2 `main.data` / `.dbc` SQLCipher classification and validation
-  for observed OXFPEU4/KQCMPROS packages.
-- LVLMultiView package classification for observed ESPRANT2/YROPPO/MOROKU
+- LVED/WebView2 `main.data` / `.dbc` SQLCipher package-family classification
+  and limited validation for inspected packages. Full LVED reader support is
+  deferred because it is a separate SQLite/SQLCipher package family.
+- LVLMultiView package-family classification for observed ESPRANT2/YROPPO/MOROKU
   packages, including SSEDINFO facade parsing, LogoFontCipher SQLite payload
   roles, `menuData.xml` href resolution, static HTML/viewer-file reporting,
-  and encrypted PDF resource detection where present.
+  and encrypted PDF resource detection where present. Full LVLMultiView reader
+  support is deferred.
 - SIZK / NHK 文学のしずく read-aloud package inspection for the observed 30
   package set, including EXINFO-declared `shizuku.uni`, `HTMLs/b121`-`b124`
   template selectors, tiny four-entry HONMON streams, loose MP3 files, and
@@ -168,6 +186,12 @@ LogoVista dictionary model.
   is explicit. Reader-side validation now samples search-hit-to-entry-to-render
   behavior in addition to marker-discovered entries. LVED and LVLMultiView are
   detected but deliberately deferred.
+- `lvcore corpus-validate`, a private audit command for the reader path. It
+  emits a stable `lvcore.corpus_validate.v1` JSON summary, optional JSONL
+  targets/failures/diagnostics streams, progress output, package-family counts,
+  SSED body-source/render-support counts, diagnostic aggregates, top blockers,
+  and sample limits. It separates deferred SSED body sources from deferred
+  LVED/LVLMultiView families.
 - `1fe2`/`1fe3` is now modeled as a private renderer-directive span rather
   than visible color text. Plain and HTML body renderers suppress directive
   strings such as `SQL:`, `IMG:`, and `RUB:` while lossless spans preserve them.
@@ -196,17 +220,22 @@ LogoVista dictionary model.
 
 ## Experimental / Active Reverse Engineering
 
-- Full renderer semantics for structurally known `0x1f` controls.
-- Tightening Decoded LogoVista Model v0 from a first emitted package report
-  into a stable schema that every parser/exporter/writer experiment can target.
+- Full renderer semantics for structurally known `0x1f` controls. Current
+  renderers are conservative and should not be described as perfect clones of
+  any proprietary renderer.
+- Continuing to tighten Decoded LogoVista Model v0 so older research commands
+  feed the same package/body-source/readiness vocabulary instead of inventing
+  local status names.
 - Formal private-corpus regression baselines generated from redacted profiles.
 - Shared typed address/component objects used by every parser and exporter.
-- Compatible-reader behavior fixtures for generated SSED primitives.
+- Reader-behavior fixtures for generated SSED primitives. These are useful
+  regression fixtures, not proof that lvcore is compatible with the historical
+  corpus.
 - Dictionary-specific semantic profiles for section codes, named images, and
   virtual selectors.
-- Broader LVED/WebView2 corpus coverage beyond observed OXFPEU4/KQCMPROS
-  packages. This is deferred until SSED model stabilization because LVED is a
-  separate SQLCipher/SQLite package family.
+- Broader LVED/WebView2 corpus coverage. This is deferred until SSED reader
+  compatibility is stronger because LVED is a separate SQLCipher/SQLite
+  package family.
 - Broader LVLMultiView corpus coverage. This is also deferred and remains a
   separate package-family reader target, not an SSED writer target.
 - Full LogoVista writer support. The current writer code is a research
@@ -295,34 +324,31 @@ Recently landed:
 
 Next priorities:
 
-1. **Decoded model stabilization.** Continue tightening the shared enum/status
-   vocabulary used by `dump-package-model`, then migrate older commands toward
-   emitting evidence for the model instead of independently naming package
-   shape and readiness. Keep LVED and LVLMultiView as classified/deferred
-   package families while SSED remains the active deep-reverse-engineering
-   target.
-2. **Dereference expansion and validation.** The first-class rows now exist;
-   next, increase verified sidecar/body-link coverage, add per-kind metrics,
-   and make dereference failures compare cleanly in redacted corpus regression.
-3. **Corpus regression harness.** Commit redacted expected metrics generated
+1. **lvcore SSED corpus compatibility.** Use `lvcore corpus-validate` as the
+   reader audit harness and close real SSED open/search/dereference/render
+   failures. Keep friendly output clean, debug output explicit, and diagnostics
+   measurable.
+2. **SSED body-source providers.** Continue hardening body-stream, dense
+   anchor, dense-marker, and supported sidecar-backed SSED body sources. Do not
+   conflate unresolved dense SSED with LVED or LVLMultiView.
+3. **Renderer/control semantics.** Expand synthetic tests for structurally known
+   controls, gaiji/media/link behavior, and conservative LogoVista-like output
+   without claiming pixel-perfect renderer parity.
+4. **Decoded model consistency.** Keep `dump-package-model` and
+   `capability-matrix --model-dir` aligned with shared enum/status vocabulary
+   so research, exporter planning, and writer planning do not drift.
+5. **Corpus regression harness.** Commit redacted expected metrics generated
    from owned corpora, then add a comparison command that flags changed shape
    counts, unknown counts, parse failures, and dereference coverage without
    storing dictionary text.
-4. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
+6. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
    media extractors, and exporters consume the same classification/profile
    layer instead of each command rediscovering package shape independently.
-5. **Streaming model output / memory-aware scheduling.** `--chunked` fixes
-   output shape, but large package workers still build bounded sections in
-   memory. Add streaming JSONL paths or size-aware scheduling before exhaustive
-   all-limits corpus runs.
-6. **Renderer parity.** Build small local parity fixtures for body text,
-   literal spans, URL spans, gaiji images, named section images, media links,
-   menu destinations, and dense-anchor renderer bodies.
-7. **Exporter layer.** After the decoded model stabilizes, implement debug HTML
-   first, then Yomitan structured v3 and MDict as views over the same model
-   rather than separate parsers.
-8. **Writer research.** Continue the experimental Python author-core path:
-   harden primitive encoders, keep expanding index-generation fixtures, test
-   full generated dictionaries privately from lawful local inputs, and compare
-   original/re-emitted model objects for core SSED structures. This remains
-   scoped to plain body-stream HONMON packages with title/index/gaiji resources.
+7. **Writer research.** Continue the experimental Python author-core path only
+   for clean plain-HONMON SSED packages. It remains a reverse-engineering proof
+   checkpoint, not the lvcore compatibility target and not an LVED/LVLMultiView
+   writer.
+8. **Future Rust core planning.** Start Rust only after the Python lvcore model
+   is stable enough to express real SSED corpus behavior. Preserve the
+   handle-oriented Rust/C ABI direction, but do not implement it in the Python
+   proof of concept.
