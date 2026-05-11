@@ -1027,6 +1027,13 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
     lved = tmp_path / "_DCT_LVED"
     lved.mkdir()
     (lved / "main.data").write_bytes(b"not real")
+    multi = tmp_path / "_DCT_MULTI"
+    multi.mkdir()
+    (multi / "vlpljbl.exe").write_bytes(b"")
+    (multi / "blvbat").write_bytes(b"")
+    bad = tmp_path / "_DCT_BAD"
+    make_synthetic_package(bad)
+    (bad / "HONMON.DIC").unlink()
 
     body_result = subprocess.run(
         [sys.executable, "-m", "lvcore", "body-source", str(dense), "--json"],
@@ -1050,23 +1057,64 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
     assert validate_data["sample_search_hits_rendered_html"] >= 1
 
     corpus_result = subprocess.run(
-        [sys.executable, "-m", "lvcore", "corpus-validate", str(tmp_path), "--json", "--jobs", "1"],
-        check=True,
+        [
+            sys.executable,
+            "-m",
+            "lvcore",
+            "corpus-validate",
+            str(tmp_path),
+            "--json",
+            "--jobs",
+            "1",
+            "--sample-entries",
+            "1",
+            "--sample-search-hits",
+            "1",
+            "--output-dir",
+            str(tmp_path / "reports"),
+            "--progress",
+        ],
+        check=False,
         text=True,
         stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         env={"PYTHONPATH": str(LVCORE_SRC)},
     )
+    assert corpus_result.returncode == 1
+    assert "progress" in corpus_result.stderr
     corpus_data = json.loads(corpus_result.stdout)
-    assert corpus_data["family_counts"]["ssed"] == 1
+    assert corpus_data["schema"] == "lvcore.corpus_validate.v1"
+    assert corpus_data["sample_limits"]["sample_entries"] == 1
+    assert corpus_data["sample_limits"]["sample_search_hits"] == 1
+    assert corpus_data["family_counts"]["ssed"] == 2
     assert corpus_data["family_counts"]["lved_sqlcipher"] == 1
+    assert corpus_data["family_counts"]["multiview_sqlite"] == 1
+    assert corpus_data["family_deferred_counts"]["lved_sqlcipher"] == 1
+    assert corpus_data["family_deferred_counts"]["multiview_sqlite"] == 1
     assert corpus_data["ssed_body_source_kind_counts"]["dense_anchor_with_sidecar"] == 1
+    assert corpus_data["ssed_body_source_kind_counts"]["unknown"] == 1
     assert corpus_data["ssed_renderable_count"] == 0
+    assert corpus_data["ssed_unsupported_or_unknown_count"] == 1
     assert corpus_data["sidecar_backed_count"] == 1
     assert corpus_data["render_summary"]["search_hits_rendered_html"] >= 1
     assert corpus_data["render_summary"]["search_hits_rendered_text"] >= 1
     assert corpus_data["sidecar_resolution_counts"]["resolved"] >= 1
     assert "resource_resolution_counts" in corpus_data
+    assert corpus_data["diagnostics"]["by_severity"]["error"] >= 1
+    assert corpus_data["top_diagnostics_by_code"]["unsupported_body_source"] >= 1
     assert "top_diagnostics_by_area" in corpus_data
+    assert any(blocker["code"] == "validation_failed" for blocker in corpus_data["top_blockers"])
+    assert corpus_data["failure_count"] == 1
+    output_files = corpus_data["output_files"]
+    assert Path(output_files["summary_json"]).is_file()
+    assert Path(output_files["targets_jsonl"]).is_file()
+    assert Path(output_files["failures_jsonl"]).is_file()
+    assert Path(output_files["diagnostics_jsonl"]).is_file()
+    failure_lines = Path(output_files["failures_jsonl"]).read_text(encoding="utf-8").splitlines()
+    assert len(failure_lines) == 1
+    assert json.loads(failure_lines[0])["name"] == "_DCT_BAD"
+    diagnostics_lines = Path(output_files["diagnostics_jsonl"]).read_text(encoding="utf-8").splitlines()
+    assert any(json.loads(line)["name"] == "_DCT_BAD" for line in diagnostics_lines)
     ssed_target = next(target for target in corpus_data["targets"] if target["package_family"] == "ssed")
     assert ssed_target["gaiji"]["uni_records"] == 0
     assert ssed_target["sample_search_hits_rendered_text"] >= 1

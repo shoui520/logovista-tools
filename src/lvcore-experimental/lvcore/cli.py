@@ -17,8 +17,32 @@ from .package import open_package
 from .render import HtmlProfile
 
 
+CORPUS_VALIDATE_SCHEMA = "lvcore.corpus_validate.v1"
+
+
 def emit(data: Any) -> None:
     print(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def _json_dump_compact(data: Any) -> str:
+    return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(_json_dump_compact(row))
+            fh.write("\n")
+
+
+def _top_counts(counts: dict[str, int], *, limit: int = 30) -> dict[str, int]:
+    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit])
 
 
 def cmd_identify(args: argparse.Namespace) -> int:
@@ -171,12 +195,15 @@ def _corpus_validate_one(path_str: str, sample_entries: int, sample_search_hits:
     try:
         info = detect_family(path)
         if info.family != PackageFamily.SSED:
+            family_deferred = info.family in {PackageFamily.LVED, PackageFamily.LVLMULTI}
             return {
                 "path": str(path),
                 "name": path.name,
                 "package_family": info.family.value,
                 "ok": True,
-                "deferred_family": True,
+                "deferred_family": family_deferred,
+                "unsupported_family": info.family == PackageFamily.UNKNOWN,
+                "sample_limits": {"sample_entries": sample_entries, "sample_search_hits": sample_search_hits},
                 "package": info.to_dict(),
             }
         package = open_package(path)
@@ -186,6 +213,9 @@ def _corpus_validate_one(path_str: str, sample_entries: int, sample_search_hits:
             "name": path.name,
             "package_family": info.family.value,
             "ok": bool(report.get("ok")),
+            "deferred_family": False,
+            "unsupported_family": False,
+            "sample_limits": {"sample_entries": sample_entries, "sample_search_hits": sample_search_hits},
             "package": package.info.to_dict(),
             "body_source": report.get("body_source"),
             "sidecar_resolution": report.get("sidecar_resolution"),
@@ -208,15 +238,86 @@ def _corpus_validate_one(path_str: str, sample_entries: int, sample_search_hits:
             "name": path.name,
             "package_family": "error",
             "ok": False,
+            "deferred_family": False,
+            "unsupported_family": False,
+            "sample_limits": {"sample_entries": sample_entries, "sample_search_hits": sample_search_hits},
             "error": f"{type(exc).__name__}: {exc}",
         }
 
 
+def _diagnostic_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        diagnostics = row.get("diagnostics") or {}
+        if not diagnostics:
+            continue
+        by_severity = diagnostics.get("by_severity") or {}
+        by_area = diagnostics.get("by_area") or {}
+        by_code = diagnostics.get("by_code") or {}
+        if not any(by_severity.values()) and not by_area and not by_code:
+            continue
+        body_source = row.get("body_source") or {}
+        out.append(
+            {
+                "path": row.get("path"),
+                "name": row.get("name"),
+                "package_family": row.get("package_family"),
+                "ok": row.get("ok"),
+                "body_source_kind": body_source.get("ssed_kind"),
+                "body_source_support": body_source.get("support"),
+                "diagnostics": {
+                    "by_severity": by_severity,
+                    "by_area": by_area,
+                    "by_code": by_code,
+                },
+            }
+        )
+    return out
+
+
+def _blockers(
+    rows: list[dict[str, Any]],
+    diagnostics_by_code: dict[str, int],
+    *,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    counts: dict[tuple[str, str, str], int] = {}
+    for row in rows:
+        family = str(row.get("package_family"))
+        if not row.get("ok"):
+            counts[("package", "validation_failed", family)] = counts.get(("package", "validation_failed", family), 0) + 1
+        if family == PackageFamily.SSED.value:
+            body_source = row.get("body_source") or {}
+            support = str(body_source.get("support") or "")
+            kind = str(body_source.get("ssed_kind") or "")
+            if support in {"deferred", "unsupported", "unknown"}:
+                code = f"body_source_{support}"
+                counts[("ssed_body_source", code, kind or "unknown")] = counts.get(("ssed_body_source", code, kind or "unknown"), 0) + 1
+        elif row.get("deferred_family"):
+            counts[("package_family", "family_deferred", family)] = counts.get(("package_family", "family_deferred", family), 0) + 1
+        elif row.get("unsupported_family"):
+            counts[("package_family", "family_unknown", family)] = counts.get(("package_family", "family_unknown", family), 0) + 1
+
+    blockers = [
+        {"scope": scope, "code": code, "subject": subject, "count": count}
+        for (scope, code, subject), count in counts.items()
+    ]
+    for code, count in _top_counts(diagnostics_by_code, limit=10).items():
+        blockers.append({"scope": "diagnostic", "code": code, "subject": code, "count": count})
+    blockers.sort(key=lambda item: (-int(item["count"]), str(item["scope"]), str(item["code"]), str(item["subject"])))
+    return blockers[:limit]
+
+
 def cmd_corpus_validate(args: argparse.Namespace) -> int:
-    paths = sorted(path for path in args.root.iterdir() if path.is_dir())
+    output_dir = args.output_dir.resolve() if args.output_dir else None
+    paths = sorted(
+        path
+        for path in args.root.iterdir()
+        if path.is_dir() and (output_dir is None or path.resolve() != output_dir)
+    )
     jobs = (os.cpu_count() or 1) if args.jobs == 0 else max(1, args.jobs)
-    sample_entries = 3 if args.full else 1
-    sample_search_hits = 8 if args.full else 2
+    sample_entries = args.sample_entries if args.sample_entries is not None else (3 if args.full else 1)
+    sample_search_hits = args.sample_search_hits if args.sample_search_hits is not None else (8 if args.full else 2)
     rows: list[dict[str, Any]] = []
     with ProcessPoolExecutor(max_workers=jobs) as executor:
         futures = {
@@ -229,12 +330,21 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
             rows.append(row)
             done += 1
             if args.progress and (done % 10 == 0 or done == len(paths)):
-                print(f"progress {done}/{len(paths)}", file=sys.stderr, flush=True)
+                status = "ok" if row.get("ok") else "fail"
+                print(
+                    f"progress {done}/{len(paths)} {row.get('name')} family={row.get('package_family')} status={status}",
+                    file=sys.stderr,
+                    flush=True,
+                )
     rows.sort(key=lambda item: item["path"])
 
     family_counts: dict[str, int] = {}
+    family_deferred_counts: dict[str, int] = {}
+    unsupported_family_counts: dict[str, int] = {}
     body_kind_counts: dict[str, int] = {}
     support_counts: dict[str, int] = {}
+    render_support_counts: dict[str, int] = {}
+    diagnostics_by_severity = {"info": 0, "warning": 0, "error": 0}
     diagnostics_by_code: dict[str, int] = {}
     diagnostics_by_area: dict[str, int] = {}
     sidecar_resolution_counts = {
@@ -259,10 +369,14 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
     dense_honmon_count = 0
     sidecar_backed_count = 0
     renderer_sidecar_like_count = 0
-    failures = []
+    failures: list[dict[str, Any]] = []
     for row in rows:
         family = str(row.get("package_family"))
         family_counts[family] = family_counts.get(family, 0) + 1
+        if row.get("deferred_family"):
+            family_deferred_counts[family] = family_deferred_counts.get(family, 0) + 1
+        if row.get("unsupported_family"):
+            unsupported_family_counts[family] = unsupported_family_counts.get(family, 0) + 1
         if not row.get("ok"):
             failures.append(row)
         body_source = row.get("body_source") or {}
@@ -276,9 +390,12 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
                 renderer_sidecar_like_count += 1
         if support:
             support_counts[support] = support_counts.get(support, 0) + 1
+            render_support_counts[support] = render_support_counts.get(support, 0) + 1
         if body_source.get("sidecar_kind") or body_source.get("sidecars"):
             sidecar_backed_count += 1
         diagnostics = row.get("diagnostics") or {}
+        for severity, count in (diagnostics.get("by_severity") or {}).items():
+            diagnostics_by_severity[severity] = diagnostics_by_severity.get(severity, 0) + int(count)
         for code, count in (diagnostics.get("by_code") or {}).items():
             diagnostics_by_code[code] = diagnostics_by_code.get(code, 0) + int(count)
         for area, count in (diagnostics.get("by_area") or {}).items():
@@ -294,13 +411,26 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         render_summary["search_hits_rendered_html"] += int(row.get("sample_search_hits_rendered_html") or 0)
         render_summary["search_hits_rendered_text"] += int(row.get("sample_search_hits_rendered_text") or 0)
 
+    diagnostics_rows = _diagnostic_rows(rows)
+    output_files: dict[str, str] = {}
     summary = {
+        "schema": CORPUS_VALIDATE_SCHEMA,
         "root": str(args.root),
+        "sample_limits": {
+            "full": bool(args.full),
+            "sample_entries": sample_entries,
+            "sample_search_hits": sample_search_hits,
+            "jobs": jobs,
+        },
         "total_packages": len(rows),
         "family_counts": family_counts,
+        "family_deferred_counts": family_deferred_counts,
+        "unsupported_family_counts": unsupported_family_counts,
         "ssed_body_source_kind_counts": body_kind_counts,
         "ssed_body_source_support_counts": support_counts,
+        "render_support_counts": render_support_counts,
         "ssed_renderable_count": support_counts.get("renderable", 0),
+        "ssed_partially_renderable_count": support_counts.get("partially_renderable", 0),
         "ssed_deferred_count": support_counts.get("deferred", 0),
         "ssed_unsupported_or_unknown_count": support_counts.get("unsupported", 0) + support_counts.get("unknown", 0),
         "dense_honmon_count": dense_honmon_count,
@@ -311,10 +441,44 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "sidecar_resolution_counts": sidecar_resolution_counts,
         "resource_resolution_counts": resource_resolution_counts,
         "failure_count": len(failures),
-        "top_diagnostics_by_code": dict(sorted(diagnostics_by_code.items(), key=lambda item: (-item[1], item[0]))[:30]),
-        "top_diagnostics_by_area": dict(sorted(diagnostics_by_area.items(), key=lambda item: (-item[1], item[0]))[:30]),
+        "diagnostics": {
+            "by_severity": diagnostics_by_severity,
+            "by_area": diagnostics_by_area,
+            "by_code": diagnostics_by_code,
+        },
+        "top_diagnostics_by_severity": _top_counts(diagnostics_by_severity),
+        "top_diagnostics_by_code": _top_counts(diagnostics_by_code),
+        "top_diagnostics_by_area": _top_counts(diagnostics_by_area),
+        "top_blockers": _blockers(rows, diagnostics_by_code),
         "targets": rows,
     }
+    if args.output_dir:
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        summary_path = args.output_dir / "summary.json"
+        targets_path = args.output_dir / "targets.jsonl"
+        failures_path = args.failures_jsonl or (args.output_dir / "failures.jsonl")
+        diagnostics_path = args.diagnostics_jsonl or (args.output_dir / "diagnostics.jsonl")
+        _write_json(summary_path, summary)
+        _write_jsonl(targets_path, rows)
+        _write_jsonl(failures_path, failures)
+        _write_jsonl(diagnostics_path, diagnostics_rows)
+        output_files = {
+            "summary_json": str(summary_path),
+            "targets_jsonl": str(targets_path),
+            "failures_jsonl": str(failures_path),
+            "diagnostics_jsonl": str(diagnostics_path),
+        }
+    else:
+        if args.failures_jsonl:
+            _write_jsonl(args.failures_jsonl, failures)
+            output_files["failures_jsonl"] = str(args.failures_jsonl)
+        if args.diagnostics_jsonl:
+            _write_jsonl(args.diagnostics_jsonl, diagnostics_rows)
+            output_files["diagnostics_jsonl"] = str(args.diagnostics_jsonl)
+    if output_files:
+        summary["output_files"] = output_files
+        if args.output_dir:
+            _write_json(args.output_dir / "summary.json", summary)
     emit(summary)
     return 0 if not failures else 1
 
@@ -390,6 +554,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_corpus.add_argument("--json", action="store_true", help="Emit JSON output (default)")
     p_corpus.add_argument("--full", action="store_true", help="Use larger reader samples")
     p_corpus.add_argument("--debug", action="store_true")
+    p_corpus.add_argument("--output-dir", type=Path, help="Write summary.json, targets.jsonl, failures.jsonl, and diagnostics.jsonl")
+    p_corpus.add_argument("--failures-jsonl", type=Path, help="Write failing package rows as JSONL")
+    p_corpus.add_argument("--diagnostics-jsonl", type=Path, help="Write per-package diagnostic aggregates as JSONL")
+    p_corpus.add_argument("--sample-entries", type=int, help="Number of marker-discovered entries to render per SSED package")
+    p_corpus.add_argument("--sample-search-hits", type=int, help="Number of native index rows/search hits to dereference and render per SSED package")
     p_corpus.add_argument("--jobs", type=int, default=0, help="Worker count, 0 means all available CPUs")
     p_corpus.add_argument("--progress", action="store_true")
     p_corpus.set_defaults(func=cmd_corpus_validate)

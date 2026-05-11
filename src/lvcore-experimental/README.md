@@ -53,6 +53,7 @@ PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT t
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT term --search-profile native --format html --profile debug
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore validate /path/to/_DCT_DICT --sample-search-hits 5 --json
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate /path/to/corpus --json --full --jobs 0
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate /path/to/corpus --json --jobs 0 --progress --output-dir /private/reports/lvcore-corpus
 ```
 
 Search profiles are native reader profiles:
@@ -133,6 +134,29 @@ not LVED.
 Reader-side validation includes sidecar-resolution counters for sampled search
 hits: resolved rows, missing anchor IDs, missing sidecar rows, and unsupported
 body-source placeholders.
+
+`corpus-validate` is the private full-corpus audit entry point. Its JSON summary
+uses the `lvcore.corpus_validate.v1` schema and reports package-family counts,
+SSED body-source counts, SSED render-support counts, diagnostic counts by
+severity/area/code, top blockers, sample limits, and search-hit
+dereference/render totals. LVED and LVLMultiView are counted as deferred package
+families, separately from deferred or unsupported SSED body sources.
+
+Useful audit options:
+
+- `--jobs 0`: use all available CPUs, or pass an explicit worker count for a
+  bounded run;
+- `--progress`: write package-level progress to stderr without contaminating
+  JSON stdout;
+- `--sample-entries N` and `--sample-search-hits N`: make sample limits
+  explicit in the summary;
+- `--output-dir DIR`: write `summary.json`, `targets.jsonl`,
+  `failures.jsonl`, and `diagnostics.jsonl`;
+- `--failures-jsonl PATH` and `--diagnostics-jsonl PATH`: write those streams
+  to explicit private report paths.
+
+Normal corpus validation output avoids entry text. Debug and private report
+paths are intended for local compatibility audits only.
 
 See `ARCHITECTURE.md` for the document/rendering model and the future Rust/C
 ABI constraints this proof of concept is preserving.
