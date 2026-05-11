@@ -14,7 +14,7 @@ LVCORE_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-experimental"
 sys.path.insert(0, str(LVCORE_SRC))
 
 from lvcore import Address, Diagnostic, DiagnosticArea, Location, PackageFamily, SearchHit, SearchProfile, SearchResults, Severity, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
-from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, build_entry_document  # noqa: E402
+from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, ResourceKind, ResourceRef, build_entry_document  # noqa: E402
 from lvcore.errors import FormatError  # noqa: E402
 from lvcore.gaiji import ga16_glyph_size, parse_ga16  # noqa: E402
 from lvcore.index import parse_index  # noqa: E402
@@ -867,6 +867,55 @@ def test_lvcore_entry_document_and_friendly_rendering_from_spans() -> None:
     assert "body & text" in text
     assert "offset" not in html
     assert "opcode" not in html
+
+
+def test_lvcore_entry_document_v1_to_dict_hides_debug_metadata_by_default() -> None:
+    diagnostic = Diagnostic(
+        severity=Severity.WARNING,
+        area=DiagnosticArea.OPCODE,
+        message="unknown control",
+        code="unknown_control",
+        details={"payload": "deadbeef"},
+    )
+    document = EntryDocument(
+        blocks=(
+            BlockNode(
+                BlockKind.PARAGRAPH,
+                (
+                    InlineNode(InlineKind.TEXT, text="visible"),
+                    InlineNode(InlineKind.UNKNOWN_CONTROL, attrs={"op": "99", "payload": "deadbeef", "span_offset": 3}),
+                ),
+            ),
+        ),
+        resources=(
+            ResourceRef(
+                id="media-1",
+                kind=ResourceKind.MEDIA,
+                label="media",
+                source_offset=12,
+                details={"payload_hex": "cafebabe", "resolved": False},
+            ),
+        ),
+        diagnostics=(diagnostic,),
+        metadata={"headword": "visible"},
+        debug_metadata={"raw_spans": [{"op": "99", "raw": "1f99"}]},
+    )
+
+    public = document.to_dict()
+    debug = document.to_dict(debug=True)
+
+    assert public["schema"] == "lvcore.entry_document.v1"
+    assert public["model_version"] == 1
+    assert public["metadata"] == {"headword": "visible"}
+    assert "debug_metadata" not in public
+    assert "deadbeef" not in json.dumps(public, ensure_ascii=False)
+    assert "cafebabe" not in json.dumps(public, ensure_ascii=False)
+    assert public["resources"][0]["details"] == {"resolved": False}
+    assert debug["debug_metadata"]["raw_spans"][0]["raw"] == "1f99"
+    assert "deadbeef" in json.dumps(debug, ensure_ascii=False)
+    assert "cafebabe" in json.dumps(debug, ensure_ascii=False)
+    assert document.resource_map()["media-1"].kind == ResourceKind.MEDIA
+    assert document.diagnostics_by_code() == {"unknown_control": 1}
 
 
 def test_lvcore_debug_render_exposes_unknown_control_but_friendly_hides_it() -> None:

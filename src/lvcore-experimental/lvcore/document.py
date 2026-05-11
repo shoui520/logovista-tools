@@ -4,11 +4,31 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+import hashlib
 from typing import Any, Iterable
 
 from .diagnostics import Diagnostic, DiagnosticArea, DiagnosticBag, Location, Severity
 from .model import Address, Entry, Span
 from .opcodes import KNOWN_NEUTRAL_OPS, OpcodeCategory, behavior_for
+
+
+DOCUMENT_SCHEMA = "lvcore.entry_document.v1"
+DOCUMENT_MODEL_VERSION = 1
+
+DEBUG_ATTR_KEYS = {
+    "address",
+    "anchor_raw",
+    "end_payload",
+    "payload",
+    "payload_hex",
+    "raw",
+    "raw_payload",
+    "raw_spans",
+    "raw_text",
+    "span_offset",
+    "start_op",
+    "start_payload",
+}
 
 
 class BlockKind(str, Enum):
@@ -44,6 +64,34 @@ class ResourceKind(str, Enum):
     MEDIA = "media"
     GAIJI = "gaiji"
     UNKNOWN = "unknown"
+
+
+def _stable_private_ref(value: str) -> str:
+    digest = hashlib.sha1(value.encode("utf-8")).hexdigest()[:12]
+    return f"lvcore-entry://ref-{digest}"
+
+
+def _public_mapping(value: Any, *, debug: bool) -> Any:
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            if not debug and key in DEBUG_ATTR_KEYS:
+                continue
+            if not debug and key == "href" and isinstance(item, str) and item.startswith("lvcore-entry://"):
+                out[key] = _stable_private_ref(item)
+                continue
+            out[key] = _public_mapping(item, debug=debug)
+        return out
+    if isinstance(value, (list, tuple)):
+        return [_public_mapping(item, debug=debug) for item in value]
+    return value
+
+
+def _diagnostic_to_dict(diagnostic: Diagnostic, *, debug: bool) -> dict[str, Any]:
+    data = diagnostic.to_dict()
+    if not debug:
+        data["details"] = _public_mapping(data.get("details", {}), debug=False)
+    return data
 
 
 STYLE_START_TO_KIND = {
@@ -85,16 +133,22 @@ class ResourceRef:
     source_offset: int | None = None
     details: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
+    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+        data: dict[str, Any] = {
             "id": self.id,
             "kind": self.kind.value,
             "label": self.label,
             "component": self.component,
-            "code": self.code,
             "source_offset": self.source_offset,
-            "details": self.details,
         }
+        if debug:
+            data["code"] = self.code
+            data["details"] = _public_mapping(self.details, debug=True)
+        else:
+            public_details = {key: value for key, value in self.details.items() if key in {"resolved"}}
+            if public_details:
+                data["details"] = public_details
+        return data
 
 
 @dataclass(frozen=True)
@@ -105,14 +159,18 @@ class LinkTarget:
     raw_payload: str | None = None
     status: str = "unresolved"
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
+    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+        data = {
             "kind": self.kind,
             "href": self.href,
-            "address": self.address.to_dict() if self.address else None,
-            "raw_payload": self.raw_payload,
             "status": self.status,
         }
+        if not debug and self.href and self.href.startswith("lvcore-entry://"):
+            data["href"] = _stable_private_ref(self.href)
+        if debug:
+            data["address"] = self.address.to_dict() if self.address else None
+            data["raw_payload"] = self.raw_payload
+        return data
 
 
 @dataclass(frozen=True)
@@ -124,15 +182,19 @@ class InlineNode:
     resource_id: str | None = None
     attrs: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
+    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+        data: dict[str, Any] = {
             "kind": self.kind.value,
             "text": self.text,
-            "children": [child.to_dict() for child in self.children],
-            "code": self.code,
+            "children": [child.to_dict(debug=debug) for child in self.children],
             "resource_id": self.resource_id,
-            "attrs": self.attrs,
         }
+        if debug:
+            data["code"] = self.code
+        attrs = _public_mapping(self.attrs, debug=debug)
+        if attrs:
+            data["attrs"] = attrs
+        return data
 
 
 @dataclass(frozen=True)
@@ -141,11 +203,11 @@ class BlockNode:
     inlines: tuple[InlineNode, ...] = ()
     attrs: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
         return {
             "kind": self.kind.value,
-            "inlines": [node.to_dict() for node in self.inlines],
-            "attrs": self.attrs,
+            "inlines": [node.to_dict(debug=debug) for node in self.inlines],
+            "attrs": _public_mapping(self.attrs, debug=debug),
         }
 
 
@@ -155,14 +217,32 @@ class EntryDocument:
     resources: tuple[ResourceRef, ...] = ()
     diagnostics: tuple[Diagnostic, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
+    debug_metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "blocks": [block.to_dict() for block in self.blocks],
-            "resources": [resource.to_dict() for resource in self.resources],
-            "diagnostics": [diagnostic.to_dict() for diagnostic in self.diagnostics],
-            "metadata": self.metadata,
+    def resource_map(self) -> dict[str, ResourceRef]:
+        return {resource.id: resource for resource in self.resources}
+
+    def diagnostics_by_code(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for diagnostic in self.diagnostics:
+            counts[diagnostic.code] = counts.get(diagnostic.code, 0) + 1
+        return counts
+
+    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "schema": DOCUMENT_SCHEMA,
+            "model_version": DOCUMENT_MODEL_VERSION,
+            "blocks": [block.to_dict(debug=debug) for block in self.blocks],
+            "resources": [resource.to_dict(debug=debug) for resource in self.resources],
+            "diagnostics": [_diagnostic_to_dict(diagnostic, debug=debug) for diagnostic in self.diagnostics],
+            "metadata": _public_mapping(self.metadata, debug=debug),
         }
+        if debug:
+            data["debug_metadata"] = _public_mapping(self.debug_metadata, debug=True)
+        return data
+
+    def to_debug_dict(self) -> dict[str, Any]:
+        return self.to_dict(debug=True)
 
 
 def _gaiji_unresolved(span: Span) -> bool:
@@ -486,6 +566,8 @@ def build_entry_document(entry: Entry) -> EntryDocument:
             "headword": entry.headword,
             "address": entry.address.to_dict(),
             "end_address": entry.end_address.to_dict(),
+        },
+        debug_metadata={
             "raw_spans": [span.to_dict() for span in entry.spans],
         },
     )

@@ -87,6 +87,28 @@ and C ABI shape.
 - debug metadata, including raw spans when an explicit debug renderer or
   inspector asks for them.
 
+The v1 document dictionary shape is explicitly versioned as
+`lvcore.entry_document.v1`. Public `to_dict()` output is reader-facing by
+default: it includes semantic blocks, inline nodes, resources, diagnostics,
+and stable metadata, but it strips raw span payloads, raw control payloads, and
+debug-only resource details. `to_dict(debug=True)` and `to_debug_dict()` are
+the inspection forms and may include raw spans, opcode payloads, body-source
+internals, gaiji codes, and resource payload identifiers.
+
+Node records deliberately use simple enum-like strings plus tuples/lists of
+children. This maps cleanly to Rust enums and to a future opaque C ABI where
+callers enumerate blocks, inlines, resources, and diagnostics through handles.
+Open-ended `attrs` and resource `details` remain an escape hatch for research
+fields, but friendly/public serialization filters debug-only keys. New stable
+fields should become typed node/resource fields before they are treated as
+reader API contract.
+
+Resources are document-level records with stable IDs. Inline gaiji and media
+nodes refer to those IDs rather than embedding payloads. Applications can use
+the resource list to fetch or substitute images/audio/bitmap gaiji, while
+debug output can expose the original LogoVista code or payload needed for
+inspection.
+
 Unknown or unsupported opcodes do not appear in friendly HTML. They are
 recorded as diagnostics and can be shown by debug renderers.
 

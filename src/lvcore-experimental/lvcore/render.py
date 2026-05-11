@@ -293,8 +293,13 @@ def render_html(
             )
         parts.append("</ul>")
         if profile == HtmlProfile.DEBUG:
+            debug_metadata = dict(document.debug_metadata)
+            # Backward-compatible escape hatch for older synthetic tests or
+            # callers that still place debug-only fields in metadata.
+            if "raw_spans" not in debug_metadata and "raw_spans" in document.metadata:
+                debug_metadata["raw_spans"] = document.metadata.get("raw_spans")
             parts.append('<details class="lv-raw-spans"><summary>Raw spans</summary><pre>')
-            for span in document.metadata.get("raw_spans", []):
+            for span in debug_metadata.get("raw_spans", []):
                 parts.append(escape(str(span)))
                 parts.append("\n")
             parts.append("</pre></details>")
