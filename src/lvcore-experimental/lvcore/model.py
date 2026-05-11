@@ -136,6 +136,7 @@ class Entry:
     headword: str
     text: str
     spans: tuple[Span, ...]
+    entry_diagnostics: tuple[Any, ...] = ()
 
     def document(self):
         from .document import build_entry_document
@@ -163,6 +164,10 @@ class Entry:
             "address": self.address.to_dict(),
             "end_address": self.end_address.to_dict(),
             "raw_spans": [span.to_dict() for span in self.spans],
+            "diagnostics": [
+                diagnostic.to_dict() if hasattr(diagnostic, "to_dict") else diagnostic
+                for diagnostic in self.entry_diagnostics
+            ],
         }
 
     def to_dict(self) -> dict[str, Any]:
@@ -172,4 +177,8 @@ class Entry:
             "headword": self.headword,
             "text": self.text,
             "spans": [span.to_dict() for span in self.spans],
+            "diagnostics": [
+                diagnostic.to_dict() if hasattr(diagnostic, "to_dict") else diagnostic
+                for diagnostic in self.entry_diagnostics
+            ],
         }

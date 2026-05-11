@@ -179,6 +179,7 @@ def build_entry_document(entry: Entry) -> EntryDocument:
     """Build a reader-facing document from an entry's decoded spans."""
 
     diagnostics = DiagnosticBag()
+    diagnostics.diagnostics.extend(entry.entry_diagnostics)
     blocks: list[BlockNode] = []
     inlines: list[InlineNode] = []
     resources: list[ResourceRef] = []

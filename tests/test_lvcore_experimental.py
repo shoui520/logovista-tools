@@ -9,7 +9,7 @@ from pathlib import Path
 LVCORE_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-experimental"
 sys.path.insert(0, str(LVCORE_SRC))
 
-from lvcore import Address, PackageFamily, SearchProfile, detect_family, open_package  # noqa: E402
+from lvcore import Address, PackageFamily, SearchHit, SearchProfile, SearchResults, detect_family, normalize_query, open_package  # noqa: E402
 from lvcore.document import InlineKind, build_entry_document  # noqa: E402
 from lvcore.gaiji import ga16_glyph_size, parse_ga16  # noqa: E402
 from lvcore.model import Entry  # noqa: E402
@@ -135,6 +135,73 @@ def make_synthetic_package(root: Path) -> None:
     (root / "FHINDEX.DIC").write_bytes(literal_sseddata(index, start_block=index_start, kind=0x91))
 
 
+def simple_index(rows: list[tuple[str, int, int, int, int]]) -> bytes:
+    encoded = bytearray(be16(0x8000) + be16(len(rows)))
+    for key, body_block, body_offset, title_block, title_offset in rows:
+        raw_key = index_key(key)
+        encoded.extend(bytes([len(raw_key)]))
+        encoded.extend(raw_key)
+        encoded.extend(be32(body_block))
+        encoded.extend(be16(body_offset))
+        encoded.extend(be32(title_block))
+        encoded.extend(be16(title_offset))
+    return bytes(encoded)
+
+
+def make_reader_workflow_package(root: Path) -> None:
+    honmon_start = 2
+    fhtitle_start = 3
+    bhtitle_start = 4
+    fhindex_start = 5
+    bhindex_start = 6
+
+    entry_payloads = [
+        body_text("alpha") + b"\x1f\x0a" + body_text("first entry") + b"\x1f\x0a",
+        body_text("alpine") + b"\x1f\x0a" + body_text("second entry") + b"\x1f\x0a",
+        body_text("beta") + b"\x1f\x0a" + body_text("third entry") + b"\x1f\x0a",
+    ]
+    body_offsets: list[int] = []
+    honmon = bytearray()
+    for payload in entry_payloads:
+        body_offsets.append(len(honmon))
+        honmon.extend(payload)
+
+    titles = [body_text("alpha") + b"\x1f\x0a", body_text("alpine") + b"\x1f\x0a", body_text("beta") + b"\x1f\x0a"]
+    title_offsets: list[int] = []
+    fhtitle = bytearray()
+    for title in titles:
+        title_offsets.append(len(fhtitle))
+        fhtitle.extend(title)
+    bhtitle = bytes(fhtitle)
+
+    forward_rows = [
+        ("alpha", honmon_start, body_offsets[0], fhtitle_start, title_offsets[0]),
+        ("alphabet", honmon_start, body_offsets[0], fhtitle_start, title_offsets[0]),
+        ("alpine", honmon_start, body_offsets[1], fhtitle_start, title_offsets[1]),
+        ("beta", honmon_start, body_offsets[2], fhtitle_start, title_offsets[2]),
+    ]
+    backward_rows = [
+        ("ahpla", honmon_start, body_offsets[0], bhtitle_start, title_offsets[0]),
+        ("enipla", honmon_start, body_offsets[1], bhtitle_start, title_offsets[1]),
+        ("ateb", honmon_start, body_offsets[2], bhtitle_start, title_offsets[2]),
+    ]
+
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("FHTITLE.DIC", 0x05, fhtitle_start, fhtitle_start, b"\x01\x00\x00\x00"),
+        ("BHTITLE.DIC", 0x07, bhtitle_start, bhtitle_start, b"\x01\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, fhindex_start, fhindex_start, b"\x02\x01\x55\x40"),
+        ("BHINDEX.DIC", 0x71, bhindex_start, bhindex_start, b"\x02\x01\x55\x40"),
+    ]
+    root.mkdir(exist_ok=True)
+    (root / "READ.IDX").write_bytes(ssedinfo("Reader Workflow", components))
+    (root / "HONMON.DIC").write_bytes(literal_sseddata(bytes(honmon), start_block=honmon_start, kind=0))
+    (root / "FHTITLE.DIC").write_bytes(literal_sseddata(bytes(fhtitle), start_block=fhtitle_start, kind=5))
+    (root / "BHTITLE.DIC").write_bytes(literal_sseddata(bhtitle, start_block=bhtitle_start, kind=7))
+    (root / "FHINDEX.DIC").write_bytes(literal_sseddata(simple_index(forward_rows), start_block=fhindex_start, kind=0x91))
+    (root / "BHINDEX.DIC").write_bytes(literal_sseddata(simple_index(backward_rows), start_block=bhindex_start, kind=0x71))
+
+
 def test_lvcore_detects_and_reads_synthetic_ssed(tmp_path: Path) -> None:
     make_synthetic_package(tmp_path)
 
@@ -169,6 +236,73 @@ def test_lvcore_cli_outputs_json(tmp_path: Path) -> None:
     data = json.loads(result.stdout)
     assert data["package"]["family"] == "ssed"
     assert data["package"]["title"] == "Synthetic"
+
+
+def test_lvcore_search_models_and_native_profiles(tmp_path: Path) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+
+    exact = package.search("al-pha", profile=SearchProfile.EXACT)
+    assert isinstance(exact, SearchResults)
+    assert exact.normalized_query == normalize_query("alpha")
+    assert len(exact.hits) == 1
+    assert isinstance(exact.hits[0], SearchHit)
+    assert exact.hits[0].heading == "alpha"
+    assert "body" not in exact.hits[0].to_dict()
+    assert exact.hits[0].to_dict(debug=True)["body"]["component"] == "HONMON.DIC"
+
+    forward = package.search("alp", profile=SearchProfile.FORWARD)
+    assert [hit.heading for hit in forward.hits] == ["alpha", "alpine"]
+
+    backward = package.search("ta", profile=SearchProfile.BACKWARD)
+    assert [hit.heading for hit in backward.hits] == ["beta"]
+
+    native = package.search("alp", profile=SearchProfile.NATIVE)
+    assert [hit.heading for hit in native.hits] == ["alpha", "alpine"]
+
+
+def test_lvcore_search_hit_dereference_document_and_entry_range(tmp_path: Path) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+
+    entry = hit.entry()
+    assert entry.headword == "alpha"
+    assert "first entry" in entry.text
+    assert "second entry" not in entry.text
+
+    html = package.render_hit_html(hit)
+    text = package.render_hit_text(hit)
+    assert "first entry" in html
+    assert "first entry" in text
+    assert "offset" not in html
+
+
+def test_lvcore_title_dereference_failure_falls_back_to_key(tmp_path: Path) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+    parsed = package.indexes("FHINDEX.DIC")["FHINDEX.DIC"]
+    row = parsed.rows[0]
+    bad_row = type(row)(
+        key=row.key,
+        target_key=row.target_key,
+        body=row.body,
+        title=Address(999999, 0),
+        tagged=row.tagged,
+        page=row.page,
+        row=row.row,
+    )
+    hit = package._make_hit(
+        hit_id=1,
+        query="alpha",
+        normalized_query="ALPHA",
+        profile=SearchProfile.EXACT,
+        component_name="FHINDEX.DIC",
+        row=bad_row,
+        matched_key="alpha",
+    )
+    assert hit.heading == "alpha"
+    assert any(diagnostic.code == "title_dereference_failed" for diagnostic in hit.diagnostics)
 
 
 def test_lvcore_entry_document_and_friendly_rendering_from_spans() -> None:
@@ -265,6 +399,31 @@ def test_lvcore_cli_render_and_validate_commands(tmp_path: Path) -> None:
     data = json.loads(validate_result.stdout)
     assert data["ok"] is True
     assert data["sample_entries_rendered"] == 1
+
+
+def test_lvcore_cli_search_debug_and_render_profiles(tmp_path: Path) -> None:
+    make_reader_workflow_package(tmp_path)
+    search_result = subprocess.run(
+        [sys.executable, "-m", "lvcore", "search", str(tmp_path), "alp", "--search-profile", "forward", "--json", "--debug", "--limit", "3"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    search_data = json.loads(search_result.stdout)
+    assert search_data["profile"] == "forward"
+    assert len(search_data["hits"]) == 3
+    assert search_data["hits"][0]["body"]["component"] == "HONMON.DIC"
+    assert search_data["hits"][1]["body"] == search_data["hits"][0]["body"]
+
+    render_result = subprocess.run(
+        [sys.executable, "-m", "lvcore", "render", str(tmp_path), "ta", "--search-profile", "backward", "--format", "text", "--limit", "1"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    assert "third entry" in render_result.stdout
 
 
 def test_lvcore_detects_deferred_families(tmp_path: Path) -> None:

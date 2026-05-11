@@ -13,7 +13,12 @@ Current scope:
 - decode SSED text streams into model-like spans;
 - parse title/index rows;
 - slice readable HONMON body-stream entries;
-- expose a small CLI for inspection and lookup experiments.
+- expose a small CLI for inspection and lookup experiments;
+- expose reader-facing `SearchResults` / `SearchHit` objects instead of
+  requiring callers to consume raw index rows;
+- perform native exact, forward-prefix, backward-suffix, and default native
+  index search over parsed LogoVista index rows;
+- dereference search hits through body/title pointers into entries;
 - build `EntryDocument` trees from decoded spans;
 - render friendly/semantic/LogoVista-like/debug HTML and plain text;
 - collect recoverable diagnostics instead of leaking raw failures into
@@ -28,10 +33,24 @@ Run directly from the repo:
 ```bash
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore info /path/to/_DCT_DICT
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore entries /path/to/_DCT_DICT --limit 5
-PYTHONPATH=src/lvcore-experimental python3 -m lvcore search /path/to/_DCT_DICT term
-PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT term --format html
-PYTHONPATH=src/lvcore-experimental python3 -m lvcore validate /path/to/_DCT_DICT --json
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore search /path/to/_DCT_DICT term --search-profile forward --json
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore search /path/to/_DCT_DICT term --json --debug
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT term --search-profile native --format html
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore validate /path/to/_DCT_DICT --sample-search-hits 5 --json
 ```
+
+Search profiles are native reader profiles:
+
+- `exact`: exact match against decoded row keys and target keys, with
+  conservative lookup normalization;
+- `forward`: prefix lookup over forward-compatible index components;
+- `backward`: suffix lookup over backward-compatible index components;
+- `native`: default reader lookup that combines exact, forward, and backward
+  paths while deduplicating hits that target the same body/title pointer.
+
+Friendly search JSON hides raw page/pointer internals by default. Add
+`--debug` when inspecting component names, page/row positions, body/title
+pointers, and raw parsed rows.
 
 See `ARCHITECTURE.md` for the document/rendering model and the future Rust/C
 ABI constraints this proof of concept is preserving.

@@ -153,13 +153,17 @@ LogoVista dictionary model.
   Current SSED coverage includes package-family detection, SSEDINFO parsing,
   plain/LogoFontCipher `SSEDDATA` loading, chunked component reads, text spans,
   `.uni` mappings, GA16 bitmap resource headers/glyph slicing, title/index row
-  parsing, limited HONMON entry slicing, exact index lookup, and body-pointer
-  dereferencing for body-stream HONMON entries. It now builds structured
-  `EntryDocument` trees from spans, collects recoverable diagnostics, preserves
-  media references as resources, and renders friendly/semantic/LogoVista-like/
-  debug HTML plus plain text. Friendly rendering hides raw opcodes and offsets;
-  debug rendering is explicit. LVED and LVLMultiView are detected but
-  deliberately deferred.
+  parsing, limited HONMON entry slicing, native exact/forward/backward index
+  lookup, `SearchResults` / `SearchHit` reader-facing models, title-pointer
+  heading resolution, body-pointer dereferencing for body-stream HONMON
+  entries, and entry-range resolution from known body pointers, markers, and
+  component bounds. It builds structured `EntryDocument` trees from spans,
+  collects recoverable diagnostics, preserves media references as resources,
+  and renders friendly/semantic/LogoVista-like/debug HTML plus plain text.
+  Friendly rendering hides raw opcodes and offsets; debug search/render output
+  is explicit. Reader-side validation now samples search-hit-to-entry-to-render
+  behavior in addition to marker-discovered entries. LVED and LVLMultiView are
+  detected but deliberately deferred.
 - `1fe2`/`1fe3` is now modeled as a private renderer-directive span rather
   than visible color text. Plain and HTML body renderers suppress directive
   strings such as `SQL:`, `IMG:`, and `RUB:` while lossless spans preserve them.

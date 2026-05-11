@@ -72,59 +72,75 @@ def cmd_indexes(args: argparse.Namespace) -> int:
 
 def cmd_search(args: argparse.Namespace) -> int:
     package = open_package(args.path)
+    results = package.search(args.term, limit=args.limit, profile=args.search_profile, debug=args.debug)
     if args.entries:
+        entries = []
+        for hit in results.hits:
+            try:
+                entry = package.entry_for_hit(hit)
+            except Exception as exc:
+                entries.append({"hit": hit.to_dict(debug=args.debug), "error": str(exc)})
+                continue
+            entries.append({"hit": hit.to_dict(debug=args.debug), "entry": entry.to_dict() if args.debug else {"headword": entry.headword}})
         emit(
             {
-                "query": args.term,
-                "search_profile": args.search_profile,
-                "entries": [entry.to_dict() for entry in package.search_entries(args.term, limit=args.limit, profile=args.search_profile)],
+                **results.to_dict(debug=args.debug),
+                "entries": entries,
             }
         )
         return 0
-    emit({"query": args.term, "search_profile": args.search_profile, "hits": package.search_index(args.term, limit=args.limit, profile=args.search_profile)})
+    emit(results.to_dict(debug=args.debug))
     return 0
 
 
 def cmd_render(args: argparse.Namespace) -> int:
     package = open_package(args.path)
-    entries = package.search_entries(args.term, limit=args.limit, profile=args.search_profile)
+    results = package.search(args.term, limit=args.limit, profile=args.search_profile, debug=args.debug)
     profile = HtmlProfile(args.profile.replace("-", "_"))
 
     if args.format == "json":
+        rendered = []
+        for hit in results.hits:
+            try:
+                entry = package.entry_for_hit(hit)
+                rendered.append(
+                    {
+                        "hit": hit.to_dict(debug=args.debug),
+                        "address": entry.address.to_dict() if args.debug else None,
+                        "headword": entry.headword,
+                        "html": package.render_entry_html(entry, profile=profile, include_diagnostics=args.diagnostics),
+                        "text": package.render_entry_text(entry),
+                        "diagnostics": [diagnostic.to_dict() for diagnostic in entry.diagnostics()] if args.diagnostics or args.debug else [],
+                    }
+                )
+            except Exception as exc:
+                rendered.append({"hit": hit.to_dict(debug=args.debug), "error": str(exc)})
         emit(
             {
                 "query": args.term,
                 "profile": profile.value,
                 "search_profile": args.search_profile,
-                "entries": [
-                    {
-                        "address": entry.address.to_dict(),
-                        "headword": entry.headword,
-                        "html": package.render_entry_html(entry, profile=profile, include_diagnostics=args.diagnostics),
-                        "text": package.render_entry_text(entry),
-                        "diagnostics": [diagnostic.to_dict() for diagnostic in entry.diagnostics()] if args.diagnostics else [],
-                    }
-                    for entry in entries
-                ],
+                "results": results.to_dict(debug=args.debug),
+                "entries": rendered,
             }
         )
         return 0
 
     if args.format == "text":
-        for index, entry in enumerate(entries):
+        for index, hit in enumerate(results.hits):
             if index:
                 print()
-            print(package.render_entry_text(entry))
+            print(package.render_hit_text(hit))
         return 0
 
-    for entry in entries:
-        print(package.render_entry_html(entry, profile=profile, include_diagnostics=args.diagnostics))
+    for hit in results.hits:
+        print(package.render_hit_html(hit, profile=profile, include_diagnostics=args.diagnostics))
     return 0
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
     package = open_package(args.path)
-    report = package.validate(sample_entries=args.sample_entries)
+    report = package.validate(sample_entries=args.sample_entries, sample_search_hits=args.sample_search_hits)
     if args.json:
         emit(report)
     else:
@@ -166,12 +182,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_indexes.add_argument("--limit", type=int, default=20)
     p_indexes.set_defaults(func=cmd_indexes)
 
-    p_search = sub.add_parser("search", help="Exact-match search through parsed index rows")
+    p_search = sub.add_parser("search", help="Native exact/forward/backward search through parsed index rows")
     p_search.add_argument("path", type=Path)
     p_search.add_argument("term")
     p_search.add_argument("--limit", type=int, default=20)
     p_search.add_argument("--search-profile", choices=[profile.value for profile in SearchProfile], default=SearchProfile.NATIVE.value)
     p_search.add_argument("--entries", action="store_true", help="Dereference body pointers and return entries")
+    p_search.add_argument("--json", action="store_true", help="Emit JSON search results (default)")
+    p_search.add_argument("--debug", action="store_true", help="Include raw index pointers and row details")
     p_search.set_defaults(func=cmd_search)
 
     p_render = sub.add_parser("render", help="Search and render entries through the document renderer")
@@ -182,11 +200,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_render.add_argument("--profile", choices=[*(profile.value for profile in HtmlProfile), "logovista-like"], default=HtmlProfile.FRIENDLY.value)
     p_render.add_argument("--format", choices=["html", "text", "json"], default="html")
     p_render.add_argument("--diagnostics", action="store_true", help="Include diagnostics in rendered output")
+    p_render.add_argument("--debug", action="store_true", help="Include debug hit details in JSON output")
     p_render.set_defaults(func=cmd_render)
 
     p_validate = sub.add_parser("validate", help="Validate reader-side open/search/decode/render safety")
     p_validate.add_argument("path", type=Path)
     p_validate.add_argument("--sample-entries", type=int, default=3)
+    p_validate.add_argument("--sample-search-hits", type=int, default=5)
     p_validate.add_argument("--json", action="store_true")
     p_validate.set_defaults(func=cmd_validate)
     return parser

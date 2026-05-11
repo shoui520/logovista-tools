@@ -11,6 +11,7 @@ from .document import BlockNode, EntryDocument, InlineNode, ResourceRef
 from .model import Address, Component, PackageFamily, PackageInfo, SearchProfile, Span
 from .package import LogoVistaPackage, open_package
 from .render import GaijiPolicy, HtmlProfile, render_html, render_text
+from .search import SearchHit, SearchResults, normalize_query
 
 __all__ = [
     "Address",
@@ -28,9 +29,12 @@ __all__ = [
     "PackageInfo",
     "ResourceRef",
     "SearchProfile",
+    "SearchHit",
+    "SearchResults",
     "Severity",
     "Span",
     "detect_family",
+    "normalize_query",
     "open_package",
     "render_html",
     "render_text",

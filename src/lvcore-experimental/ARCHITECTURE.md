@@ -100,9 +100,51 @@ Native LogoVista/EPWING-style index search remains a core reader capability.
 Future enhanced/fuzzy/full-text app search can be added as a separate profile,
 but it should not replace native forward/backward index traversal.
 
-Current search profiles are deliberately simple: `native`, `exact`, `forward`,
-and `backward`. They are reader profiles, not fuzzy search. Future app-level
-search can be layered above them without changing raw index parsing.
+The current Python proof of concept exposes reader-facing `SearchResults` and
+`SearchHit` objects. Normal callers should follow:
+
+```text
+Package.search(query, profile)
+  -> SearchResults
+  -> SearchHit.entry()
+  -> Entry.document()
+  -> friendly HTML / plain text
+```
+
+Friendly hit dictionaries expose headings, display keys, matched keys,
+component names, and diagnostics. Raw page numbers, row numbers, body/title
+pointers, and parsed row internals are debug/inspection output only.
+
+Current search profiles are:
+
+- `exact`: exact match against decoded native row keys and target keys, with
+  conservative normalization;
+- `forward`: prefix lookup over forward-compatible indexes such as `FK*`,
+  `FH*`, and `KW*`;
+- `backward`: suffix lookup over backward-compatible indexes such as `BK*` and
+  `BH*`. Backward row keys may be stored reversed; friendly output presents a
+  natural display key where possible;
+- `native`: default reader lookup combining exact, forward, and backward paths
+  while deduplicating hits that resolve to the same body/title target.
+
+Query normalization is intentionally conservative: Unicode compatibility
+normalization, whitespace/dash separator removal, fullwidth/halfwidth ASCII
+folding through NFKC, ASCII case folding, and katakana-to-hiragana folding. It
+is not fuzzy search and it should not rewrite CJK text in meaning-changing
+ways.
+
+The Python implementation may parse indexes into row caches for simplicity.
+The future Rust core should preserve the same model while traversing native
+index pages efficiently.
+
+Entry dereferencing uses body pointers, known body-pointer tables, marker
+offsets, and component bounds before falling back to a maximum byte range. If
+the fallback is needed, the entry carries a recoverable diagnostic.
+
+Reader-side validation samples both marker-discovered entries and
+search-hit-to-entry-to-render paths. It reports sampled index rows, dereference
+counts, render counts, and diagnostic counts. It is reader-safety validation,
+not writer verification.
 
 ## Future Rust and C ABI
 

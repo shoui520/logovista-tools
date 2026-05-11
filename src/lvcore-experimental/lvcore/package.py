@@ -7,11 +7,14 @@ from pathlib import Path
 from typing import Iterable
 
 from .detect import detect_family
+from .diagnostics import Diagnostic, DiagnosticArea, Location, Severity
 from .errors import UnsupportedPackageError
 from .gaiji import Ga16Resource, GaijiMap, load_gaiji_map, parse_ga16
+from .index import IndexRow
 from .index import IndexParse, parse_index
 from .model import Address, Component, ComponentRole, Entry, PackageFamily, PackageInfo, SearchProfile
 from .render import HtmlProfile, render_html, render_text
+from .search import SearchHit, SearchResults, natural_backward_key, normalize_query, query_candidates
 from .ssed import BLOCK_SIZE, CHUNK_SIZE, Catalog, SsedData, find_file_case_insensitive, parse_catalog
 from .text import DecodeResult, decode_text_stream
 
@@ -54,6 +57,9 @@ class LogoVistaPackage:
         )
         self._component_by_name = {component.name.lower(): component for component in self.components}
         self._data_cache: dict[str, SsedData] = {}
+        self._index_cache: dict[str, IndexParse] = {}
+        self._marker_cache: dict[str, list[int]] = {}
+        self._body_pointer_cache: dict[str, list[int]] = {}
 
     @property
     def title(self) -> str:
@@ -105,6 +111,22 @@ class LogoVistaPackage:
         offset = (address.block - component.start_block) * BLOCK_SIZE + address.offset
         return self.data(component).read(offset, size)
 
+    @staticmethod
+    def _relative_offset(component: Component, address: Address) -> int:
+        return (address.block - component.start_block) * BLOCK_SIZE + address.offset
+
+    def _qualified_address(self, address: Address, *, role: ComponentRole | None = None) -> Address:
+        if address.component:
+            return address
+        component = self.component_for_address(address, role=role)
+        if component is None:
+            return address
+        return Address(address.block, address.offset, component.name)
+
+    def _location_for_address(self, address: Address, *, role: ComponentRole | None = None) -> Location:
+        qualified = self._qualified_address(address, role=role)
+        return Location(component=qualified.component, block=qualified.block, offset=qualified.offset)
+
     def honmon_component(self) -> Component | None:
         candidates = self.components_by_role(ComponentRole.HONMON)
         return candidates[0] if candidates else None
@@ -137,12 +159,20 @@ class LogoVistaPackage:
             tail_base = chunk_base + len(chunk) - len(tail)
         return offsets
 
+    def _markers_for_component(self, component: Component, *, limit: int | None = None) -> list[int]:
+        key = component.name.lower()
+        if limit is not None and key not in self._marker_cache:
+            return self._marker_offsets(self.data(component), limit=limit)
+        if key not in self._marker_cache:
+            self._marker_cache[key] = self._marker_offsets(self.data(component))
+        return self._marker_cache[key]
+
     def iter_entry_slices(self, *, limit: int | None = None) -> Iterable[tuple[int, int]]:
         honmon = self.honmon_component()
         if honmon is None or honmon.path is None:
             return
         reader = self.data(honmon)
-        starts = self._marker_offsets(reader, limit=limit)
+        starts = self._markers_for_component(honmon, limit=limit)
         if not starts:
             sample = reader.read(0, min(reader.expanded_size, BLOCK_SIZE))
             if sample.strip(b"\x00"):
@@ -176,16 +206,77 @@ class LogoVistaPackage:
             if limit is not None and count >= limit:
                 break
 
-    def entry_at(self, address: Address, *, max_bytes: int = 512 * 1024) -> Entry:
+    def _body_pointer_offsets(self, component: Component) -> list[int]:
+        key = component.name.lower()
+        if key in self._body_pointer_cache:
+            return self._body_pointer_cache[key]
+        offsets: set[int] = set()
+        for parsed in self.indexes().values():
+            for row in parsed.rows:
+                for address in (row.body,):
+                    target = self.component_for_address(address, role=ComponentRole.HONMON)
+                    if target is None or target.name.lower() != key:
+                        continue
+                    offset = self._relative_offset(target, address)
+                    if 0 <= offset < self.data(target).expanded_size:
+                        offsets.add(offset)
+        self._body_pointer_cache[key] = sorted(offsets)
+        return self._body_pointer_cache[key]
+
+    @staticmethod
+    def _next_after(sorted_offsets: list[int], start: int) -> int | None:
+        lo = 0
+        hi = len(sorted_offsets)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if sorted_offsets[mid] <= start:
+                lo = mid + 1
+            else:
+                hi = mid
+        return sorted_offsets[lo] if lo < len(sorted_offsets) else None
+
+    def _entry_range_for_address(self, address: Address, *, max_bytes: int = 512 * 1024) -> tuple[Component, int, int, tuple[Diagnostic, ...]]:
         honmon = self.component_for_address(address, role=ComponentRole.HONMON)
         if honmon is None:
             raise KeyError(f"no HONMON component contains address {address}")
         reader = self.data(honmon)
-        start = (address.block - honmon.start_block) * BLOCK_SIZE + address.offset
-        data = reader.read(start, max_bytes)
-        next_marker = data.find(ENTRY_MARKER, 1)
-        end_offset = start + (next_marker if next_marker > 0 else len(data))
-        decoded = decode_text_stream(data[: end_offset - start], self.gaiji.mapping)
+        start = self._relative_offset(honmon, address)
+        if start < 0 or start >= reader.expanded_size:
+            raise ValueError(f"entry address outside HONMON bounds: {address}")
+
+        candidates: list[tuple[int, str]] = []
+        next_pointer = self._next_after(self._body_pointer_offsets(honmon), start)
+        if next_pointer is not None:
+            candidates.append((next_pointer, "next_body_pointer"))
+        if next_pointer is None:
+            next_marker = self._next_after(self._markers_for_component(honmon), start)
+            if next_marker is not None:
+                candidates.append((next_marker, "next_marker"))
+        candidates.append((reader.expanded_size, "component_end"))
+
+        fallback_end = min(reader.expanded_size, start + max_bytes)
+        if fallback_end < reader.expanded_size:
+            candidates.append((fallback_end, "max_bytes_fallback"))
+
+        end, source = min((candidate for candidate in candidates if candidate[0] > start), key=lambda item: item[0])
+        diagnostics: list[Diagnostic] = []
+        if source == "max_bytes_fallback":
+            diagnostics.append(
+                Diagnostic(
+                    severity=Severity.WARNING,
+                    area=DiagnosticArea.BODY,
+                    code="entry_range_fallback",
+                    message="entry end was limited by max_bytes fallback",
+                    location=self._location_for_address(address, role=ComponentRole.HONMON),
+                    details={"max_bytes": max_bytes},
+                )
+            )
+        return honmon, start, end, tuple(diagnostics)
+
+    def entry_at(self, address: Address, *, max_bytes: int = 512 * 1024) -> Entry:
+        honmon, start, end_offset, diagnostics = self._entry_range_for_address(address, max_bytes=max_bytes)
+        reader = self.data(honmon)
+        decoded = decode_text_stream(reader.read(start, end_offset - start), self.gaiji.mapping)
         lines = [line.strip() for line in decoded.text.splitlines() if line.strip()]
         headword = lines[0] if lines else ""
         return Entry(
@@ -194,6 +285,7 @@ class LogoVistaPackage:
             headword=headword,
             text=decoded.text.strip("\x00"),
             spans=decoded.spans,
+            entry_diagnostics=diagnostics,
         )
 
     def titles(self, component: str | Component | None = None, *, limit: int | None = None) -> list[str]:
@@ -209,6 +301,54 @@ class LogoVistaPackage:
                         return out
         return out
 
+    def resolve_title(self, address: Address, *, max_bytes: int = 4096) -> tuple[str, tuple[Diagnostic, ...]]:
+        component = self.component_for_address(address, role=ComponentRole.TITLE)
+        if component is None:
+            return "", (
+                Diagnostic(
+                    severity=Severity.WARNING,
+                    area=DiagnosticArea.INDEX,
+                    code="title_dereference_failed",
+                    message="no title component contains the title pointer",
+                    location=self._location_for_address(address, role=ComponentRole.TITLE),
+                ),
+            )
+        reader = self.data(component)
+        start = self._relative_offset(component, address)
+        if start < 0 or start >= reader.expanded_size:
+            return "", (
+                Diagnostic(
+                    severity=Severity.WARNING,
+                    area=DiagnosticArea.INDEX,
+                    code="title_dereference_failed",
+                    message="title pointer is outside component bounds",
+                    location=self._location_for_address(address, role=ComponentRole.TITLE),
+                ),
+            )
+        data = reader.read(start, min(max_bytes, reader.expanded_size - start))
+        if not data:
+            return "", ()
+        end_candidates = [
+            pos
+            for marker in (b"\x1f\x0a", b"\x0a")
+            for pos in [data.find(marker)]
+            if pos >= 0
+        ]
+        end = min(end_candidates) if end_candidates else len(data)
+        decoded = decode_text_stream(data[:end], self.gaiji.mapping)
+        title = " ".join(line.strip() for line in decoded.text.splitlines() if line.strip()).strip("\x00 ")
+        if title:
+            return title, ()
+        return "", (
+            Diagnostic(
+                severity=Severity.WARNING,
+                area=DiagnosticArea.INDEX,
+                code="title_dereference_empty",
+                message="title pointer decoded to an empty title",
+                location=self._location_for_address(address, role=ComponentRole.TITLE),
+            ),
+        )
+
     def indexes(self, component: str | Component | None = None) -> dict[str, IndexParse]:
         comps = [component] if component is not None else list(self.components_by_role(ComponentRole.INDEX))
         out: dict[str, IndexParse] = {}
@@ -216,7 +356,10 @@ class LogoVistaPackage:
             item = self.component(comp) if isinstance(comp, str) else comp
             if item is None or item.path is None:
                 continue
-            out[item.name] = parse_index(self.expanded(item), item.start_block, item.type, self.gaiji.mapping)
+            key = item.name.lower()
+            if key not in self._index_cache:
+                self._index_cache[key] = parse_index(self.expanded(item), item.start_block, item.type, self.gaiji.mapping)
+            out[item.name] = self._index_cache[key]
         return out
 
     @staticmethod
@@ -230,42 +373,176 @@ class LogoVistaPackage:
             return name.startswith(("BK", "BH"))
         return True
 
-    def search_index(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[dict[str, object]]:
-        if isinstance(profile, str):
-            profile = SearchProfile(profile)
-        hits: list[dict[str, object]] = []
+    @staticmethod
+    def _is_backward_index(component_name: str) -> bool:
+        return component_name.upper().startswith(("BK", "BH"))
+
+    @staticmethod
+    def _row_display_key(row: IndexRow, *, backward: bool = False) -> str:
+        value = row.target_key or row.key
+        return natural_backward_key(value) if backward else value
+
+    @staticmethod
+    def _row_dedupe_key(row: IndexRow) -> tuple[int, int, int, int]:
+        return (row.body.block, row.body.offset, row.title.block, row.title.offset)
+
+    def _row_matches(self, row: IndexRow, query: str, candidates: tuple[str, ...], profile: SearchProfile, *, backward: bool) -> str | None:
+        row_values = [row.key]
+        if row.target_key and row.target_key != row.key:
+            row_values.append(row.target_key)
+        normalized_query = normalize_query(query)
+        normalized_candidates = {normalize_query(candidate) for candidate in candidates if candidate}
+
+        if profile == SearchProfile.EXACT:
+            for value in row_values:
+                if value in candidates or normalize_query(value) in normalized_candidates:
+                    return value
+            return None
+
+        if profile == SearchProfile.FORWARD:
+            for value in row_values:
+                normalized_value = normalize_query(value)
+                if normalized_value.startswith(normalized_query) or any(value.startswith(candidate) for candidate in candidates):
+                    return value
+            return None
+
+        if profile == SearchProfile.BACKWARD:
+            reversed_query = normalized_query[::-1]
+            for value in row_values:
+                normalized_value = normalize_query(value)
+                natural_value = normalize_query(natural_backward_key(value)) if backward else normalized_value
+                if normalized_value.startswith(reversed_query) or natural_value.endswith(normalized_query):
+                    return value
+            return None
+
+        return None
+
+    def _iter_matching_rows(
+        self,
+        query: str,
+        profile: SearchProfile,
+    ) -> Iterable[tuple[str, Component, IndexRow, str]]:
+        candidates = query_candidates(query)
         for name, parsed in self.indexes().items():
             component = self.component(name)
-            if component is not None and not self._index_component_matches_profile(component, profile):
+            if component is None or not self._index_component_matches_profile(component, profile):
                 continue
+            backward = self._is_backward_index(name)
             for row in parsed.rows:
-                if row.key == term or row.target_key == term:
-                    hits.append({"component": name, **row.to_dict()})
-                    if len(hits) >= limit:
-                        return hits
-        return hits
+                matched = self._row_matches(row, query, candidates, profile, backward=backward)
+                if matched is not None:
+                    yield name, component, row, matched
 
-    def search_entries(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[Entry]:
+    def _make_hit(
+        self,
+        *,
+        hit_id: int,
+        query: str,
+        normalized_query: str,
+        profile: SearchProfile,
+        component_name: str,
+        row: IndexRow,
+        matched_key: str,
+    ) -> SearchHit:
+        backward = self._is_backward_index(component_name)
+        display_key = self._row_display_key(row, backward=backward)
+        body = self._qualified_address(row.body, role=ComponentRole.HONMON)
+        title = self._qualified_address(row.title, role=ComponentRole.TITLE)
+        title_text, diagnostics = self.resolve_title(title)
+        heading = title_text or display_key or matched_key
+        return SearchHit(
+            id=hit_id,
+            query=query,
+            normalized_query=normalized_query,
+            search_profile=profile,
+            package_id=self.info.dict_id,
+            index_component=component_name,
+            display_key=display_key,
+            matched_key=matched_key,
+            target_key=row.target_key,
+            heading=heading,
+            body=body,
+            title=title,
+            tagged=row.tagged,
+            diagnostics=diagnostics,
+            page=row.page,
+            row=row.row,
+            raw_row=row,
+            _package=self,
+        )
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        profile: SearchProfile | str = SearchProfile.NATIVE,
+        debug: bool = False,
+    ) -> SearchResults:
         if isinstance(profile, str):
             profile = SearchProfile(profile)
+        normalized_query = normalize_query(query)
+        if not normalized_query and not str(query or "").strip():
+            return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=())
+
+        profiles = (SearchProfile.EXACT, SearchProfile.FORWARD, SearchProfile.BACKWARD) if profile == SearchProfile.NATIVE else (profile,)
+        hits: list[SearchHit] = []
+        seen: set[tuple[int, int, int, int]] = set()
+        for effective_profile in profiles:
+            for name, _component, row, matched_key in self._iter_matching_rows(query, effective_profile):
+                dedupe_key = self._row_dedupe_key(row)
+                if not debug and dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                hits.append(
+                    self._make_hit(
+                        hit_id=len(hits) + 1,
+                        query=query,
+                        normalized_query=normalized_query,
+                        profile=effective_profile if profile == SearchProfile.NATIVE else profile,
+                        component_name=name,
+                        row=row,
+                        matched_key=matched_key,
+                    )
+                )
+                if len(hits) >= limit:
+                    return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits))
+        return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits))
+
+    def search_index(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[dict[str, object]]:
+        return [
+            {
+                "component": hit.index_component,
+                **(hit.raw_row.to_dict() if hit.raw_row is not None else {}),
+                "heading": hit.heading,
+                "display_key": hit.display_key,
+            }
+            for hit in self.search(term, limit=limit, profile=profile).hits
+        ]
+
+    def search_entries(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[Entry]:
         out: list[Entry] = []
-        seen: set[tuple[int, int]] = set()
-        for hit in self.search_index(term, limit=limit * 4, profile=profile):
-            body = hit.get("body")
-            if not isinstance(body, dict):
-                continue
-            address = Address(int(body["block"]), int(body["offset"]))
-            key = (address.block, address.offset)
-            if key in seen:
-                continue
-            seen.add(key)
+        for hit in self.search(term, limit=limit, profile=profile).hits:
             try:
-                out.append(self.entry_at(address))
+                out.append(self.entry_for_hit(hit))
             except Exception:
                 continue
-            if len(out) >= limit:
-                break
         return out
+
+    def entry_for_hit(self, hit: SearchHit) -> Entry:
+        return self.entry_at(hit.body)
+
+    def render_hit_html(
+        self,
+        hit: SearchHit,
+        *,
+        profile: HtmlProfile | str = HtmlProfile.FRIENDLY,
+        include_diagnostics: bool = False,
+    ) -> str:
+        return self.render_entry_html(self.entry_for_hit(hit), profile=profile, include_diagnostics=include_diagnostics)
+
+    def render_hit_text(self, hit: SearchHit) -> str:
+        return self.render_entry_text(self.entry_for_hit(hit))
 
     def entry_document(self, entry: Entry):
         return entry.document()
@@ -287,9 +564,17 @@ class LogoVistaPackage:
     def entry_diagnostics(self, entry: Entry) -> tuple[object, ...]:
         return entry.document().diagnostics
 
-    def validate(self, *, sample_entries: int = 3) -> dict[str, object]:
+    @staticmethod
+    def _count_diagnostics(target: tuple[Diagnostic, ...], by_severity: dict[str, int], by_area: dict[str, int], by_code: dict[str, int]) -> None:
+        for diagnostic in target:
+            by_severity[diagnostic.severity.value] = by_severity.get(diagnostic.severity.value, 0) + 1
+            by_area[diagnostic.area.value] = by_area.get(diagnostic.area.value, 0) + 1
+            by_code[diagnostic.code] = by_code.get(diagnostic.code, 0) + 1
+
+    def validate(self, *, sample_entries: int = 3, sample_search_hits: int = 5) -> dict[str, object]:
         diagnostics_by_severity = {"info": 0, "warning": 0, "error": 0}
         diagnostics_by_area: dict[str, int] = {}
+        diagnostics_by_code: dict[str, int] = {}
         entries_checked = 0
         render_ok = 0
         entry_errors: list[str] = []
@@ -301,12 +586,49 @@ class LogoVistaPackage:
                 render_html(document)
                 render_text(document)
                 render_ok += 1
-                for diagnostic in document.diagnostics:
-                    diagnostics_by_severity[diagnostic.severity.value] = diagnostics_by_severity.get(diagnostic.severity.value, 0) + 1
-                    diagnostics_by_area[diagnostic.area.value] = diagnostics_by_area.get(diagnostic.area.value, 0) + 1
+                self._count_diagnostics(document.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
             except Exception as exc:  # pragma: no cover - defensive validation report path
                 diagnostics_by_severity["error"] = diagnostics_by_severity.get("error", 0) + 1
                 entry_errors.append(f"{entry.address.block}:{entry.address.offset}: {exc}")
+
+        index_rows_sampled = 0
+        search_hits_dereferenced = 0
+        search_hits_rendered_html = 0
+        search_hits_rendered_text = 0
+        search_errors: list[str] = []
+        sampled_rows: list[IndexRow] = []
+        for parsed in self.indexes().values():
+            for row in parsed.rows:
+                sampled_rows.append(row)
+                if len(sampled_rows) >= sample_search_hits:
+                    break
+            if len(sampled_rows) >= sample_search_hits:
+                break
+        for row in sampled_rows:
+            index_rows_sampled += 1
+            query = row.target_key or row.key
+            try:
+                results = self.search(query, profile=SearchProfile.EXACT, limit=1)
+                self._count_diagnostics(results.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
+                if not results.hits:
+                    search_errors.append(f"no hit for sampled index key on page {row.page} row {row.row}")
+                    diagnostics_by_severity["warning"] = diagnostics_by_severity.get("warning", 0) + 1
+                    diagnostics_by_area[DiagnosticArea.INDEX.value] = diagnostics_by_area.get(DiagnosticArea.INDEX.value, 0) + 1
+                    diagnostics_by_code["sample_search_miss"] = diagnostics_by_code.get("sample_search_miss", 0) + 1
+                    continue
+                hit = results.hits[0]
+                self._count_diagnostics(hit.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
+                entry = self.entry_for_hit(hit)
+                search_hits_dereferenced += 1
+                document = entry.document()
+                self._count_diagnostics(document.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
+                render_html(document)
+                search_hits_rendered_html += 1
+                render_text(document)
+                search_hits_rendered_text += 1
+            except Exception as exc:  # pragma: no cover - defensive validation report path
+                diagnostics_by_severity["error"] = diagnostics_by_severity.get("error", 0) + 1
+                search_errors.append(f"{row.page}:{row.row}: {exc}")
 
         index_stats = {
             name: {
@@ -336,12 +658,19 @@ class LogoVistaPackage:
                 "ga16_resources": len(self.ga16),
             },
             "indexes": index_stats,
+            "title_components": len(self.components_by_role(ComponentRole.TITLE)),
             "sample_entries_checked": entries_checked,
             "sample_entries_rendered": render_ok,
+            "sample_index_rows_checked": index_rows_sampled,
+            "sample_search_hits_dereferenced": search_hits_dereferenced,
+            "sample_search_hits_rendered_html": search_hits_rendered_html,
+            "sample_search_hits_rendered_text": search_hits_rendered_text,
             "diagnostics": {
                 "by_severity": diagnostics_by_severity,
                 "by_area": diagnostics_by_area,
+                "by_code": diagnostics_by_code,
                 "entry_errors": entry_errors,
+                "search_errors": search_errors,
             },
             "ok": diagnostics_by_severity.get("error", 0) == 0 and not entry_errors,
         }
