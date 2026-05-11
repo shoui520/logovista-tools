@@ -10,6 +10,7 @@ from .body_source import BodySourceInfo, BodySourceSupport, Confidence, SsedBody
 from .diagnostics import Diagnostic, DiagnosticArea, Location, Severity
 from .document import BlockNode, EntryDocument, InlineNode, ResourceRef
 from .model import Address, Component, PackageFamily, PackageInfo, SearchProfile, Span
+from .opcodes import OpcodeBehavior, OpcodeCategory, behavior_for
 from .package import LogoVistaPackage, open_package
 from .render import GaijiPolicy, HtmlProfile, render_html, render_text
 from .search import SearchHit, SearchResults, normalize_query
@@ -31,6 +32,8 @@ __all__ = [
     "Location",
     "PackageFamily",
     "PackageInfo",
+    "OpcodeBehavior",
+    "OpcodeCategory",
     "ResourceRef",
     "SearchProfile",
     "SearchHit",
@@ -38,6 +41,7 @@ __all__ = [
     "SsedBodySourceKind",
     "Severity",
     "Span",
+    "behavior_for",
     "detect_family",
     "normalize_query",
     "open_package",

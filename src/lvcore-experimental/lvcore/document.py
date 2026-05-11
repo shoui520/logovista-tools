@@ -8,6 +8,7 @@ from typing import Any, Iterable
 
 from .diagnostics import Diagnostic, DiagnosticArea, DiagnosticBag, Location, Severity
 from .model import Entry, Span
+from .opcodes import KNOWN_NEUTRAL_OPS, OpcodeCategory, behavior_for
 
 
 class BlockKind(str, Enum):
@@ -69,9 +70,6 @@ IGNORED_CONTROL_TAGS = {
     "media_layout",
     "title_separator",
 }
-
-
-KNOWN_NEUTRAL_OPS = {0x00, 0x02, 0x03, 0x09, 0x1A, 0x1C}
 
 
 @dataclass(frozen=True)
@@ -162,10 +160,31 @@ def _wrap_styles(node: InlineNode, active_styles: Iterable[InlineKind]) -> Inlin
     return wrapped
 
 
+def _merge_inline(left: InlineNode, right: InlineNode) -> InlineNode | None:
+    if left.kind != right.kind or left.code != right.code or left.resource_id != right.resource_id or left.attrs != right.attrs:
+        return None
+    if not left.children and not right.children and left.text is not None and right.text is not None:
+        return InlineNode(left.kind, text=left.text + right.text, code=left.code, resource_id=left.resource_id, attrs=left.attrs)
+    if len(left.children) == 1 and len(right.children) == 1:
+        child = _merge_inline(left.children[0], right.children[0])
+        if child is not None:
+            return InlineNode(left.kind, children=(child,), code=left.code, resource_id=left.resource_id, attrs=left.attrs)
+    return None
+
+
+def _append_inline(target: list[InlineNode], node: InlineNode) -> None:
+    if target:
+        merged = _merge_inline(target[-1], node)
+        if merged is not None:
+            target[-1] = merged
+            return
+    target.append(node)
+
+
 def _add_text(target: list[InlineNode], text: str | None, active_styles: list[InlineKind]) -> None:
     if not text:
         return
-    target.append(_wrap_styles(InlineNode(InlineKind.TEXT, text=text), active_styles))
+    _append_inline(target, _wrap_styles(InlineNode(InlineKind.TEXT, text=text), active_styles))
 
 
 def _flush_paragraph(blocks: list[BlockNode], inlines: list[InlineNode]) -> None:
@@ -268,6 +287,7 @@ def build_entry_document(entry: Entry) -> EntryDocument:
 
         if span.kind in {"control", "section"}:
             tag = span.attrs.get("tag")
+            behavior = behavior_for(span.op)
             if tag in STYLE_START_TO_KIND and span.op in STYLE_START_OPS:
                 active_styles.append(STYLE_START_TO_KIND[tag])
             elif tag in STYLE_START_TO_KIND and span.op in STYLE_END_OPS:
@@ -286,8 +306,24 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                         location=location(span),
                         details={"style": style.value, "op": f"{span.op:02x}" if span.op is not None else None},
                     )
-            elif tag in {kind.value for kind in InlineKind}:
-                pass
+            elif behavior is not None and behavior.category == OpcodeCategory.TAB:
+                diagnostics.add(
+                    Severity.INFO,
+                    DiagnosticArea.OPCODE,
+                    behavior.diagnostic_code or "tab_column_control",
+                    "tab/column positioning control preserved as a nonprinting layout hint",
+                    location=location(span),
+                    details={"op": f"{span.op:02x}" if span.op is not None else None, "payload": span.payload.hex()},
+                )
+            elif behavior is not None and behavior.category == OpcodeCategory.MEDIA_LAYOUT:
+                diagnostics.add(
+                    Severity.INFO,
+                    DiagnosticArea.MEDIA,
+                    behavior.diagnostic_code or "media_layout_control",
+                    "media layout control preserved as a nonprinting resource hint",
+                    location=location(span),
+                    details={"op": f"{span.op:02x}" if span.op is not None else None, "payload": span.payload.hex()},
+                )
             elif tag in IGNORED_CONTROL_TAGS or span.op in KNOWN_NEUTRAL_OPS:
                 pass
             elif tag is None:

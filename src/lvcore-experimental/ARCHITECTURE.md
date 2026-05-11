@@ -24,6 +24,7 @@ The body pipeline is:
 ```text
 raw HONMON/body bytes
   -> text/opcode spans
+  -> control behavior atlas
   -> EntryDocument tree
   -> resource/gaiji/media resolver + diagnostics
   -> render profile
@@ -72,6 +73,29 @@ recorded as diagnostics and can be shown by debug renderers.
 
 Private renderer-directive spans are hidden from friendly content by default.
 They remain visible through explicit diagnostics/debug output.
+
+## Control Behavior Atlas
+
+SSED body controls are modeled through a small lvcore-local behavior atlas. The
+atlas assigns behavior-level names, categories, argument shapes, friendly
+visibility, plain-text behavior, debug behavior, diagnostic codes, and
+confidence levels to observed `0x1f` controls.
+
+The atlas is not a renderer clone. It exists to keep decoding, document
+construction, rendering, diagnostics, and tests aligned around stable concepts:
+
+- private renderer directives are hidden in friendly output and shown only by
+  diagnostics/debug profiles;
+- literal/preformatted spans preserve readable text;
+- URL and internal-link spans become semantic link nodes when safe;
+- tab/column controls are nonprinting layout hints;
+- media-layout controls are nonprinting resource hints;
+- media references become first-class resources or placeholders;
+- unknown controls stay out of friendly output and remain visible in debug
+  output with diagnostics.
+
+Exact visual layout is still profile-specific future work. Friendly rendering
+prioritizes readable, escaped output and avoids raw opcode leakage.
 
 ## Diagnostics
 

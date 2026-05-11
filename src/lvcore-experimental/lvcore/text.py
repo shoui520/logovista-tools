@@ -5,69 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .model import Span
-
-
-CONTROL_ARG_LENGTHS = {
-    0x09: 2,
-    0x1A: 2,
-    0x1C: 2,
-    0x41: 2,
-    0x42: 0,
-    0x43: 0,
-    0x44: 10,
-    0x49: 10,
-    0x4A: 16,
-    0x4D: 18,
-    0x62: 6,
-    0x63: 6,
-    0x64: 6,
-    0x69: 0,
-    0xE0: 2,
-    0xE2: 2,
-}
-
-START_TAGS = {
-    0x04: "halfwidth",
-    0x06: "sub",
-    0x0B: "literal",
-    0x0E: "sup",
-    0x10: "italic",
-    0x12: "em",
-    0x3B: "url",
-    0x41: "head",
-    0x42: "link",
-    0x43: "link",
-    0x44: "link",
-    0x49: "link",
-    0x4A: "link",
-    0x4D: "media",
-    0xE0: "bold",
-    0xE2: "private",
-}
-
-SEMANTIC_CONTROL_TAGS = {
-    0x1A: "tab_column",
-    0x1C: "media_layout",
-}
-
-END_TAGS = {
-    0x05: "halfwidth",
-    0x07: "sub",
-    0x0C: "literal",
-    0x0F: "sup",
-    0x11: "italic",
-    0x13: "em",
-    0x5B: "url",
-    0x61: "head",
-    0x62: "link",
-    0x63: "link",
-    0x64: "link",
-    0x69: "link",
-    0x6A: "link",
-    0x6D: "media",
-    0xE1: "bold",
-    0xE3: "private",
-}
+from .opcodes import (
+    CONTROL_ARG_LENGTHS,
+    END_TAGS,
+    FriendlyVisibility,
+    SEMANTIC_CONTROL_TAGS,
+    START_TAGS,
+    behavior_for,
+    is_known_opcode,
+)
 
 
 @dataclass(frozen=True)
@@ -180,8 +126,9 @@ def decode_text_stream(data: bytes, gaiji: dict[str, str] | None = None) -> Deco
             elif op == 0xE3 and private:
                 private -= 1
 
+            behavior = behavior_for(op)
             tag = START_TAGS.get(op) or END_TAGS.get(op) or SEMANTIC_CONTROL_TAGS.get(op)
-            known = tag is not None or op in {0x00, 0x02, 0x03, 0x09, 0x1A, 0x1C}
+            known = is_known_opcode(op)
             if not known:
                 unknown_controls += 1
             kind = "control"
@@ -189,6 +136,17 @@ def decode_text_stream(data: bytes, gaiji: dict[str, str] | None = None) -> Deco
                 kind = "section"
             elif op == 0x4D:
                 kind = "media_ref"
+            attrs = {"tag": tag} if tag else {}
+            if behavior is not None:
+                attrs.update(
+                    {
+                        "opcode_category": behavior.category.value,
+                        "semantic_name": behavior.semantic_name,
+                        "argument_shape": behavior.argument_shape,
+                    }
+                )
+                if behavior.diagnostic_code:
+                    attrs["diagnostic_code"] = behavior.diagnostic_code
             spans.append(
                 Span(
                     kind=kind,
@@ -197,8 +155,8 @@ def decode_text_stream(data: bytes, gaiji: dict[str, str] | None = None) -> Deco
                     length=2 + arg_len,
                     op=op,
                     payload=payload,
-                    hidden=bool(private) or op in {0xE2, 0xE3},
-                    attrs={"tag": tag} if tag else {},
+                    hidden=bool(private) or (behavior is not None and behavior.friendly_visibility == FriendlyVisibility.HIDDEN),
+                    attrs=attrs,
                 )
             )
             i += 2 + arg_len

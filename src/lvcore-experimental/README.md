@@ -16,6 +16,7 @@ Current scope:
 - expand SSED chunks and read component slices;
 - parse dictionary-local `.uni` gaiji mappings;
 - decode SSED text streams into model-like spans;
+- classify observed SSED `0x1f` controls through a local behavior atlas;
 - parse title/index rows;
 - classify SSED body sources separately from package families;
 - slice readable direct `HONMON.DIC` body-stream entries;
@@ -63,6 +64,12 @@ Search profiles are native reader profiles:
 Friendly search JSON hides raw page/pointer internals by default. Add
 `--debug` when inspecting component names, page/row positions, body/title
 pointers, and raw parsed rows.
+
+The lvcore control model uses behavior-level names derived from observed corpus
+behavior. Friendly output hides private directives and raw control bytes,
+literal/preformatted spans remain readable, URL and link spans become semantic
+link nodes where currently understood, and layout/media controls are preserved
+as diagnostics or resource hints until a richer resolver is available.
 
 SSED body-source kinds are distinct from package families:
 

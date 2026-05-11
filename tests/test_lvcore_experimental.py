@@ -14,6 +14,7 @@ from lvcore import Address, PackageFamily, SearchHit, SearchProfile, SearchResul
 from lvcore.document import InlineKind, build_entry_document  # noqa: E402
 from lvcore.gaiji import ga16_glyph_size, parse_ga16  # noqa: E402
 from lvcore.model import Entry  # noqa: E402
+from lvcore.opcodes import OpcodeCategory, behavior_for  # noqa: E402
 from lvcore.render import HtmlProfile, render_html, render_text  # noqa: E402
 from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE  # noqa: E402
 from lvcore.text import decode_text_stream  # noqa: E402
@@ -492,10 +493,82 @@ def test_lvcore_private_renderer_directives_are_hidden_from_friendly_output() ->
 
     document = entry.document()
     html = entry.html()
+    debug = entry.render_html("debug")
 
     assert "visible" in html
     assert "SQL" not in html
+    assert "e2" in debug
+    assert "private_renderer_directive" in debug
     assert any(diagnostic.code == "private_renderer_directive" for diagnostic in document.diagnostics)
+
+
+def test_lvcore_opcode_behavior_atlas_exposes_clean_semantics() -> None:
+    assert behavior_for(0x04).semantic_name == "halfwidth conversion start"
+    assert behavior_for(0x04).category == OpcodeCategory.TEXT
+    assert behavior_for(0x3B).category == OpcodeCategory.URL
+    assert behavior_for(0x44).category == OpcodeCategory.EXTENDED_LINK
+    assert behavior_for(0xE2).diagnostic_code == "private_renderer_directive"
+    assert behavior_for(0x99) is None
+
+
+def test_lvcore_literal_preformatted_span_renders_readable_text() -> None:
+    raw = b"\x1f\x0b" + body_text("literal <tag> & text") + b"\x1f\x0c"
+    decoded = decode_text_stream(raw)
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "HONMON.DIC"), "literal", decoded.text, decoded.spans)
+    html = entry.html()
+    text = entry.plain_text()
+
+    assert "literal &lt;tag&gt; &amp; text" in html
+    assert "literal <tag> & text" in text
+    assert "1f0b" not in html.lower()
+    assert "1f0c" not in html.lower()
+
+
+def test_lvcore_url_span_renders_as_safe_link_semantics_or_text() -> None:
+    raw = b"\x1f\x3b" + body_text("https://example.test/?q=<x>&ok=1") + b"\x1f\x5b"
+    decoded = decode_text_stream(raw)
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "HONMON.DIC"), "url", decoded.text, decoded.spans)
+    document = entry.document()
+    html = render_html(document)
+    text = render_text(document)
+
+    assert "https://example.test/?q=&lt;x&gt;&amp;ok=1" in html
+    assert "https://example.test/?q=<x>&ok=1" in text
+    assert "lv-link" in html
+    assert "1f3b" not in html.lower()
+
+
+def test_lvcore_tab_and_media_layout_controls_are_diagnostic_hints() -> None:
+    raw = body_text("left") + b"\x1f\x1a\x20\x00" + body_text("right") + b"\x1f\x1c\x20\x00"
+    decoded = decode_text_stream(raw)
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "HONMON.DIC"), "layout", decoded.text, decoded.spans)
+    document = entry.document()
+    html = render_html(document)
+    text = render_text(document)
+
+    assert "leftright" in text
+    assert "left" in html and "right" in html
+    assert "1f1a" not in html.lower()
+    assert "1f1c" not in html.lower()
+    assert any(diagnostic.code == "tab_column_control" for diagnostic in document.diagnostics)
+    assert any(diagnostic.code == "media_layout_control" for diagnostic in document.diagnostics)
+
+
+def test_lvcore_extended_link_control_does_not_leak_raw_payload() -> None:
+    payload = bytes(range(10))
+    target = b"\x00\x00\x00\x02\x00\x10"
+    raw = b"\x1f\x44" + payload + body_text("linked label") + b"\x1f\x64" + target
+    decoded = decode_text_stream(raw)
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "HONMON.DIC"), "link", decoded.text, decoded.spans)
+    html = entry.html()
+    debug = entry.render_html("debug")
+
+    assert "linked label" in html
+    assert "lv-link" in html
+    assert payload.hex() not in html
+    assert target.hex() not in html
+    assert "1f44" not in html.lower()
+    assert payload.hex() in debug
 
 
 def test_lvcore_gaiji_document_nodes_and_render_policies() -> None:
