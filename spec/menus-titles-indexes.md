@@ -137,9 +137,9 @@ components:
 ```
 
 KQSYNONM also declares a type-`0x27` `INDEX.DIC` outlier that expands to a
-text-like stream. These are handled as text components, not as structured index
-page trees. KCOMPEJ2 has a loose `RIGHT.DIC` `SSEDDATA` file that is not listed
-in its main `SSEDINFO` catalog.
+text-like stream. lvcore classifies this as a text-like resource component,
+not as a structured index page tree. KCOMPEJ2 has a loose `RIGHT.DIC`
+`SSEDDATA` file that is not listed in its main `SSEDINFO` catalog.
 
 The toolkit and the clean lvcore reader parser parse the common `FK/FH/BK/BH`
 page formats, direct and grouped `KWINDEX` rows, direct and grouped `CRINDEX`
@@ -154,8 +154,9 @@ OUKOKU11, IPHYCHE5, KENCOLLO, KQJCOLLO, KOJIEN7, 45KAGAKU, and KQSYNONM.
 
 An earlier 169-package Windows SSED component-forensics pass reported zero
 unknown index leaf subrecords. The only index residual is `NANDOKU2`
-`FHINDEX.DIC`, which has three nonzero physical tail bytes after all full
-2048-byte pages are consumed.
+`FHINDEX.DIC`, which ends with a 5-byte partial physical page tail after all
+full 2048-byte pages are consumed. Three of those tail bytes are nonzero; the
+valid rows before the tail parse normally.
 
 Representative parser coverage from the local corpus:
 

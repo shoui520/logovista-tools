@@ -36,7 +36,7 @@ from .index import IndexParse, parse_index
 from .model import Address, Component, ComponentRole, Entry, PackageFamily, PackageInfo, SearchProfile, Span
 from .render import HtmlProfile, render_html, render_text
 from .search import SearchHit, SearchResults, natural_backward_key, normalize_query, query_candidates
-from .ssed import BLOCK_SIZE, CHUNK_SIZE, Catalog, SsedData, find_file_case_insensitive, parse_catalog
+from .ssed import BLOCK_SIZE, CHUNK_SIZE, Catalog, SsedData, TEXT_LIKE_INDEX_OUTLIER_TYPES, find_file_case_insensitive, parse_catalog
 from .text import DecodeResult, decode_text_stream
 
 
@@ -1600,6 +1600,8 @@ class LogoVistaPackage:
                 "unsupported_component_type": f"{parsed.unsupported_component_type:02x}" if parsed.unsupported_component_type is not None else None,
                 "unsupported_leaf_pages": parsed.unsupported_leaf_pages,
                 "malformed_leaf_rows": parsed.malformed_leaf_rows,
+                "physical_tail_bytes": parsed.physical_tail_bytes,
+                "physical_tail_nonzero_bytes": parsed.physical_tail_nonzero_bytes,
                 "row_type_counts": dict(parsed.row_type_counts),
                 "continuation_groups": parsed.continuation_groups,
                 "dangling_continuation_rows": parsed.dangling_continuation_rows,
@@ -1677,6 +1679,13 @@ class LogoVistaPackage:
                     if parsed.unsupported_component_type is not None
                 },
                 "malformed_leaf_rows": sum(parsed.malformed_leaf_rows for parsed in self.indexes().values()),
+                "physical_tail_bytes": sum(parsed.physical_tail_bytes for parsed in self.indexes().values()),
+                "physical_tail_nonzero_bytes": sum(parsed.physical_tail_nonzero_bytes for parsed in self.indexes().values()),
+                "text_like_index_outliers": {
+                    component.name: f"{component.type:02x}"
+                    for component in self.components
+                    if component.name.upper() == "INDEX.DIC" and component.type in TEXT_LIKE_INDEX_OUTLIER_TYPES
+                },
                 "continuation_groups": sum(parsed.continuation_groups for parsed in self.indexes().values()),
                 "dangling_continuation_rows": sum(parsed.dangling_continuation_rows for parsed in self.indexes().values()),
             },

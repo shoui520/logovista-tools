@@ -400,6 +400,31 @@ def make_special_index_package(root: Path, *, component_type: int, grouped: bool
     (root / index_name).write_bytes(literal_sseddata(index, start_block=index_start, kind=component_type))
 
 
+def make_text_like_index_outlier_package(root: Path) -> None:
+    honmon_start = 2
+    title_start = 3
+    index_start = 4
+    outlier_start = 5
+    body = body_text("alpha") + b"\x1f\x0a" + body_text("first entry") + b"\x1f\x0a"
+    title = body_text("alpha") + b"\x1f\x0a"
+    key = index_key("alpha")
+    row = bytes([len(key)]) + key + be32(honmon_start) + be16(0) + be32(title_start) + be16(0)
+    index = be16(0x8000) + be16(1) + row
+    outlier = b"\x1f\x02\x1f\x0a" + body_text("navigation text") + b"\x1f\x0a"
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("FHTITLE.DIC", 0x05, title_start, title_start, b"\x01\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start, b"\x02\x01\x55\x40"),
+        ("INDEX.DIC", 0x27, outlier_start, outlier_start, b"\x00\x00\x00\x00"),
+    ]
+    root.mkdir(exist_ok=True)
+    (root / "OUTLIER.IDX").write_bytes(ssedinfo("Text-like outlier", components))
+    (root / "HONMON.DIC").write_bytes(literal_sseddata(body, start_block=honmon_start, kind=0))
+    (root / "FHTITLE.DIC").write_bytes(literal_sseddata(title, start_block=title_start, kind=5))
+    (root / "FHINDEX.DIC").write_bytes(literal_sseddata(index, start_block=index_start, kind=0x91))
+    (root / "INDEX.DIC").write_bytes(literal_sseddata(outlier, start_block=outlier_start, kind=0x27))
+
+
 def make_tagged_target_package(root: Path) -> None:
     honmon_start = 2
     title_start = 3
@@ -814,10 +839,10 @@ def test_lvcore_parses_tagged_group_continuation_for_existing_families() -> None
 
 
 def test_lvcore_index_parser_reports_malformed_and_unsupported_rows() -> None:
-    malformed = parse_index(be16(0x8000) + be16(1) + bytes([0x80, 10]) + b"\x00", 1, 0x80)
+    malformed = parse_index(pad_block(be16(0x8000) + be16(1) + b"\xff\x01"), 1, 0x80)
     assert malformed.rows == ()
     assert malformed.malformed_leaf_rows == 1
-    assert malformed.diagnostics[0].code == "malformed_group_leaf_row"
+    assert malformed.diagnostics[0].code == "unknown_leaf_tag"
 
     unsupported = parse_index(leaf_page([direct_index_record("ignored")]), 1, 0x27)
     assert unsupported.rows == ()
@@ -825,11 +850,46 @@ def test_lvcore_index_parser_reports_malformed_and_unsupported_rows() -> None:
     assert unsupported.unsupported_leaf_pages == 1
     assert unsupported.diagnostics[0].code == "unsupported_component_type"
 
-    unsupported_branch_only = parse_index(be16(0x0002) + be16(1) + b"\x00" * 6, 1, 0x27)
+    unsupported_branch_only = parse_index(pad_block(be16(0x0002) + be16(1) + b"\x00" * 6), 1, 0x27)
     assert unsupported_branch_only.rows == ()
     assert unsupported_branch_only.internal_pages == 1
     assert unsupported_branch_only.unsupported_component_type == 0x27
     assert unsupported_branch_only.diagnostics[0].code == "unsupported_component_type"
+
+
+def test_lvcore_index_parser_reports_partial_physical_tail_separately() -> None:
+    parsed = parse_index(pad_block(simple_index([("alpha", 10, 0, 20, 0)])) + b"\x80\x00\x00\x5e\x08", 1, 0x91)
+
+    assert [(row.key, row.row_type) for row in parsed.rows] == [("alpha", "simple")]
+    assert parsed.malformed_leaf_rows == 0
+    assert parsed.unknown_leaf_bytes == 0
+    assert parsed.physical_tail_bytes == 5
+    assert parsed.physical_tail_nonzero_bytes == 3
+    assert parsed.diagnostics[-1].code == "partial_index_page_tail"
+
+
+def test_lvcore_classifies_text_like_index_outlier_as_resource(tmp_path: Path) -> None:
+    make_text_like_index_outlier_package(tmp_path)
+    catalog = parse_catalog(tmp_path / "OUTLIER.IDX")
+    outlier = next(component for component in catalog.components if component.name == "INDEX.DIC")
+    package = open_package(tmp_path)
+    report = package.validate(sample_entries=1, sample_search_hits=1)
+
+    assert outlier.type == 0x27
+    assert outlier.role == ComponentRole.RESOURCE
+    assert "INDEX.DIC" not in package.indexes()
+    assert report["index_summary"]["text_like_index_outliers"] == {"INDEX.DIC": "27"}
+    assert report["index_summary"]["unsupported_component_types"] == {}
+
+    result = subprocess.run(
+        [sys.executable, "-m", "lvcore", "validate", str(tmp_path), "--json", "--sample-entries", "1", "--sample-search-hits", "1"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    data = json.loads(result.stdout)
+    assert data["index_summary"]["text_like_index_outliers"] == {"INDEX.DIC": "27"}
 
 
 @pytest.mark.parametrize("component_type,grouped", [(0x80, False), (0x80, True), (0x81, False), (0x81, True), (0xA1, False), (0xA1, True)])

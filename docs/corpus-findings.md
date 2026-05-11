@@ -113,10 +113,10 @@ that intentionally reuse the body pointer as the title pointer are counted as
 safe heading fallback rather than title failures. Sidecar summaries also
 separate body-critical stores from media/resource, examples/idioms, search,
 kanji-support, ancillary, non-SQLite, and unknown roles. Index summaries count
-component types, rows by component type, malformed leaf rows, unsupported
-component types, and grouped-continuation rows; body decode telemetry records
-unknown control and byte totals from sampled entries without exposing entry
-text.
+component types, rows by component type, malformed leaf rows, partial physical
+page tails, text-like index outliers, unsupported component types, and
+grouped-continuation rows; body decode telemetry records unknown control and
+byte totals from sampled entries without exposing entry text.
 
 ## Windows SSED Corpus Profile
 
@@ -247,7 +247,7 @@ missing declared files:       42
 text/index/media byte residuals:
   unknown title bytes:         1   ITALIAN FHTITLE.DIC standalone 0x11
   known vendor title defect:   1   25IGAKU FHTITLE.DIC singleton 1f1f
-  index tail bytes:            3   NANDOKU2 FHINDEX.DIC physical tail
+  index tail bytes:            5   NANDOKU2 FHINDEX.DIC partial physical tail
   PCMDATA shared slices:     235   ARCHSIC3 shared WAVE data-slice records
 ```
 
@@ -559,8 +559,9 @@ The pass added several concrete format details:
 
 The remaining component anomalies are intentionally small and named:
 
-- `NANDOKU2` `FHINDEX.DIC` has three nonzero physical tail bytes after all full
-  2048-byte index pages are parsed.
+- `NANDOKU2` `FHINDEX.DIC` has a 5-byte partial physical page tail after all
+  full 2048-byte index pages are parsed. Three tail bytes are nonzero; valid
+  rows before the tail are preserved.
 - `25IGAKU` `FHTITLE.DIC` has one malformed singleton `1f1f` title-stream
   sequence. It is treated as a vendor data defect, not a model gap.
 - `ITALIAN` `FHTITLE.DIC` has one standalone `0x11` byte. It is covered as an

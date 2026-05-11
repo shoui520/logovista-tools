@@ -32,8 +32,8 @@ Use this checklist when reviewing changes under `src/lvcore-experimental`.
 - Group-inherited title pointers are available in debug row metadata but do not
   leak into friendly search output.
 - Validation/corpus-validation reports index component type counts, rows by
-  component type, malformed rows, unsupported component types, and continuation
-  counts.
+  component type, malformed rows, partial physical page tails, text-like index
+  outliers, unsupported component types, and continuation counts.
 
 ## Rendering And Diagnostics
 

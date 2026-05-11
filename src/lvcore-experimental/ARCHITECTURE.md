@@ -238,6 +238,11 @@ fallback:
 - cross-reference rows: `0x81`;
 - MULTI selector rows: `0xa1`.
 
+The observed type-`0x27` `INDEX.DIC` outlier is not treated as a native index.
+It is classified as a text-like resource component and reported through
+validation counters. Partial physical page tails after complete index pages are
+reported separately from malformed rows so valid rows remain usable.
+
 Grouped tagged, keyword, cross-reference, and MULTI selector indexes may carry
 their active group key, count hint, and inherited title pointer across leaf page
 boundaries. Parser output keeps that context in debug row metadata while

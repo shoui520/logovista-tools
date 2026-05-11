@@ -267,7 +267,8 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   `NANDOKU3` ends with a lone final `0x1f` byte after the last decoded text
   cell. It is covered and reported as a truncated control, not guessed.
 - The companion component-forensics pass has narrow residuals outside HONMON:
-  `NANDOKU2` has a 3-byte nonzero physical tail after full `FHINDEX.DIC` pages;
+  `NANDOKU2` has a 5-byte partial tail after full `FHINDEX.DIC` pages, with
+  three nonzero tail bytes;
   `25IGAKU` has one malformed singleton title-stream `1f1f` sequence treated as
   a vendor data defect; `ITALIAN` has one standalone title byte `0x11`; and
   three `.uni` files have small nonzero trailers after all parsed records.

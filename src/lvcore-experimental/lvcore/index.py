@@ -99,6 +99,8 @@ class IndexParse:
     unsupported_component_type: int | None = None
     unsupported_leaf_pages: int = 0
     malformed_leaf_rows: int = 0
+    physical_tail_bytes: int = 0
+    physical_tail_nonzero_bytes: int = 0
     row_type_counts: dict[str, int] = field(default_factory=dict)
     continuation_groups: int = 0
     dangling_continuation_rows: int = 0
@@ -559,6 +561,8 @@ def parse_index(data: bytes, start_block: int, component_type: int, gaiji: dict[
     unknown = 0
     unsupported_leaf_pages = 0
     malformed_leaf_rows = 0
+    physical_tail_bytes = 0
+    physical_tail_nonzero_bytes = 0
     row_type_counts: dict[str, int] = {}
     continuation_groups = 0
     dangling_continuation_rows = 0
@@ -567,7 +571,23 @@ def parse_index(data: bytes, start_block: int, component_type: int, gaiji: dict[
 
     for page_index, pos in enumerate(range(0, len(data), BLOCK_SIZE)):
         page = data[pos : pos + BLOCK_SIZE]
-        if len(page) < 4:
+        if len(page) < BLOCK_SIZE:
+            if page:
+                nonzero = sum(1 for value in page if value)
+                physical_tail_bytes += len(page)
+                physical_tail_nonzero_bytes += nonzero
+                if nonzero:
+                    diagnostics.append(
+                        IndexDiagnostic(
+                            code="partial_index_page_tail",
+                            message="index component ended with a partial physical page tail",
+                            page=page_index,
+                            details={
+                                "tail_bytes": len(page),
+                                "nonzero_bytes": nonzero,
+                            },
+                        )
+                    )
             continue
         word = be16(page, 0)
         if is_leaf(word):
@@ -626,6 +646,8 @@ def parse_index(data: bytes, start_block: int, component_type: int, gaiji: dict[
         unsupported_component_type=unsupported_component_type,
         unsupported_leaf_pages=unsupported_leaf_pages,
         malformed_leaf_rows=malformed_leaf_rows,
+        physical_tail_bytes=physical_tail_bytes,
+        physical_tail_nonzero_bytes=physical_tail_nonzero_bytes,
         row_type_counts=row_type_counts,
         continuation_groups=continuation_groups,
         dangling_continuation_rows=dangling_continuation_rows,

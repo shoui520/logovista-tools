@@ -22,6 +22,7 @@ INDEX_TYPES = {0x30, 0x60, 0x70, 0x71, 0x72, 0x80, 0x81, 0x90, 0x91, 0x92, 0xA1}
 MENU_TYPES = {0x01}
 GAIJI_TYPES = {0xF1, 0xF2}
 MEDIA_NAMES = {"COLSCR.DIC", "PCMDATA.DIC"}
+TEXT_LIKE_INDEX_OUTLIER_TYPES = {0x27}
 
 
 def be16(data: bytes, offset: int) -> int:
@@ -38,6 +39,8 @@ def component_role(name: str, typ: int) -> ComponentRole:
         return ComponentRole.HONMON
     if typ in TITLE_TYPES or upper.endswith("TITLE.DIC"):
         return ComponentRole.TITLE
+    if typ in TEXT_LIKE_INDEX_OUTLIER_TYPES and upper == "INDEX.DIC":
+        return ComponentRole.RESOURCE
     if typ in INDEX_TYPES or upper.endswith("INDEX.DIC"):
         return ComponentRole.INDEX
     if typ in MENU_TYPES or upper == "MENU.DIC":

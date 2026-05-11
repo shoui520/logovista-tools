@@ -122,7 +122,8 @@ The current parser handles `0x30`, `0x60`, `0x70`, `0x71`, `0x72`, `0x80`,
 keyword, cross-reference, and MULTI selector rows carry group context across
 leaf page boundaries where continuation target pages occur. Validation reports
 index component type counts, rows by component type, malformed leaf rows,
-unsupported component types, and continuation counts for audit use.
+partial physical page tails, text-like `INDEX.DIC` outliers, unsupported
+component types, and continuation counts for audit use.
 
 Title pointers are status-bearing. Some native index rows store the body
 pointer in the title-pointer slot, even when other index families in the same

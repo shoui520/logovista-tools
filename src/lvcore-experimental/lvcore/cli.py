@@ -103,6 +103,8 @@ def cmd_indexes(args: argparse.Namespace) -> int:
                 "rows": [row.to_dict() for row in rows],
                 "row_count": len(result.rows),
                 "unknown_leaf_bytes": result.unknown_leaf_bytes,
+                "physical_tail_bytes": result.physical_tail_bytes,
+                "physical_tail_nonzero_bytes": result.physical_tail_nonzero_bytes,
             }
         )
     return 0
@@ -362,6 +364,9 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
     index_rows_by_component_type: dict[str, int] = {}
     index_unsupported_component_types: dict[str, int] = {}
     index_malformed_leaf_rows = 0
+    index_physical_tail_bytes = 0
+    index_physical_tail_nonzero_bytes = 0
+    index_text_like_outliers: dict[str, int] = {}
     index_continuation_groups = 0
     index_dangling_continuation_rows = 0
     sidecar_role_counts: dict[str, int] = {}
@@ -450,6 +455,10 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         for _name, component_type in (index_summary.get("unsupported_component_types") or {}).items():
             index_unsupported_component_types[component_type] = index_unsupported_component_types.get(component_type, 0) + 1
         index_malformed_leaf_rows += int(index_summary.get("malformed_leaf_rows") or 0)
+        index_physical_tail_bytes += int(index_summary.get("physical_tail_bytes") or 0)
+        index_physical_tail_nonzero_bytes += int(index_summary.get("physical_tail_nonzero_bytes") or 0)
+        for _name, component_type in (index_summary.get("text_like_index_outliers") or {}).items():
+            index_text_like_outliers[component_type] = index_text_like_outliers.get(component_type, 0) + 1
         index_continuation_groups += int(index_summary.get("continuation_groups") or 0)
         index_dangling_continuation_rows += int(index_summary.get("dangling_continuation_rows") or 0)
         for key, count in (row.get("resource_resolution") or {}).items():
@@ -525,6 +534,9 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
             "rows_by_component_type": index_rows_by_component_type,
             "unsupported_component_types": index_unsupported_component_types,
             "malformed_leaf_rows": index_malformed_leaf_rows,
+            "physical_tail_bytes": index_physical_tail_bytes,
+            "physical_tail_nonzero_bytes": index_physical_tail_nonzero_bytes,
+            "text_like_index_outliers": index_text_like_outliers,
             "continuation_groups": index_continuation_groups,
             "dangling_continuation_rows": index_dangling_continuation_rows,
         },
