@@ -71,6 +71,18 @@ literal/preformatted spans remain readable, URL and link spans become semantic
 link nodes where currently understood, and layout/media controls are preserved
 as diagnostics or resource hints until a richer resolver is available.
 
+Gaiji, media, and links are app-facing document concepts:
+
+- Unicode gaiji mappings are preferred by default. Bitmap/resource gaiji output
+  is an explicit render policy, and unresolved gaiji render as harmless
+  placeholders with diagnostics.
+- Media, image, and audio controls become `ResourceRef` nodes with stable
+  `lvcore-resource://...` placeholder URLs unless a caller provides its own
+  mapper.
+- URL and internal reference spans become semantic link nodes when the target
+  can be recovered. Unresolved link targets keep visible label text and record
+  diagnostics; friendly output does not expose raw pointer bytes.
+
 SSED body-source kinds are distinct from package families:
 
 - `body_stream`: body pointers resolve directly into readable `HONMON.DIC`;

@@ -8,7 +8,7 @@ model, starting with SSED.
 from .detect import detect_family
 from .body_source import BodySourceInfo, BodySourceSupport, Confidence, SsedBodySourceKind
 from .diagnostics import Diagnostic, DiagnosticArea, Location, Severity
-from .document import BlockNode, EntryDocument, InlineNode, ResourceRef
+from .document import BlockNode, EntryDocument, InlineNode, LinkTarget, ResourceKind, ResourceRef
 from .model import Address, Component, PackageFamily, PackageInfo, SearchProfile, Span
 from .opcodes import OpcodeBehavior, OpcodeCategory, behavior_for
 from .package import LogoVistaPackage, open_package
@@ -28,6 +28,7 @@ __all__ = [
     "GaijiPolicy",
     "HtmlProfile",
     "InlineNode",
+    "LinkTarget",
     "LogoVistaPackage",
     "Location",
     "PackageFamily",
@@ -35,6 +36,7 @@ __all__ = [
     "OpcodeBehavior",
     "OpcodeCategory",
     "ResourceRef",
+    "ResourceKind",
     "SearchProfile",
     "SearchHit",
     "SearchResults",

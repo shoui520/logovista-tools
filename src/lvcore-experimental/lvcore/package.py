@@ -1136,10 +1136,16 @@ class LogoVistaPackage:
             "missing_row": diagnostics_by_code.get("sidecar_body_not_found", 0),
             "unsupported_body_source": diagnostics_by_code.get("unsupported_body_source", 0),
         }
+        resource_resolution = {
+            "unresolved_gaiji": diagnostics_by_code.get("unresolved_gaiji", 0),
+            "unresolved_media": diagnostics_by_code.get("unresolved_media_ref", 0),
+            "unresolved_link": diagnostics_by_code.get("unresolved_link_target", 0),
+        }
         return {
             "package": self.info.to_dict(),
             "body_source": body_source.to_dict(debug=True),
             "sidecar_resolution": sidecar_resolution,
+            "resource_resolution": resource_resolution,
             "component_count": len(self.components),
             "components": [
                 {

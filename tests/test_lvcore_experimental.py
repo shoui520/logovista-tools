@@ -10,12 +10,12 @@ from pathlib import Path
 LVCORE_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-experimental"
 sys.path.insert(0, str(LVCORE_SRC))
 
-from lvcore import Address, PackageFamily, SearchHit, SearchProfile, SearchResults, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
+from lvcore import Address, PackageFamily, SearchHit, SearchProfile, SearchResults, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
 from lvcore.document import InlineKind, build_entry_document  # noqa: E402
 from lvcore.gaiji import ga16_glyph_size, parse_ga16  # noqa: E402
 from lvcore.model import Entry  # noqa: E402
 from lvcore.opcodes import OpcodeCategory, behavior_for  # noqa: E402
-from lvcore.render import HtmlProfile, render_html, render_text  # noqa: E402
+from lvcore.render import GaijiPolicy, HtmlProfile, render_html, render_text  # noqa: E402
 from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE  # noqa: E402
 from lvcore.text import decode_text_stream  # noqa: E402
 
@@ -627,6 +627,8 @@ def test_lvcore_url_span_renders_as_safe_link_semantics_or_text() -> None:
     text = render_text(document)
 
     assert "https://example.test/?q=&lt;x&gt;&amp;ok=1" in html
+    assert '<a class="lv-link lv-link-url"' in html
+    assert 'href="https://example.test/?q=&lt;x&gt;&amp;ok=1"' in html
     assert "https://example.test/?q=<x>&ok=1" in text
     assert "lv-link" in html
     assert "1f3b" not in html.lower()
@@ -665,6 +667,38 @@ def test_lvcore_extended_link_control_does_not_leak_raw_payload() -> None:
     assert payload.hex() in debug
 
 
+def test_lvcore_internal_link_renders_semantic_target_without_raw_payload() -> None:
+    target = b"\x00\x00\x00\x02\x00\x10"
+    raw = b"\x1f\x42" + body_text("see also") + b"\x1f\x62" + target
+    decoded = decode_text_stream(raw)
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "HONMON.DIC"), "link", decoded.text, decoded.spans)
+    document = entry.document()
+    html = render_html(document)
+    debug = render_html(document, profile=HtmlProfile.DEBUG)
+
+    assert "see also" in html
+    assert '<a class="lv-link lv-link-internal" href="lvcore-entry://2/10"' in html
+    assert target.hex() not in html
+    assert 'data-end-payload="000000020010"' in debug
+    assert not any(diagnostic.code == "unresolved_link_target" for diagnostic in document.diagnostics)
+
+
+def test_lvcore_unresolved_link_is_diagnostic_and_friendly_safe() -> None:
+    payload = bytes(range(10))
+    raw = b"\x1f\x49" + payload + body_text("unresolved") + b"\x1f\x69"
+    decoded = decode_text_stream(raw)
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "HONMON.DIC"), "link", decoded.text, decoded.spans)
+    document = entry.document()
+    html = render_html(document)
+    debug = render_html(document, profile=HtmlProfile.DEBUG)
+
+    assert "unresolved" in html
+    assert "lv-link-unresolved" in html
+    assert payload.hex() not in html
+    assert any(diagnostic.code == "unresolved_link_target" for diagnostic in document.diagnostics)
+    assert payload.hex() in debug
+
+
 def test_lvcore_gaiji_document_nodes_and_render_policies() -> None:
     raw = b"\xa1\x26" + b"\xa1\x27"
     decoded = decode_text_stream(raw, {"a126": "é"})
@@ -674,6 +708,10 @@ def test_lvcore_gaiji_document_nodes_and_render_policies() -> None:
 
     assert [node.code for node in gaiji_nodes] == ["a126", "a127"]
     assert "é" in render_text(document)
+    assert "é" in render_html(document)
+    assert "é" in render_html(document, gaiji_policy=GaijiPolicy.BITMAP_PREFERRED)
+    assert "lvcore-resource://gaiji-a126" in render_html(document, gaiji_policy=GaijiPolicy.BITMAP_PREFERRED)
+    assert "lvcore-resource://gaiji-a127" in render_html(document, gaiji_policy=GaijiPolicy.BITMAP_ONLY)
     assert "&lt;hA126&gt;" in render_html(document, profile=HtmlProfile.DEBUG)
     assert any(diagnostic.code == "unresolved_gaiji" for diagnostic in document.diagnostics)
 
@@ -690,6 +728,27 @@ def test_lvcore_media_refs_become_resources_and_safe_placeholders() -> None:
     assert "lvcore-resource://media-1" in html
     assert bytes(range(18)).hex() not in html
     assert any(diagnostic.code == "unresolved_media_ref" for diagnostic in document.diagnostics)
+
+
+def test_lvcore_image_and_audio_media_refs_are_first_class_resources() -> None:
+    spans = (
+        Span(kind="media_ref", payload=b"image-payload", attrs={"resource_kind": "image"}, offset=0, length=1),
+        Span(kind="media_ref", payload=b"audio-payload", attrs={"resource_kind": "audio"}, offset=1, length=1),
+    )
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, 2, "HONMON.DIC"), "media", "", spans)
+    document = entry.document()
+    html = render_html(document)
+    debug = render_html(document, profile=HtmlProfile.DEBUG)
+    text = render_text(document)
+
+    assert [resource.kind.value for resource in document.resources] == ["image", "audio"]
+    assert 'data-resource-kind="image"' in html
+    assert 'data-resource-kind="audio"' in html
+    assert "lvcore-resource://media-1" in html
+    assert "lvcore-resource://media-2" in html
+    assert "image-payload".encode().hex() not in html
+    assert "image-payload".encode().hex() in debug
+    assert "[image]" in text and "[audio]" in text
 
 
 def test_lvcore_cli_render_and_validate_commands(tmp_path: Path) -> None:
@@ -714,6 +773,7 @@ def test_lvcore_cli_render_and_validate_commands(tmp_path: Path) -> None:
     data = json.loads(validate_result.stdout)
     assert data["ok"] is True
     assert data["sample_entries_rendered"] == 1
+    assert data["resource_resolution"] == {"unresolved_gaiji": 0, "unresolved_media": 0, "unresolved_link": 0}
 
 
 def test_lvcore_cli_search_debug_and_render_profiles(tmp_path: Path) -> None:
@@ -785,6 +845,7 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
     assert corpus_data["render_summary"]["search_hits_rendered_html"] >= 1
     assert corpus_data["render_summary"]["search_hits_rendered_text"] >= 1
     assert corpus_data["sidecar_resolution_counts"]["resolved"] >= 1
+    assert "resource_resolution_counts" in corpus_data
     assert "top_diagnostics_by_area" in corpus_data
     ssed_target = next(target for target in corpus_data["targets"] if target["package_family"] == "ssed")
     assert ssed_target["gaiji"]["uni_records"] == 0

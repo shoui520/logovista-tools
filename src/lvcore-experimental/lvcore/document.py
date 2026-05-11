@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Any, Iterable
 
 from .diagnostics import Diagnostic, DiagnosticArea, DiagnosticBag, Location, Severity
-from .model import Entry, Span
+from .model import Address, Entry, Span
 from .opcodes import KNOWN_NEUTRAL_OPS, OpcodeCategory, behavior_for
 
 
@@ -59,6 +59,9 @@ STYLE_START_TO_KIND = {
 
 STYLE_START_OPS = {0x06, 0x0E, 0x10, 0x12, 0x3B, 0x42, 0x43, 0x44, 0x49, 0x4A, 0xE0}
 STYLE_END_OPS = {0x07, 0x0F, 0x11, 0x13, 0x5B, 0x62, 0x63, 0x64, 0x69, 0x6A, 0xE1}
+LINK_START_OPS = {0x3B, 0x42, 0x43, 0x44, 0x49, 0x4A}
+LINK_END_OPS = {0x5B, 0x62, 0x63, 0x64, 0x69, 0x6A}
+LINK_END_TARGET_OPS = {0x62, 0x63, 0x64}
 
 
 IGNORED_CONTROL_TAGS = {
@@ -91,6 +94,24 @@ class ResourceRef:
             "code": self.code,
             "source_offset": self.source_offset,
             "details": self.details,
+        }
+
+
+@dataclass(frozen=True)
+class LinkTarget:
+    kind: str
+    href: str | None = None
+    address: Address | None = None
+    raw_payload: str | None = None
+    status: str = "unresolved"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "href": self.href,
+            "address": self.address.to_dict() if self.address else None,
+            "raw_payload": self.raw_payload,
+            "status": self.status,
         }
 
 
@@ -153,10 +174,48 @@ def _gaiji_unresolved(span: Span) -> bool:
     return span.text in {f"<h{upper}>", f"<z{upper}>", f"<g{upper}>"}
 
 
-def _wrap_styles(node: InlineNode, active_styles: Iterable[InlineKind]) -> InlineNode:
+@dataclass
+class ActiveInline:
+    kind: InlineKind
+    attrs: dict[str, Any] = field(default_factory=dict)
+
+
+def _decode_bcd_decimal(data: bytes) -> int | None:
+    value = 0
+    for byte in data:
+        for nibble in (byte >> 4, byte & 0x0F):
+            if nibble > 9:
+                return None
+            value = value * 10 + nibble
+    return value
+
+
+def _address_from_bcd_payload(payload: bytes) -> Address | None:
+    if len(payload) < 6:
+        return None
+    block = _decode_bcd_decimal(payload[:4])
+    offset = _decode_bcd_decimal(payload[4:6])
+    if block is None or offset is None:
+        return None
+    return Address(block, offset)
+
+
+def _link_attrs_for_start(span: Span) -> dict[str, Any]:
+    if span.op == 0x3B:
+        target = LinkTarget(kind="url", status="content")
+    else:
+        target = LinkTarget(kind="internal", raw_payload=span.payload.hex() or None, status="pending")
+    return {
+        "link_target": target.to_dict(),
+        "start_op": f"{span.op:02x}" if span.op is not None else None,
+        "start_payload": span.payload.hex(),
+    }
+
+
+def _wrap_styles(node: InlineNode, active_styles: Iterable[ActiveInline]) -> InlineNode:
     wrapped = node
     for style in reversed(tuple(active_styles)):
-        wrapped = InlineNode(style, children=(wrapped,))
+        wrapped = InlineNode(style.kind, children=(wrapped,), attrs=style.attrs)
     return wrapped
 
 
@@ -181,7 +240,7 @@ def _append_inline(target: list[InlineNode], node: InlineNode) -> None:
     target.append(node)
 
 
-def _add_text(target: list[InlineNode], text: str | None, active_styles: list[InlineKind]) -> None:
+def _add_text(target: list[InlineNode], text: str | None, active_styles: list[ActiveInline]) -> None:
     if not text:
         return
     _append_inline(target, _wrap_styles(InlineNode(InlineKind.TEXT, text=text), active_styles))
@@ -202,7 +261,7 @@ def build_entry_document(entry: Entry) -> EntryDocument:
     blocks: list[BlockNode] = []
     inlines: list[InlineNode] = []
     resources: list[ResourceRef] = []
-    active_styles: list[InlineKind] = []
+    active_styles: list[ActiveInline] = []
     resource_counter = 0
 
     def location(span: Span) -> Location:
@@ -233,6 +292,19 @@ def build_entry_document(entry: Entry) -> EntryDocument:
 
         if span.kind == "gaiji":
             unresolved = _gaiji_unresolved(span)
+            resource_counter += 1
+            resource_id = f"gaiji-{span.code or resource_counter}"
+            resources.append(
+                ResourceRef(
+                    id=resource_id,
+                    kind=ResourceKind.GAIJI,
+                    label=span.text or "gaiji",
+                    component=entry.address.component,
+                    code=span.code,
+                    source_offset=span.offset,
+                    details={"resolved": not unresolved},
+                )
+            )
             if unresolved:
                 diagnostics.add(
                     Severity.WARNING,
@@ -246,23 +318,39 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                 InlineKind.GAIJI,
                 text=None if unresolved else span.text,
                 code=span.code,
+                resource_id=resource_id,
                 attrs={"resolved": not unresolved, "raw_text": span.text},
             )
-            inlines.append(_wrap_styles(node, active_styles))
+            _append_inline(inlines, _wrap_styles(node, active_styles))
             continue
 
         if span.kind == "media_ref":
             resource_counter += 1
+            resource_kind_name = str(span.attrs.get("resource_kind") or "media")
+            try:
+                resource_kind = ResourceKind(resource_kind_name)
+            except ValueError:
+                resource_kind = ResourceKind.MEDIA
             resource = ResourceRef(
                 id=f"media-{resource_counter}",
-                kind=ResourceKind.MEDIA,
-                label="media",
+                kind=resource_kind,
+                label=resource_kind.value,
                 component=entry.address.component,
                 source_offset=span.offset,
                 details={"payload_hex": span.payload.hex()},
             )
             resources.append(resource)
-            inlines.append(InlineNode(InlineKind.MEDIA_REF, resource_id=resource.id, attrs={"label": resource.label}))
+            _append_inline(
+                inlines,
+                _wrap_styles(
+                    InlineNode(
+                        InlineKind.MEDIA_REF,
+                        resource_id=resource.id,
+                        attrs={"label": resource.label, "resource_kind": resource.kind.value, "payload_hex": span.payload.hex()},
+                    ),
+                    active_styles,
+                ),
+            )
             diagnostics.add(
                 Severity.WARNING,
                 DiagnosticArea.MEDIA,
@@ -289,12 +377,41 @@ def build_entry_document(entry: Entry) -> EntryDocument:
             tag = span.attrs.get("tag")
             behavior = behavior_for(span.op)
             if tag in STYLE_START_TO_KIND and span.op in STYLE_START_OPS:
-                active_styles.append(STYLE_START_TO_KIND[tag])
+                attrs = _link_attrs_for_start(span) if span.op in LINK_START_OPS else {}
+                active_styles.append(ActiveInline(STYLE_START_TO_KIND[tag], attrs))
             elif tag in STYLE_START_TO_KIND and span.op in STYLE_END_OPS:
                 style = STYLE_START_TO_KIND[tag]
-                if style in active_styles:
+                active_index = next((index for index in range(len(active_styles) - 1, -1, -1) if active_styles[index].kind == style), None)
+                if active_index is not None:
+                    active = active_styles[active_index]
+                    if span.op in LINK_END_OPS:
+                        target = active.attrs.get("link_target")
+                        if isinstance(target, dict):
+                            target["end_op"] = f"{span.op:02x}" if span.op is not None else None
+                            target["end_payload"] = span.payload.hex()
+                            if span.op in LINK_END_TARGET_OPS:
+                                address = _address_from_bcd_payload(span.payload)
+                                if address is not None:
+                                    target["address"] = address.to_dict()
+                                    target["href"] = f"lvcore-entry://{address.block}/{address.offset}"
+                                    target["status"] = "resolved"
+                                else:
+                                    target["status"] = "invalid"
+                            elif target.get("kind") == "url":
+                                target["status"] = "content"
+                            else:
+                                target["status"] = "unresolved"
+                            if target.get("kind") != "url" and target.get("status") != "resolved":
+                                diagnostics.add(
+                                    Severity.WARNING,
+                                    DiagnosticArea.BODY,
+                                    "unresolved_link_target",
+                                    "link control did not expose a resolvable target",
+                                    location=location(span),
+                                    details={"op": f"{span.op:02x}" if span.op is not None else None, "payload": span.payload.hex()},
+                                )
                     for index in range(len(active_styles) - 1, -1, -1):
-                        if active_styles[index] == style:
+                        if active_styles[index].kind == style:
                             del active_styles[index]
                             break
                 else:
@@ -354,7 +471,7 @@ def build_entry_document(entry: Entry) -> EntryDocument:
             "unclosed_style",
             "entry ended with unclosed inline style controls",
             recoverable=True,
-            details={"styles": [style.value for style in active_styles]},
+            details={"styles": [style.kind.value for style in active_styles]},
         )
     _flush_paragraph(blocks, inlines)
 

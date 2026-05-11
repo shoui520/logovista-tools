@@ -189,6 +189,7 @@ def _corpus_validate_one(path_str: str, sample_entries: int, sample_search_hits:
             "package": package.info.to_dict(),
             "body_source": report.get("body_source"),
             "sidecar_resolution": report.get("sidecar_resolution"),
+            "resource_resolution": report.get("resource_resolution"),
             "component_count": report.get("component_count"),
             "gaiji": report.get("gaiji"),
             "indexes": report.get("indexes"),
@@ -242,6 +243,11 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "missing_row": 0,
         "unsupported_body_source": 0,
     }
+    resource_resolution_counts = {
+        "unresolved_gaiji": 0,
+        "unresolved_media": 0,
+        "unresolved_link": 0,
+    }
     render_summary = {
         "sample_entries_checked": 0,
         "sample_entries_rendered": 0,
@@ -279,6 +285,8 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
             diagnostics_by_area[area] = diagnostics_by_area.get(area, 0) + int(count)
         for key, count in (row.get("sidecar_resolution") or {}).items():
             sidecar_resolution_counts[key] = sidecar_resolution_counts.get(key, 0) + int(count)
+        for key, count in (row.get("resource_resolution") or {}).items():
+            resource_resolution_counts[key] = resource_resolution_counts.get(key, 0) + int(count)
         render_summary["sample_entries_checked"] += int(row.get("sample_entries_checked") or 0)
         render_summary["sample_entries_rendered"] += int(row.get("sample_entries_rendered") or 0)
         render_summary["sample_index_rows_checked"] += int(row.get("sample_index_rows_checked") or 0)
@@ -301,6 +309,7 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "open_failure_count": family_counts.get("error", 0),
         "render_summary": render_summary,
         "sidecar_resolution_counts": sidecar_resolution_counts,
+        "resource_resolution_counts": resource_resolution_counts,
         "failure_count": len(failures),
         "top_diagnostics_by_code": dict(sorted(diagnostics_by_code.items(), key=lambda item: (-item[1], item[0]))[:30]),
         "top_diagnostics_by_area": dict(sorted(diagnostics_by_area.items(), key=lambda item: (-item[1], item[0]))[:30]),

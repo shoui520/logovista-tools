@@ -123,6 +123,17 @@ references. Friendly HTML may use stable placeholders such as
 `lvcore-resource://media-1`; raw media opcode payloads must not leak into
 friendly output.
 
+Resource rendering is caller-mappable: the default renderer emits stable
+`lvcore-resource://...` URLs, while applications can provide their own mapper
+when serving bitmap gaiji, images, audio, or other resources. Plain text remains
+readable and uses Unicode gaiji where available plus compact media labels.
+
+URL spans and pointer-bearing reference spans are represented as semantic link
+nodes. External URL links are emitted only for safe URL schemes. Internal
+references use `lvcore-entry://...` placeholders when a target pointer is
+recoverable. Unresolved links preserve visible label text and diagnostics, while
+debug rendering may expose raw payloads and pointer details.
+
 ## Search
 
 Native LogoVista/EPWING-style index search remains a core reader capability.
