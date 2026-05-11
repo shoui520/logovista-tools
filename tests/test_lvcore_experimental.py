@@ -1349,6 +1349,51 @@ def test_lvcore_cli_render_and_validate_commands(tmp_path: Path) -> None:
     assert data["resource_resolution"] == {"unresolved_gaiji": 0, "unresolved_media": 0, "unresolved_link": 0}
 
 
+def test_lvcore_friendly_reader_example_runs_without_raw_internals(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    example = LVCORE_SRC / "examples" / "friendly_reader.py"
+    result = subprocess.run(
+        [sys.executable, str(example), str(tmp_path), "alpha"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    data = json.loads(result.stdout)
+    dumped = json.dumps(data, ensure_ascii=False)
+
+    assert data["package"]["family"] == "ssed"
+    assert data["body_source"]["kind"] == "body_stream"
+    assert data["search"]["hit_count"] == 1
+    assert "first entry" in data["entry"]["plain_text"]
+    assert "first entry" in data["entry"]["html"]
+    assert "raw_spans" not in dumped
+    assert "raw_row" not in dumped
+    assert '"spans"' not in dumped
+    assert '"body":' not in dumped
+
+
+def test_lvcore_debug_inspection_example_is_explicit_raw_path(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    example = LVCORE_SRC / "examples" / "debug_inspection.py"
+    result = subprocess.run(
+        [sys.executable, str(example), str(tmp_path), "alpha"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    data = json.loads(result.stdout)
+    dumped = json.dumps(data, ensure_ascii=False)
+
+    assert data["search"]["hits"][0]["body"]["component"] == "HONMON.DIC"
+    assert data["entry"]["document"]["schema"] == "lvcore.entry_document.v1"
+    assert "raw_spans" in dumped
+    assert "raw_row" in dumped
+    assert "debug_html" in data["entry"]
+    assert "Raw spans" in data["entry"]["debug_html"]
+
+
 def test_lvcore_cli_search_debug_and_render_profiles(tmp_path: Path) -> None:
     make_reader_workflow_package(tmp_path)
     search_result = subprocess.run(

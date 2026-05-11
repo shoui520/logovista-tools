@@ -56,6 +56,43 @@ PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate /path/to/co
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate /path/to/corpus --json --jobs 0 --progress --output-dir /private/reports/lvcore-corpus
 ```
 
+Small app-facing examples are available under `src/lvcore-experimental/examples`:
+
+```bash
+PYTHONPATH=src/lvcore-experimental \
+  python3 src/lvcore-experimental/examples/friendly_reader.py /path/to/_DCT_DICT term
+
+PYTHONPATH=src/lvcore-experimental \
+  python3 src/lvcore-experimental/examples/debug_inspection.py /path/to/_DCT_DICT term
+```
+
+The normal dictionary-app path does not need spans, opcodes, index pages, or
+component offsets:
+
+```python
+from lvcore import SearchProfile, detect_family, open_package
+
+path = "/path/to/_DCT_DICT"
+family = detect_family(path)
+package = open_package(path)
+body_source = package.body_source()
+results = package.search("term", profile=SearchProfile.NATIVE, limit=5)
+
+for hit in results.hits:
+    entry = hit.entry()
+    html = entry.html()
+    text = entry.plain_text()
+    diagnostics = entry.diagnostics()
+```
+
+Raw inspection is a separate, explicit path:
+
+```python
+hit_debug = results.hits[0].inspect()
+entry_debug = results.hits[0].entry().inspect()
+document_debug = results.hits[0].entry().document().to_dict(debug=True)
+```
+
 Search profiles are native reader profiles:
 
 - `exact`: exact match against decoded row keys and target keys, with
