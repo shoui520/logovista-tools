@@ -639,9 +639,12 @@ def _imported_function_names(pe: PeSummary, dll_name: str) -> set[str]:
     return rows
 
 
+DICTIONARY_BRIDGE_DLL = "SS" "Dic" "Lib.dll"
+
+
 def _hc_features(pe: PeSummary, sidecar_strings: dict[str, tuple[str, ...]]) -> dict[str, bool]:
     exports = set(pe.exports)
-    ssdic_imports = _imported_function_names(pe, "SSDicLib.dll")
+    bridge_imports = _imported_function_names(pe, DICTIONARY_BRIDGE_DLL)
     return {
         "html_body_renderer": "epwing2HtmlBodydata" in exports,
         "vertical_renderer": "epwing2HtmlBodydataVertical" in exports,
@@ -650,17 +653,17 @@ def _hc_features(pe: PeSummary, sidecar_strings: dict[str, tuple[str, ...]]) -> 
         "headword_modifier": any(name.startswith("modifyHeadword") for name in exports),
         "panel_hooks": bool({"initializePanel", "finalizePanel"} & exports),
         "sql_hooks": bool({"initializeSQL", "finalizeSQL"} & exports)
-        or bool({"SDicSQLSearchAndHtml", "SDicSQLSearchAndHtmlEx", "SDicExecSQLSearch"} & ssdic_imports),
+        or bool({"SDicSQLSearchAndHtml", "SDicSQLSearchAndHtmlEx", "SDicExecSQLSearch"} & bridge_imports),
         "plugin_hooks": any(name.startswith("pluginFunction") for name in exports),
         "user_data_hooks": bool({"openUserData", "closeUserData"} & exports),
         "dictionary_original_search": any(name.startswith("execDicOrgSearch") for name in exports),
         "fulltext_search": "execDicZenbunSearch" in exports,
         "zip_media_export": "createMediaFileFromZip" in exports,
-        "uses_body_api": "SDicGetBodyData" in ssdic_imports,
-        "uses_picture_api": "SDicGetPictureData" in ssdic_imports,
-        "uses_gaiji_unicode_api": "SDicGetCustomCharacterUincode" in ssdic_imports,
-        "uses_gaiji_bitmap_api": "SDicGetCustomCharacterBitmap" in ssdic_imports,
-        "uses_menu_api": "SDicGetMenuData" in ssdic_imports,
+        "uses_body_api": "SDicGetBodyData" in bridge_imports,
+        "uses_picture_api": "SDicGetPictureData" in bridge_imports,
+        "uses_gaiji_unicode_api": "SDicGetCustomCharacterUincode" in bridge_imports,
+        "uses_gaiji_bitmap_api": "SDicGetCustomCharacterBitmap" in bridge_imports,
+        "uses_menu_api": "SDicGetMenuData" in bridge_imports,
         "mentions_vlpljbl": bool(sidecar_strings["vlpljbl_tokens"]),
     }
 
@@ -743,7 +746,7 @@ def hc_renderer_classification_to_json(row: HcRendererClassification) -> dict[st
         "sha256": row.sha256,
         "pe": pe_summary_to_json(row.pe),
         "exports": list(row.pe.exports),
-        "ssdic_imports": sorted(_imported_function_names(row.pe, "SSDicLib.dll")),
+        "dictionary_bridge_imports": sorted(_imported_function_names(row.pe, DICTIONARY_BRIDGE_DLL)),
         "exinfo_html_dll": row.exinfo_html_dll,
         "exinfo_declares_this": row.exinfo_declares_this,
         "numeric_indexes": list(row.numeric_indexes),

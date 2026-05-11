@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import sqlite3
 import subprocess
@@ -18,6 +19,28 @@ from lvcore.opcodes import OpcodeCategory, behavior_for  # noqa: E402
 from lvcore.render import GaijiPolicy, HtmlProfile, render_html, render_text  # noqa: E402
 from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE  # noqa: E402
 from lvcore.text import decode_text_stream  # noqa: E402
+
+
+def test_lvcore_source_stays_independent_from_toolkit() -> None:
+    forbidden_module = "logovista" "_tools"
+    offenders: list[str] = []
+    for path in sorted((LVCORE_SRC / "lvcore").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == forbidden_module or alias.name.startswith(f"{forbidden_module}."):
+                        offenders.append(f"{path}:{node.lineno}: import {alias.name}")
+                    if alias.name == "subprocess":
+                        offenders.append(f"{path}:{node.lineno}: import subprocess")
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if module == forbidden_module or module.startswith(f"{forbidden_module}."):
+                    offenders.append(f"{path}:{node.lineno}: from {module} import ...")
+                if module == "subprocess":
+                    offenders.append(f"{path}:{node.lineno}: from subprocess import ...")
+
+    assert offenders == []
 
 
 def be16(value: int) -> bytes:

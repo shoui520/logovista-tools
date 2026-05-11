@@ -97,7 +97,8 @@ allowed to normalize input more aggressively than body/title display text:
 compatibility forms are normalized, katakana can be folded to hiragana for
 Japanese lookup keys, and lookup-blocking punctuation, spaces, and hyphen-like
 characters are removed. This matches the practical requirement that a displayed
-headword such as `あん‐き` must still be searchable as `あんき`.
+headword with separators, such as `かな‐れい`, must still be searchable through
+the compact key `かなれい`.
 
 `src/lvcore-experimental` is a separate reader-core experiment. It does not
 import `logovista_tools`; it reimplements SSED package detection, SSEDINFO /

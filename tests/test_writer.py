@@ -261,16 +261,16 @@ def test_koujien_csv_import_emits_normalized_japanese_search_aliases(tmp_path) -
     csv_path = tmp_path / "sample.csv"
     csv_path.write_text(
         'Title,Html\n'
-        '"あん‐き 【安危】","body"\n'
-        '"アセアン【ASEAN】","body"\n',
+        '"かな‐れい 【仮例】","body"\n'
+        '"カナカナ【ABC】","body"\n',
         encoding="utf-8",
     )
 
     entries, report = import_entries(csv_path, input_format="koujien-csv", limit=None, merge_duplicates=True, skip_forms=True, progress_every=0)
 
-    assert entries[0].headword == "あん‐き 【安危】"
-    assert entries[0].keys == ("あんき", "安危")
-    assert entries[1].keys == ("あせあん", "ASEAN")
+    assert entries[0].headword == "かな‐れい 【仮例】"
+    assert entries[0].keys == ("かなれい", "仮例")
+    assert entries[1].keys == ("かなかな", "ABC")
     assert report["search_keys_emitted"] == 4
     assert report["search_aliases_emitted"] == 4
 
@@ -282,22 +282,22 @@ def test_yomitan_import_also_emits_normalized_search_aliases(tmp_path) -> None:
         archive.writestr(
             "term_bank_1.json",
             json.dumps(
-                [["あん‐き", "あん‐き", "n", "", 0, ["body"], 1, ""]],
+                [["かな‐れい", "かな‐れい", "n", "", 0, ["body"], 1, ""]],
                 ensure_ascii=False,
             ),
         )
 
     entries, report = import_entries(zip_path, input_format="yomitan", limit=None, merge_duplicates=True, skip_forms=True, progress_every=0)
 
-    assert entries[0].headword == "あん‐き"
-    assert entries[0].keys == ("あん‐き", "あんき")
+    assert entries[0].headword == "かな‐れい"
+    assert entries[0].keys == ("かな‐れい", "かなれい")
     assert report["search_keys_emitted"] == 2
 
 
 def test_lookup_key_normalization_drops_lookup_blocking_punctuation_and_spacing() -> None:
-    assert normalize_lookup_key(" あん‐き 【安危】 ") == "あんき安危"
-    assert normalize_lookup_key("アメリカン・ドリーム") == "あめりかんどりーむ"
-    assert normalize_lookup_key("ＡＣ 入試") == "AC入試"
+    assert normalize_lookup_key(" かな‐れい 【仮例】 ") == "かなれい仮例"
+    assert normalize_lookup_key("カナカナ・テスト") == "かなかなてすと"
+    assert normalize_lookup_key("ＡＢ 例") == "AB例"
     assert normalize_lookup_key("foo-bar, baz") == "foobarbaz"
 
 

@@ -1488,8 +1488,8 @@ aliases. The current normalization emits compatibility-normalized aliases,
 strips punctuation/separators/spaces/hyphen-like characters that would block
 lookup, folds katakana to hiragana for Japanese lookup keys, and preserves
 source-specific aliases such as bracketed KOUJIEN headword spellings. This is
-necessary for entries displayed with separators, for example `あん‐き`, to be
-found by a plain lookup key such as `あんき`.
+necessary for entries displayed with separators, for example `かな‐れい`, to be
+found by a plain lookup key such as `かなれい`.
 
 JSON reports include import counts, duplicate merges, skipped rows, long-key
 drops, emitted search-key/alias counts, headword-markup cleanup counts,
