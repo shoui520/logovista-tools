@@ -108,6 +108,11 @@ diagnostics, resource references, and friendly/semantic/LogoVista-like/debug
 rendering behind a small API and CLI. LVED and LVLMultiView are detected as
 separate deferred package families. Dense/sidecar SSED is not treated as LVED
 or LVLMultiView; it remains an SSED reader-compatibility concern.
+Search hits expose heading source and title status so applications can
+distinguish resolved title-stream headings from safe index-key fallback
+headings. The corpus validator also reports sidecar roles separately from body
+support, so media/resource, examples/idioms, search, kanji-support, ancillary,
+and unknown sidecars do not get collapsed into one body-source failure class.
 
 The authoritative `logovista-tools` corpus harness is `dump-package-models`. A
 path-aware, resumable, chunked model pass over the local LogoVista collection

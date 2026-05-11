@@ -14,6 +14,7 @@ LVCORE_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-experimental"
 sys.path.insert(0, str(LVCORE_SRC))
 
 from lvcore import Address, Diagnostic, DiagnosticArea, Location, PackageFamily, SearchHit, SearchProfile, SearchResults, Severity, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
+from lvcore.body_source import SidecarRole, classify_sqlite_sidecar_role  # noqa: E402
 from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, LinkTargetKind, ResourceKind, ResourceRef, ResourceStatus, build_entry_document  # noqa: E402
 from lvcore.errors import FormatError  # noqa: E402
 from lvcore.gaiji import ga16_glyph_size, parse_ga16  # noqa: E402
@@ -45,6 +46,16 @@ def test_lvcore_source_stays_independent_from_toolkit() -> None:
                     offenders.append(f"{path}:{node.lineno}: from subprocess import ...")
 
     assert offenders == []
+
+
+def test_lvcore_sidecar_role_classification_is_structural() -> None:
+    assert classify_sqlite_sidecar_role("t_contents", ("t_contents",)) == SidecarRole.BODY_CRITICAL
+    assert classify_sqlite_sidecar_role("sqlite_unmapped", ("t_media",)) == SidecarRole.MEDIA_RESOURCE
+    assert classify_sqlite_sidecar_role("sqlite_unmapped", ("D_Example", "D_Idiom")) == SidecarRole.EXAMPLES_IDIOMS
+    assert classify_sqlite_sidecar_role("sqlite_unmapped", ("t_Search_01", "t_zenbun")) == SidecarRole.SEARCH
+    assert classify_sqlite_sidecar_role("sqlite_unmapped", ("t_all", "t_bushu", "t_jukugo")) == SidecarRole.KANJI_SUPPORT
+    assert classify_sqlite_sidecar_role("sqlite_unmapped", ("D_InternationalChronology",)) == SidecarRole.ANCILLARY
+    assert classify_sqlite_sidecar_role("sqlite_unmapped", ("opaque",)) == SidecarRole.UNKNOWN
 
 
 def be16(value: int) -> bytes:
@@ -290,6 +301,25 @@ def make_backward_only_package(root: Path) -> None:
     (root / "HONMON.DIC").write_bytes(literal_sseddata(body, start_block=honmon_start, kind=0))
     (root / "BHTITLE.DIC").write_bytes(literal_sseddata(title, start_block=title_start, kind=7))
     (root / "BHINDEX.DIC").write_bytes(literal_sseddata(simple_index(rows), start_block=index_start, kind=0x71))
+
+
+def make_body_pointer_title_package(root: Path, *, with_unused_title: bool = False) -> None:
+    honmon_start = 2
+    title_start = 3
+    index_start = 4 if with_unused_title else 3
+    body = body_text("fallback") + b"\x1f\x0a" + body_text("body title pointer") + b"\x1f\x0a"
+    row = ("fallback", honmon_start, 0, honmon_start, 0)
+    components = [("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00")]
+    if with_unused_title:
+        components.append(("KWTITLE.DIC", 0x03, title_start, title_start, b"\x01\x00\x00\x00"))
+    components.append(("FHINDEX.DIC", 0x91, index_start, index_start, b"\x02\x01\x55\x40"))
+
+    root.mkdir(exist_ok=True)
+    (root / "BODYTITLE.IDX").write_bytes(ssedinfo("Body Title Pointer", components))
+    (root / "HONMON.DIC").write_bytes(literal_sseddata(body, start_block=honmon_start, kind=0))
+    if with_unused_title:
+        (root / "KWTITLE.DIC").write_bytes(literal_sseddata(body_text("unused") + b"\x1f\x0a", start_block=title_start, kind=3))
+    (root / "FHINDEX.DIC").write_bytes(literal_sseddata(simple_index([row]), start_block=index_start, kind=0x91))
 
 
 def make_tagged_target_package(root: Path) -> None:
@@ -552,8 +582,12 @@ def test_lvcore_search_models_and_native_profiles(tmp_path: Path) -> None:
     assert len(exact.hits) == 1
     assert isinstance(exact.hits[0], SearchHit)
     assert exact.hits[0].heading == "alpha"
+    assert exact.hits[0].heading_source == "title"
+    assert exact.hits[0].title_status == "resolved"
     assert "body" not in exact.hits[0].to_dict()
+    assert exact.hits[0].to_dict()["title_status"] == "resolved"
     assert exact.hits[0].to_dict(debug=True)["body"]["component"] == "HONMON.DIC"
+    assert exact.hits[0].to_dict(debug=True)["title_resolution"]["status"] == "resolved"
 
     forward = package.search("alp", profile=SearchProfile.FORWARD)
     assert [hit.heading for hit in forward.hits] == ["alpha", "alpine"]
@@ -876,7 +910,52 @@ def test_lvcore_title_dereference_failure_falls_back_to_key(tmp_path: Path) -> N
         matched_key="alpha",
     )
     assert hit.heading == "alpha"
+    assert hit.heading_source == "display_key"
+    assert hit.title_status == "failed"
+    assert hit.title_diagnostic_code == "title_dereference_failed"
+    assert hit.title_reason == "missing_title_component"
+    assert hit.to_dict()["title_status"] == "failed"
+    assert "title_resolution" not in hit.to_dict()
+    assert hit.to_dict(debug=True)["title_resolution"]["reason"] == "missing_title_component"
     assert any(diagnostic.code == "title_dereference_failed" for diagnostic in hit.diagnostics)
+
+
+def test_lvcore_body_pointer_title_slot_is_heading_fallback_not_failure(tmp_path: Path) -> None:
+    make_body_pointer_title_package(tmp_path)
+    package = open_package(tmp_path)
+
+    hit = package.search("fallback", profile=SearchProfile.EXACT).hits[0]
+    report = package.validate(sample_entries=0, sample_search_hits=1)
+
+    assert hit.heading == "fallback"
+    assert hit.heading_source == "display_key"
+    assert hit.title_status == "fallback"
+    assert hit.title_reason == "title_pointer_is_body_pointer"
+    assert hit.diagnostics == ()
+    friendly = hit.to_dict()
+    debug = hit.to_dict(debug=True)
+    assert friendly["title_status"] == "fallback"
+    assert "title" not in friendly
+    assert "title_resolution" not in friendly
+    assert debug["title"]["block"] == 2
+    assert debug["title_resolution"]["row_title_equals_body"] is True
+    assert debug["title_resolution"]["reason"] == "title_pointer_is_body_pointer"
+    assert report["title_dereference"]["failed"] == 0
+    assert report["title_dereference"]["fallback"] == 1
+    assert report["title_dereference"]["by_reason"] == {"title_pointer_is_body_pointer": 1}
+    assert report["title_dereference"]["heading_source_counts"] == {"display_key": 1}
+
+
+def test_lvcore_body_pointer_title_slot_with_other_titles_still_falls_back(tmp_path: Path) -> None:
+    make_body_pointer_title_package(tmp_path, with_unused_title=True)
+    package = open_package(tmp_path)
+
+    hit = package.search("fallback", profile=SearchProfile.EXACT).hits[0]
+
+    assert hit.heading == "fallback"
+    assert hit.title_status == "fallback"
+    assert hit.title_reason == "title_pointer_is_body_pointer"
+    assert hit.diagnostics == ()
 
 
 def test_lvcore_entry_document_and_friendly_rendering_from_spans() -> None:
@@ -1447,6 +1526,9 @@ def test_lvcore_cli_render_and_validate_commands(tmp_path: Path) -> None:
     data = json.loads(validate_result.stdout)
     assert data["ok"] is True
     assert data["sample_entries_rendered"] == 1
+    assert data["title_dereference"]["attempts"] == 1
+    assert data["title_dereference"]["resolved"] == 1
+    assert data["title_dereference"]["heading_source_counts"] == {"title": 1}
     assert data["resource_resolution"]["unresolved_gaiji"] == 0
     assert data["resource_resolution"]["unresolved_media"] == 0
     assert data["resource_resolution"]["unresolved_link"] == 0
@@ -1454,6 +1536,7 @@ def test_lvcore_cli_render_and_validate_commands(tmp_path: Path) -> None:
     assert data["resource_resolution"]["unresolved_media_by_reason"] == {}
     assert data["resource_resolution"]["unresolved_link_by_reason"] == {}
     assert data["title_dereference"]["by_reason"] == {}
+    assert "sidecar_roles" in data
 
 
 def test_lvcore_friendly_reader_example_runs_without_raw_internals(tmp_path: Path) -> None:
@@ -1673,6 +1756,8 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
     assert corpus_data["render_summary"]["search_hits_rendered_html"] >= 1
     assert corpus_data["render_summary"]["search_hits_rendered_text"] >= 1
     assert corpus_data["sidecar_resolution_counts"]["resolved"] >= 1
+    assert corpus_data["sidecar_role_counts"]["body_critical"] >= 1
+    assert corpus_data["supported_sidecar_role_counts"]["body_critical"] >= 1
     assert "resource_resolution_counts" in corpus_data
     assert corpus_data["diagnostics"]["by_severity"]["error"] >= 1
     assert corpus_data["top_diagnostics_by_code"]["unsupported_body_source"] >= 1

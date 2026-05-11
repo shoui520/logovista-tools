@@ -184,10 +184,13 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   as `LinkTarget` / `ResourceRef` nodes,
   and renders friendly/semantic/LogoVista-like/debug HTML plus plain text.
   Friendly rendering hides raw opcodes and offsets; debug search/render output
-  is explicit. Reader-side validation now samples search-hit-to-entry-to-render
+  is explicit. Search hits carry reader-facing heading, heading-source, and
+  title-status fields; native rows that reuse the body pointer as the title
+  pointer are treated as heading fallback instead of false title failures.
+  Reader-side validation now samples search-hit-to-entry-to-render
   behavior in addition to marker-discovered entries and reports reason-level
-  gaiji, media, link, and title-dereference counters. LVED and LVLMultiView are
-  detected but deliberately deferred.
+  gaiji, media, link, sidecar-role, and title-dereference counters. LVED and
+  LVLMultiView are detected but deliberately deferred.
 - `lvcore corpus-validate`, a private audit command for the reader path. It
   emits a stable `lvcore.corpus_validate.v1` JSON summary, optional JSONL
   targets/failures/diagnostics streams, progress output, package-family counts,

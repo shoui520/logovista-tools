@@ -107,7 +107,12 @@ audits. It distinguishes:
 - unknown or unsupported package families.
 
 It also aggregates diagnostics by severity, area, and code. Normal output avoids
-entry text; debug/private report paths are for local inspection only.
+entry text; debug/private report paths are for local inspection only. Current
+reader reports include title status and heading-source counters so native rows
+that intentionally reuse the body pointer as the title pointer are counted as
+safe heading fallback rather than title failures. Sidecar summaries also
+separate body-critical stores from media/resource, examples/idioms, search,
+kanji-support, ancillary, non-SQLite, and unknown roles.
 
 ## Windows SSED Corpus Profile
 

@@ -107,6 +107,11 @@ such as display key, heading, match key, and search profile. Raw page numbers,
 row numbers, component names, title/body pointers, and parsed row details are
 inspection fields, not default reader output.
 
+Heading and title status should remain explicit. A hit may have a resolved
+title-stream heading, a clean fallback heading derived from the native index
+key, or a reason-coded title dereference failure. The future Rust API should
+not force callers to inspect raw title pointers to tell those cases apart.
+
 Native search profiles should remain explicit:
 
 - exact native row-key and target-key match;

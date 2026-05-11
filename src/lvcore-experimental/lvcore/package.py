@@ -17,7 +17,9 @@ from .body_source import (
     SQLITE_MAGIC,
     SidecarBody,
     SidecarInfo,
+    SidecarRole,
     SsedBodySourceKind,
+    classify_sqlite_sidecar_role,
     find_column,
     sqlite_columns,
     strip_html,
@@ -251,6 +253,7 @@ class LogoVistaPackage:
                             path=path,
                             kind="honbun",
                             storage=storage,
+                            role=classify_sqlite_sidecar_role("honbun", tables),
                             table=table,
                             id_column=id_col,
                             title_column=title_col,
@@ -269,6 +272,7 @@ class LogoVistaPackage:
                             path=path,
                             kind="main_wordlist",
                             storage=storage,
+                            role=classify_sqlite_sidecar_role("main_wordlist", tables),
                             table=table,
                             id_column=id_col,
                             title_column=title_col,
@@ -288,6 +292,7 @@ class LogoVistaPackage:
                             path=path,
                             kind="t_contents",
                             storage=storage,
+                            role=classify_sqlite_sidecar_role("t_contents", tables),
                             table=table,
                             id_column=id_col,
                             title_column=title_col,
@@ -297,7 +302,13 @@ class LogoVistaPackage:
                         )
                         self._sqlite_schema_cache[key] = info
                         return info
-            self._sqlite_schema_cache[key] = SidecarInfo(path=path, kind="sqlite_unmapped", storage=storage, notes=tuple(tables[:8]))
+            self._sqlite_schema_cache[key] = SidecarInfo(
+                path=path,
+                kind="sqlite_unmapped",
+                storage=storage,
+                role=classify_sqlite_sidecar_role("sqlite_unmapped", tables),
+                notes=tuple(tables[:8]),
+            )
             return self._sqlite_schema_cache[key]
         finally:
             con.close()
@@ -309,6 +320,36 @@ class LogoVistaPackage:
             if sidecar is not None:
                 rows.append(sidecar)
         return tuple(rows)
+
+    def sidecar_role_summary(self) -> dict[str, object]:
+        role_counts: dict[str, int] = {}
+        unsupported_role_counts: dict[str, int] = {}
+        supported_role_counts: dict[str, int] = {}
+        sqlite_count = 0
+        non_sqlite_count = 0
+        candidates = self._sidecar_file_candidates()
+        for path in candidates:
+            sidecar = self._inspect_sqlite_sidecar(path)
+            if sidecar is None:
+                non_sqlite_count += 1
+                role = SidecarRole.NON_SQLITE_OR_UNKNOWN.value
+                role_counts[role] = role_counts.get(role, 0) + 1
+                continue
+            sqlite_count += 1
+            role = sidecar.role.value if isinstance(sidecar.role, SidecarRole) else str(sidecar.role)
+            role_counts[role] = role_counts.get(role, 0) + 1
+            if sidecar.kind == "sqlite_unmapped":
+                unsupported_role_counts[role] = unsupported_role_counts.get(role, 0) + 1
+            else:
+                supported_role_counts[role] = supported_role_counts.get(role, 0) + 1
+        return {
+            "candidate_count": len(candidates),
+            "sqlite_count": sqlite_count,
+            "non_sqlite_or_unknown_count": non_sqlite_count,
+            "role_counts": role_counts,
+            "supported_role_counts": supported_role_counts,
+            "unsupported_role_counts": unsupported_role_counts,
+        }
 
     @staticmethod
     def _marker_offsets(reader: SsedData, *, limit: int | None = None) -> list[int]:
@@ -855,6 +896,21 @@ class LogoVistaPackage:
             values.append(row.target_key)
         return tuple(dict.fromkeys(value for value in values if value))
 
+    @staticmethod
+    def _heading_fallback(
+        *,
+        display_key: str,
+        matched_key: str,
+        row: IndexRow,
+    ) -> tuple[str, str]:
+        if display_key:
+            return display_key, "display_key"
+        if row.target_key:
+            return row.target_key, "target_key"
+        if row.key:
+            return row.key, "row_key"
+        return matched_key, "fallback"
+
     def _cached_search_values(
         self,
         component_name: str,
@@ -998,8 +1054,53 @@ class LogoVistaPackage:
         display_key = self._row_display_key(row, backward=backward)
         body = self._qualified_address(row.body, role=ComponentRole.HONMON)
         title = self._qualified_address(row.title, role=ComponentRole.TITLE)
-        title_text, diagnostics = self.resolve_title(title)
-        heading = title_text or display_key or matched_key
+        fallback_heading, fallback_source = self._heading_fallback(display_key=display_key, matched_key=matched_key, row=row)
+        diagnostics: tuple[Diagnostic, ...] = ()
+        title_text = ""
+        heading = fallback_heading
+        heading_source = fallback_source
+        title_status = "fallback"
+        title_diagnostic_code: str | None = None
+        title_reason: str | None = None
+        raw_title_component = self.component_for_address(row.title)
+        title_components = self.components_by_role(ComponentRole.TITLE)
+        title_resolution: dict[str, object] = {
+            "body": body.to_dict(),
+            "title": title.to_dict(),
+            "raw_title": row.title.to_dict(),
+            "raw_body": row.body.to_dict(),
+            "row_title_equals_body": row.title == row.body,
+            "fallback_heading_source": fallback_source,
+        }
+        if raw_title_component is not None:
+            title_resolution["raw_title_component"] = {
+                "name": raw_title_component.name,
+                "role": raw_title_component.role.value,
+                "type": f"{raw_title_component.type:02x}",
+            }
+        if row.title == row.body and raw_title_component is not None and raw_title_component.role == ComponentRole.HONMON:
+            title_reason = "title_pointer_is_body_pointer"
+        elif not title_components and raw_title_component is not None and raw_title_component.role == ComponentRole.HONMON:
+            title_reason = "title_pointer_hits_honmon_without_title_components"
+        else:
+            title_text, diagnostics = self.resolve_title(title)
+            if title_text:
+                heading = title_text
+                heading_source = "title"
+                title_status = "resolved"
+            elif diagnostics:
+                first = diagnostics[0]
+                title_status = "failed" if first.code == "title_dereference_failed" else "missing"
+                title_diagnostic_code = first.code
+                title_reason = str(first.details.get("reason") or first.code)
+            else:
+                title_status = "missing"
+                title_reason = "empty_title_data"
+        if title_reason:
+            title_resolution["reason"] = title_reason
+        title_resolution["status"] = title_status
+        title_resolution["heading_source"] = heading_source
+        title_resolution["diagnostic_code"] = title_diagnostic_code
         return SearchHit(
             id=hit_id,
             query=query,
@@ -1011,14 +1112,19 @@ class LogoVistaPackage:
             matched_key=matched_key,
             target_key=row.target_key,
             heading=heading,
+            heading_source=heading_source,
+            title_status=title_status,
             body=body,
             title=title,
             tagged=row.tagged,
+            title_diagnostic_code=title_diagnostic_code,
+            title_reason=title_reason,
             diagnostics=diagnostics,
             page=row.page,
             row=row.row,
             raw_row=row,
             body_source=self.body_source().to_dict(debug=False),
+            title_resolution=title_resolution,
             _package=self,
         )
 
@@ -1344,10 +1450,14 @@ class LogoVistaPackage:
 
     def validate(self, *, sample_entries: int = 3, sample_search_hits: int = 5) -> dict[str, object]:
         body_source = self.body_source()
+        sidecar_roles = self.sidecar_role_summary()
         diagnostics_by_severity = {"info": 0, "warning": 0, "error": 0}
         diagnostics_by_area: dict[str, int] = {}
         diagnostics_by_code: dict[str, int] = {}
         title_failure_by_reason: dict[str, int] = {}
+        title_status_counts: dict[str, int] = {}
+        heading_source_counts: dict[str, int] = {}
+        title_attempts = 0
         resource_counters: dict[str, object] = {
             "resolved_gaiji": 0,
             "unresolved_gaiji": 0,
@@ -1404,6 +1514,11 @@ class LogoVistaPackage:
                     diagnostics_by_code["sample_search_miss"] = diagnostics_by_code.get("sample_search_miss", 0) + 1
                     continue
                 hit = results.hits[0]
+                title_attempts += 1
+                title_status_counts[hit.title_status] = title_status_counts.get(hit.title_status, 0) + 1
+                heading_source_counts[hit.heading_source] = heading_source_counts.get(hit.heading_source, 0) + 1
+                if hit.title_reason and hit.title_status == "fallback":
+                    self._increment_reason(title_failure_by_reason, hit.title_reason)
                 self._count_diagnostics(hit.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
                 for diagnostic in hit.diagnostics:
                     if diagnostic.code.startswith("title_dereference"):
@@ -1453,11 +1568,17 @@ class LogoVistaPackage:
             "package": self.info.to_dict(),
             "body_source": body_source.to_dict(debug=True),
             "sidecar_resolution": sidecar_resolution,
+            "sidecar_roles": sidecar_roles,
             "resource_resolution": resource_resolution,
             "title_dereference": {
+                "attempts": title_attempts,
+                "resolved": title_status_counts.get("resolved", 0),
+                "fallback": title_status_counts.get("fallback", 0),
                 "failed": diagnostics_by_code.get("title_dereference_failed", 0),
                 "empty": diagnostics_by_code.get("title_dereference_empty", 0),
                 "by_reason": title_failure_by_reason,
+                "title_status_counts": title_status_counts,
+                "heading_source_counts": heading_source_counts,
             },
             "component_count": len(self.components),
             "components": [

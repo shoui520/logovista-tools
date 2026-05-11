@@ -79,6 +79,8 @@ body_source = package.body_source()
 results = package.search("term", profile=SearchProfile.NATIVE, limit=5)
 
 for hit in results.hits:
+    heading = hit.heading
+    title_status = hit.title_status
     entry = hit.entry()
     html = entry.html()
     text = entry.plain_text()
@@ -108,9 +110,16 @@ Search profiles are native reader profiles:
 - `native`: default reader lookup that combines exact, forward, and backward
   paths while deduplicating hits that target the same body/title pointer.
 
-Friendly search JSON hides raw page/pointer internals by default. Add
-`--debug` when inspecting component names, page/row positions, body/title
-pointers, and raw parsed rows.
+Friendly search JSON exposes the reader-facing heading, heading source, and
+title status. It hides raw page/pointer internals by default. Add `--debug`
+when inspecting component names, page/row positions, body/title pointers,
+title-resolution details, and raw parsed rows.
+
+Title pointers are status-bearing. Some native index rows store the body
+pointer in the title-pointer slot, even when other index families in the same
+package have title streams. lvcore treats those rows as a clean heading
+fallback from the display key, not as a title dereference failure. Real title
+dereference failures remain diagnostics with reason codes.
 
 The lvcore control model uses behavior-level names derived from observed corpus
 behavior. Friendly output hides private directives and raw control bytes,
@@ -181,7 +190,9 @@ Reader-side validation includes sidecar-resolution counters for sampled search
 hits: resolved rows, missing anchor IDs, missing sidecar rows, and unsupported
 body-source placeholders. It also reports reason-level gaiji, media, link, and
 title-dereference counters so private corpus audits can separate safe fallback
-behavior from real compatibility gaps.
+behavior from real compatibility gaps. Sidecar reports also classify sibling
+SQLite and non-SQLite files by observed role, such as body-critical,
+media/resource, examples/idioms, search, kanji-support, ancillary, or unknown.
 
 `corpus-validate` is the private full-corpus audit entry point. Its JSON summary
 uses the `lvcore.corpus_validate.v1` schema and reports package-family counts,
@@ -208,4 +219,6 @@ paths are intended for local compatibility audits only.
 
 See `ARCHITECTURE.md` for the current document/rendering model. See
 `FUTURE_RUST.md` for the intended future Rust architecture and C ABI shape this
-proof of concept is preserving.
+proof of concept is preserving. See `REVIEW_CHECKLIST.md` for the scope,
+friendly/debug separation, corpus-validation, and public/private-boundary checks
+expected for lvcore changes.

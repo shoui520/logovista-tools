@@ -68,14 +68,19 @@ class SearchHit:
     matched_key: str
     target_key: str | None
     heading: str
+    heading_source: str
+    title_status: str
     body: Address
     title: Address
     tagged: bool
+    title_diagnostic_code: str | None = None
+    title_reason: str | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
     page: int | None = None
     row: int | None = None
     raw_row: IndexRow | None = field(default=None, repr=False, compare=False)
     body_source: dict[str, Any] | None = field(default=None, repr=False, compare=False)
+    title_resolution: dict[str, Any] | None = field(default=None, repr=False, compare=False)
     _package: Any = field(default=None, repr=False, compare=False)
 
     def entry(self):
@@ -92,6 +97,9 @@ class SearchHit:
             "package_id": self.package_id,
             "search_profile": self.search_profile.value,
             "heading": self.heading,
+            "heading_source": self.heading_source,
+            "title_status": self.title_status,
+            "title_diagnostic_code": self.title_diagnostic_code,
             "display_key": self.display_key,
             "matched_key": self.matched_key,
             "target_key": self.target_key,
@@ -110,6 +118,8 @@ class SearchHit:
                     "row": self.row,
                     "raw_row": self.raw_row.to_dict() if self.raw_row else None,
                     "body_source": self.body_source,
+                    "title_reason": self.title_reason,
+                    "title_resolution": self.title_resolution,
                 }
             )
         return data

@@ -42,11 +42,23 @@ class Confidence(str, Enum):
     UNKNOWN = "unknown"
 
 
+class SidecarRole(str, Enum):
+    BODY_CRITICAL = "body_critical"
+    MEDIA_RESOURCE = "media_resource"
+    EXAMPLES_IDIOMS = "examples_idioms"
+    SEARCH = "search"
+    KANJI_SUPPORT = "kanji_support"
+    ANCILLARY = "ancillary"
+    NON_SQLITE_OR_UNKNOWN = "non_sqlite_or_unknown"
+    UNKNOWN = "unknown"
+
+
 @dataclass(frozen=True)
 class SidecarInfo:
     path: Path
     kind: str
     storage: str
+    role: SidecarRole | str = SidecarRole.UNKNOWN
     table: str | None = None
     id_column: str | None = None
     title_column: str | None = None
@@ -61,6 +73,7 @@ class SidecarInfo:
             "name": self.path.name,
             "kind": self.kind,
             "storage": self.storage,
+            "role": self.role.value if isinstance(self.role, SidecarRole) else str(self.role),
             "table": self.table,
             "id_column": self.id_column,
             "title_column": self.title_column,
@@ -174,3 +187,20 @@ def find_column(columns: list[str], *candidates: str) -> str | None:
             return found
     return None
 
+
+def classify_sqlite_sidecar_role(kind: str, tables: list[str] | tuple[str, ...]) -> SidecarRole:
+    lowered = {table.lower() for table in tables}
+    if kind in {"honbun", "main_wordlist", "t_contents"}:
+        return SidecarRole.BODY_CRITICAL
+    if kind == "sqlite_unmapped":
+        if lowered & {"media", "t_media"}:
+            return SidecarRole.MEDIA_RESOURCE
+        if lowered & {"d_example", "d_idiom"}:
+            return SidecarRole.EXAMPLES_IDIOMS
+        if any("search" in table or "zenbun" in table for table in lowered):
+            return SidecarRole.SEARCH
+        if lowered & {"t_all", "t_bushu", "t_jukugo", "t_yomi", "t_exam"}:
+            return SidecarRole.KANJI_SUPPORT
+        if any("chronology" in table or table.startswith("d_") for table in lowered):
+            return SidecarRole.ANCILLARY
+    return SidecarRole.UNKNOWN

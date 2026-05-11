@@ -220,6 +220,7 @@ def _corpus_validate_one(path_str: str, sample_entries: int, sample_search_hits:
             "package": package.info.to_dict(),
             "body_source": report.get("body_source"),
             "sidecar_resolution": report.get("sidecar_resolution"),
+            "sidecar_roles": report.get("sidecar_roles"),
             "resource_resolution": report.get("resource_resolution"),
             "title_dereference": report.get("title_dereference"),
             "component_count": report.get("component_count"),
@@ -355,6 +356,9 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "missing_row": 0,
         "unsupported_body_source": 0,
     }
+    sidecar_role_counts: dict[str, int] = {}
+    supported_sidecar_role_counts: dict[str, int] = {}
+    unsupported_sidecar_role_counts: dict[str, int] = {}
     resource_resolution_counts = {
         "unresolved_gaiji": 0,
         "unresolved_media": 0,
@@ -369,9 +373,14 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "unresolved_link": {},
     }
     title_dereference_counts = {
+        "attempts": 0,
+        "resolved": 0,
+        "fallback": 0,
         "failed": 0,
         "empty": 0,
         "by_reason": {},
+        "title_status_counts": {},
+        "heading_source_counts": {},
     }
     render_summary = {
         "sample_entries_checked": 0,
@@ -417,6 +426,13 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
             diagnostics_by_area[area] = diagnostics_by_area.get(area, 0) + int(count)
         for key, count in (row.get("sidecar_resolution") or {}).items():
             sidecar_resolution_counts[key] = sidecar_resolution_counts.get(key, 0) + int(count)
+        sidecar_roles = row.get("sidecar_roles") or {}
+        for key, count in (sidecar_roles.get("role_counts") or {}).items():
+            sidecar_role_counts[key] = sidecar_role_counts.get(key, 0) + int(count)
+        for key, count in (sidecar_roles.get("supported_role_counts") or {}).items():
+            supported_sidecar_role_counts[key] = supported_sidecar_role_counts.get(key, 0) + int(count)
+        for key, count in (sidecar_roles.get("unsupported_role_counts") or {}).items():
+            unsupported_sidecar_role_counts[key] = unsupported_sidecar_role_counts.get(key, 0) + int(count)
         for key, count in (row.get("resource_resolution") or {}).items():
             if isinstance(count, dict):
                 reason_bucket = resource_resolution_by_reason.setdefault(key.removesuffix("_by_reason"), {})
@@ -425,6 +441,9 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
                 continue
             resource_resolution_counts[key] = resource_resolution_counts.get(key, 0) + int(count)
         title_deref = row.get("title_dereference") or {}
+        title_dereference_counts["attempts"] += int(title_deref.get("attempts") or 0)
+        title_dereference_counts["resolved"] += int(title_deref.get("resolved") or 0)
+        title_dereference_counts["fallback"] += int(title_deref.get("fallback") or 0)
         title_dereference_counts["failed"] += int(title_deref.get("failed") or 0)
         title_dereference_counts["empty"] += int(title_deref.get("empty") or 0)
         title_reasons = title_dereference_counts["by_reason"]
@@ -433,6 +452,18 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
             title_dereference_counts["by_reason"] = title_reasons
         for reason, count in (title_deref.get("by_reason") or {}).items():
             title_reasons[reason] = title_reasons.get(reason, 0) + int(count)
+        title_statuses = title_dereference_counts["title_status_counts"]
+        if not isinstance(title_statuses, dict):
+            title_statuses = {}
+            title_dereference_counts["title_status_counts"] = title_statuses
+        for status, count in (title_deref.get("title_status_counts") or {}).items():
+            title_statuses[status] = title_statuses.get(status, 0) + int(count)
+        heading_sources = title_dereference_counts["heading_source_counts"]
+        if not isinstance(heading_sources, dict):
+            heading_sources = {}
+            title_dereference_counts["heading_source_counts"] = heading_sources
+        for source, count in (title_deref.get("heading_source_counts") or {}).items():
+            heading_sources[source] = heading_sources.get(source, 0) + int(count)
         render_summary["sample_entries_checked"] += int(row.get("sample_entries_checked") or 0)
         render_summary["sample_entries_rendered"] += int(row.get("sample_entries_rendered") or 0)
         render_summary["sample_index_rows_checked"] += int(row.get("sample_index_rows_checked") or 0)
@@ -468,6 +499,9 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "open_failure_count": family_counts.get("error", 0),
         "render_summary": render_summary,
         "sidecar_resolution_counts": sidecar_resolution_counts,
+        "sidecar_role_counts": sidecar_role_counts,
+        "supported_sidecar_role_counts": supported_sidecar_role_counts,
+        "unsupported_sidecar_role_counts": unsupported_sidecar_role_counts,
         "resource_resolution_counts": resource_resolution_counts,
         "resource_resolution_by_reason": resource_resolution_by_reason,
         "title_dereference_counts": title_dereference_counts,

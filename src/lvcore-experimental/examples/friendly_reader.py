@@ -54,6 +54,9 @@ def read_first_entry(package_path: str | Path, query: str, *, profile: str = "na
     hit = results.hits[0]
     entry = hit.entry()
     result["entry"] = {
+        "heading": hit.heading,
+        "heading_source": hit.heading_source,
+        "title_status": hit.title_status,
         "hit": hit.to_dict(),
         "html": entry.html(),
         "plain_text": entry.plain_text(),

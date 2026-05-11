@@ -200,9 +200,10 @@ Package.search(query, profile)
   -> friendly HTML / plain text
 ```
 
-Friendly hit dictionaries expose headings, display keys, matched keys,
-component names, and diagnostics. Raw page numbers, row numbers, body/title
-pointers, and parsed row internals are debug/inspection output only.
+Friendly hit dictionaries expose headings, heading source, title status,
+display keys, matched keys, and diagnostics. Component names, raw page numbers,
+row numbers, body/title pointers, title-resolution traces, and parsed row
+internals are debug/inspection output only.
 
 Current search profiles are:
 
@@ -230,10 +231,18 @@ Entry dereferencing uses body pointers, known body-pointer tables, marker
 offsets, and component bounds before falling back to a maximum byte range. If
 the fallback is needed, the entry carries a recoverable diagnostic.
 
+Title dereferencing is independent from body dereferencing. A title pointer may
+resolve through a title component, fail with a reason-coded diagnostic, or be a
+known fallback shape. In observed SSED index rows, the title-address field can
+hold the same body pointer used for the entry itself. lvcore records that as a
+`fallback` title status and derives the friendly heading from the native index
+display key instead of warning that no title component contains the pointer.
+
 Reader-side validation samples both marker-discovered entries and
 search-hit-to-entry-to-render paths. It reports sampled index rows, dereference
 counts, render counts, diagnostic counts, sidecar resolution, reason-level
-gaiji/media/link status, and title-dereference reason counters. It is
+gaiji/media/link status, title status counts, heading-source counts, and
+title-dereference reason counters. It is
 reader-safety validation, not writer verification.
 
 ## Body Sources
@@ -274,6 +283,14 @@ mapping status, including attempted query values and selected table/column
 names. Friendly output must not. Validation also reports sampled sidecar
 resolution counters so corpus runs can distinguish resolved rows, missing rows,
 missing anchor IDs, and unsupported body-source placeholders.
+
+Sidecar files are also classified by role when the structure is visible. The
+current role vocabulary separates body-critical stores from media/resource
+stores, examples/idioms stores, native/full-text search stores, kanji-support
+stores, ancillary databases, non-SQLite payloads, and unknown schemas. Only
+body-critical schemas with understood anchor mapping are used for entry
+resolution. Other roles remain visible to validation and debug tooling without
+being treated as missing body support.
 
 ## Future Rust and C ABI
 
