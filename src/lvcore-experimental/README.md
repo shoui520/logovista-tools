@@ -79,18 +79,25 @@ SSED body-source kinds are distinct from package families:
 - `dense_anchor_with_sidecar`, `renderer_sqlite_sidecar`, `honbun_sidecar`, and
   related sidecar kinds: `HONMON.DIC` anchors can be resolved through a sibling
   body database when the schema is understood;
+- `sidecar_unknown`: dense anchors and one or more SQLite-like sidecars were
+  detected, but no supported body table schema was identified;
 - LVED SQLCipher and LVLMultiView are separate package families and remain
   deferred. They are not SSED body-source failures.
 
 Friendly rendering never displays raw dense-anchor bytes. If a dense body source
 cannot be resolved, lvcore returns a clean placeholder entry plus diagnostics.
-Debug output may expose anchor IDs, pointers, and sidecar mapping details.
+Debug output may expose anchor IDs, attempted sidecar query values, pointers,
+table/column names, and sidecar mapping details.
 
 Observed dense-anchor SQLite schemas currently recognized by lvcore include
 `t_contents` rows keyed by `f_DataId`, `f_contents_id`, or `f_order_id`,
 `HONBUN` rows keyed by `ID` / `f_DataId`, and extensionless dict-code-named
 `main` tables keyed by `ID`. These are treated as SSED sidecar body sources,
 not LVED.
+
+Reader-side validation includes sidecar-resolution counters for sampled search
+hits: resolved rows, missing anchor IDs, missing sidecar rows, and unsupported
+body-source placeholders.
 
 See `ARCHITECTURE.md` for the document/rendering model and the future Rust/C
 ABI constraints this proof of concept is preserving.

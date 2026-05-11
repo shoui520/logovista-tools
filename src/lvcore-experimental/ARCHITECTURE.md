@@ -189,7 +189,9 @@ dictionaries can still have several body-source shapes:
   store;
 - `renderer_sqlite_sidecar`, `dictfulldb_sidecar`, `honbun_sidecar`, and
   `vlpljbl_sidecar`: specific sidecar-backed body sources observed around SSED
-  packages.
+  packages;
+- `sidecar_unknown`: dense anchors plus SQLite-like sidecars are present, but
+  no supported body table schema has been identified.
 
 Search hits keep their native body/title pointers, but entry resolution is
 body-source-aware. Direct body-stream packages use `HONMON.DIC` slicing. Dense
@@ -207,7 +209,10 @@ deferred; the reader does not fake a body by decoding anchor records.
 
 `body-source`, `validate`, and `corpus-validate` expose body-source information
 in JSON. Debug output may include anchor IDs, raw pointers, sidecar names, and
-mapping status. Friendly output must not.
+mapping status, including attempted query values and selected table/column
+names. Friendly output must not. Validation also reports sampled sidecar
+resolution counters so corpus runs can distinguish resolved rows, missing rows,
+missing anchor IDs, and unsupported body-source placeholders.
 
 ## Future Rust and C ABI
 

@@ -488,6 +488,12 @@ class LogoVistaPackage:
                 provider = "sqlite_sidecar"
                 sidecar_kind = chosen_sidecar.kind
                 notes = ("HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",)
+            elif sidecars:
+                kind = SsedBodySourceKind.SIDECAR_UNKNOWN
+                support = BodySourceSupport.DEFERRED
+                provider = "sqlite_sidecar_deferred"
+                sidecar_kind = ",".join(dict.fromkeys(sidecar.kind for sidecar in sidecars))
+                notes = ("HONMON body pointers resolve to short numeric anchor records; sidecar files were found but no supported body table schema was identified",)
             else:
                 kind = SsedBodySourceKind.DENSE_ANCHOR_TABLE
                 support = BodySourceSupport.DEFERRED
@@ -623,6 +629,22 @@ class LogoVistaPackage:
                 pass
         return tuple(dict.fromkeys(values))
 
+    @staticmethod
+    def _sidecar_debug_details(sidecar: SidecarInfo, anchor_id: str) -> dict[str, object]:
+        query_values = [str(value) for value in LogoVistaPackage._anchor_query_values(anchor_id, sidecar)]
+        return {
+            "anchor_id": anchor_id,
+            "query_values": query_values,
+            "sidecar": sidecar.path.name,
+            "sidecar_kind": sidecar.kind,
+            "storage": sidecar.storage,
+            "table": sidecar.table,
+            "id_column": sidecar.id_column,
+            "title_column": sidecar.title_column,
+            "html_column": sidecar.html_column,
+            "plain_column": sidecar.plain_column,
+        }
+
     def _fetch_sidecar_body(self, sidecar: SidecarInfo, anchor_id: str) -> SidecarBody | None:
         if not sidecar.table or not sidecar.id_column:
             return None
@@ -701,7 +723,7 @@ class LogoVistaPackage:
                 code="sidecar_body_not_found",
                 message="body sidecar did not contain a row for the dense HONMON anchor",
                 severity=Severity.ERROR,
-                details={"sidecar": sidecar.path.name, "sidecar_kind": sidecar.kind},
+                details=self._sidecar_debug_details(sidecar, anchor_id),
             )
         note = Diagnostic(
             severity=Severity.INFO,
@@ -709,7 +731,7 @@ class LogoVistaPackage:
             code="sidecar_body_resolved",
             message="entry body resolved from SSED sidecar database",
             location=self._location_for_address(hit.body, role=ComponentRole.HONMON),
-            details={"sidecar": sidecar.path.name, "sidecar_kind": sidecar.kind},
+            details=self._sidecar_debug_details(sidecar, anchor_id),
         )
         text = body.text or body.title or hit.heading
         return Entry(
@@ -1108,9 +1130,16 @@ class LogoVistaPackage:
             }
             for name, parsed in self.indexes().items()
         }
+        sidecar_resolution = {
+            "resolved": diagnostics_by_code.get("sidecar_body_resolved", 0),
+            "missing_anchor_id": diagnostics_by_code.get("dense_anchor_missing_id", 0),
+            "missing_row": diagnostics_by_code.get("sidecar_body_not_found", 0),
+            "unsupported_body_source": diagnostics_by_code.get("unsupported_body_source", 0),
+        }
         return {
             "package": self.info.to_dict(),
             "body_source": body_source.to_dict(debug=True),
+            "sidecar_resolution": sidecar_resolution,
             "component_count": len(self.components),
             "components": [
                 {

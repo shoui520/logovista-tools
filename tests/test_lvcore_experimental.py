@@ -367,6 +367,100 @@ def test_lvcore_dense_anchor_with_sqlite_sidecar_renders_body(tmp_path: Path) ->
     assert any(diagnostic.code == "sidecar_body_resolved" for diagnostic in entry.diagnostics())
 
 
+def test_lvcore_dense_anchor_sidecar_missing_row_is_safe_and_debuggable(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path)
+    con = sqlite3.connect(tmp_path / "body.db")
+    try:
+        con.execute("create table t_contents (f_DataId integer primary key, f_Title text, f_Html text, f_Plane text)")
+        con.execute("insert into t_contents values (?, ?, ?, ?)", (1, "alpha", "<div>alpha html</div>", "alpha body"))
+        con.commit()
+    finally:
+        con.close()
+
+    package = open_package(tmp_path)
+    hit = package.search("beta", profile=SearchProfile.EXACT).hits[0]
+    entry = package.entry_for_hit(hit)
+    html = package.render_entry_html(entry)
+    text = package.render_entry_text(entry)
+    diagnostics = [diagnostic.to_dict() for diagnostic in entry.diagnostics()]
+
+    assert "Entry body is not yet supported" in text
+    assert "00000002" not in html
+    assert "00000002" not in text
+    assert any(diagnostic["code"] == "sidecar_body_not_found" for diagnostic in diagnostics)
+    missing = next(diagnostic for diagnostic in diagnostics if diagnostic["code"] == "sidecar_body_not_found")
+    assert missing["details"]["anchor_id"] == "00000002"
+    assert missing["details"]["table"] == "t_contents"
+    assert missing["details"]["id_column"] == "f_DataId"
+    assert "2" in missing["details"]["query_values"]
+
+    report = package.validate(sample_entries=1, sample_search_hits=2)
+    assert report["sidecar_resolution"]["resolved"] == 1
+    assert report["sidecar_resolution"]["missing_row"] == 1
+
+
+def test_lvcore_dense_anchor_with_unsupported_sqlite_sidecar_schema_is_precise(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path)
+    con = sqlite3.connect(tmp_path / "body.db")
+    try:
+        con.execute("create table metadata (name text primary key, value text)")
+        con.execute("insert into metadata values (?, ?)", ("kind", "not-a-body-store"))
+        con.commit()
+    finally:
+        con.close()
+
+    package = open_package(tmp_path)
+    source = package.body_source()
+
+    assert source.ssed_kind == SsedBodySourceKind.SIDECAR_UNKNOWN
+    assert source.support.value == "deferred"
+    assert source.sidecars[0].kind == "sqlite_unmapped"
+    assert source.sidecar_kind == "sqlite_unmapped"
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+    entry = package.entry_for_hit(hit)
+    html = package.render_entry_html(entry)
+
+    assert "Entry body is not yet supported" in package.render_entry_text(entry)
+    assert "00000001" not in html
+    assert any(diagnostic.code == "unsupported_body_source" for diagnostic in entry.diagnostics())
+
+
+def test_lvcore_dense_anchor_sidecar_html_only_body_is_readable(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path)
+    con = sqlite3.connect(tmp_path / "body.db")
+    try:
+        con.execute("create table t_contents (f_DataId integer primary key, f_Title text, f_Html text)")
+        con.execute("insert into t_contents values (?, ?, ?)", (2, "beta title", "<div>beta <b>html</b> body</div>"))
+        con.commit()
+    finally:
+        con.close()
+
+    package = open_package(tmp_path)
+    hit = package.search("beta", profile=SearchProfile.EXACT).hits[0]
+    entry = package.entry_for_hit(hit)
+
+    assert entry.headword == "beta title"
+    assert "beta html body" in package.render_hit_text(hit)
+    assert "<b>" not in package.render_hit_text(hit)
+
+
+def test_lvcore_dense_anchor_sidecar_plain_text_body_is_preferred(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path)
+    con = sqlite3.connect(tmp_path / "body.db")
+    try:
+        con.execute("create table t_contents (f_DataId integer primary key, f_Title text, f_Html text, f_Plane text)")
+        con.execute("insert into t_contents values (?, ?, ?, ?)", (2, "beta title", "<div>html fallback</div>", "plain body wins"))
+        con.commit()
+    finally:
+        con.close()
+
+    package = open_package(tmp_path)
+    hit = package.search("beta", profile=SearchProfile.EXACT).hits[0]
+
+    assert "plain body wins" in package.render_hit_text(hit)
+    assert "html fallback" not in package.render_hit_text(hit)
+
+
 def test_lvcore_dense_anchor_with_extensionless_main_sidecar_renders_body(tmp_path: Path) -> None:
     make_dense_anchor_package(tmp_path)
     con = sqlite3.connect(tmp_path / "DENSE")
@@ -690,6 +784,7 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
     assert corpus_data["sidecar_backed_count"] == 1
     assert corpus_data["render_summary"]["search_hits_rendered_html"] >= 1
     assert corpus_data["render_summary"]["search_hits_rendered_text"] >= 1
+    assert corpus_data["sidecar_resolution_counts"]["resolved"] >= 1
     assert "top_diagnostics_by_area" in corpus_data
     ssed_target = next(target for target in corpus_data["targets"] if target["package_family"] == "ssed")
     assert ssed_target["gaiji"]["uni_records"] == 0
