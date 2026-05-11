@@ -201,5 +201,6 @@ Useful audit options:
 Normal corpus validation output avoids entry text. Debug and private report
 paths are intended for local compatibility audits only.
 
-See `ARCHITECTURE.md` for the document/rendering model and the future Rust/C
-ABI constraints this proof of concept is preserving.
+See `ARCHITECTURE.md` for the current document/rendering model. See
+`FUTURE_RUST.md` for the intended future Rust architecture and C ABI shape this
+proof of concept is preserving.
