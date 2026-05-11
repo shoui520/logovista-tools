@@ -174,10 +174,12 @@ no provider can resolve the body, friendly rendering receives a placeholder
 entry with diagnostics instead of raw anchor bytes.
 
 Current sidecar support is deliberately conservative. lvcore can resolve tiny
-synthetic and observed SQLite body stores with `t_contents` or `HONBUN`-style
-schemas when the dense anchor ID maps cleanly to the sidecar row. Unmapped,
-encrypted, or schema-unknown sidecars are classified and reported as deferred;
-the reader does not fake a body by decoding anchor records.
+synthetic and observed SQLite body stores with `t_contents`, `HONBUN`, or
+dict-code-named `main` schemas when the dense anchor ID maps cleanly to the
+sidecar row. Observed `t_contents` key columns include `f_DataId`,
+`f_contents_id`, and `f_order_id`; observed `main` tables use `ID`.
+Unmapped, encrypted, or schema-unknown sidecars are classified and reported as
+deferred; the reader does not fake a body by decoding anchor records.
 
 `body-source`, `validate`, and `corpus-validate` expose body-source information
 in JSON. Debug output may include anchor IDs, raw pointers, sidecar names, and

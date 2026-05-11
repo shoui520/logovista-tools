@@ -159,8 +159,9 @@ LogoVista dictionary model.
   for direct body-stream HONMON entries, dense HONMON anchor detection, safe
   placeholder diagnostics for unresolved dense body sources, conservative
   SQLite sidecar resolution for `t_contents` / `HONBUN`-style dense-anchor
-  bodies, and entry-range resolution from known body pointers, markers, and
-  component bounds. It builds structured `EntryDocument` trees from spans,
+  bodies and dict-code-named extensionless `main` sidecars, and entry-range
+  resolution from known body pointers, markers, and component bounds. It builds
+  structured `EntryDocument` trees from spans,
   collects recoverable diagnostics, preserves media references as resources,
   and renders friendly/semantic/LogoVista-like/debug HTML plus plain text.
   Friendly rendering hides raw opcodes and offsets; debug search/render output

@@ -1415,6 +1415,29 @@ The suffixes are meaningful but not globally one-to-one:
 The rule is content-first classification. The toolkit must not infer
 body/media/font behavior from suffix alone.
 
+### Dense-Anchor Sidecar Dereference Update
+
+The five previously deferred dense-anchor packages inspected in the lvcore
+body-source pass are sidecar-backed SQLite cases, not non-SQLite opaque
+LogoFontCipher payloads:
+
+| package | sidecar payload | decrypted storage | schema role | anchor key |
+|---|---|---|---|---|
+| `CJJC160` | `CJJC160` | LogoFontCipher SQLite | extensionless `main` word-list table | `main.ID` |
+| `KJJK100` | `KJJK100` | LogoFontCipher SQLite | extensionless `main` word-list table | `main.ID` |
+| `PRMEDAB7` | `vlpljblF` | LogoFontCipher SQLite | renderer `t_contents` table plus keyword table | `t_contents.f_contents_id` |
+| `YHOUGO5` | `vlpljblb` | LogoFontCipher SQLite | renderer `t_contents`, search, full-text, media tables | `t_contents.f_order_id` |
+| `YUPSYCHO` | `vlpljblb` | LogoFontCipher SQLite | renderer `t_contents`, list, search, full-text, media tables | `t_contents.f_order_id` |
+
+`HONMON.DIC` remains the SSED anchor layer. The dense records contain
+zero-padded numeric IDs inside normal body-stream control wrappers; native
+index body pointers in the three indexed packages resolve to those IDs, and
+the ID values map directly to the SQLite body rows above. `CJJC160` and
+`KJJK100` use the same numeric anchor table shape, but their local corpus
+copies do not expose usable native SSED index files, so lvcore can classify and
+inspect the body source but cannot yet provide normal native index search for
+those packages from SSED index components alone.
+
 ### EJJE200 Windows Encryption
 
 EJJE200 is the first observed Windows package with encrypted primary body data.

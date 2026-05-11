@@ -22,7 +22,7 @@ Current scope:
 - detect dense HONMON anchor tables and avoid rendering anchor records as
   friendly dictionary bodies;
 - resolve structurally understood dense-anchor SQLite sidecars such as
-  `t_contents` and `HONBUN` payloads;
+  `t_contents`, `HONBUN`, and dict-code-named `main` payloads;
 - expose a small CLI for inspection and lookup experiments;
 - expose reader-facing `SearchResults` / `SearchHit` objects instead of
   requiring callers to consume raw index rows;
@@ -78,6 +78,12 @@ SSED body-source kinds are distinct from package families:
 Friendly rendering never displays raw dense-anchor bytes. If a dense body source
 cannot be resolved, lvcore returns a clean placeholder entry plus diagnostics.
 Debug output may expose anchor IDs, pointers, and sidecar mapping details.
+
+Observed dense-anchor SQLite schemas currently recognized by lvcore include
+`t_contents` rows keyed by `f_DataId`, `f_contents_id`, or `f_order_id`,
+`HONBUN` rows keyed by `ID` / `f_DataId`, and extensionless dict-code-named
+`main` tables keyed by `ID`. These are treated as SSED sidecar body sources,
+not LVED.
 
 See `ARCHITECTURE.md` for the document/rendering model and the future Rust/C
 ABI constraints this proof of concept is preserving.

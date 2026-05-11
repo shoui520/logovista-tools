@@ -169,13 +169,15 @@ class LogoVistaPackage:
             children = sorted(self.info.root.iterdir(), key=lambda path: path.name.lower())
         except OSError:
             return candidates
+        dict_id = (self.info.dict_id or "").lower()
         for child in children:
             if not child.is_file():
                 continue
             lower = child.name.lower()
             if lower == "vlpljbl.bin":
                 continue
-            if lower.startswith("vlpljbl") or child.suffix.lower() in {".db", ".sqlite", ".sqlite3", ".sql"}:
+            is_dict_id_payload = bool(dict_id and child.suffix == "" and lower == dict_id)
+            if lower.startswith("vlpljbl") or child.suffix.lower() in {".db", ".sqlite", ".sqlite3", ".sql"} or is_dict_id_payload:
                 candidates.append(child)
         return candidates
 
@@ -231,7 +233,7 @@ class LogoVistaPackage:
             return None
         try:
             tables = [row[0] for row in con.execute("select name from sqlite_master where type='table' order by name")]
-            for table in ("t_contents", "HONBUN"):
+            for table in ("t_contents", "HONBUN", "main"):
                 if table not in tables:
                     continue
                 columns = sqlite_columns(con, table)
@@ -254,11 +256,29 @@ class LogoVistaPackage:
                         )
                         self._sqlite_schema_cache[key] = info
                         return info
+                elif table == "main":
+                    id_col = find_column(columns, "ID")
+                    title_col = find_column(columns, "C_text", "K_text", "J_text")
+                    plain_col = find_column(columns, "J_text", "C_text", "K_text")
+                    if id_col and (title_col or plain_col):
+                        info = SidecarInfo(
+                            path=path,
+                            kind="main_wordlist",
+                            storage=storage,
+                            table=table,
+                            id_column=id_col,
+                            title_column=title_col,
+                            html_column=None,
+                            plain_column=plain_col,
+                            row_count=self._row_count(con, table),
+                        )
+                        self._sqlite_schema_cache[key] = info
+                        return info
                 else:
-                    id_col = find_column(columns, "f_DataId", "f_data_id", "f_data_id", "f_array_no")
-                    title_col = find_column(columns, "f_Title", "f_title", "f_midashi", "f_midashi_hyoki")
-                    html_col = find_column(columns, "f_Html", "f_contents", "f_body")
-                    plain_col = find_column(columns, "f_Plane", "f_body")
+                    id_col = find_column(columns, "f_DataId", "f_data_id", "f_array_no", "f_contents_id", "f_order_id")
+                    title_col = find_column(columns, "f_Title", "f_title", "f_midashi", "f_midashi_hyoki", "f_midashi_key", "f_abbr", "f_fullname")
+                    html_col = find_column(columns, "f_Html", "f_html_text", "f_contents", "f_body")
+                    plain_col = find_column(columns, "f_Plane", "f_plane", "f_plane_text", "f_body")
                     if id_col and (html_col or plain_col):
                         info = SidecarInfo(
                             path=path,

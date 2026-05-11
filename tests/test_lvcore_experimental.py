@@ -366,6 +366,66 @@ def test_lvcore_dense_anchor_with_sqlite_sidecar_renders_body(tmp_path: Path) ->
     assert any(diagnostic.code == "sidecar_body_resolved" for diagnostic in entry.diagnostics())
 
 
+def test_lvcore_dense_anchor_with_extensionless_main_sidecar_renders_body(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path)
+    con = sqlite3.connect(tmp_path / "DENSE")
+    try:
+        con.execute("create table main (ID text primary key, Class text, C_text text, J_text text, Pinyin text)")
+        con.execute("insert into main values (?, ?, ?, ?, ?)", ("00000002", "class", "beta title", "beta main sidecar body", ""))
+        con.commit()
+    finally:
+        con.close()
+
+    package = open_package(tmp_path)
+    source = package.body_source()
+
+    assert source.ssed_kind == SsedBodySourceKind.DENSE_ANCHOR_WITH_SIDECAR
+    assert source.sidecars[0].kind == "main_wordlist"
+    hit = package.search("beta", profile=SearchProfile.EXACT).hits[0]
+    entry = package.entry_for_hit(hit)
+
+    assert entry.headword == "beta title"
+    assert "beta main sidecar body" in package.render_entry_text(entry)
+
+
+def test_lvcore_dense_anchor_with_observed_t_contents_schema_variants(tmp_path: Path) -> None:
+    first = tmp_path / "contents_id"
+    make_dense_anchor_package(first)
+    con = sqlite3.connect(first / "body.db")
+    try:
+        con.execute(
+            "create table t_contents (f_contents_id integer primary key, f_title text, f_plane_text text, f_html_text text)"
+        )
+        con.execute("insert into t_contents values (?, ?, ?, ?)", (2, "beta title", "beta contents-id body", "<div>ignored</div>"))
+        con.commit()
+    finally:
+        con.close()
+
+    package = open_package(first)
+    source = package.body_source()
+    assert source.ssed_kind == SsedBodySourceKind.DENSE_ANCHOR_WITH_SIDECAR
+    assert source.sidecars[0].id_column == "f_contents_id"
+    hit = package.search("beta", profile=SearchProfile.EXACT).hits[0]
+    assert "beta contents-id body" in package.render_hit_text(hit)
+
+    second = tmp_path / "order_id"
+    make_dense_anchor_package(second)
+    con = sqlite3.connect(second / "body.db")
+    try:
+        con.execute("create table t_contents (f_order_id integer primary key, f_midashi text, f_contents text)")
+        con.execute("insert into t_contents values (?, ?, ?)", (2, "beta heading", "<div>beta order-id body</div>"))
+        con.commit()
+    finally:
+        con.close()
+
+    package = open_package(second)
+    source = package.body_source()
+    assert source.ssed_kind == SsedBodySourceKind.DENSE_ANCHOR_WITH_SIDECAR
+    assert source.sidecars[0].id_column == "f_order_id"
+    hit = package.search("beta", profile=SearchProfile.EXACT).hits[0]
+    assert "beta order-id body" in package.render_hit_text(hit)
+
+
 def test_lvcore_title_dereference_failure_falls_back_to_key(tmp_path: Path) -> None:
     make_reader_workflow_package(tmp_path)
     package = open_package(tmp_path)
