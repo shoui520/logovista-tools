@@ -92,8 +92,10 @@ The v1 document dictionary shape is explicitly versioned as
 default: it includes semantic blocks, inline nodes, resources, diagnostics,
 and stable metadata, but it strips raw span payloads, raw control payloads, and
 debug-only resource details. `to_dict(debug=True)` and `to_debug_dict()` are
-the inspection forms and may include raw spans, opcode payloads, body-source
-internals, gaiji codes, and resource payload identifiers.
+the inspection forms and may include span summaries, opcode payload previews,
+body-source internals, gaiji codes, and resource payload identifiers. Debug
+span output is bounded by default: it reports offsets, lengths, hashes, and
+small previews instead of unbounded body-byte dumps.
 
 Node records deliberately use simple enum-like strings plus tuples/lists of
 children. This maps cleanly to Rust enums and to a future opaque C ABI where

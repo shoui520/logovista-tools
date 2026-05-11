@@ -568,6 +568,6 @@ def build_entry_document(entry: Entry) -> EntryDocument:
             "end_address": entry.end_address.to_dict(),
         },
         debug_metadata={
-            "raw_spans": [span.to_dict() for span in entry.spans],
+            "span_summaries": [span.to_debug_summary() for span in entry.spans],
         },
     )

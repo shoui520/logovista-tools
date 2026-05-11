@@ -74,7 +74,7 @@ def cmd_body_source(args: argparse.Namespace) -> int:
 def cmd_entries(args: argparse.Namespace) -> int:
     package = open_package(args.path)
     for entry in package.iter_entries(limit=args.limit):
-        record = entry.to_dict() if args.spans else {
+        record = entry.to_dict(debug=True) if args.spans else {
             "address": entry.address.to_dict(),
             "headword": entry.headword,
             "text": entry.text,
@@ -119,7 +119,7 @@ def cmd_search(args: argparse.Namespace) -> int:
             except Exception as exc:
                 entries.append({"hit": hit.to_dict(debug=args.debug), "error": str(exc)})
                 continue
-            entries.append({"hit": hit.to_dict(debug=args.debug), "entry": entry.to_dict() if args.debug else {"headword": entry.headword}})
+            entries.append({"hit": hit.to_dict(debug=args.debug), "entry": entry.to_dict(debug=True) if args.debug else {"headword": entry.headword}})
         emit(
             {
                 **results.to_dict(debug=args.debug),
@@ -141,16 +141,17 @@ def cmd_render(args: argparse.Namespace) -> int:
         for hit in results.hits:
             try:
                 entry = package.entry_for_hit(hit)
-                rendered.append(
-                    {
-                        "hit": hit.to_dict(debug=args.debug),
-                        "address": entry.address.to_dict() if args.debug else None,
-                        "headword": entry.headword,
-                        "html": package.render_entry_html(entry, profile=profile, include_diagnostics=args.diagnostics),
-                        "text": package.render_entry_text(entry),
-                        "diagnostics": [diagnostic.to_dict() for diagnostic in entry.diagnostics()] if args.diagnostics or args.debug else [],
-                    }
-                )
+                record = {
+                    "hit": hit.to_dict(debug=args.debug),
+                    "headword": entry.headword,
+                    "html": package.render_entry_html(entry, profile=profile, include_diagnostics=args.diagnostics),
+                    "text": package.render_entry_text(entry),
+                    "diagnostics": [diagnostic.to_dict() for diagnostic in entry.diagnostics()] if args.diagnostics or args.debug else [],
+                }
+                if args.debug:
+                    record["address"] = entry.address.to_dict()
+                    record["entry"] = entry.to_dict(debug=True)
+                rendered.append(record)
             except Exception as exc:
                 rendered.append({"hit": hit.to_dict(debug=args.debug), "error": str(exc)})
         emit(

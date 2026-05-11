@@ -91,7 +91,6 @@ class SearchHit:
             "id": self.id,
             "package_id": self.package_id,
             "search_profile": self.search_profile.value,
-            "index_component": self.index_component,
             "heading": self.heading,
             "display_key": self.display_key,
             "matched_key": self.matched_key,
@@ -104,6 +103,7 @@ class SearchHit:
                 {
                     "query": self.query,
                     "normalized_query": self.normalized_query,
+                    "index_component": self.index_component,
                     "body": self.body.to_dict(),
                     "title": self.title.to_dict(),
                     "page": self.page,

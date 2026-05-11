@@ -93,6 +93,12 @@ entry_debug = results.hits[0].entry().inspect()
 document_debug = results.hits[0].entry().document().to_dict(debug=True)
 ```
 
+Inspection output is bounded by default. It exposes useful fields such as
+component names, body/title pointers, index page/row numbers, opcode IDs,
+diagnostics, body-source details, and span summaries. It does not emit large raw
+body-byte dumps unless a future explicit low-level API is added for that
+purpose.
+
 Search profiles are native reader profiles:
 
 - `exact`: exact match against decoded row keys and target keys, with

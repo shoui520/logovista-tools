@@ -586,7 +586,9 @@ def test_lvcore_search_hit_dicts_are_friendly_unless_debug(tmp_path: Path) -> No
 
     assert "body" not in friendly
     assert "title" not in friendly
+    assert "index_component" not in friendly
     assert "raw_row" not in friendly
+    assert debug["index_component"] == "FHINDEX.DIC"
     assert debug["body"]["component"] == "HONMON.DIC"
     assert debug["raw_row"]["key"] == "alpha"
 
@@ -869,6 +871,24 @@ def test_lvcore_entry_document_and_friendly_rendering_from_spans() -> None:
     assert "opcode" not in html
 
 
+def test_lvcore_entry_to_dict_is_friendly_unless_debug() -> None:
+    raw = b"\x1f\x99" + body_text("visible")
+    decoded = decode_text_stream(raw)
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "HONMON.DIC"), "visible", decoded.text, decoded.spans)
+
+    friendly = entry.to_dict()
+    debug = entry.to_dict(debug=True)
+    inspected = entry.inspect()
+
+    assert friendly == {"headword": "visible", "text": "visible", "diagnostics": []}
+    assert "address" in debug
+    assert "span_summaries" in debug
+    assert '"raw":' not in json.dumps(debug, ensure_ascii=False)
+    assert debug["span_summaries"][0]["op"] == "99"
+    assert debug["span_summaries"][0]["raw_preview"] == "1f99"
+    assert inspected["span_summaries"] == debug["span_summaries"]
+
+
 def test_lvcore_entry_document_v1_to_dict_hides_debug_metadata_by_default() -> None:
     diagnostic = Diagnostic(
         severity=Severity.WARNING,
@@ -898,7 +918,7 @@ def test_lvcore_entry_document_v1_to_dict_hides_debug_metadata_by_default() -> N
         ),
         diagnostics=(diagnostic,),
         metadata={"headword": "visible"},
-        debug_metadata={"raw_spans": [{"op": "99", "raw": "1f99"}]},
+        debug_metadata={"span_summaries": [{"op": "99", "raw_preview": "1f99"}]},
     )
 
     public = document.to_dict()
@@ -911,7 +931,7 @@ def test_lvcore_entry_document_v1_to_dict_hides_debug_metadata_by_default() -> N
     assert "deadbeef" not in json.dumps(public, ensure_ascii=False)
     assert "cafebabe" not in json.dumps(public, ensure_ascii=False)
     assert public["resources"][0]["details"] == {"resolved": False}
-    assert debug["debug_metadata"]["raw_spans"][0]["raw"] == "1f99"
+    assert debug["debug_metadata"]["span_summaries"][0]["raw_preview"] == "1f99"
     assert "deadbeef" in json.dumps(debug, ensure_ascii=False)
     assert "cafebabe" in json.dumps(debug, ensure_ascii=False)
     assert document.resource_map()["media-1"].kind == ResourceKind.MEDIA
@@ -1152,9 +1172,9 @@ def test_lvcore_renderer_profiles_are_distinct_and_hide_or_show_raw_details() ->
         resources=(),
         diagnostics=(diagnostic,),
         metadata={
-            "raw_spans": [{"offset": 7, "op": "e2", "raw": "1fe20007"}],
             "address": {"component": "HONMON.DIC", "block": 2, "offset": 0},
         },
+        debug_metadata={"span_summaries": [{"offset": 7, "op": "e2", "raw_preview": "1fe20007"}]},
     )
 
     friendly = render_html(document)
@@ -1186,7 +1206,7 @@ def test_lvcore_renderer_profiles_are_distinct_and_hide_or_show_raw_details() ->
     assert 'data-end-payload="000000020010"' in debug
     assert 'data-payload="001122"' in debug
     assert 'data-payload="deadbeef"' in debug
-    assert "Raw spans" in debug
+    assert "Span summaries" in debug
     assert "1fe20007" in debug
     assert "dense_anchor_table" in debug
     assert "unsupported &lt;body&gt; &amp; source" in debug
@@ -1368,6 +1388,7 @@ def test_lvcore_friendly_reader_example_runs_without_raw_internals(tmp_path: Pat
     assert "first entry" in data["entry"]["plain_text"]
     assert "first entry" in data["entry"]["html"]
     assert "raw_spans" not in dumped
+    assert "span_summaries" not in dumped
     assert "raw_row" not in dumped
     assert '"spans"' not in dumped
     assert '"body":' not in dumped
@@ -1388,14 +1409,27 @@ def test_lvcore_debug_inspection_example_is_explicit_raw_path(tmp_path: Path) ->
 
     assert data["search"]["hits"][0]["body"]["component"] == "HONMON.DIC"
     assert data["entry"]["document"]["schema"] == "lvcore.entry_document.v1"
-    assert "raw_spans" in dumped
+    assert "span_summaries" in dumped
     assert "raw_row" in dumped
     assert "debug_html" in data["entry"]
-    assert "Raw spans" in data["entry"]["debug_html"]
+    assert "Span summaries" in data["entry"]["debug_html"]
 
 
 def test_lvcore_cli_search_debug_and_render_profiles(tmp_path: Path) -> None:
     make_reader_workflow_package(tmp_path)
+    friendly_search = subprocess.run(
+        [sys.executable, "-m", "lvcore", "search", str(tmp_path), "alpha", "--search-profile", "exact", "--json", "--limit", "1"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    friendly_search_data = json.loads(friendly_search.stdout)
+    assert "body" not in friendly_search_data["hits"][0]
+    assert "title" not in friendly_search_data["hits"][0]
+    assert "index_component" not in friendly_search_data["hits"][0]
+    assert "raw_row" not in friendly_search_data["hits"][0]
+
     search_result = subprocess.run(
         [sys.executable, "-m", "lvcore", "search", str(tmp_path), "alp", "--search-profile", "forward", "--json", "--debug", "--limit", "3"],
         check=True,
@@ -1406,8 +1440,50 @@ def test_lvcore_cli_search_debug_and_render_profiles(tmp_path: Path) -> None:
     search_data = json.loads(search_result.stdout)
     assert search_data["profile"] == "forward"
     assert len(search_data["hits"]) == 3
+    assert search_data["hits"][0]["index_component"] == "FHINDEX.DIC"
     assert search_data["hits"][0]["body"]["component"] == "HONMON.DIC"
     assert search_data["hits"][1]["body"] == search_data["hits"][0]["body"]
+
+    render_json = subprocess.run(
+        [sys.executable, "-m", "lvcore", "render", str(tmp_path), "alpha", "--search-profile", "exact", "--format", "json", "--limit", "1"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    render_json_data = json.loads(render_json.stdout)
+    rendered_dump = json.dumps(render_json_data, ensure_ascii=False)
+    assert "first entry" in render_json_data["entries"][0]["text"]
+    assert "address" not in render_json_data["entries"][0]
+    assert "entry" not in render_json_data["entries"][0]
+    assert "span_summaries" not in rendered_dump
+    assert "raw_row" not in rendered_dump
+
+    render_debug_json = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "lvcore",
+            "render",
+            str(tmp_path),
+            "alpha",
+            "--search-profile",
+            "exact",
+            "--format",
+            "json",
+            "--debug",
+            "--limit",
+            "1",
+        ],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    render_debug_data = json.loads(render_debug_json.stdout)
+    assert render_debug_data["entries"][0]["address"]["component"] == "HONMON.DIC"
+    assert "span_summaries" in json.dumps(render_debug_data, ensure_ascii=False)
+    assert "raw_row" in json.dumps(render_debug_data, ensure_ascii=False)
 
     render_result = subprocess.run(
         [sys.executable, "-m", "lvcore", "render", str(tmp_path), "ta", "--search-profile", "backward", "--format", "text", "--limit", "1"],
@@ -1442,6 +1518,19 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
     )
     body_data = json.loads(body_result.stdout)
     assert body_data["body_source"]["ssed_kind"] == "dense_anchor_with_sidecar"
+    assert body_data["body_source"]["sidecar_paths"] == ["body.db"]
+    assert "path" not in body_data["body_source"]["sidecars"][0]
+
+    body_debug_result = subprocess.run(
+        [sys.executable, "-m", "lvcore", "body-source", str(dense), "--json", "--debug"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    body_debug_data = json.loads(body_debug_result.stdout)
+    assert body_debug_data["body_source"]["sidecar_paths"][0].endswith("_DCT_DENSE/body.db")
+    assert body_debug_data["body_source"]["sidecars"][0]["path"].endswith("_DCT_DENSE/body.db")
 
     validate_result = subprocess.run(
         [sys.executable, "-m", "lvcore", "validate", str(dense), "--json", "--debug"],

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -128,6 +129,36 @@ class Span:
             "attrs": self.attrs,
         }
 
+    def to_debug_summary(self, *, max_preview_bytes: int = 32) -> dict[str, Any]:
+        """Return bounded raw span details for explicit inspection output."""
+
+        data: dict[str, Any] = {
+            "kind": self.kind,
+            "offset": self.offset,
+            "length": self.length,
+            "hidden": self.hidden,
+        }
+        if self.op is not None:
+            data["op"] = f"{self.op:02x}"
+        if self.code is not None:
+            data["code"] = self.code
+        if self.text is not None:
+            data["text_length"] = len(self.text)
+        if self.payload:
+            data["payload_length"] = len(self.payload)
+            data["payload_hash"] = hashlib.sha1(self.payload).hexdigest()[:12]
+            data["payload_preview"] = self.payload[:max_preview_bytes].hex()
+            data["payload_truncated"] = len(self.payload) > max_preview_bytes
+        if self.raw:
+            data["raw_length"] = len(self.raw)
+            data["raw_hash"] = hashlib.sha1(self.raw).hexdigest()[:12]
+            if self.kind != "text":
+                data["raw_preview"] = self.raw[:max_preview_bytes].hex()
+                data["raw_truncated"] = len(self.raw) > max_preview_bytes
+        if self.attrs:
+            data["attrs"] = self.attrs
+        return data
+
 
 @dataclass(frozen=True)
 class Entry:
@@ -163,22 +194,29 @@ class Entry:
         return {
             "address": self.address.to_dict(),
             "end_address": self.end_address.to_dict(),
-            "raw_spans": [span.to_dict() for span in self.spans],
+            "span_summaries": [span.to_debug_summary() for span in self.spans],
             "diagnostics": [
                 diagnostic.to_dict() if hasattr(diagnostic, "to_dict") else diagnostic
                 for diagnostic in self.entry_diagnostics
             ],
         }
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "address": self.address.to_dict(),
-            "end_address": self.end_address.to_dict(),
+    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+        data: dict[str, Any] = {
             "headword": self.headword,
             "text": self.text,
-            "spans": [span.to_dict() for span in self.spans],
             "diagnostics": [
                 diagnostic.to_dict() if hasattr(diagnostic, "to_dict") else diagnostic
                 for diagnostic in self.entry_diagnostics
             ],
         }
+        if not debug:
+            return data
+        data.update(
+            {
+                "address": self.address.to_dict(),
+                "end_address": self.end_address.to_dict(),
+                "span_summaries": [span.to_debug_summary() for span in self.spans],
+            }
+        )
+        return data
