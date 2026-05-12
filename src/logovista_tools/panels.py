@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterable
 from xml.etree import ElementTree
 
-from .entries import decode_jis_pair
+from .entries import decode_tokens, tokens_to_text
 
 
 @dataclass(frozen=True)
@@ -48,28 +48,13 @@ class PanelBinParseError(ValueError):
 def decode_panel_text(data: bytes) -> str:
     """Decode fixed-width Panel cell text bytes.
 
-    Observed Panel text is stored as two-byte 7-bit JIS cells with NUL padding.
-    Non-JIS pairs are kept as bounded placeholders because they can represent
-    gaiji or product-specific markers.
+    Observed Panel text fields use the same JIS-pair text stream conventions as
+    body/title text: NUL padding, 7-bit JIS pairs, gaiji pairs, and lightweight
+    0x1f display controls such as halfwidth/superscript spans.
     """
 
-    data = data.rstrip(b"\x00")
-    chars: list[str] = []
-    i = 0
-    while i < len(data):
-        pair = data[i : i + 2]
-        if len(pair) < 2:
-            chars.append(f"<{pair.hex()}>")
-            break
-        if 0x21 <= pair[0] <= 0x7E and 0x21 <= pair[1] <= 0x7E:
-            try:
-                chars.append(decode_jis_pair(pair) or f"<{pair.hex()}>")
-            except Exception:
-                chars.append(f"<{pair.hex()}>")
-        else:
-            chars.append(f"<{pair.hex()}>")
-        i += 2
-    return "".join(chars)
+    tokens, _stats = decode_tokens(data.rstrip(b"\x00"), gaiji="placeholder")
+    return tokens_to_text(tokens)
 
 
 def parse_panel_bin(data: bytes) -> PanelBin:
@@ -132,4 +117,3 @@ def iter_panel_data_references(path: Path) -> Iterable[PanelDataReference]:
                 filename=filename,
                 title=title,
             )
-

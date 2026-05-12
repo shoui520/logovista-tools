@@ -39,8 +39,12 @@ def test_parse_panel_bin_rejects_size_mismatch() -> None:
         parse_panel_bin(data)
 
 
-def test_decode_panel_text_preserves_non_jis_pairs_as_placeholders() -> None:
-    assert decode_panel_text(bytes.fromhex("b15824220000")) == "<b158>あ"
+def test_decode_panel_text_uses_text_stream_controls() -> None:
+    assert decode_panel_text(bytes.fromhex("1f0423421f0524220000")) == "Bあ"
+
+
+def test_decode_panel_text_preserves_gaiji_as_placeholders() -> None:
+    assert decode_panel_text(bytes.fromhex("b15824220000")) == "<zB158>あ"
 
 
 def test_iter_panel_data_references(tmp_path: Path) -> None:
@@ -65,4 +69,3 @@ def test_iter_panel_data_references(tmp_path: Path) -> None:
     assert refs[0].panel_type == "contents"
     assert refs[0].data_type == "bin"
     assert refs[0].filename == "Panel\\goju\\All-A.bin"
-
