@@ -320,13 +320,16 @@ Sidecar files are also classified by role when the structure is visible. The
 current role vocabulary separates body-critical stores from media/resource
 stores, examples/idioms stores, native/full-text search stores, kanji-support
 stores, ancillary databases, non-SQLite payloads, and unknown schemas. Only
-body-critical schemas with understood anchor mapping are used for entry
-resolution. Other roles remain visible to validation and debug tooling without
+body-critical schemas with understood anchor mapping are used for body
+replacement. Other roles remain visible to validation and debug tooling without
 being treated as missing body support. Address-mapped supplemental tables, such
-as observed example/idiom or navigation schemas with block/offset columns, are
-counted separately as sidecar references. They are compatibility-significant
-until their reader role is fully implemented, but they do not replace the native
-body-source provider.
+as observed example/idiom, usage, search, or navigation schemas with
+block/offset columns, can attach experimental supplement blocks or typed link
+metadata to `EntryDocument` when the mapping is structurally clear. Sidecar BLOB
+media tables with clear name/blob columns are exposed as package-level
+`ResourceRef` resources with explicit byte access to the untouched BLOB.
+Ambiguous schemas remain classified, diagnosed, and counted rather than
+fake-rendered.
 
 ## Future Rust and C ABI
 

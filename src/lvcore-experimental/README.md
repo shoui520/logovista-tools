@@ -25,6 +25,9 @@ Current scope:
   friendly dictionary bodies;
 - resolve structurally understood dense-anchor SQLite sidecars such as
   `t_contents`, `HONBUN`, and dict-code-named `main` payloads;
+- classify supplemental SQLite sidecars by role and attach structurally clear
+  examples/idioms, link-reference, sidecar-search metadata, and sidecar BLOB
+  media resources without transforming their contents;
 - expose a small CLI for inspection and lookup experiments;
 - expose reader-facing `SearchResults` / `SearchHit` objects instead of
   requiring callers to consume raw index rows;
@@ -53,6 +56,8 @@ PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT t
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT term --search-profile native --format html --profile logovista-like
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT term --search-profile native --format html --profile debug
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore resources /path/to/_DCT_DICT term --json --debug
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore resources /path/to/_DCT_DICT term --json --debug --include-sidecar
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore sidecars /path/to/_DCT_DICT --json --debug
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore resource-info /path/to/_DCT_DICT term media-1 --json --debug
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore resource-bytes /path/to/_DCT_DICT term media-1 --output /private/output/media.bin
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore validate /path/to/_DCT_DICT --sample-search-hits 5 --json
@@ -210,10 +215,13 @@ bytes so private corpus audits can separate safe fallback behavior from real
 compatibility gaps. Sidecar reports also classify sibling
 SQLite and non-SQLite files by observed role, such as body-critical,
 media/resource, examples/idioms, search, kanji-support, ancillary, or unknown.
-For sidecars with visible block/offset columns, validation now records whether
-sampled entry addresses are referenced by supplemental tables. Those matches
-are counted as compatibility-significant metadata, not as body rendering
-support, unless the body-provider mapping is also understood.
+For sidecars with visible block/offset columns, validation records whether
+sampled entry addresses are referenced by supplemental tables. Structurally
+clear example/idiom, usage, link-reference, and sidecar-search rows are attached
+to `EntryDocument` as experimental supplements. Structurally clear sidecar BLOB
+media tables are exposed as package-level `ResourceRef` records with explicit
+`resource_bytes()` access to the untouched BLOB payload. Remaining ambiguous
+schemas stay diagnosed and counted.
 
 `corpus-validate` is the private full-corpus audit entry point. Its JSON summary
 uses the `lvcore.corpus_validate.v1` schema and reports package-family counts,

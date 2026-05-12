@@ -172,6 +172,7 @@ class Entry:
     entry_diagnostics: tuple[Any, ...] = ()
     decode_unknown_controls: int = 0
     decode_unknown_bytes: int = 0
+    supplements: tuple[dict[str, Any], ...] = ()
 
     def document(self):
         from .document import build_entry_document
@@ -200,6 +201,7 @@ class Entry:
             "end_address": self.end_address.to_dict(),
             "decode_unknown_controls": self.decode_unknown_controls,
             "decode_unknown_bytes": self.decode_unknown_bytes,
+            "supplements": self.supplements,
             "span_summaries": [span.to_debug_summary() for span in self.spans],
             "diagnostics": [
                 diagnostic.to_dict() if hasattr(diagnostic, "to_dict") else diagnostic
@@ -216,6 +218,15 @@ class Entry:
                 for diagnostic in self.entry_diagnostics
             ],
         }
+        if self.supplements:
+            data["supplements"] = [
+                {
+                    key: value
+                    for key, value in supplement.items()
+                    if key not in {"address", "debug", "row_id", "sidecar", "table"}
+                }
+                for supplement in self.supplements
+            ]
         if not debug:
             return data
         data.update(
@@ -228,6 +239,7 @@ class Entry:
                 },
                 "decode_unknown_controls": self.decode_unknown_controls,
                 "decode_unknown_bytes": self.decode_unknown_bytes,
+                "supplements": self.supplements,
                 "span_summaries": [span.to_debug_summary() for span in self.spans],
             }
         )

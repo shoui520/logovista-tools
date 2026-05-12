@@ -48,6 +48,7 @@ class SidecarRole(str, Enum):
     EXAMPLES_IDIOMS = "examples_idioms"
     LINK_REFERENCE = "link_reference"
     SEARCH = "search"
+    SUPPLEMENTAL = "supplemental"
     KANJI_SUPPORT = "kanji_support"
     ANCILLARY = "ancillary"
     NON_SQLITE_OR_UNKNOWN = "non_sqlite_or_unknown"
@@ -56,6 +57,9 @@ class SidecarRole(str, Enum):
 
 class SidecarSupportStatus(str, Enum):
     BODY_RESOLVER = "body_resolver"
+    SUPPLEMENT_RESOLVER = "supplement_resolver"
+    RESOURCE_RESOLVER = "resource_resolver"
+    SEARCH_METADATA = "search_metadata"
     SCHEMA_CLASSIFIED = "schema_classified"
     UNSUPPORTED_SCHEMA = "unsupported_schema"
     NON_SQLITE_OR_UNKNOWN = "non_sqlite_or_unknown"
@@ -263,6 +267,7 @@ def compatibility_significant_sidecar_role(role: SidecarRole | str) -> bool:
         SidecarRole.EXAMPLES_IDIOMS.value,
         SidecarRole.LINK_REFERENCE.value,
         SidecarRole.SEARCH.value,
+        SidecarRole.SUPPLEMENTAL.value,
         SidecarRole.UNKNOWN.value,
     }
 
@@ -290,12 +295,19 @@ def classify_sqlite_sidecar_role(
             return SidecarRole.MEDIA_RESOURCE
         if lowered & {"d_example", "d_idiom"}:
             return SidecarRole.EXAMPLES_IDIOMS
-        if any("search" in table or "zenbun" in table for table in lowered):
+        if "t_index" in lowered or any("search" in table or "zenbun" in table for table in lowered):
             return SidecarRole.SEARCH
         if lowered & {"t_all", "t_bushu", "t_jukugo", "t_yomi", "t_exam"}:
             return SidecarRole.KANJI_SUPPORT
-        if any("chronology" in table or table.startswith("d_") for table in lowered):
+        if any("chronology" in table for table in lowered):
             return SidecarRole.ANCILLARY
+        for table in tables:
+            columns = _columns_for_table(columns_by_table, table)
+            has_block = _has_any(columns, "block", "block_s", "f_block")
+            has_offset = _has_any(columns, "offset", "offset_s", "f_offset")
+            has_supplement_text = _has_any(columns, "body", "h_text", "title", "midashi", "midashij", "keyword")
+            if table.lower().startswith("d_") and has_block and has_offset and has_supplement_text:
+                return SidecarRole.EXAMPLES_IDIOMS
         for table in tables:
             columns = _columns_for_table(columns_by_table, table)
             has_block = _has_any(columns, "block", "block_s", "f_block")
@@ -303,4 +315,6 @@ def classify_sqlite_sidecar_role(
             has_bodyish = _has_any(columns, "body", "title", "midashi", "keyword", "h_text", "f_midasi", "f_midashi_hyoki")
             if has_block and has_offset and has_bodyish:
                 return SidecarRole.LINK_REFERENCE
+        if any(table.startswith("d_") for table in lowered):
+            return SidecarRole.SUPPLEMENTAL
     return SidecarRole.UNKNOWN

@@ -186,7 +186,10 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   as `LinkTarget` / `ResourceRef` nodes,
   resolves GA16 glyph bytes, `COLSCR.DIC` `data`-wrapped image/media payloads,
   and `PCMDATA.DIC` addressed audio/media ranges as untouched resource bytes
-  where exact extents are known,
+  where exact extents are known, resolves structurally clear sidecar BLOB media
+  tables as package-level resources, attaches address-mapped example/idiom,
+  usage, search, and navigation sidecar rows as experimental entry supplements
+  when the mapping is clear,
   and renders friendly/semantic/LogoVista-like/debug HTML plus plain text.
   Friendly rendering hides raw opcodes and offsets; debug search/render output
   is explicit. Search hits carry reader-facing heading, heading-source, and
@@ -194,12 +197,12 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   pointer are treated as heading fallback instead of false title failures.
   Reader-side validation now samples search-hit-to-entry-to-render
   behavior in addition to marker-discovered entries and reports reason-level
-  gaiji, media, link, sidecar-role, title-dereference, index-parser, and body
-  decode telemetry counters. Supplemental SQLite sidecars with block/offset
-  references are classified by role and counted as address-mapped sidecar
-  references so example/idiom, media/resource, search, and navigation databases
-  remain visible compatibility issues until their reader behavior is fully
-  implemented. LVED and LVLMultiView are detected but deliberately deferred.
+  gaiji, media, link, sidecar-role, sidecar-supplement, title-dereference,
+  index-parser, and body decode telemetry counters. Supplemental SQLite
+  sidecars with block/offset references are classified by role and either
+  attached as safe supplements where structurally clear or counted as deferred
+  compatibility issues. LVED and LVLMultiView are detected but deliberately
+  deferred.
 - `lvcore corpus-validate`, a private audit command for the reader path. It
   emits a stable `lvcore.corpus_validate.v1` JSON summary, optional JSONL
   targets/failures/diagnostics streams, progress output, package-family counts,

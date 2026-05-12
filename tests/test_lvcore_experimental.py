@@ -547,6 +547,26 @@ def add_media_sidecar(root: Path) -> None:
         con.close()
 
 
+def add_media_table_sidecar(root: Path) -> None:
+    con = sqlite3.connect(root / "media.db")
+    try:
+        con.execute("create table media (No integer primary key, f_name text, f_type text, f_main blob)")
+        con.execute("insert into media values (?, ?, ?, ?)", (1, "png-1", "image", b"\x89PNG\r\n\x1a\npayload"))
+        con.commit()
+    finally:
+        con.close()
+
+
+def add_link_reference_sidecar(root: Path, *, block: int = 2, offset: int = 0) -> None:
+    con = sqlite3.connect(root / "links.db")
+    try:
+        con.execute("create table LINKS (No integer primary key, Block integer, Offset integer, Title text, Body text, TitleJIS text)")
+        con.execute("insert into LINKS values (?, ?, ?, ?, ?, ?)", (1, block, offset, "related entry", "target body", "related jis"))
+        con.commit()
+    finally:
+        con.close()
+
+
 def make_bad_body_pointer_package(root: Path, *, component_end_block: int = 2, body_block: int = 9999) -> None:
     honmon_start = 2
     title_start = 4
@@ -1206,12 +1226,11 @@ def test_lvcore_example_idiom_sidecar_is_classified_and_address_mapped(tmp_path:
 
     summary = package.sidecar_role_summary()
     assert summary["role_counts"]["examples_idioms"] == 1
-    assert summary["unsupported_role_counts"]["examples_idioms"] == 1
-    assert summary["compatibility_significant_unsupported_counts"]["examples_idioms"] == 1
-    assert summary["support_status_counts"]["schema_classified"] == 1
-    sidecar = summary["unsupported_sidecars"][0]
-    assert sidecar["compatibility_significant"] is True
-    assert sidecar["tables"] == ["D_Example", "D_Idiom"]
+    assert summary["supported_role_counts"]["examples_idioms"] == 1
+    assert "examples_idioms" not in summary["unsupported_role_counts"]
+    assert "examples_idioms" not in summary["compatibility_significant_unsupported_counts"]
+    assert summary["support_status_counts"]["supplement_resolver"] == 1
+    assert summary["unsupported_sidecars"] == []
 
     references = package.sidecar_references(Address(2, 0, "HONMON.DIC"), debug=True)
     assert {reference["table"] for reference in references} == {"D_Example", "D_Idiom"}
@@ -1219,10 +1238,23 @@ def test_lvcore_example_idiom_sidecar_is_classified_and_address_mapped(tmp_path:
     assert all(reference["match_count"] == 1 for reference in references)
     assert all("block_column" in reference for reference in references)
 
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+    entry = package.entry_for_hit(hit)
+    html = package.render_entry_html(entry)
+    debug_document = entry.document().to_dict(debug=True)
+    assert "alpha example title" in package.render_entry_text(entry)
+    assert "alpha idiom title" in package.render_entry_text(entry)
+    assert "alpha example title" in html
+    assert "examples.db" not in html
+    assert "row_id" not in html
+    assert debug_document["debug_metadata"]["sidecar_supplements"][0]["sidecar"] == "examples.db"
+
     report = package.validate(sample_entries=1, sample_search_hits=1)
     assert report["sidecar_references"]["matched"] == 2
     assert report["sidecar_references"]["by_role"]["examples_idioms"] == 2
-    assert report["diagnostics"]["by_code"]["unsupported_examples_idioms_sidecar"] == 1
+    assert report["sidecar_supplements"]["examples_idioms_rows_seen"] == 2
+    assert report["sidecar_supplements"]["examples_idioms_rows_attached"] >= 2
+    assert "unsupported_examples_idioms_sidecar" not in report["diagnostics"]["by_code"]
 
 
 def test_lvcore_media_sidecar_schema_is_compatibility_significant(tmp_path: Path) -> None:
@@ -1234,12 +1266,62 @@ def test_lvcore_media_sidecar_schema_is_compatibility_significant(tmp_path: Path
     sidecar = package.sidecar_role_summary()
     assert body_source.ssed_kind == SsedBodySourceKind.BODY_STREAM
     assert sidecar["role_counts"]["media_resource"] == 1
-    assert sidecar["unsupported_role_counts"]["media_resource"] == 1
-    assert sidecar["compatibility_significant_unsupported_counts"]["media_resource"] == 1
-    assert sidecar["unsupported_sidecars"][0]["tables"] == ["t_media"]
+    assert sidecar["supported_role_counts"]["media_resource"] == 1
+    assert sidecar["support_status_counts"]["resource_resolver"] == 1
+    assert "media_resource" not in sidecar["unsupported_role_counts"]
+    assert "media_resource" not in sidecar["compatibility_significant_unsupported_counts"]
+
+    resources = package.sidecar_media_resources()
+    assert len(resources) == 1
+    info = package.resource_info(resources[0])
+    assert info["status"] == "resolved"
+    assert info["store_kind"] == "sidecar_media"
+    assert info["byte_length"] == len(b"original bytes")
+    assert package.resource_bytes(resources[0]) == b"original bytes"
 
     report = package.validate(sample_entries=1, sample_search_hits=1)
-    assert report["diagnostics"]["by_code"]["unsupported_media_resource_sidecar"] == 1
+    assert report["resource_resolution"]["sidecar_media_resolved"] == 1
+    assert report["sidecar_supplements"]["sidecar_media_rows_resolved"] == 1
+    assert "unsupported_media_resource_sidecar" not in report["diagnostics"]["by_code"]
+
+
+def test_lvcore_sidecar_media_table_schema_resolves_untouched_blob(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    add_media_table_sidecar(tmp_path)
+    package = open_package(tmp_path)
+
+    resources = package.sidecar_media_resources()
+    assert len(resources) == 1
+    assert resources[0].kind == ResourceKind.IMAGE
+    info = package.resource_info(resources[0])
+    assert info["status"] == "resolved"
+    assert info["mime_type"] == "image/png"
+    assert package.resource_bytes(resources[0]) == b"\x89PNG\r\n\x1a\npayload"
+
+
+def test_lvcore_link_reference_sidecar_attaches_safe_link_supplement(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    add_link_reference_sidecar(tmp_path)
+    package = open_package(tmp_path)
+
+    summary = package.sidecar_role_summary()
+    assert summary["role_counts"]["link_reference"] == 1
+    assert summary["supported_role_counts"]["link_reference"] == 1
+    assert summary["support_status_counts"]["supplement_resolver"] == 1
+
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+    entry = package.entry_for_hit(hit)
+    document = entry.document()
+    dumped = json.dumps(document.to_dict(debug=False), ensure_ascii=False)
+    debug_dumped = json.dumps(document.to_dict(debug=True), ensure_ascii=False)
+    html = package.render_entry_html(entry)
+
+    assert "related entry" in package.render_entry_text(entry)
+    assert "lvcore-entry://ref-" in html
+    assert "links.db" not in dumped
+    assert "row_id" not in dumped
+    assert "links.db" in debug_dumped
+    assert "row_id" in debug_dumped
 
 
 def test_lvcore_dense_anchor_sidecar_html_only_body_is_readable(tmp_path: Path) -> None:

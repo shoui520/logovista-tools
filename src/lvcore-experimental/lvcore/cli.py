@@ -179,7 +179,7 @@ def cmd_render(args: argparse.Namespace) -> int:
     return 0
 
 
-def _resources_for_query(package, term: str, *, profile: str, limit: int, debug: bool) -> list[dict[str, Any]]:
+def _resources_for_query(package, term: str, *, profile: str, limit: int, debug: bool, include_sidecar: bool = False) -> list[dict[str, Any]]:
     results = package.search(term, limit=limit, profile=profile, debug=debug)
     rows: list[dict[str, Any]] = []
     for hit_index, hit in enumerate(results.hits):
@@ -193,11 +193,21 @@ def _resources_for_query(package, term: str, *, profile: str, limit: int, debug:
                 "info": package.resource_info(resource),
             }
             rows.append(row)
+    if include_sidecar:
+        for resource in package.sidecar_media_resources(limit=limit):
+            rows.append(
+                {
+                    "hit_index": None,
+                    "hit": None,
+                    "resource": resource.to_dict(debug=debug),
+                    "info": package.resource_info(resource),
+                }
+            )
     return rows
 
 
 def _find_resource_for_query(package, term: str, resource_id: str, *, profile: str, limit: int, debug: bool):
-    for row in _resources_for_query(package, term, profile=profile, limit=limit, debug=debug):
+    for row in _resources_for_query(package, term, profile=profile, limit=limit, debug=debug, include_sidecar=True):
         resource = row.get("resource") if isinstance(row.get("resource"), dict) else {}
         if resource.get("id") == resource_id:
             return row
@@ -206,8 +216,31 @@ def _find_resource_for_query(package, term: str, resource_id: str, *, profile: s
 
 def cmd_resources(args: argparse.Namespace) -> int:
     package = open_package(args.path)
-    rows = _resources_for_query(package, args.term, profile=args.search_profile, limit=args.limit, debug=args.debug)
+    rows = _resources_for_query(
+        package,
+        args.term,
+        profile=args.search_profile,
+        limit=args.limit,
+        debug=args.debug,
+        include_sidecar=args.include_sidecar,
+    )
     emit({"query": args.term, "search_profile": args.search_profile, "resources": rows})
+    return 0
+
+
+def cmd_sidecars(args: argparse.Namespace) -> int:
+    package = open_package(args.path)
+    sidecars = [sidecar.to_dict(debug=args.debug) for sidecar in package._body_sidecars()]
+    media_resources = [resource.to_dict(debug=args.debug) for resource in package.sidecar_media_resources(limit=args.limit)]
+    emit(
+        {
+            "package": package.info.to_dict(),
+            "sidecar_roles": package.sidecar_role_summary(),
+            "sidecar_supplements": package.sidecar_supplement_summary(),
+            "sidecars": sidecars,
+            "sidecar_media_resources": media_resources,
+        }
+    )
     return 0
 
 
@@ -283,6 +316,7 @@ def _corpus_validate_one(path_str: str, sample_entries: int, sample_search_hits:
             "sidecar_resolution": report.get("sidecar_resolution"),
             "sidecar_roles": report.get("sidecar_roles"),
             "sidecar_references": report.get("sidecar_references"),
+            "sidecar_supplements": report.get("sidecar_supplements"),
             "resource_resolution": report.get("resource_resolution"),
             "decode_telemetry": report.get("decode_telemetry"),
             "title_dereference": report.get("title_dereference"),
@@ -441,6 +475,7 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "by_status": {},
         "by_table": {},
     }
+    sidecar_supplement_counts: dict[str, Any] = {}
     resource_resolution_counts = {
         "unresolved_gaiji": 0,
         "unresolved_media": 0,
@@ -531,6 +566,17 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
                 sidecar_reference_counts[bucket] = dest
             for key, count in (references.get(bucket) or {}).items():
                 dest[key] = dest.get(key, 0) + int(count)
+        supplements = row.get("sidecar_supplements") or {}
+        for key, count in supplements.items():
+            if isinstance(count, dict):
+                dest = sidecar_supplement_counts.setdefault(key, {})
+                if not isinstance(dest, dict):
+                    dest = {}
+                    sidecar_supplement_counts[key] = dest
+                for inner_key, inner_count in count.items():
+                    dest[inner_key] = dest.get(inner_key, 0) + int(inner_count)
+            else:
+                sidecar_supplement_counts[key] = int(sidecar_supplement_counts.get(key, 0)) + int(count or 0)
         index_summary = row.get("index_summary") or {}
         for key, count in (index_summary.get("component_type_counts") or {}).items():
             index_component_type_counts[key] = index_component_type_counts.get(key, 0) + int(count)
@@ -635,6 +681,7 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "compatibility_significant_unsupported_sidecar_counts": compatibility_significant_unsupported_sidecar_counts,
         "sidecar_support_status_counts": sidecar_support_status_counts,
         "sidecar_reference_counts": sidecar_reference_counts,
+        "sidecar_supplement_counts": sidecar_supplement_counts,
         "resource_resolution_counts": resource_resolution_counts,
         "resource_resolution_by_reason": resource_resolution_by_reason,
         "media_resolution_counts": media_resolution_counts,
@@ -746,9 +793,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_resources.add_argument("term")
     p_resources.add_argument("--limit", type=int, default=3)
     p_resources.add_argument("--search-profile", choices=[profile.value for profile in SearchProfile], default=SearchProfile.NATIVE.value)
+    p_resources.add_argument("--include-sidecar", action="store_true", help="Also list package-level sidecar media resources")
     p_resources.add_argument("--json", action="store_true", help="Emit JSON output (default)")
     p_resources.add_argument("--debug", action="store_true", help="Include decoded resource details")
     p_resources.set_defaults(func=cmd_resources)
+
+    p_sidecars = sub.add_parser("sidecars", help="Inspect package sidecar roles and supported sidecar resources")
+    p_sidecars.add_argument("path", type=Path)
+    p_sidecars.add_argument("--limit", type=int, default=20)
+    p_sidecars.add_argument("--json", action="store_true", help="Emit JSON output (default)")
+    p_sidecars.add_argument("--debug", action="store_true", help="Include sidecar schema details")
+    p_sidecars.set_defaults(func=cmd_sidecars)
 
     p_resource_info = sub.add_parser("resource-info", help="Resolve metadata for a resource found by search")
     p_resource_info.add_argument("path", type=Path)

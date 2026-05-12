@@ -264,6 +264,11 @@ def _render_block_html(
         if profile == HtmlProfile.SEMANTIC:
             return f'<section class="lv-block lv-block-{block.kind.value}" data-block-kind="{block.kind.value}">{body}</section>'
         return f'<div class="lv-{block.kind.value}">{body}</div>'
+    if block.kind == BlockKind.EXAMPLE:
+        if profile == HtmlProfile.SEMANTIC:
+            return f'<section class="lv-block lv-block-example" data-block-kind="example">{body}</section>'
+        class_name = "lv-example" if profile != HtmlProfile.LOGOVISTA_LIKE else "lv-lvlike-example"
+        return f'<p class="{class_name}">{body}</p>'
     if profile == HtmlProfile.SEMANTIC:
         return f'<section class="lv-block lv-block-{block.kind.value}" data-block-kind="{block.kind.value}">{body}</section>'
     class_name = "lv-paragraph" if profile != HtmlProfile.LOGOVISTA_LIKE else "lv-body-line"

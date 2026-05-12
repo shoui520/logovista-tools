@@ -18,19 +18,28 @@ DOCUMENT_MODEL_VERSION = 1
 DEBUG_ATTR_KEYS = {
     "address",
     "anchor_raw",
+    "block_column",
     "end_address",
     "end_payload",
     "details",
+    "offset_column",
     "payload",
     "payload_hex",
     "raw",
     "raw_payload",
     "raw_spans",
     "raw_text",
+    "row_id",
+    "sidecar",
+    "source_address",
+    "source_sidecar",
+    "source_table",
     "end_op",
     "span_offset",
     "start_op",
     "start_payload",
+    "storage",
+    "table",
 }
 
 
@@ -504,6 +513,47 @@ def _flush_paragraph(blocks: list[BlockNode], inlines: list[InlineNode]) -> None
     inlines.clear()
 
 
+def _supplement_block(supplement: dict[str, Any]) -> BlockNode | None:
+    text_parts = [
+        str(supplement.get(key) or "").strip()
+        for key in ("heading", "text", "keyword")
+        if str(supplement.get(key) or "").strip()
+    ]
+    seen: set[str] = set()
+    text = " / ".join(part for part in text_parts if not (part in seen or seen.add(part)))
+    if not text:
+        return None
+    kind = str(supplement.get("kind") or "supplemental")
+    attrs = {
+        "sidecar_supplement": {
+            "id": supplement.get("id"),
+            "kind": kind,
+            "role": supplement.get("role"),
+            "status": supplement.get("status"),
+            "sidecar": supplement.get("sidecar"),
+            "table": supplement.get("table"),
+            "row_id": supplement.get("row_id"),
+            "source_address": supplement.get("address"),
+            "debug": supplement.get("debug"),
+        }
+    }
+    target = supplement.get("link_target")
+    if isinstance(target, dict):
+        return BlockNode(
+            BlockKind.PARAGRAPH,
+            (
+                InlineNode(
+                    InlineKind.LINK,
+                    children=(InlineNode(InlineKind.TEXT, text=text),),
+                    attrs={"link_target": target},
+                ),
+            ),
+            attrs=attrs,
+        )
+    block_kind = BlockKind.EXAMPLE if kind in {"example", "idiom", "usage_note"} else BlockKind.PARAGRAPH
+    return BlockNode(block_kind, (InlineNode(InlineKind.TEXT, text=text),), attrs=attrs)
+
+
 def build_entry_document(entry: Entry) -> EntryDocument:
     """Build a reader-facing document from an entry's decoded spans."""
 
@@ -781,6 +831,9 @@ def build_entry_document(entry: Entry) -> EntryDocument:
     if not blocks and entry.text:
         blocks.append(BlockNode(BlockKind.PARAGRAPH, (InlineNode(InlineKind.TEXT, text=entry.text),)))
 
+    supplement_blocks = [block for supplement in entry.supplements for block in [_supplement_block(supplement)] if block is not None]
+    blocks.extend(supplement_blocks)
+
     return EntryDocument(
         blocks=tuple(blocks),
         resources=tuple(resources),
@@ -792,5 +845,6 @@ def build_entry_document(entry: Entry) -> EntryDocument:
         },
         debug_metadata={
             "span_summaries": [span.to_debug_summary() for span in entry.spans],
+            "sidecar_supplements": list(entry.supplements),
         },
     )
