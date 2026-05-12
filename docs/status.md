@@ -3,25 +3,20 @@
 The project is a **research alpha**. Many observed dictionaries are supported,
 but the internal model is still being refined as the corpus grows.
 
+This page describes `logovista-tools`: the research toolkit, package
+classifiers, decoded model reports, extractors, verification tools, and
+experimental plain-SSED writer primitives. The clean reader-core proof of
+concept has its own status page: [lvcore Status](lvcore-status.md).
+
 The important boundary: this is no longer mainly an exporter. Exporters are
-views over the model. The core deliverable is a lossless, evidence-preserving
-LogoVista dictionary model, plus a clean reader-core proof of concept that can
-eventually become a stable library.
+views over the model. The core toolkit deliverable is a lossless,
+evidence-preserving LogoVista dictionary model.
 
-There are two active tracks:
-
-- `logovista-tools` is the research toolkit: package classification, decoded
-  model generation, corpus reports, extractors, verification, and experimental
-  plain-SSED writer research.
-- `src/lvcore-experimental` is a clean from-scratch reader-core proof of
-  concept. It is reader-only, does not import `logovista_tools`, and is judged
-  against real LogoVista packages. Writer-generated packages are useful sanity
-  fixtures, but they are not the lvcore compatibility proof.
-
-LVED SQLCipher and LVLMultiView are separate package families. They are
-classified so corpus reports remain complete, but they remain deferred reader
-targets while SSED compatibility is the active focus. Dense/sidecar SSED
-packages are not LVED/LVLMultiView; they remain SSED body-source variants.
+LVED SQLCipher and LVLMultiView are separate package families handled by
+toolkit classification/model-report paths. They are not SSED packages, and
+dense/sidecar SSED packages are not LVED/LVLMultiView. lvcore-specific scope
+and non-SSED reader status are tracked separately in
+[lvcore Status](lvcore-status.md).
 
 ## Stable / High Confidence
 
@@ -63,7 +58,11 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   fonts, renderer body DBs, media stores, search indexes, row-ordered `HONBUN`,
   and block/offset body DBs.
 - Windows `EXINFO.INI` parsing and CP932 auxiliary text-index extraction,
-  including sibling eight-hex-digit `00000xxx.idx` sidecar trees.
+  including sibling eight-hex-digit `00000xxx.idx` sidecar trees and sharded
+  `00000xxx_n.idx` variants.
+- Windows `DICPROF.INI` profile/manifest classification as package metadata,
+  including declared dictionary directory/catalog names and required-file
+  lists.
 - Windows `HC????.dll` renderer plugin classification, including PE
   import/export extraction, renderer bridge evidence, `EXINFO` `HTMLDLL`
   correlation, numeric-index correlation, `vlpljbl*` companion names, and
@@ -91,14 +90,17 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   missing search fallbacks, and true display-unresolved codes.
 - Standalone `SPINDEX.DIC` inspection for observed Windows suffix-index
   resources.
+- `FIGURE.DIC` is recognized as a compressed type-`0xd0` figure/resource
+  component. Its generic record grammar is still unresolved, so toolkit output
+  should report it as a named resource stream rather than inventing raster
+  image output.
 - LVED/WebView2 `main.data` / `.dbc` SQLCipher package-family classification
-  and limited validation for inspected packages. Full LVED reader support is
-  deferred because it is a separate SQLite/SQLCipher package family.
+  and limited validation for inspected packages. Toolkit support treats LVED as
+  a separate SQLite/SQLCipher family rather than a failed SSED/HONMON package.
 - LVLMultiView package-family classification for observed ESPRANT2/YROPPO/MOROKU
   packages, including SSEDINFO facade parsing, LogoFontCipher SQLite payload
   roles, `menuData.xml` href resolution, static HTML/viewer-file reporting,
-  and encrypted PDF resource detection where present. Full LVLMultiView reader
-  support is deferred.
+  and encrypted PDF resource detection where present.
 - SIZK / NHK 文学のしずく read-aloud package inspection for the observed 30
   package set, including EXINFO-declared `shizuku.uni`, `HTMLs/b121`-`b124`
   template selectors, tiny four-entry HONMON streams, loose MP3 files, and
@@ -124,8 +126,8 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   inconsistencies into one decoded model object. Large per-package runs can
   keep it bounded with skipped row models and opt-in full profile/index
   boundary scans. The command is now family-aware: LVED SQLCipher and
-  LVLMultiView packages are classified into deferred models instead of being
-  treated as failed SSED/HONMON packages.
+  LVLMultiView packages are classified into family-specific non-SSED models
+  instead of being treated as failed SSED/HONMON packages.
 - `dump-package-models`, a corpus-scale model harness with package-family
   target discovery, process-level parallelism, path-aware progress output,
   resumable deterministic model paths, and clean failure JSON. The current
@@ -167,55 +169,9 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   Its traversal model accounts for same-key and same-branch-prefix groups that
   continue across adjacent sibling leaf pages.
 - Experimental standalone Python reader core in `src/lvcore-experimental`.
-  This is a clean reimplementation and does not import `logovista_tools`.
-  Current SSED coverage includes package-family detection, SSEDINFO parsing,
-  plain/LogoFontCipher `SSEDDATA` loading, chunked component reads, text spans,
-  `.uni` mappings, GA16 bitmap resource headers/glyph slicing, title/index row
-  parsing for simple, tagged, body-only, keyword, cross-reference, and MULTI
-  selector index families, limited HONMON entry slicing,
-  native exact/forward/backward index lookup,
-  `SearchResults` / `SearchHit` reader-facing models, title-pointer heading
-  resolution, body-source classification, body-pointer dereferencing
-  for direct body-stream HONMON entries, dense HONMON anchor detection, safe
-  placeholder diagnostics for unresolved dense body sources, conservative
-  SQLite sidecar resolution for `t_contents` / `HONBUN`-style dense-anchor
-  bodies and dict-code-named extensionless `main` sidecars, and entry-range
-  resolution from known body pointers, markers, and component bounds. It builds
-  structured `EntryDocument` trees from spans,
-  collects recoverable diagnostics, preserves typed links and media references
-  as `LinkTarget` / `ResourceRef` nodes,
-  resolves GA16/GAI16 glyph bytes by both JIS-grid and `.uni` record-order
-  lookup, exposes image-backed gaiji assets as package resources where mapping
-  evidence is clear, separates formatting-helper gaiji from true display
-  failures, resolves `COLSCR.DIC` `data`-wrapped image/media payloads and
-  `PCMDATA.DIC` addressed audio/media ranges as untouched resource bytes where
-  exact extents are known, resolves structurally clear sidecar BLOB media
-  tables as package-level resources, attaches address-mapped example/idiom,
-  usage, search, and navigation sidecar rows as experimental entry supplements
-  when the mapping is clear,
-  and renders friendly/semantic/LogoVista-like/debug HTML plus plain text.
-  Friendly rendering hides raw opcodes and offsets; debug search/render output
-  is explicit. Search hits carry reader-facing heading, heading-source, and
-  title-status fields; native rows that reuse the body pointer as the title
-  pointer are treated as heading fallback instead of false title failures.
-  Reader-side validation now samples search-hit-to-entry-to-render
-  behavior in addition to marker-discovered entries and reports reason-level
-  gaiji display-readiness, media, link, sidecar-role, sidecar-supplement,
-  title-dereference, index-parser, and body decode telemetry counters.
-  Corpus summaries also include a closure scorecard that separates hard SSED
-  body-source failures, compatibility-significant sidecars, native sampled
-  search misses, and true display-unresolved gaiji.
-  Supplemental SQLite
-  sidecars with block/offset references are classified by role and either
-  attached as safe supplements where structurally clear or counted as deferred
-  compatibility issues. LVED and LVLMultiView are detected but deliberately
-  deferred.
-- `lvcore corpus-validate`, a private audit command for the reader path. It
-  emits a stable `lvcore.corpus_validate.v1` JSON summary, optional JSONL
-  targets/failures/diagnostics streams, progress output, package-family counts,
-  SSED body-source/render-support counts, diagnostic aggregates, top blockers,
-  and sample limits. It separates deferred SSED body sources from deferred
-  LVED/LVLMultiView families.
+  This clean reimplementation is tracked separately in
+  [lvcore Status](lvcore-status.md) so toolkit package-family support is not
+  conflated with lvcore reader scope.
 - `1fe2`/`1fe3` is now modeled as a private renderer-directive span rather
   than visible color text. Plain and HTML body renderers suppress directive
   strings such as `SQL:`, `IMG:`, and `RUB:` while lossless spans preserve them.
@@ -236,7 +192,7 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   cells. This pass exposed and closed the `BRINEN15` marker-at-byte-0 dense
   anchor plus renderer SQLite schema variant.
 - Full corpus Decoded Model v0 generation over 261 package targets with
-  chunked output, resume, progress, gaiji readiness, and family-aware deferred
+  chunked output, resume, progress, gaiji readiness, and family-aware non-SSED
   models for LVED/LVLMultiView. The model-derived capability matrix is the
   preferred planning report for `read_existing`, `export_existing`,
   `author_core_ssed_v0`, and `lossless_repack_existing`; regenerate it after
@@ -257,11 +213,10 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   corpus.
 - Dictionary-specific semantic profiles for section codes, named images, and
   virtual selectors.
-- Broader LVED/WebView2 corpus coverage. This is deferred until SSED reader
-  compatibility is stronger because LVED is a separate SQLCipher/SQLite
-  package family.
-- Broader LVLMultiView corpus coverage. This is also deferred and remains a
-  separate package-family reader target, not an SSED writer target.
+- Broader LVED/WebView2 corpus coverage as a separate SQLCipher/SQLite package
+  family.
+- Broader LVLMultiView corpus coverage as a separate SQLite/viewer-resource
+  package family, not an SSED writer target.
 - Full LogoVista writer support. The current writer code is a research
   primitive layer for clean plain-HONMON SSED packages, not a complete package
   authoring product.
@@ -299,21 +254,8 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   model/gaiji readiness runs should include renderer sidecar evidence for that
   package; the result is display-ready but contextual rather than a
   dictionary-global `code -> Unicode` map.
-- The current lvcore reader-side gaiji counters are display-readiness counters,
-  not just Unicode-map counters. In the latest local full SSED validation,
-  12,413 sampled gaiji occurrences split into 2,713 Unicode-mapped, 2,758
-  bitmap-backed, 6,348 image-backed, 594 formatting-helper, and 0 true
-  display-unresolved buckets. Bitmap and image-backed resources have explicit
-  byte access through resource APIs; raw bytes do not appear in normal render
-  output.
-- The latest lvcore full SSED closure audit scanned 210 package folders,
-  including 162 SSED packages. SSED support remains 146 renderable,
-  15 partially renderable, and 1 ignored local package-integrity residual where
-  a declared readable body component is missing. That broken local package copy
-  is counted separately from SSED reader compatibility blockers.
-  Compatibility-significant unsupported sidecars, sampled native search misses,
-  unresolved media, unresolved links, and true display-unresolved gaiji are all
-  zero in that validation run.
+- Current lvcore reader-side counters and SSED closure status are tracked in
+  [lvcore Status](lvcore-status.md), not in this toolkit status page.
 - The Windows Panel subsystem has a decoded package-layer model. Complete
   Panel packages use `Panels.dtd`, `Panels.xml`, `Panel.html`, `Cell.html`, and
   external `.bin` tables. The `.bin` files are fixed-width little-endian
@@ -377,31 +319,25 @@ Recently landed:
 
 Next priorities:
 
-1. **lvcore SSED corpus compatibility.** Use `lvcore corpus-validate` as the
-   reader audit harness and close real SSED open/search/dereference/render
-   failures. Keep friendly output clean, debug output explicit, and diagnostics
-   measurable.
-2. **SSED body-source providers.** Continue hardening body-stream, dense
-   anchor, dense-marker, and supported sidecar-backed SSED body sources. Do not
-   conflate unresolved dense SSED with LVED or LVLMultiView.
+1. **Decoded model consistency.** Keep `dump-package-model` and
+   `capability-matrix --model-dir` aligned with shared enum/status vocabulary
+   so research, exporter planning, and writer planning do not drift.
+2. **Package-family classification.** Keep SSED, LVED, LVLMultiView, SIZK,
+   Panels, and wrapper/resource families explicit instead of forcing unrelated
+   payloads into the SSED model.
 3. **Renderer/control semantics.** Expand synthetic tests for structurally known
    controls, gaiji/media/link behavior, and conservative LogoVista-like output
    without claiming pixel-perfect renderer parity.
-4. **Decoded model consistency.** Keep `dump-package-model` and
-   `capability-matrix --model-dir` aligned with shared enum/status vocabulary
-   so research, exporter planning, and writer planning do not drift.
-5. **Corpus regression harness.** Commit redacted expected metrics generated
+4. **Corpus regression harness.** Commit redacted expected metrics generated
    from owned corpora, then add a comparison command that flags changed shape
    counts, unknown counts, parse failures, and dereference coverage without
    storing dictionary text.
-6. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
+5. **Parser unification.** Make `entries`, `titles`, `menus`, `indexes`,
    media extractors, and exporters consume the same classification/profile
    layer instead of each command rediscovering package shape independently.
-7. **Writer research.** Continue the experimental Python author-core path only
+6. **Writer research.** Continue the experimental Python author-core path only
    for clean plain-HONMON SSED packages. It remains a reverse-engineering proof
    checkpoint, not the lvcore compatibility target and not an LVED/LVLMultiView
    writer.
-8. **Future Rust core planning.** Start Rust only after the Python lvcore model
-   is stable enough to express real SSED corpus behavior. Preserve the
-   handle-oriented Rust/C ABI direction, but do not implement it in the Python
-   proof of concept.
+7. **lvcore reader work.** Track reader-core priorities separately in
+   [lvcore Status](lvcore-status.md).

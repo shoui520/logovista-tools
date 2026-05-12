@@ -1117,11 +1117,13 @@ def test_discover_numeric_aux_indexes_excludes_main_ssedinfo(tmp_path) -> None:
     idx.write_bytes(b"SSEDINFO")
     numeric = tmp_path / "0000015f.idx"
     numeric.write_text("00000000\t00000000\tRoot\n", encoding="cp932")
+    sharded_numeric = tmp_path / "0000015f_1.idx"
+    sharded_numeric.write_text("00000002\t00000010\tShard\n", encoding="cp932")
     ssedinfo_named = tmp_path / "00000001.idx"
     ssedinfo_named.write_bytes(b"SSEDINFO")
     (tmp_path / "not_numeric.idx").write_text("", encoding="utf-8")
 
-    assert discover_numeric_aux_indexes(idx) == [numeric.resolve()]
+    assert discover_numeric_aux_indexes(idx) == [numeric.resolve(), sharded_numeric.resolve()]
 
 
 def test_plain_sqlite_renderer_sidecar_requires_t_contents(tmp_path) -> None:

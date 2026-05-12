@@ -102,8 +102,10 @@ audits. It distinguishes:
 
 - SSED packages whose body source is direct `HONMON.DIC`;
 - SSED dense-anchor or sidecar-backed body sources;
-- deferred LVED SQLCipher package families;
-- deferred LVLMultiView package families;
+- LVED SQLCipher package families detected but not implemented as lvcore
+  reader paths;
+- LVLMultiView package families detected but not implemented as lvcore reader
+  paths;
 - unknown or unsupported package families.
 
 It also aggregates diagnostics by severity, area, and code. Normal output avoids

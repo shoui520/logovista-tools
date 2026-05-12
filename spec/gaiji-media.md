@@ -266,6 +266,24 @@ variant: its first 64 bytes contain a small prelude plus `fmt `/`data` headers,
 and all 235 referenced ranges are contiguous slices inside that shared data
 chunk.
 
+## `FIGURE.DIC`
+
+`FIGURE.DIC` is observed as a compressed SSED resource component with component
+type `0xd0`. It is not a `COLSCR.DIC` image store:
+
+- the expanded stream does not begin with the `data` wrapper used by
+  `COLSCR.DIC`;
+- observed payloads do not decode as PNG/JPEG/GIF/BMP records from the stream
+  start;
+- simple raster guesses produce incoherent output and should not be treated as
+  a decoded image grammar.
+
+The current safe classification is therefore: named figure/resource stream,
+record grammar unresolved. Readers and exporters should keep the bytes
+available for diagnostics, count the component explicitly, and avoid producing
+fake images until a record table, pointer relationship, or container grammar is
+understood.
+
 ## `.uni` Files
 
 `.uni` files are dictionary-specific gaiji mapping tables. They are not a

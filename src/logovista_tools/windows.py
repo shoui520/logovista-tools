@@ -25,7 +25,7 @@ from .ssed import BLOCK_SIZE, SsedInfoElement, find_case_insensitive
 
 SQLITE_MAGIC = b"SQLite format 3\x00"
 HEX_POINTER_RE = re.compile(r"^[0-9A-Fa-f]{8}$")
-NUMERIC_AUX_INDEX_RE = re.compile(r"^[0-9A-Fa-f]{8}\.idx$", re.IGNORECASE)
+NUMERIC_AUX_INDEX_RE = re.compile(r"^[0-9A-Fa-f]{8}(?:_[0-9]+)?\.idx$", re.IGNORECASE)
 VLPLJBL_RE = re.compile(r"^vlpljbl(?:$|[A-Za-z]$|\.(?:bin|exe)$)", re.IGNORECASE)
 HC_RENDERER_RE = re.compile(r"^HC([0-9A-Fa-f]{4})(?:\..*)?$", re.IGNORECASE)
 ASCII_STRING_RE = re.compile(rb"[\x20-\x7e]{5,}")
@@ -185,12 +185,14 @@ def iter_aux_index_specs(exinfo: Exinfo) -> list[AuxIndexSpec]:
 
 
 def discover_numeric_aux_indexes(idx: Path) -> list[Path]:
-    """Return sibling eight-hex-digit ``*.idx`` sidecar trees.
+    """Return sibling numeric auxiliary ``*.idx`` sidecar trees.
 
     These files are distinct from the main SSEDINFO ``.IDX`` catalog. Windows
-    packages usually reference them from ``EXINFO.INI``; some iOS-style
-    packages also carry them, and a few local packages leave them unreferenced
-    by EXINFO.
+    packages usually reference them from ``EXINFO.INI``. The common basename is
+    eight hexadecimal digits such as ``0000013A.idx``; observed large
+    auxiliary trees can also be sharded as ``00000151_0.idx`` /
+    ``00000151_1.idx``. Some iOS-style packages also carry numeric auxiliary
+    indexes, and a few local packages leave them unreferenced by EXINFO.
     """
 
     rows: list[Path] = []

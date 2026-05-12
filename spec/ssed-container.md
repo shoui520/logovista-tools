@@ -68,6 +68,7 @@ Component types observed so far:
 0x91  FHINDEX.DIC
 0x92  FAINDEX.DIC alternate/simple forward index
 0xa1  MUL* multi-selector index
+0xd0  FIGURE.DIC figure/resource stream
 0xd2  COLSCR.DIC media/image resource stream
 0xd8  PCMDATA.DIC audio/media resource stream
 0xf1  GA16FULL resource
@@ -78,6 +79,13 @@ Component types observed so far:
 `RIGHT.DIC` is a text/copyright stream. It is observed both as declared
 component type `0x02` and, in KCOMPEJ2, as a loose one-block `SSEDDATA`
 sidecar that is not listed in the main `SSEDINFO` catalog.
+
+`FIGURE.DIC` is observed as component type `0xd0`. It is a compressed
+`SSEDDATA` component and should be kept distinct from `COLSCR.DIC`: observed
+`FIGURE.DIC` payloads do not use the `data` wrapper described for `COLSCR.DIC`,
+and naive raster interpretations of the expanded bytes are not coherent image
+decodes. Treat it as a figure/resource stream whose generic record grammar is
+not yet decoded, not as a body stream or as a bitmap format.
 
 The exact semantic names vary by dictionary, but the broad pattern is stable:
 title components store readable headword/title streams, index components store

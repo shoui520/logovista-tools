@@ -761,11 +761,11 @@ structural `unverified` records; with `--deep-sidecars`, readable renderer DB
 rows are checked where the schema is supported.
 
 `dump-package-model` is family-aware. SSED packages receive the full SSED model.
-LVED/WebView2 SQLCipher and LVLMultiView packages receive deferred family
-models: they are classified, their obvious payloads/resources are summarized,
-and SSED HONMON parsing plus SSED writer readiness are marked not applicable.
-This keeps mixed corpus runs honest without pulling LVED/LVLMultiView research
-into the SSED stabilization track.
+LVED/WebView2 SQLCipher and LVLMultiView packages receive family-specific
+non-SSED models: they are classified, their obvious payloads/resources are
+summarized, and SSED HONMON parsing plus SSED writer readiness are marked not
+applicable. This keeps mixed corpus runs honest without forcing separate
+package families through SSED parsers.
 
 Use `--chunked` when output size matters:
 
@@ -798,9 +798,9 @@ logovista-tools dump-package-models /path/to/LogoVista \
 
 The command discovers SSED `.IDX` catalogs, LVED `main.data` / `.dbc` payloads,
 and LVLMultiView `menuData.xml` packages. SSED packages receive full decoded
-models. LVED and LVLMultiView packages receive deferred family models so the
-corpus summary remains complete without forcing those formats through SSED
-parsers.
+models. LVED and LVLMultiView packages receive family-specific non-SSED models
+so the corpus summary remains complete without forcing those formats through
+SSED parsers.
 
 Default output layout:
 
@@ -986,8 +986,10 @@ trees whose first two columns are eight-digit hexadecimal block/offset
 pointers. Rows are resolved against the `.IDX` component ranges when possible.
 
 The command also scans for sibling eight-hex-digit `*.idx` files such as
-`00000152.idx`, even when `EXINFO.INI` does not reference them. These are
-reported separately as `numeric_indexes` and written as `numeric_*.jsonl`.
+`00000152.idx`, even when `EXINFO.INI` does not reference them. Sharded
+variants such as `00000151_0.idx` use the same CP932 tab-tree grammar and are
+included in the same numeric auxiliary index scan. These are reported
+separately as `numeric_indexes` and written as `numeric_*.jsonl`.
 
 Output layout:
 

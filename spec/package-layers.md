@@ -90,6 +90,63 @@ Numeric sidecar names often share the HC product code
 `HTMLDLL` is the authoritative renderer link; some HC-bearing packages have no
 numeric index and a few have a numeric index whose code differs from the HC DLL.
 
+## Windows Metadata and Auxiliary Indexes
+
+Windows packages commonly include `EXINFO.INI`, and some also include
+`DICPROF.INI`. Both are CP932 INI-style metadata files, not SSED components.
+
+`EXINFO.INI` is the reader-side feature declaration. Observed keys include:
+
+```text
+HTMLDLL     renderer plugin filename, usually HC????.dll
+IDXCOUNT    number of auxiliary text indexes
+IDXINFO     single auxiliary index filename
+IDXINFO0..  numbered auxiliary index filenames
+IDXTITLE    display title for the first auxiliary index
+IDXNAME0..  display names for numbered auxiliary indexes
+GAIJI       dictionary-local .uni filename when it does not match the .IDX stem
+MP3NAME     loose read-aloud audio filename in SIZK packages
+```
+
+`DICPROF.INI` is closer to an install/profile manifest. Observed keys include:
+
+```text
+[GENERAL]
+DicName
+DicId
+DicDir
+RequiredFiles
+
+[REQUIRED]
+FILE1..FILEn
+```
+
+`DicDir` and `FILEn` are package metadata. They can name a canonical
+dictionary/catalog basename that differs from the local folder name, so tools
+should not assume a folder-name mismatch is a typo when `DICPROF.INI` declares
+the name explicitly.
+
+Auxiliary `.idx` trees referenced by `EXINFO.INI` are not SSEDINFO catalogs
+when they do not start with `SSEDINFO`. They are CP932 tab-separated text
+trees. Each non-empty row starts with two eight-hex-digit fields:
+
+```text
+block_hex<TAB>offset_hex<TAB>label
+block_hex<TAB>offset_hex<TAB><TAB>child label
+```
+
+The number of leading empty tab fields after the pointer gives the tree depth.
+The pointer can resolve to a normal SSED component address, or to a virtual
+selector when the high nibble of the block is nonzero and the offset is
+`ffff`.
+
+The common auxiliary index filename is eight hexadecimal digits, such as
+`0000013A.idx`. Some large auxiliary sets are sharded with a decimal suffix,
+such as `00000151_0.idx` through `00000151_3.idx`; these use the same CP932
+tab-tree row grammar. A same-code `.uni` file can be declared by `EXINFO.INI`
+for the auxiliary/renderer layer, so the gaiji basename is not guaranteed to
+match the main dictionary `.IDX` stem.
+
 ## CCALTSTR Alternate-String Tables
 
 Some Windows SSED packages carry `CCALTSTR.HA` and, less commonly,

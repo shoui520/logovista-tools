@@ -1,167 +1,55 @@
 # logovista-tools
 
 `logovista-tools` is a raw-first reverse-engineering toolkit for
-LogoVista/SystemSoft SSED dictionary packages.
+LogoVista/SystemSoft dictionary packages. It classifies package families,
+preserves raw addresses and bytes in reports, builds decoded package models,
+and provides extractors, validators, and an experimental plain-SSED writer
+proof of concept.
 
-The project started as an exporter experiment. It is now split into two
-deliberately different tracks:
-
-- `logovista-tools`: the raw-first research toolkit, decoded model generator,
-  extractor, verifier, and experimental SSED writer proof of concept.
-- `src/lvcore-experimental`: a clean, from-scratch reader-core proof of
-  concept. It is reader-only, independent from `logovista_tools`, and its
-  compatibility target is the real LogoVista corpus, not writer-generated test
-  packages.
-
-The shared goal is still a lossless, evidence-backed model of LogoVista
-dictionaries, but writer research and reader compatibility are kept separate on
-purpose.
+The repository also contains `src/lvcore-experimental`, a separate clean
+reader-core prototype. Do not read toolkit status and lvcore status as the same
+thing: they have different scopes and different readiness bars.
 
 No dictionary data is included in this repository.
 
-```mermaid
-flowchart LR
-    A["LogoVista package"] --> B["Classified components"]
-    B --> C["Raw pointers and addresses"]
-    C --> D["Lossless dictionary IR"]
-    D --> E["Debug/export views"]
-    D --> F["Writer POC"]
-    B --> G["lvcore reader POC"]
-```
+## Project Tracks
 
-## Status
+| Track | Scope | Status |
+|---|---|---|
+| `logovista-tools` | Research toolkit, package classifiers, decoded model reports, extractors, verification, and experimental plain-SSED writer primitives. | See [Project Status and Roadmap](docs/status.md). |
+| `src/lvcore-experimental` | Independent reader-core prototype. It is reader-only and currently targets SSED reader behavior. | See [lvcore Status](docs/lvcore-status.md). |
+| Format notes | Public, behavior-level format documentation derived from observed structures. | See [Format Notes](spec/README.md). |
 
-**Research alpha.** This does not mean "barely works." It means the toolkit
-already handles many observed dictionaries, but the model and output schemas
-are still allowed to change as more products are tested.
+## Toolkit Package-Family Status
 
-| Layer | Current confidence |
+This table is about `logovista-tools`, not lvcore.
+
+| Family / Layer | Toolkit status |
 |---|---|
-| `SSEDINFO` / `SSEDDATA` expansion | High for observed SSED dictionaries |
-| EPWING-like component block mapping | High |
-| Body-stream `HONMON.DIC` extraction | High for supported dictionaries |
-| Text-stream controls and renderer-private spans | High structural coverage; directive resolvers still being cataloged |
-| Dense HONMON ID-anchor dereferencing | Strong, still corpus-driven |
-| `*INDEX.DIC` / `*TITLE.DIC` parsing | High for the current SSED corpus |
-| `.uni`, `GA16HALF`, `GA16FULL` gaiji resources | High for observed variants |
-| `MENU.DIC`, `COLSCR.DIC`, `PCMDATA.DIC` | High byte coverage for the current SSED corpus |
-| Windows / Android / iOS wrappers | Supported per observed package family |
-| LVED/WebView2 `main.data` / `.dbc` SQLCipher payloads | Separate deferred package family; limited inspection, not the active SSED track |
-| LVLMultiView SQLite packages | Separate deferred package family; limited inspection, not the active SSED track |
-| SIZK read-aloud HTML/audio packages | Supported for the observed 30-package NHK set |
-| LogoVista writer support | Experimental Python author-core primitives for plain SSED |
-| Reader core reimplementation | Experimental standalone Python `lvcore` under `src/lvcore-experimental` |
+| SSED `SSEDINFO` / `SSEDDATA` / component block mapping | High confidence for observed package families. |
+| Body-stream and dense/sidecar `HONMON.DIC` variants | Classified and modeled; supported extractors vary by body-source shape. |
+| `*INDEX.DIC` / `*TITLE.DIC` / `MENU.DIC` | High structural coverage for the current SSED corpus. |
+| `.uni`, `GA16*`, image gaiji, `COLSCR.DIC`, `PCMDATA.DIC` | Parsed or modeled for observed SSED resource variants. |
+| Windows / Android / iOS wrappers | Supported per observed package family. |
+| LVED/WebView2 `main.data` / `.dbc` SQLCipher packages | Handled as a separate package family by toolkit classification/model reports and LVED inspection code. |
+| LVLMultiView SQLite packages | Handled as a separate package family by toolkit classification/model reports and MultiView inspection code. |
+| SIZK read-aloud HTML/audio packages | Inspected and reported for the observed NHK read-aloud package set. |
+| Plain-SSED writer proof of concept | Experimental author-core primitives for clean generated SSED packages. |
 
-The current development direction is:
+## lvcore Reader Status
 
-1. keep package classification raw-first and evidence-backed;
-2. count and expose unknowns instead of hiding them;
-3. keep Decoded LogoVista Model v0 as the shared model authority for the
-   research toolkit;
-4. keep the Python writer as a narrow proof of reverse-engineering depth, not
-   as the reader compatibility target;
-5. harden `lvcore-experimental` against real SSED packages with friendly
-   rendering, diagnostics, body-source-aware dereferencing, and corpus
-   validation.
+This table is about `src/lvcore-experimental`, not the toolkit.
 
-See [Project Status and Roadmap](docs/status.md) for the longer capability list.
+| Family / Layer | lvcore status |
+|---|---|
+| SSED reader path | Active compatibility target. The current proof of concept opens, searches, dereferences, renders, and validates known SSED reader cases with diagnostics. |
+| Dense/sidecar SSED | Treated as SSED body-source variants, not as LVED or LVLMultiView. |
+| LVED/WebView2 | Detected/classified only in lvcore; not implemented as a lvcore reader path. |
+| LVLMultiView | Detected/classified only in lvcore; not implemented as a lvcore reader path. |
+| Writer/importer behavior | Out of scope for lvcore. |
 
-The first writer work is intentionally narrow. It targets synthetic/core SSED
-authoring primitives and clean plain-HONMON package generation, not full
-repacking of historical packages:
-
-```text
-implemented experimentally:
-  SSEDINFO encoding
-  compressed SSEDDATA encoding, with literal-only diagnostic mode retained
-  block/pointer helpers
-  HONMON body-stream encoding
-  TITLE stream encoding
-  simple/tagged INDEX page encoding
-  structural writer verification
-  1f04/1f05 halfwidth ASCII display spans
-  lookup-key alias normalization
-  Unicode -> JIS/gaiji allocation
-  .uni and GA16HALF/GA16FULL resource encoding
-
-not implemented:
-  platform sidecars
-  dense-HONMON authoring
-  renderer DB authoring
-  COLSCR/PCMDATA authoring
-  external retail-reader compatibility certification
-```
-
-The writer emits both display strings and lookup aliases. Lookup aliases are
-allowed to normalize input more aggressively than body/title display text:
-compatibility forms are normalized, katakana can be folded to hiragana for
-Japanese lookup keys, and lookup-blocking punctuation, spaces, and hyphen-like
-characters are removed. This matches the practical requirement that a displayed
-headword with separators, such as `かな‐れい`, must still be searchable through
-the compact key `かなれい`.
-
-`src/lvcore-experimental` is a separate reader-core experiment. It does not
-import `logovista_tools`; it reimplements SSED package detection, SSEDINFO /
-SSEDDATA parsing, text spans, `.uni` / GA16 resources, titles, indexes, native
-index lookup, body-source-aware dereferencing, structured entry documents,
-diagnostics, resource references, and friendly/semantic/LogoVista-like/debug
-rendering behind a small API and CLI. LVED and LVLMultiView are detected as
-separate deferred package families. Dense/sidecar SSED is not treated as LVED
-or LVLMultiView; it remains an SSED reader-compatibility concern.
-Search hits expose heading source and title status so applications can
-distinguish resolved title-stream headings from safe index-key fallback
-headings. The corpus validator also reports sidecar roles separately from body
-support, so media/resource, examples/idioms, search, kanji-support, ancillary,
-and unknown sidecars do not get collapsed into one body-source failure class.
-
-The authoritative `logovista-tools` corpus harness is `dump-package-models`. A
-path-aware, resumable, chunked model pass over the local LogoVista collection
-completed 261 package targets with zero failures:
-
-```text
-SSED packages:          202
-LVED SQLCipher:          45
-LVLMultiView SQLite:     14
-decoded model failures:   0
-```
-
-The resulting capability matrix is derived from Decoded LogoVista Model v0
-reports rather than recombining older command-specific outputs:
-
-```text
-read existing:         green 202, gray 59
-export existing:       green 173, yellow 1, red 28, gray 59
-author core SSED v0:   green 202, gray 59
-lossless repack:       green 148, red 54, gray 59
-```
-
-`gray` means the package is outside the SSED writer target, currently LVED or
-LVLMultiView. Dense-HONMON packages are recognized SSED packages whose raw
-HONMON is an anchor/dereference layer rather than a self-contained body stream.
-They are readable/classifiable through the model, but external export and
-lossless repack remain stricter because they must consume or reproduce
-dictionary-specific sidecar body providers. Some repack-only red rows are
-incomplete local corpus packages whose declared files are absent. Those are
-package-integrity blockers, not format facts, and they do not block authoring a
-clean core SSED dictionary. See
-[Corpus Findings](docs/corpus-findings.md) for the exact aggregate and older
-HONMON/component-forensics passes that feed the current model.
-
-The authoritative `lvcore-experimental` corpus harness is separate:
-
-```bash
-PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate \
-  /path/to/LogoVista \
-  --json --jobs 0 --progress --output-dir /private/reports/lvcore-corpus
-```
-
-That command validates the reader path: open package, classify family/body
-source, parse native indexes/titles, sample search hits, dereference entries,
-render friendly HTML/plain text, and aggregate diagnostics. It distinguishes
-deferred SSED body sources from deferred LVED/LVLMultiView package families.
-Its JSON summary includes native index component/row counters, grouped
-continuation counts, title status counters, resource diagnostics, and body
-decode telemetry for private compatibility audits.
+The detailed lvcore status table, current counters, boundaries, and validation
+commands live in [docs/lvcore-status.md](docs/lvcore-status.md).
 
 ## Install
 
@@ -185,11 +73,15 @@ Verify the CLI:
 logovista-tools --help
 ```
 
-You can also run without installing:
+You can also run from a source checkout without installing:
 
 ```bash
-PYTHONPATH=src python -m logovista_tools --help
+./logovista-tools --help
 ```
+
+The public command name is `logovista-tools`. `logovista_tools` is only the
+Python import/module name; Python import package directories cannot contain
+hyphens.
 
 ## Quick Start
 
@@ -199,89 +91,11 @@ Scan a LogoVista collection:
 logovista-tools scan /path/to/LogoVista
 ```
 
-For large corpora, add `--jobs N` to corpus-scale commands. `--jobs 0` uses
-all CPUs reported by Python:
-
-```bash
-logovista-tools audit-honmon /path/to/LogoVista --jobs 0 --out-dir out/honmon-audit
-```
-
-Inspect one dictionary catalog:
-
-```bash
-logovista-tools info /path/to/DICT/DICT.IDX --all
-```
-
-Audit whether `HONMON.DIC` and raw indexes produce readable body data:
-
-```bash
-logovista-tools audit-honmon /path/to/LogoVista --out-dir out/honmon-audit
-```
-
-Write redacted corpus profiles with index coverage, opcode censuses, and
-lossless decode metrics:
-
-```bash
-logovista-tools profile /path/to/LogoVista --jobs 0 --out-dir out/profiles
-```
-
-Build a dedicated corpus-wide `0x1f` control atlas with payload lengths,
-component roles, pairing evidence, examples, and confidence labels:
-
-```bash
-logovista-tools opcode-atlas /path/to/LogoVista --jobs 0 --out-dir out/opcode-atlas
-```
-
-Decode every expanded `HONMON.DIC` byte and write redacted coverage reports:
-
-```bash
-logovista-tools honmon-bytes /path/to/LogoVista --jobs 0 --out-dir out/honmon-bytes
-```
-
-Forensically account for menu, title, index, gaiji, image, and audio
-components:
-
-```bash
-logovista-tools component-forensics /path/to/LogoVista --jobs 0 --out-dir out/components
-```
-
-Classify gaiji display/search readiness from raw resources:
-
-```bash
-logovista-tools gaiji-readiness /path/to/LogoVista --jobs 0 --out-dir out/gaiji-readiness
-```
-
-Include Windows renderer `HONBUN` sidecars as entry-level display evidence when
-raw gaiji resources are absent:
-
-```bash
-logovista-tools gaiji-readiness /path/to/LogoVista --renderer-sidecars --jobs 0 --out-dir out/gaiji-readiness
-```
-
-Turn those redacted reports into a writer/exporter capability table:
-
-```bash
-logovista-tools capability-matrix \
-  --profile-dir out/profiles \
-  --honmon-bytes-dir out/honmon-bytes \
-  --component-forensics-dir out/components \
-  --gaiji-readiness-dir out/gaiji-readiness \
-  --out-dir out/capability-matrix
-```
-
-Dump lossless span JSONL for entry-level reverse engineering:
-
-```bash
-logovista-tools dump-ir /path/to/LogoVista --dict HAESPJPN --limit 10 --out-dir out/ir
-```
-
-Generate package-level decoded model reports for a corpus. This is the
-preferred planning input because it keeps SSED, LVED, and LVLMultiView package
-families explicit:
+For corpus-scale commands, `--jobs 0` uses all CPUs reported by Python:
 
 ```bash
 logovista-tools dump-package-models /path/to/LogoVista \
-  --out-dir /path/to/reports/model-v0 \
+  --out-dir out/package-models \
   --jobs 0 \
   --resume \
   --progress \
@@ -289,204 +103,33 @@ logovista-tools dump-package-models /path/to/LogoVista \
   --chunked
 ```
 
-Dump one package-level decoded model report:
+Inspect one package model:
 
 ```bash
 logovista-tools dump-package-model /path/to/_DCT_HAESPJPN --out-dir out/package-model
 ```
 
-For large or exhaustive model reports, use chunked output:
+Run the lvcore reader validator:
 
 ```bash
-logovista-tools dump-package-model /path/to/_DCT_HAESPJPN \
-  --chunked \
-  --out-dir out/package-model
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate \
+  /path/to/LogoVista \
+  --json --jobs 0 --progress --output-dir out/lvcore-corpus
 ```
 
-For package-model reports that will feed writer/exporter planning, include
-gaiji readiness so display/search fallback status is not guessed from sampled
-spans:
-
-```bash
-logovista-tools dump-package-model /path/to/_DCT_HAESPJPN \
-  --gaiji-readiness \
-  --out-dir out/package-model
-```
-
-For very large package probes, keep the model bounded:
-
-```bash
-logovista-tools dump-package-model /path/to/_DCT_EJJE100 \
-  --skip-row-models --entry-limit 80 --profile-max-slices 100 \
-  --out-dir out/package-model
-```
-
-Build the capability matrix from decoded model reports:
-
-```bash
-logovista-tools capability-matrix \
-  --model-dir out/package-model \
-  --out-dir out/capability-matrix
-```
-
-Extract readable body-stream entries:
-
-```bash
-logovista-tools entries /path/to/LogoVista --out-dir out/bodies
-```
-
-Extract entries with HTML and image-backed gaiji preservation:
-
-```bash
-logovista-tools entries /path/to/LogoVista --dict HAESPJPN --image-gaiji --html --out-dir out/html-bodies
-```
-
-Inspect Windows side panels, `EXINFO.INI`, and numeric `00000xxx.idx` trees:
-
-```bash
-logovista-tools extras /path/to/DICT --out-dir out/extras
-```
-
-Classify every Windows `vlpljbl*` sibling by suffix, storage, magic, SQLite
-schema, and inferred role:
-
-```bash
-logovista-tools vlpljbl /path/to/LogoVista --jobs 0 --out-dir out/vlpljbl
-```
-
-Inspect Windows `HC????.dll` renderer plugins and correlate them with
-`EXINFO.INI`, numeric sidecars, `vlpljbl*`, imports, exports, and embedded
-renderer strings:
-
-```bash
-logovista-tools hc /path/to/LogoVista --jobs 0 --out-dir out/hc
-```
-
-For dense-HONMON renderer packages, follow raw HONMON IDs into renderer/app DB
-rows. The same command also handles row-ordered `HONBUN` renderer databases
-such as `NGYOKTUK`:
-
-```bash
-logovista-tools rendererdb /path/to/DICT --out-dir out/rendererdb
-```
-
-Inspect modern LVED/WebView2 SQLCipher packages such as OXFPEU4/KQCMPROS:
-
-```bash
-logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 --json
-```
-
-Inspect LVLMultiView SQLite packages such as ESPRANT2, YROPPO, and MOROKU:
-
-```bash
-logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --jobs 0 --out-dir out/multiview
-```
-
-Inspect NHK 文学のしずく / SIZK read-aloud packages:
-
-```bash
-logovista-tools sizk /path/to/LogoVista --jobs 0 --out-dir out/sizk
-logovista-tools sizk /path/to/_DCT_SIZK0101 --write-playback-jsonl --out-dir out/sizk
-```
-
-The full command reference lives in [docs/commands.md](docs/commands.md).
+The full command reference is in [docs/commands.md](docs/commands.md).
 
 ## Documentation Map
 
-### User and Project Docs
-
 | Page | Purpose |
 |---|---|
-| [CLI Command Reference](docs/commands.md) | All current commands and options. |
-| [Project Status and Roadmap](docs/status.md) | What works, what is experimental, and where the project is going. |
+| [CLI Command Reference](docs/commands.md) | All current toolkit and lvcore command examples. |
+| [Project Status and Roadmap](docs/status.md) | `logovista-tools` capability status and roadmap. |
+| [lvcore Status](docs/lvcore-status.md) | Reader-core status table, boundaries, and validation counters. |
+| [Package Families](docs/package-families.md) | SSED, LVED, LVLMultiView, SIZK, wrappers, and file lookup behavior. |
 | [Corpus Findings](docs/corpus-findings.md) | Observed behavior from real dictionaries and platform comparisons. |
 | [Legal and Data Policy](docs/legal.md) | Repository scope and data-handling policy. |
-
-### Format Notes
-
-| Page | Covers |
-|---|---|
-| [Format Notes Index](spec/README.md) | Overview of the spec-style notes. |
-| [Package Layers](spec/package-layers.md) | Raw core files and iOS/Android/Windows wrappers. |
-| [Decoded LogoVista Model v0](spec/decoded-model-v0.md) | Draft package-level model for components, addresses, entries, spans, gaiji, media, indexes, titles, menus, sidecars, and issues. |
-| [SSED Container](spec/ssed-container.md) | `SSEDINFO`, `SSEDDATA`, encryption, and expansion. |
-| [Text Streams and Body Storage](spec/text-streams.md) | `HONMON.DIC`, entry slicing, dense HONMON, `DictFULLDB`, outliers. |
-| [Menus, Titles, and Indexes](spec/menus-titles-indexes.md) | `MENU.DIC`, `*TITLE.DIC`, and `*INDEX.DIC`. |
-| [Gaiji, Images, and Media](spec/gaiji-media.md) | `.uni`, `GA16*`, package images, `COLSCR.DIC`, `PCMDATA.DIC`. |
-| [LVED SQLCipher Packages](spec/lved-main-data.md) | Modern WebView2 `main.data` / `.dbc` package family. |
-| [LVLMultiView Packages](spec/multiview.md) | Products with SSEDINFO facade catalogs and LogoFontCipher SQLite payloads. |
-| [Confidence Levels](spec/confidence.md) | How reverse-engineered claims are labeled. |
-
-## Core Model
-
-The stable idea is that a dictionary package has a raw core and optional
-platform wrappers. Not every product ships every component.
-
-```text
-DICT.IDX
-HONMON.DIC
-MENU.DIC
-KWTITLE.DIC / KWINDEX.DIC
-FKTITLE.DIC / FKINDEX.DIC
-FHTITLE.DIC / FHINDEX.DIC
-BKTITLE.DIC / BKINDEX.DIC
-TOC.DIC / RIGHT.DIC / IDXJUMP.DIC
-MULTI*.DIC / MUL*.DIC
-COLSCR.DIC / PCMDATA.DIC
-GA16HALF / GA16FULL
-DICT.uni / DICT.UNI
-```
-
-Platform packages add their own wrapper material:
-
-```text
-NoPlatform raw SSED core plus portable resource dirs such as res/, resources/,
-          templates/, img/; no reader-specific EXINFO/HC/vlpljbl/plist sidecars
-iOS       DictList.plist, Gaiji.plist, GaijiS.plist, img/, html/, *.sql
-Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
-Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, vlpljbl*, 00000xxx.idx
-SIZK      EXINFO.INI, HC0190.dll, HTMLs/b12*.html, Templates/honbun.html,
-          shizuku.mp3, shizuku_honbun.txt, shizuku_time.txt, shizuku.uni
-LVED      main.data / *.dbc, WebView2 viewer files, SQLCipher runtime
-MultiView SSEDINFO-like *.IDX, menuData.xml, *lvbat/*lvdat, Templates/, Resources/
-```
-
-The raw core is the main reverse-engineering target. SQLite databases, renderer
-sidecars, and app caches may be validation evidence, search caches, or full
-body payloads. They are not treated as replacements for the raw
-address/pointer model.
-
-`noplatform` is the expected wrapper for deliberately stripped or authoring
-target packages that keep the SSED core but remove LogoVista reader-specific
-sidecars. A sibling numeric `00000xxx.idx` by itself is treated as auxiliary
-SSED data, not as proof that the package is Windows-bound.
-
-Modern LVED/WebView2 products are a separate package family. In observed
-OXFPEU4/KQCMPROS packages, `main.data` or `.dbc` is a SQLCipher database rather
-than an SSED/HONMON stream. The toolkit classifies and validates those payloads
-separately instead of forcing them into the SSED model. The SQLCipher key
-derivation is documented in [LVED SQLCipher Packages](spec/lved-main-data.md)
-and implemented in code; per-product final keys and serials are not repository
-artifacts.
-
-LVED and LVLMultiView are not planned writer targets. They are classified so
-corpus runs can account for them, but current writer-readiness work applies
-only to core SSED packages.
-
-Observed LVLMultiView products are also separate from classic SSED body streams.
-They ship a small SSEDINFO-like `.IDX` facade naming familiar components such
-as `HONMON.DIC` and `FKINDEX.DIC`, but the physical component files are absent.
-The readable payloads live in LogoFontCipher-encrypted SQLite files. The
-observed law subfamily uses `blvbat`, `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`,
-and `nlvbat`/`nlvdat`; ESPRANT2 uses `blvdat` with a content/search schema and
-numeric `menuData.xml` targets. See [LVLMultiView Packages](spec/multiview.md).
-
-The SIZK / NHK 文学のしずく set is still SSED-backed, but its raw core is a tiny
-four-entry HONMON stream that selects renderer templates. The substantial
-read-aloud content lives in loose sidecars: `HTMLs/b121.html` through
-`b124.html`, `Templates/honbun.html`, `shizuku.mp3`,
-`shizuku_honbun.txt`, `shizuku_time.txt`, and `shizuku.uni`.
-`logovista-tools sizk` resolves those pieces into a structured package report.
+| [Format Notes Index](spec/README.md) | Spec-style notes for containers, text streams, indexes, media, gaiji, LVED, and LVLMultiView. |
 
 ## Development
 

@@ -6,7 +6,9 @@ reverse-engineering notes live in [`../spec`](../spec/README.md).
 | Page | Purpose |
 |---|---|
 | [CLI Command Reference](commands.md) | All current commands and options. |
-| [Project Status and Roadmap](status.md) | Capability status and project direction. |
+| [Project Status and Roadmap](status.md) | `logovista-tools` capability status and project direction. |
+| [lvcore Status](lvcore-status.md) | Reader-core status, boundaries, and validation counters. |
+| [Package Families](package-families.md) | SSED, LVED, LVLMultiView, SIZK, wrappers, Panels, and lookup rules. |
 | [Corpus Findings](corpus-findings.md) | Observed behavior from real dictionaries. |
 | [Legal and Data Policy](legal.md) | Repository and data-handling boundaries. |
 
@@ -21,10 +23,10 @@ Public docs now distinguish two active tracks:
   reader-only, independent from `logovista_tools`, and its compatibility target
   is the real LogoVista corpus rather than generated writer fixtures.
 
-LVED SQLCipher and LVLMultiView are separate package families. They are
-classified so corpus reports remain complete, but current deep reader/writer
-work remains focused on SSED. Dense/sidecar SSED remains an SSED body-source
-problem, not an LVED or LVLMultiView problem.
+LVED SQLCipher and LVLMultiView are separate package families handled by the
+toolkit classification/model-report path. They are not currently implemented
+as lvcore reader paths. Dense/sidecar SSED remains an SSED body-source problem,
+not an LVED or LVLMultiView problem.
 
 ## Split Map
 
@@ -32,7 +34,10 @@ The former monolithic README was split with the technical sections preserved:
 
 - install and quick-start material stayed on the front page;
 - command documentation moved to [commands.md](commands.md);
-- capability status and roadmap moved to [status.md](status.md);
+- toolkit capability status and roadmap moved to [status.md](status.md);
+- lvcore reader status moved to [lvcore-status.md](lvcore-status.md);
+- package-family and lookup-rule notes moved to
+  [package-families.md](package-families.md);
 - corpus observations and platform comparisons moved to
   [corpus-findings.md](corpus-findings.md);
 - raw format notes moved to [`../spec`](../spec/README.md);
