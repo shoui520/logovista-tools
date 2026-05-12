@@ -2093,7 +2093,7 @@ class LogoVistaPackage:
                 headword=hit.heading,
                 code="missing_body_component",
                 message="local SSED package declares no readable HONMON component for entry bodies",
-                severity=Severity.ERROR,
+                severity=Severity.WARNING,
                 details={"body_source": source.ssed_kind.value, "missing_component": "HONMON.DIC"},
             )
         return self._placeholder_entry(

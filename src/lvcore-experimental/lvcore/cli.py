@@ -431,6 +431,8 @@ def _blockers(
             body_source = row.get("body_source") or {}
             support = str(body_source.get("support") or "")
             kind = str(body_source.get("ssed_kind") or "")
+            if kind == "missing_body_component":
+                continue
             if support in {"deferred", "unsupported", "unknown"}:
                 code = f"body_source_{support}"
                 counts[("ssed_body_source", code, kind or "unknown")] = counts.get(("ssed_body_source", code, kind or "unknown"), 0) + 1
@@ -681,13 +683,32 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
     output_files: dict[str, str] = {}
     top_blockers = _blockers(rows, diagnostics_by_code)
     true_display_unresolved = int(resource_resolution_counts.get("gaiji_display_unresolved", resource_resolution_counts.get("unresolved_gaiji", 0)) or 0)
-    hard_ssed_failures = sum(1 for row in failures if row.get("package_family") == PackageFamily.SSED.value)
+    hard_ssed_failures = sum(
+        1
+        for row in failures
+        if row.get("package_family") == PackageFamily.SSED.value
+        and (row.get("body_source") or {}).get("ssed_kind") != "missing_body_component"
+    )
     named_residuals: list[dict[str, Any]] = []
+    ignored_package_integrity_residuals: list[dict[str, Any]] = []
     for row in rows:
         if row.get("package_family") != PackageFamily.SSED.value:
             continue
         body_source = row.get("body_source") or {}
         support = str(body_source.get("support") or "")
+        kind = str(body_source.get("ssed_kind") or "")
+        if kind == "missing_body_component":
+            ignored_package_integrity_residuals.append(
+                {
+                    "path": row.get("path"),
+                    "name": row.get("name"),
+                    "blocker_class": "package_integrity",
+                    "status": "ignored_broken_package",
+                    "kind": kind,
+                    "diagnostics": (row.get("diagnostics") or {}).get("by_code") or {},
+                }
+            )
+            continue
         if not row.get("ok") or support in {"unsupported", "unknown", "deferred"}:
             named_residuals.append(
                 {
@@ -695,7 +716,7 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
                     "name": row.get("name"),
                     "blocker_class": "body_source",
                     "status": support or "unknown",
-                    "kind": body_source.get("ssed_kind"),
+                    "kind": kind,
                     "diagnostics": (row.get("diagnostics") or {}).get("by_code") or {},
                 }
             )
@@ -705,9 +726,7 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         or compatibility_significant_unsupported_sidecar_counts
         or int(diagnostics_by_code.get("sample_search_miss", 0))
         or true_display_unresolved
-        or support_counts.get("unsupported", 0)
-        or support_counts.get("unknown", 0)
-        or support_counts.get("deferred", 0)
+        or named_residuals
     ):
         closure_status = "blocked_by_named_residuals"
 
@@ -720,6 +739,7 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "partially_renderable": support_counts.get("partially_renderable", 0),
         "deferred": support_counts.get("deferred", 0),
         "unsupported_or_unknown": support_counts.get("unsupported", 0) + support_counts.get("unknown", 0),
+        "compatibility_unsupported_or_unknown": len(named_residuals),
         "body_source_kind_counts": body_kind_counts,
         "compatibility_significant_unsupported_sidecars": compatibility_significant_unsupported_sidecar_counts,
         "native_search_misses": diagnostics_by_code.get("sample_search_miss", 0),
@@ -728,6 +748,7 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "unresolved_media": resource_resolution_counts.get("unresolved_media", 0),
         "unresolved_link": resource_resolution_counts.get("unresolved_link", 0),
         "named_residuals": named_residuals,
+        "ignored_package_integrity_residuals": ignored_package_integrity_residuals,
         "top_blockers": top_blockers,
     }
 

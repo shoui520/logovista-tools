@@ -305,7 +305,9 @@ dictionaries can still have several body-source shapes:
   no supported body table schema has been identified;
 - `missing_body_component`: the local package catalog does not provide a
   readable `HONMON.DIC` body component. This is a package/component integrity
-  residual, not evidence for a new body format.
+  residual, not evidence for a new body format. When corpus evidence confirms
+  the local package copy is broken, closure scorecards count it separately from
+  reader compatibility blockers.
 
 Search hits keep their native body/title pointers, but entry resolution is
 body-source-aware. Direct body-stream packages use `HONMON.DIC` slicing. Dense

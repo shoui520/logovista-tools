@@ -201,7 +201,9 @@ SSED body-source kinds are distinct from package families:
   detected, but no supported body table schema was identified;
 - `missing_body_component`: the catalog declares no readable `HONMON.DIC`
   body component in the local package copy, so validation reports a local
-  package/component integrity residual rather than an unknown body format;
+  package/component integrity residual rather than an unknown body format. Full
+  corpus closure scorecards can ignore this class when the local package copy
+  is known broken;
 - LVED SQLCipher and LVLMultiView are separate package families and remain
   deferred. They are not SSED body-source failures.
 

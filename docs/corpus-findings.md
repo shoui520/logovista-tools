@@ -131,10 +131,12 @@ bitmap-backed, 6,348 image-backed, 594 formatting-helper, and 0 true
 display-unresolved. Resource-byte availability is counted separately; bitmap
 and image-backed gaiji remain original package bytes and are available only via
 explicit resource APIs. The same closure sprint reported 162 SSED packages:
-146 renderable, 15 partially renderable, and 1 unsupported local
+146 renderable, 15 partially renderable, and 1 ignored local
 package-integrity residual where a declared readable body component is absent.
-Compatibility-significant unsupported sidecars, sampled native search misses,
-unresolved media, and unresolved links were all zero in that run.
+The broken local package copy is counted separately from SSED reader
+compatibility blockers. Compatibility-significant unsupported sidecars, sampled
+native search misses, unresolved media, and unresolved links were all zero in
+that run.
 
 ## Windows SSED Corpus Profile
 

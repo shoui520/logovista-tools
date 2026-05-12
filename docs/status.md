@@ -308,11 +308,12 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   output.
 - The latest lvcore full SSED closure audit scanned 210 package folders,
   including 162 SSED packages. SSED support remains 146 renderable,
-  15 partially renderable, and 1 unsupported local package-integrity residual
-  where a declared readable body component is missing. Compatibility-significant
-  unsupported sidecars, sampled native search misses, unresolved media,
-  unresolved links, and true display-unresolved gaiji are all zero in that
-  validation run.
+  15 partially renderable, and 1 ignored local package-integrity residual where
+  a declared readable body component is missing. That broken local package copy
+  is counted separately from SSED reader compatibility blockers.
+  Compatibility-significant unsupported sidecars, sampled native search misses,
+  unresolved media, unresolved links, and true display-unresolved gaiji are all
+  zero in that validation run.
 - `dump-package-model` embeds sampled rows by default so normal runs stay
   manageable; use zero-valued limits for exhaustive per-package inspection.
   Chunked output externalizes row families, but extraction is not yet fully

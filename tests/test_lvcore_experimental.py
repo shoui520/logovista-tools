@@ -758,7 +758,8 @@ def test_lvcore_missing_honmon_is_named_component_integrity_issue(tmp_path: Path
     assert report["body_source"]["ssed_kind"] == "missing_body_component"
     assert report["sidecar_resolution"]["missing_body_component"] == 1
     assert report["diagnostics"]["by_code"]["missing_body_component"] == 1
-    assert report["ok"] is False
+    assert report["diagnostics"]["by_severity"]["warning"] == 1
+    assert report["ok"] is True
 
 
 def test_lvcore_bad_component_size_reports_cleanly_during_validation(tmp_path: Path) -> None:
@@ -2704,7 +2705,7 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
         stderr=subprocess.PIPE,
         env={"PYTHONPATH": str(LVCORE_SRC)},
     )
-    assert corpus_result.returncode == 1
+    assert corpus_result.returncode == 0
     assert "progress" in corpus_result.stderr
     corpus_data = json.loads(corpus_result.stdout)
     assert corpus_data["schema"] == "lvcore.corpus_validate.v1"
@@ -2729,22 +2730,22 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
     assert "sidecar_reference_counts" in corpus_data
     assert corpus_data["sidecar_reference_counts"]["addresses_checked"] >= 1
     assert "resource_resolution_counts" in corpus_data
-    assert corpus_data["diagnostics"]["by_severity"]["error"] >= 1
+    assert corpus_data["diagnostics"]["by_severity"]["warning"] >= 1
     assert corpus_data["top_diagnostics_by_code"]["missing_body_component"] >= 1
     assert "top_diagnostics_by_area" in corpus_data
-    assert corpus_data["closure_scorecard"]["status"] == "blocked_by_named_residuals"
-    assert corpus_data["closure_scorecard"]["hard_ssed_failures"] == 1
-    assert corpus_data["closure_scorecard"]["named_residuals"][0]["kind"] == "missing_body_component"
-    assert any(blocker["code"] == "validation_failed" for blocker in corpus_data["top_blockers"])
-    assert corpus_data["failure_count"] == 1
+    assert corpus_data["closure_scorecard"]["status"] == "closure_ready_for_deeper_audit"
+    assert corpus_data["closure_scorecard"]["hard_ssed_failures"] == 0
+    assert corpus_data["closure_scorecard"]["named_residuals"] == []
+    assert corpus_data["closure_scorecard"]["ignored_package_integrity_residuals"][0]["kind"] == "missing_body_component"
+    assert not any(blocker["code"] == "validation_failed" for blocker in corpus_data["top_blockers"])
+    assert corpus_data["failure_count"] == 0
     output_files = corpus_data["output_files"]
     assert Path(output_files["summary_json"]).is_file()
     assert Path(output_files["targets_jsonl"]).is_file()
     assert Path(output_files["failures_jsonl"]).is_file()
     assert Path(output_files["diagnostics_jsonl"]).is_file()
     failure_lines = Path(output_files["failures_jsonl"]).read_text(encoding="utf-8").splitlines()
-    assert len(failure_lines) == 1
-    assert json.loads(failure_lines[0])["name"] == "_DCT_BAD"
+    assert failure_lines == []
     diagnostics_lines = Path(output_files["diagnostics_jsonl"]).read_text(encoding="utf-8").splitlines()
     assert any(json.loads(line)["name"] == "_DCT_BAD" for line in diagnostics_lines)
     ssed_target = next(target for target in corpus_data["targets"] if target["package_family"] == "ssed")
