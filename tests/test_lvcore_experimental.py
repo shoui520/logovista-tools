@@ -65,6 +65,7 @@ def test_lvcore_sidecar_role_classification_is_structural() -> None:
     assert classify_sqlite_sidecar_role("sqlite_unmapped", ("t_Search_01", "t_zenbun")) == SidecarRole.SEARCH
     assert classify_sqlite_sidecar_role("sqlite_unmapped", ("t_all", "t_bushu", "t_jukugo")) == SidecarRole.KANJI_SUPPORT
     assert classify_sqlite_sidecar_role("sqlite_unmapped", ("D_InternationalChronology",)) == SidecarRole.ANCILLARY
+    assert classify_sqlite_sidecar_role("sqlite_unmapped", ("t_data",), {"t_data": ["index", "data"]}) == SidecarRole.ANCILLARY
     assert classify_sqlite_sidecar_role("sqlite_unmapped", ("opaque",)) == SidecarRole.UNKNOWN
 
 
@@ -642,6 +643,26 @@ def add_link_reference_sidecar(root: Path, *, block: int = 2, offset: int = 0) -
         con.close()
 
 
+def add_search_metadata_sidecar(root: Path) -> None:
+    con = sqlite3.connect(root / "search.db")
+    try:
+        con.execute("create table t_index (f_data_id integer, f_midashi_hyoki text, f_keyword text)")
+        con.execute("insert into t_index values (?, ?, ?)", (1, "display label", "lookup label"))
+        con.commit()
+    finally:
+        con.close()
+
+
+def add_ancillary_t_data_sidecar(root: Path) -> None:
+    con = sqlite3.connect(root / "ancillary.db")
+    try:
+        con.execute('create table t_data ("index" integer primary key, data blob)')
+        con.execute('insert into t_data ("index", data) values (?, ?)', (1, b"\x00\x01"))
+        con.commit()
+    finally:
+        con.close()
+
+
 def make_bad_body_pointer_package(root: Path, *, component_end_block: int = 2, body_block: int = 9999) -> None:
     honmon_start = 2
     title_start = 4
@@ -722,6 +743,22 @@ def test_lvcore_bad_body_pointer_returns_diagnostic_placeholder(tmp_path: Path) 
     assert "9999" not in html
     assert "body pointer could not be resolved" in entry.diagnostics()[0].message
     assert entry.diagnostics()[0].code == "body_pointer_unresolved"
+
+
+def test_lvcore_missing_honmon_is_named_component_integrity_issue(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    (tmp_path / "HONMON.DIC").unlink()
+    package = open_package(tmp_path)
+
+    source = package.body_source()
+    report = package.validate(sample_entries=0, sample_search_hits=1)
+
+    assert source.ssed_kind == SsedBodySourceKind.MISSING_BODY_COMPONENT
+    assert source.support.value == "unsupported"
+    assert report["body_source"]["ssed_kind"] == "missing_body_component"
+    assert report["sidecar_resolution"]["missing_body_component"] == 1
+    assert report["diagnostics"]["by_code"]["missing_body_component"] == 1
+    assert report["ok"] is False
 
 
 def test_lvcore_bad_component_size_reports_cleanly_during_validation(tmp_path: Path) -> None:
@@ -904,6 +941,26 @@ def test_lvcore_backward_only_index_supports_exact_and_suffix_search(tmp_path: P
     assert exact.hits[0].matched_key == "alpha"
     assert [hit.display_key for hit in backward.hits] == ["alpha"]
     assert [hit.display_key for hit in native.hits] == ["alpha"]
+
+    report = package.validate(sample_entries=0, sample_search_hits=1)
+    assert report["diagnostics"]["by_code"].get("sample_search_miss", 0) == 0
+    assert report["sample_search_hits_dereferenced"] == 1
+
+
+def test_lvcore_sample_search_skips_empty_normalized_index_keys(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    honmon_start = 2
+    title_start = 3
+    index_start = 4
+    (tmp_path / "FHINDEX.DIC").write_bytes(
+        literal_sseddata(simple_index([("・", honmon_start, 0, title_start, 0)]), start_block=index_start, kind=0x91)
+    )
+    package = open_package(tmp_path)
+
+    report = package.validate(sample_entries=0, sample_search_hits=1)
+
+    assert report["diagnostics"]["by_code"]["sample_search_skipped_empty_query"] == 1
+    assert report["diagnostics"]["by_code"].get("sample_search_miss", 0) == 0
 
 
 def test_lvcore_parses_keyword_index_direct_and_grouped_rows() -> None:
@@ -1399,6 +1456,38 @@ def test_lvcore_link_reference_sidecar_attaches_safe_link_supplement(tmp_path: P
     assert "row_id" in debug_dumped
 
 
+def test_lvcore_search_metadata_sidecar_is_supported_but_not_native_search(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    add_search_metadata_sidecar(tmp_path)
+    package = open_package(tmp_path)
+
+    summary = package.sidecar_role_summary()
+    report = package.validate(sample_entries=0, sample_search_hits=1)
+
+    assert summary["role_counts"]["search"] == 1
+    assert summary["supported_role_counts"]["search"] == 1
+    assert summary["support_status_counts"]["search_metadata"] == 1
+    assert "search" not in summary["compatibility_significant_unsupported_counts"]
+    assert package.search("lookup label", profile=SearchProfile.NATIVE).hits == ()
+    assert report["sidecar_supplements"]["sidecar_search_rows_seen"] == 1
+    assert report["sidecar_supplements"]["sidecar_search_rows_supported"] == 1
+    assert report["sidecar_supplements"]["sidecar_search_rows_deferred"] == 0
+    assert "unsupported_search_sidecar" not in report["diagnostics"]["by_code"]
+
+
+def test_lvcore_t_data_sidecar_is_ancillary_not_unknown(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    add_ancillary_t_data_sidecar(tmp_path)
+    package = open_package(tmp_path)
+
+    summary = package.sidecar_role_summary()
+
+    assert summary["role_counts"]["ancillary"] == 1
+    assert "unknown" not in summary["role_counts"]
+    assert "unknown" not in summary["compatibility_significant_unsupported_counts"]
+    assert summary["unsupported_sidecars"][0]["compatibility_significant"] is False
+
+
 def test_lvcore_dense_anchor_sidecar_html_only_body_is_readable(tmp_path: Path) -> None:
     make_dense_anchor_package(tmp_path)
     con = sqlite3.connect(tmp_path / "body.db")
@@ -1888,6 +1977,56 @@ def test_lvcore_blank_ga16_glyph_is_formatting_helper(tmp_path: Path) -> None:
     assert "□" not in render_text(document)
     report = package.validate(sample_entries=1, sample_search_hits=1)
     assert report["resource_resolution"]["gaiji_formatting_helper"] >= 1
+    assert report["resource_resolution"]["unresolved_gaiji"] == 0
+
+
+def test_lvcore_blank_fullwidth_uni_record_is_formatting_helper_candidate(tmp_path: Path) -> None:
+    make_gaiji_package(
+        tmp_path,
+        raw_code=bytes.fromhex("b130"),
+        uni_records=[("b130", "", "")],
+        ga16_name=None,
+        ga16_payload=None,
+    )
+    package = open_package(tmp_path)
+
+    hit = package.search("gaiji", limit=1).hits[0]
+    entry = package.entry_for_hit(hit)
+    document = entry.document()
+    resource = next(item for item in document.resources if item.kind == ResourceKind.GAIJI)
+    info = package.resource_info(resource)
+    html = render_html(document)
+    debug = render_html(document, profile=HtmlProfile.DEBUG)
+    report = package.validate(sample_entries=1, sample_search_hits=1)
+
+    assert resource.details["display_status"] == "formatting_helper"
+    assert resource.details["reason"] == "fullwidth_formatting_helper_candidate"
+    assert info["display_status"] == "formatting_helper"
+    assert "b130" not in html.lower()
+    assert "fullwidth_formatting_helper_candidate" in debug
+    assert report["resource_resolution"]["gaiji_formatting_helper"] >= 1
+    assert report["resource_resolution"]["gaiji_display_unresolved"] == 0
+    assert report["resource_resolution"]["unresolved_gaiji"] == 0
+
+
+def test_lvcore_raw_fullwidth_gaiji_without_mapping_is_formatting_helper_candidate(tmp_path: Path) -> None:
+    make_gaiji_package(
+        tmp_path,
+        raw_code=bytes.fromhex("b130"),
+        uni_records=[],
+        ga16_name=None,
+        ga16_payload=None,
+    )
+    package = open_package(tmp_path)
+
+    resource = next(item for item in package.search("gaiji", limit=1).hits[0].entry().document().resources if item.kind == ResourceKind.GAIJI)
+    info = package.resource_info(resource)
+    report = package.validate(sample_entries=1, sample_search_hits=1)
+
+    assert resource.details["display_status"] == "formatting_helper"
+    assert resource.details["source"] == "raw_fullwidth"
+    assert info["reason"] == "fullwidth_formatting_helper_candidate"
+    assert report["resource_resolution"]["gaiji_display_unresolved"] == 0
     assert report["resource_resolution"]["unresolved_gaiji"] == 0
 
 
@@ -2577,7 +2716,7 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
     assert corpus_data["family_deferred_counts"]["lved_sqlcipher"] == 1
     assert corpus_data["family_deferred_counts"]["multiview_sqlite"] == 1
     assert corpus_data["ssed_body_source_kind_counts"]["dense_anchor_with_sidecar"] == 1
-    assert corpus_data["ssed_body_source_kind_counts"]["unknown"] == 1
+    assert corpus_data["ssed_body_source_kind_counts"]["missing_body_component"] == 1
     assert corpus_data["ssed_renderable_count"] == 0
     assert corpus_data["ssed_unsupported_or_unknown_count"] == 1
     assert corpus_data["sidecar_backed_count"] == 1
@@ -2586,12 +2725,16 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
     assert corpus_data["sidecar_resolution_counts"]["resolved"] >= 1
     assert corpus_data["sidecar_role_counts"]["body_critical"] >= 1
     assert corpus_data["supported_sidecar_role_counts"]["body_critical"] >= 1
+    assert corpus_data["sidecar_resolution_counts"]["missing_body_component"] == 1
     assert "sidecar_reference_counts" in corpus_data
     assert corpus_data["sidecar_reference_counts"]["addresses_checked"] >= 1
     assert "resource_resolution_counts" in corpus_data
     assert corpus_data["diagnostics"]["by_severity"]["error"] >= 1
-    assert corpus_data["top_diagnostics_by_code"]["unsupported_body_source"] >= 1
+    assert corpus_data["top_diagnostics_by_code"]["missing_body_component"] >= 1
     assert "top_diagnostics_by_area" in corpus_data
+    assert corpus_data["closure_scorecard"]["status"] == "blocked_by_named_residuals"
+    assert corpus_data["closure_scorecard"]["hard_ssed_failures"] == 1
+    assert corpus_data["closure_scorecard"]["named_residuals"][0]["kind"] == "missing_body_component"
     assert any(blocker["code"] == "validation_failed" for blocker in corpus_data["top_blockers"])
     assert corpus_data["failure_count"] == 1
     output_files = corpus_data["output_files"]

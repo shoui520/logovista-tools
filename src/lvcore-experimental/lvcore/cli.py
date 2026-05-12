@@ -493,6 +493,7 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "missing_anchor_id": 0,
         "missing_row": 0,
         "unsupported_body_source": 0,
+        "missing_body_component": 0,
     }
     index_component_type_counts: dict[str, int] = {}
     index_rows_by_component_type: dict[str, int] = {}
@@ -678,6 +679,58 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
 
     diagnostics_rows = _diagnostic_rows(rows)
     output_files: dict[str, str] = {}
+    top_blockers = _blockers(rows, diagnostics_by_code)
+    true_display_unresolved = int(resource_resolution_counts.get("gaiji_display_unresolved", resource_resolution_counts.get("unresolved_gaiji", 0)) or 0)
+    hard_ssed_failures = sum(1 for row in failures if row.get("package_family") == PackageFamily.SSED.value)
+    named_residuals: list[dict[str, Any]] = []
+    for row in rows:
+        if row.get("package_family") != PackageFamily.SSED.value:
+            continue
+        body_source = row.get("body_source") or {}
+        support = str(body_source.get("support") or "")
+        if not row.get("ok") or support in {"unsupported", "unknown", "deferred"}:
+            named_residuals.append(
+                {
+                    "path": row.get("path"),
+                    "name": row.get("name"),
+                    "blocker_class": "body_source",
+                    "status": support or "unknown",
+                    "kind": body_source.get("ssed_kind"),
+                    "diagnostics": (row.get("diagnostics") or {}).get("by_code") or {},
+                }
+            )
+    closure_status = "closure_ready_for_deeper_audit"
+    if (
+        hard_ssed_failures
+        or compatibility_significant_unsupported_sidecar_counts
+        or int(diagnostics_by_code.get("sample_search_miss", 0))
+        or true_display_unresolved
+        or support_counts.get("unsupported", 0)
+        or support_counts.get("unknown", 0)
+        or support_counts.get("deferred", 0)
+    ):
+        closure_status = "blocked_by_named_residuals"
+
+    closure_scorecard = {
+        "status": closure_status,
+        "total_packages": len(rows),
+        "ssed_packages": family_counts.get(PackageFamily.SSED.value, 0),
+        "hard_ssed_failures": hard_ssed_failures,
+        "renderable": support_counts.get("renderable", 0),
+        "partially_renderable": support_counts.get("partially_renderable", 0),
+        "deferred": support_counts.get("deferred", 0),
+        "unsupported_or_unknown": support_counts.get("unsupported", 0) + support_counts.get("unknown", 0),
+        "body_source_kind_counts": body_kind_counts,
+        "compatibility_significant_unsupported_sidecars": compatibility_significant_unsupported_sidecar_counts,
+        "native_search_misses": diagnostics_by_code.get("sample_search_miss", 0),
+        "sample_search_skipped_empty_query": diagnostics_by_code.get("sample_search_skipped_empty_query", 0),
+        "true_display_unresolved_gaiji": true_display_unresolved,
+        "unresolved_media": resource_resolution_counts.get("unresolved_media", 0),
+        "unresolved_link": resource_resolution_counts.get("unresolved_link", 0),
+        "named_residuals": named_residuals,
+        "top_blockers": top_blockers,
+    }
+
     summary = {
         "schema": CORPUS_VALIDATE_SCHEMA,
         "root": str(args.root),
@@ -728,6 +781,7 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "decode_telemetry_counts": decode_telemetry_counts,
         "title_dereference_counts": title_dereference_counts,
         "failure_count": len(failures),
+        "closure_scorecard": closure_scorecard,
         "diagnostics": {
             "by_severity": diagnostics_by_severity,
             "by_area": diagnostics_by_area,
@@ -736,7 +790,7 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "top_diagnostics_by_severity": _top_counts(diagnostics_by_severity),
         "top_diagnostics_by_code": _top_counts(diagnostics_by_code),
         "top_diagnostics_by_area": _top_counts(diagnostics_by_area),
-        "top_blockers": _blockers(rows, diagnostics_by_code),
+        "top_blockers": top_blockers,
         "targets": rows,
     }
     if args.output_dir:

@@ -24,6 +24,7 @@ class SsedBodySourceKind(str, Enum):
     HONBUN_SIDECAR = "honbun_sidecar"
     VLPLJBL_SIDECAR = "vlpljbl_sidecar"
     SIDECAR_UNKNOWN = "sidecar_unknown"
+    MISSING_BODY_COMPONENT = "missing_body_component"
     UNKNOWN = "unknown"
 
 
@@ -297,6 +298,10 @@ def classify_sqlite_sidecar_role(
             return SidecarRole.EXAMPLES_IDIOMS
         if "t_index" in lowered or any("search" in table or "zenbun" in table for table in lowered):
             return SidecarRole.SEARCH
+        if lowered == {"t_data"}:
+            columns = _columns_for_table(columns_by_table, "t_data")
+            if _has_any(columns, "index") and _has_any(columns, "data"):
+                return SidecarRole.ANCILLARY
         if lowered & {"t_all", "t_bushu", "t_jukugo", "t_yomi", "t_exam"}:
             return SidecarRole.KANJI_SUPPORT
         if any("chronology" in table for table in lowered):

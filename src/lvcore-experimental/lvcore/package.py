@@ -448,6 +448,23 @@ class LogoVistaPackage:
             info["details"] = dict(backing)
             return info
 
+        if code.startswith("b") and (record is None or (not record.display and not record.fallback)):
+            reason = GaijiResolutionReason.FULLWIDTH_FORMATTING_HELPER_CANDIDATE.value
+            info.update(
+                {
+                    "status": "resolved",
+                    "display_status": GaijiDisplayStatus.FORMATTING_HELPER.value,
+                    "reason": reason,
+                    "source": record.source if record is not None else "raw_fullwidth",
+                    "details": {
+                        "reason": reason,
+                        "display_status": GaijiDisplayStatus.FORMATTING_HELPER.value,
+                        "source": record.source if record is not None else "raw_fullwidth",
+                    },
+                }
+            )
+            return info
+
         reason = GaijiResolutionReason.MISSING_UNICODE_MAPPING.value
         if not self.ga16 and not self.gaiji_images:
             reason = GaijiResolutionReason.MISSING_GAIJI_TABLE.value
@@ -633,6 +650,8 @@ class LogoVistaPackage:
             return SidecarSupportStatus.SCHEMA_CLASSIFIED
         if role_value == SidecarRole.SEARCH.value:
             if any(table.block_column and table.offset_column and (table.title_column or table.plain_column) for table in tables):
+                return SidecarSupportStatus.SEARCH_METADATA
+            if any(table.id_column and table.title_column for table in tables):
                 return SidecarSupportStatus.SEARCH_METADATA
             return SidecarSupportStatus.SCHEMA_CLASSIFIED
         if role_value in {SidecarRole.ANCILLARY.value, SidecarRole.KANJI_SUPPORT.value}:
@@ -1338,6 +1357,7 @@ class LogoVistaPackage:
         if honmon is None or honmon.path is None:
             self._body_source_cache = BodySourceInfo(
                 package_family=self.info.family,
+                ssed_kind=SsedBodySourceKind.MISSING_BODY_COMPONENT,
                 support=BodySourceSupport.UNSUPPORTED,
                 confidence=Confidence.PROVEN,
                 notes=("missing HONMON component",),
@@ -2067,6 +2087,15 @@ class LogoVistaPackage:
                 severity=Severity.ERROR,
                 details={"body_source": source.ssed_kind.value},
             )
+        if source.ssed_kind == SsedBodySourceKind.MISSING_BODY_COMPONENT:
+            return self._placeholder_entry(
+                hit.body,
+                headword=hit.heading,
+                code="missing_body_component",
+                message="local SSED package declares no readable HONMON component for entry bodies",
+                severity=Severity.ERROR,
+                details={"body_source": source.ssed_kind.value, "missing_component": "HONMON.DIC"},
+            )
         return self._placeholder_entry(
             hit.body,
             headword=hit.heading,
@@ -2794,17 +2823,22 @@ class LogoVistaPackage:
         search_hits_rendered_html = 0
         search_hits_rendered_text = 0
         search_errors: list[str] = []
-        sampled_rows: list[IndexRow] = []
-        for parsed in self.indexes().values():
+        sampled_rows: list[tuple[str, IndexRow]] = []
+        for component_name, parsed in self.indexes().items():
             for row in parsed.rows:
-                sampled_rows.append(row)
+                sampled_rows.append((component_name, row))
                 if len(sampled_rows) >= sample_search_hits:
                     break
             if len(sampled_rows) >= sample_search_hits:
                 break
-        for row in sampled_rows:
+        for component_name, row in sampled_rows:
             index_rows_sampled += 1
-            query = row.target_key or row.key
+            query = self._row_display_key(row, backward=self._is_backward_index(component_name))
+            if not normalize_query(query):
+                diagnostics_by_severity["info"] = diagnostics_by_severity.get("info", 0) + 1
+                diagnostics_by_area[DiagnosticArea.INDEX.value] = diagnostics_by_area.get(DiagnosticArea.INDEX.value, 0) + 1
+                diagnostics_by_code["sample_search_skipped_empty_query"] = diagnostics_by_code.get("sample_search_skipped_empty_query", 0) + 1
+                continue
             try:
                 results = self.search(query, profile=SearchProfile.EXACT, limit=1)
                 self._count_diagnostics(results.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
@@ -2877,6 +2911,7 @@ class LogoVistaPackage:
             "missing_anchor_id": diagnostics_by_code.get("dense_anchor_missing_id", 0),
             "missing_row": diagnostics_by_code.get("sidecar_body_not_found", 0),
             "unsupported_body_source": diagnostics_by_code.get("unsupported_body_source", 0),
+            "missing_body_component": diagnostics_by_code.get("missing_body_component", 0),
         }
         resource_resolution = {
             "unresolved_gaiji": diagnostics_by_code.get("unresolved_gaiji", 0),

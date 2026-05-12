@@ -33,6 +33,7 @@ class GaijiResolutionReason(str, Enum):
     IMAGE_ASSET = "image_asset"
     PLIST_MAPPING = "plist_mapping"
     BLANK_BITMAP_FORMATTING_HELPER = "blank_bitmap_formatting_helper"
+    FULLWIDTH_FORMATTING_HELPER_CANDIDATE = "fullwidth_formatting_helper_candidate"
     RENDERER_CONTEXTUAL_REQUIRED = "renderer_contextual_required"
     MISSING_UNICODE_MAPPING = "missing_unicode_mapping"
     MISSING_BITMAP_RESOURCE = "missing_bitmap_resource"

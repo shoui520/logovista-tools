@@ -199,6 +199,9 @@ SSED body-source kinds are distinct from package families:
   body database when the schema is understood;
 - `sidecar_unknown`: dense anchors and one or more SQLite-like sidecars were
   detected, but no supported body table schema was identified;
+- `missing_body_component`: the catalog declares no readable `HONMON.DIC`
+  body component in the local package copy, so validation reports a local
+  package/component integrity residual rather than an unknown body format;
 - LVED SQLCipher and LVLMultiView are separate package families and remain
   deferred. They are not SSED body-source failures.
 
@@ -219,7 +222,9 @@ body-source placeholders. It also reports gaiji display-readiness buckets,
 reason/source/status counts, resource-byte availability, media, link, and
 title-dereference counters plus body decode telemetry for unknown controls and
 bytes so private corpus audits can separate safe fallback behavior from real
-compatibility gaps. Sidecar reports also classify sibling
+compatibility gaps. The corpus summary includes a closure scorecard for hard
+SSED failures, compatibility-significant sidecars, native sampled search
+misses, and true display-unresolved gaiji. Sidecar reports also classify sibling
 SQLite and non-SQLite files by observed role, such as body-critical,
 media/resource, examples/idioms, search, kanji-support, ancillary, or unknown.
 For sidecars with visible block/offset columns, validation records whether

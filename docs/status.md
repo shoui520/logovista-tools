@@ -202,6 +202,9 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   behavior in addition to marker-discovered entries and reports reason-level
   gaiji display-readiness, media, link, sidecar-role, sidecar-supplement,
   title-dereference, index-parser, and body decode telemetry counters.
+  Corpus summaries also include a closure scorecard that separates hard SSED
+  body-source failures, compatibility-significant sidecars, native sampled
+  search misses, and true display-unresolved gaiji.
   Supplemental SQLite
   sidecars with block/offset references are classified by role and either
   attached as safe supplements where structurally clear or counted as deferred
@@ -298,10 +301,18 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   dictionary-global `code -> Unicode` map.
 - The current lvcore reader-side gaiji counters are display-readiness counters,
   not just Unicode-map counters. In the latest local full SSED validation,
-  sampled gaiji occurrences split into Unicode mapped, bitmap-backed,
-  image-backed, formatting-helper, and true display-unresolved buckets. Bitmap
-  and image-backed resources have explicit byte access through resource APIs;
-  raw bytes do not appear in normal render output.
+  12,413 sampled gaiji occurrences split into 2,713 Unicode-mapped, 2,758
+  bitmap-backed, 6,348 image-backed, 594 formatting-helper, and 0 true
+  display-unresolved buckets. Bitmap and image-backed resources have explicit
+  byte access through resource APIs; raw bytes do not appear in normal render
+  output.
+- The latest lvcore full SSED closure audit scanned 210 package folders,
+  including 162 SSED packages. SSED support remains 146 renderable,
+  15 partially renderable, and 1 unsupported local package-integrity residual
+  where a declared readable body component is missing. Compatibility-significant
+  unsupported sidecars, sampled native search misses, unresolved media,
+  unresolved links, and true display-unresolved gaiji are all zero in that
+  validation run.
 - `dump-package-model` embeds sampled rows by default so normal runs stay
   manageable; use zero-valued limits for exhaustive per-package inspection.
   Chunked output externalizes row families, but extraction is not yet fully

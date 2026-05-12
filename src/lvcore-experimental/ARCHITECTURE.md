@@ -281,8 +281,10 @@ Reader-side validation samples both marker-discovered entries and
 search-hit-to-entry-to-render paths. It reports sampled index rows, dereference
 counts, render counts, diagnostic counts, sidecar resolution, reason-level
 gaiji/media/link status, title status counts, heading-source counts, and
-title-dereference reason counters. It is
-reader-safety validation, not writer verification.
+title-dereference reason counters. Corpus validation also emits a closure
+scorecard that separates hard SSED body-source failures, compatibility-significant
+sidecar gaps, sampled native search misses, and true display-unresolved gaiji.
+It is reader-safety validation, not writer verification.
 
 ## Body Sources
 
@@ -300,7 +302,10 @@ dictionaries can still have several body-source shapes:
   `vlpljbl_sidecar`: specific sidecar-backed body sources observed around SSED
   packages;
 - `sidecar_unknown`: dense anchors plus SQLite-like sidecars are present, but
-  no supported body table schema has been identified.
+  no supported body table schema has been identified;
+- `missing_body_component`: the local package catalog does not provide a
+  readable `HONMON.DIC` body component. This is a package/component integrity
+  residual, not evidence for a new body format.
 
 Search hits keep their native body/title pointers, but entry resolution is
 body-source-aware. Direct body-stream packages use `HONMON.DIC` slicing. Dense
