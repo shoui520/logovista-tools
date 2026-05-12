@@ -1000,6 +1000,41 @@ extras/
     numeric_0000015E.IDX.jsonl
 ```
 
+### `resource-taxonomy`
+
+Classify package-local resource, metadata, Panel, and sidecar file families
+from structural evidence.
+
+```bash
+logovista-tools resource-taxonomy /path/to/LogoVista --out-dir taxonomy --json
+logovista-tools resource-taxonomy /path/to/DICT --jobs 0
+```
+
+The command scans package folders for Panel XML/DTD/HTML/BIN assets,
+case-insensitive catalog and metadata references, `DICPROF.INI`, `EXINFO.INI`,
+`*.idx` / `*.uni` association patterns, `CCALTSTR.HA`, and `FIGURE.DIC`.
+Output is file-first and structural: sizes, hashes, magic bytes, reference
+attributes, role hypotheses, confidence levels, and reader-impact classes. It
+does not emit dictionary entry text.
+
+`--jobs 0` uses the host CPU count and is the default for this corpus-scale
+command. Case-insensitive lookup reports exact matches, case-only matches,
+missing references, and collisions separately.
+
+Output layout:
+
+```text
+taxonomy/
+  summary.json
+  summary.md
+  panel-inventory.json
+  panel-bin-analysis.jsonl
+  case-anomalies.jsonl
+  idx-uni-associations.json
+  dicprof-keys.json
+  lvcore-handoff.json
+```
+
 ### `rendererdb`
 
 Extract renderer/app SQLite bodies by following raw HONMON ID anchors.

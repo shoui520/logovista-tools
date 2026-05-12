@@ -32,7 +32,8 @@ iOS       DictList.plist, Gaiji.plist, GaijiS.plist, resourcesCopy.plist,
 Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
 Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, sibling *_GAIJI/, *.chm, vlpljbl*,
           eight-hex-digit 00000xxx.idx sidecar trees, sometimes standalone
-          auxiliary SPINDEX.DIC and sibling *_Sound_Files/ ziptomedia audio
+          auxiliary SPINDEX.DIC and sibling *_Sound_Files/ ziptomedia audio;
+          some packages also carry DICPROF.INI and Panel/ or Panels.xml
 SIZK      classic SSED catalog plus HC0190.dll, HTMLs/b121-b124 templates,
           Templates/honbun.html, shizuku.mp3, shizuku_honbun/time sidecars
 LVED      main.data or *.dbc, WebView2 viewer files, sqlcipher.dll,
@@ -88,6 +89,25 @@ Numeric sidecar names often share the HC product code
 (`HC013A.dll` -> `0000013A.idx`), but this is a convention. `EXINFO.INI`
 `HTMLDLL` is the authoritative renderer link; some HC-bearing packages have no
 numeric index and a few have a numeric index whose code differs from the HC DLL.
+
+All package-local file/resource lookup should be modeled as case-insensitive
+even on case-sensitive host filesystems. Exact-casing matches should be
+preferred, casefolded single matches should be accepted, and casefolded
+collisions should be reported as ambiguous. This applies to catalog components,
+EXINFO/DICPROF references, gaiji resources, Panel assets, sidecars, and media
+files.
+
+`DICPROF.INI` is independent package metadata, not a synonym for `EXINFO.INI`.
+Observed keys can declare dictionary ids, resource basenames, required file
+lists, optional component lists, and UI/resource settings. These declarations
+can explain resource names that differ from the folder name, so declared
+basenames should be respected before folder-name inference.
+
+Panel assets are a separate Windows-era file family. `Panel/`, `Panels.xml`,
+DTD/HTML files, and `.bin` payloads describe optional viewer panels or
+supplemental navigation surfaces. Panel content should not be merged into
+ordinary entry bodies unless an explicit entry address, key, or resource
+relationship is present.
 
 Observed Windows `vlpljbl*` names are not one format. Content classification
 is required before interpreting them:

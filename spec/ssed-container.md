@@ -89,6 +89,12 @@ omitting the physical files and using renderer-side gaiji/display evidence
 instead. A zero-block declaration is an absent optional resource, not a missing
 positive-length component.
 
+Catalog filenames and package-local resource references are resolved
+case-insensitively by observed LogoVista-style packages. Portable readers
+should prefer exact matches, then a single casefolded match, and should report
+casefold collisions as ambiguous. The original on-disk casing remains useful in
+diagnostics and reports.
+
 ## `SSEDDATA` `.DIC`
 
 Every compressed `.DIC` component starts with:

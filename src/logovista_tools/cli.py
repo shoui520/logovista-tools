@@ -56,6 +56,7 @@ from .pcmdata import extract_pcmdata_for_sources
 from .profiles import extract_profiles_for_args
 from .rendererdb import extract_rendererdb_for_sources
 from .resources import ImageResource, load_image_resource_profile
+from .resource_taxonomy import cmd_resource_taxonomy
 from .spindex import discover_spindex_files, inspect_spindex
 from .sizk import discover_sizk_packages, inspect_sizk_package, write_sizk_report
 from .ssed import (
@@ -1765,6 +1766,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_resources.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     add_jobs_argument(p_resources)
     p_resources.set_defaults(func=cmd_resources)
+
+    p_resource_taxonomy = sub.add_parser(
+        "resource-taxonomy",
+        help="Classify LogoVista resource, Panel, sidecar, and metadata file families.",
+    )
+    p_resource_taxonomy.add_argument("root", type=Path, nargs="*", help="Corpus root or dictionary package path.")
+    p_resource_taxonomy.add_argument("--out-dir", type=Path, default=Path("logovista-resource-taxonomy"))
+    p_resource_taxonomy.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    p_resource_taxonomy.add_argument(
+        "--jobs",
+        type=int,
+        default=0,
+        help="Parallel worker processes. Use 0 for os.cpu_count(); default is 0.",
+    )
+    p_resource_taxonomy.set_defaults(func=cmd_resource_taxonomy)
 
     p_colscr = sub.add_parser("colscr", help="Inspect or extract COLSCR.DIC media image records.")
     p_colscr.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
