@@ -1363,51 +1363,6 @@ The differences are packaging and fallback assets:
 This is the cleanest current example of high raw-core compatibility with
 platform-specific resource wrappers.
 
-### Resource and Panel Taxonomy Pass
-
-A file-first taxonomy pass over the 210-folder SSED corpus classifies remaining
-resource and metadata families without treating filenames alone as proof of
-semantics.
-
-Observed high-level counts:
-
-```text
-Panel-bearing packages:        10
-Panel files:                  574
-Panel .bin files:             564
-case/reference anomalies:     175
-CCALTSTR.HA files:              4
-DICPROF.INI files:              9
-FIGURE.DIC files:               2
-eight-hex IDX/UNI resources:   87
-```
-
-Panel packages are currently best classified as optional viewer panel or
-supplemental navigation resources. Their XML exposes structural IDs and
-references, and many `.bin` files look like panel text payloads with LogoVista
-control bytes rather than image containers. This is not enough evidence to
-attach Panel content to ordinary dictionary entries by default.
-
-Case-insensitive file/resource lookup is required for portable analysis.
-KENCOLLO, for example, declares uppercase keyword component names in the
-catalog while the filesystem uses mixed-case component filenames. Lookup should
-try exact casing first, then casefolded matching, and report collisions.
-
-EXINFO and DICPROF metadata can declare resource basenames that differ from the
-folder name. IKUIKU's eight-hex `.idx` / `.uni` resources are declared by
-metadata and should not be forced to the folder basename. IBIO5's numbered
-`00000151_*.idx` files are EXINFO-declared auxiliary indexes. The BMANNAR
-spelling in `_DCT_BMANNER` is metadata-declared and should be respected as a
-resource basename rather than normalized to the folder spelling.
-
-`CCALTSTR.HA` remains structurally fingerprinted but semantically unresolved:
-the observed files are text-like or binary-compatible enough to fingerprint,
-but current public evidence does not prove whether they affect search,
-display, aliases, panels, or viewer UI. `FIGURE.DIC` is observed as an
-`SSEDDATA` resource in two packages; without explicit body, metadata, or Panel
-references, it remains an unknown resource family rather than a confirmed image
-store.
-
 ### IWKOKUG8 iOS vs Android vs Windows
 
 IWKOKUG8 has been checked across iOS, Android, and Windows. The raw core is

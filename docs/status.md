@@ -314,14 +314,6 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   Compatibility-significant unsupported sidecars, sampled native search misses,
   unresolved media, unresolved links, and true display-unresolved gaiji are all
   zero in that validation run.
-- The toolkit resource taxonomy pass now covers all 210 corpus folders and
-  treats LogoVista package file/resource lookup as case-insensitive. It reports
-  exact, case-only, missing, and ambiguous references while preserving original
-  casing. Current structural findings include 10 Panel-bearing packages, 564
-  Panel `.bin` assets, 4 `CCALTSTR.HA` files, 9 `DICPROF.INI` files, 2
-  `FIGURE.DIC` files, and 87 eight-hex `*.idx` / `*.uni` resource names. Panel
-  files are classified as optional viewer panel/navigation resources until an
-  explicit entry attachment is proven.
 - `dump-package-model` embeds sampled rows by default so normal runs stay
   manageable; use zero-valued limits for exhaustive per-package inspection.
   Chunked output externalizes row families, but extraction is not yet fully
