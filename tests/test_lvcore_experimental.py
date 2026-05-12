@@ -53,6 +53,14 @@ def test_lvcore_sidecar_role_classification_is_structural() -> None:
     assert classify_sqlite_sidecar_role("t_contents", ("t_contents",)) == SidecarRole.BODY_CRITICAL
     assert classify_sqlite_sidecar_role("sqlite_unmapped", ("t_media",)) == SidecarRole.MEDIA_RESOURCE
     assert classify_sqlite_sidecar_role("sqlite_unmapped", ("D_Example", "D_Idiom")) == SidecarRole.EXAMPLES_IDIOMS
+    assert (
+        classify_sqlite_sidecar_role(
+            "sqlite_unmapped",
+            ("Supplemental",),
+            {"Supplemental": ["No", "Block", "Offset", "Title"]},
+        )
+        == SidecarRole.LINK_REFERENCE
+    )
     assert classify_sqlite_sidecar_role("sqlite_unmapped", ("t_Search_01", "t_zenbun")) == SidecarRole.SEARCH
     assert classify_sqlite_sidecar_role("sqlite_unmapped", ("t_all", "t_bushu", "t_jukugo")) == SidecarRole.KANJI_SUPPORT
     assert classify_sqlite_sidecar_role("sqlite_unmapped", ("D_InternationalChronology",)) == SidecarRole.ANCILLARY
@@ -487,6 +495,28 @@ def make_dense_anchor_package(root: Path, *, with_sidecar: bool = False) -> None
             con.commit()
         finally:
             con.close()
+
+
+def add_example_idiom_sidecar(root: Path, *, block: int = 2, offset: int = 0) -> None:
+    con = sqlite3.connect(root / "examples.db")
+    try:
+        con.execute("create table D_Example (No integer primary key, Block integer, Offset integer, Keyword text, Midashi text, Title text)")
+        con.execute("create table D_Idiom (No integer primary key, Block integer, Offset integer, Keyword text, Midashi text, Title text)")
+        con.execute("insert into D_Example values (?, ?, ?, ?, ?, ?)", (1, block, offset, "alpha", "alpha midashi", "alpha example title"))
+        con.execute("insert into D_Idiom values (?, ?, ?, ?, ?, ?)", (1, block, offset, "alpha", "alpha idiom", "alpha idiom title"))
+        con.commit()
+    finally:
+        con.close()
+
+
+def add_media_sidecar(root: Path) -> None:
+    con = sqlite3.connect(root / "vlpljblM")
+    try:
+        con.execute("create table t_media (f_name text primary key, f_blob blob)")
+        con.execute("insert into t_media values (?, ?)", ("image-1", b"original bytes"))
+        con.commit()
+    finally:
+        con.close()
 
 
 def make_bad_body_pointer_package(root: Path, *, component_end_block: int = 2, body_block: int = 9999) -> None:
@@ -1139,6 +1169,49 @@ def test_lvcore_dense_anchor_with_unsupported_sqlite_sidecar_schema_is_precise(t
     assert "Entry body is not yet supported" in package.render_entry_text(entry)
     assert "00000001" not in html
     assert any(diagnostic.code == "unsupported_body_source" for diagnostic in entry.diagnostics())
+
+
+def test_lvcore_example_idiom_sidecar_is_classified_and_address_mapped(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    add_example_idiom_sidecar(tmp_path)
+    package = open_package(tmp_path)
+
+    summary = package.sidecar_role_summary()
+    assert summary["role_counts"]["examples_idioms"] == 1
+    assert summary["unsupported_role_counts"]["examples_idioms"] == 1
+    assert summary["compatibility_significant_unsupported_counts"]["examples_idioms"] == 1
+    assert summary["support_status_counts"]["schema_classified"] == 1
+    sidecar = summary["unsupported_sidecars"][0]
+    assert sidecar["compatibility_significant"] is True
+    assert sidecar["tables"] == ["D_Example", "D_Idiom"]
+
+    references = package.sidecar_references(Address(2, 0, "HONMON.DIC"), debug=True)
+    assert {reference["table"] for reference in references} == {"D_Example", "D_Idiom"}
+    assert all(reference["role"] == "examples_idioms" for reference in references)
+    assert all(reference["match_count"] == 1 for reference in references)
+    assert all("block_column" in reference for reference in references)
+
+    report = package.validate(sample_entries=1, sample_search_hits=1)
+    assert report["sidecar_references"]["matched"] == 2
+    assert report["sidecar_references"]["by_role"]["examples_idioms"] == 2
+    assert report["diagnostics"]["by_code"]["unsupported_examples_idioms_sidecar"] == 1
+
+
+def test_lvcore_media_sidecar_schema_is_compatibility_significant(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    add_media_sidecar(tmp_path)
+    package = open_package(tmp_path)
+
+    body_source = package.body_source()
+    sidecar = package.sidecar_role_summary()
+    assert body_source.ssed_kind == SsedBodySourceKind.BODY_STREAM
+    assert sidecar["role_counts"]["media_resource"] == 1
+    assert sidecar["unsupported_role_counts"]["media_resource"] == 1
+    assert sidecar["compatibility_significant_unsupported_counts"]["media_resource"] == 1
+    assert sidecar["unsupported_sidecars"][0]["tables"] == ["t_media"]
+
+    report = package.validate(sample_entries=1, sample_search_hits=1)
+    assert report["diagnostics"]["by_code"]["unsupported_media_resource_sidecar"] == 1
 
 
 def test_lvcore_dense_anchor_sidecar_html_only_body_is_readable(tmp_path: Path) -> None:
@@ -2109,6 +2182,8 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
     assert corpus_data["sidecar_resolution_counts"]["resolved"] >= 1
     assert corpus_data["sidecar_role_counts"]["body_critical"] >= 1
     assert corpus_data["supported_sidecar_role_counts"]["body_critical"] >= 1
+    assert "sidecar_reference_counts" in corpus_data
+    assert corpus_data["sidecar_reference_counts"]["addresses_checked"] >= 1
     assert "resource_resolution_counts" in corpus_data
     assert corpus_data["diagnostics"]["by_severity"]["error"] >= 1
     assert corpus_data["top_diagnostics_by_code"]["unsupported_body_source"] >= 1

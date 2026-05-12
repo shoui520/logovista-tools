@@ -112,7 +112,10 @@ reader reports include title status and heading-source counters so native rows
 that intentionally reuse the body pointer as the title pointer are counted as
 safe heading fallback rather than title failures. Sidecar summaries also
 separate body-critical stores from media/resource, examples/idioms, search,
-kanji-support, ancillary, non-SQLite, and unknown roles. Index summaries count
+kanji-support, ancillary, non-SQLite, and unknown roles. Supplemental sidecars
+with visible block/offset relationships are counted as sidecar references, so
+example/idiom and navigation-like schemas are tracked as reader compatibility
+work rather than dismissed as harmless ancillary files. Index summaries count
 component types, rows by component type, malformed leaf rows, partial physical
 page tails, text-like index outliers, unsupported component types, and
 grouped-continuation rows; body decode telemetry records unknown control and

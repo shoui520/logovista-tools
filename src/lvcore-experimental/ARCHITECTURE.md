@@ -313,7 +313,11 @@ stores, examples/idioms stores, native/full-text search stores, kanji-support
 stores, ancillary databases, non-SQLite payloads, and unknown schemas. Only
 body-critical schemas with understood anchor mapping are used for entry
 resolution. Other roles remain visible to validation and debug tooling without
-being treated as missing body support.
+being treated as missing body support. Address-mapped supplemental tables, such
+as observed example/idiom or navigation schemas with block/offset columns, are
+counted separately as sidecar references. They are compatibility-significant
+until their reader role is fully implemented, but they do not replace the native
+body-source provider.
 
 ## Future Rust and C ABI
 

@@ -192,8 +192,11 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   Reader-side validation now samples search-hit-to-entry-to-render
   behavior in addition to marker-discovered entries and reports reason-level
   gaiji, media, link, sidecar-role, title-dereference, index-parser, and body
-  decode telemetry counters. LVED and LVLMultiView are detected but
-  deliberately deferred.
+  decode telemetry counters. Supplemental SQLite sidecars with block/offset
+  references are classified by role and counted as address-mapped sidecar
+  references so example/idiom, media/resource, search, and navigation databases
+  remain visible compatibility issues until their reader behavior is fully
+  implemented. LVED and LVLMultiView are detected but deliberately deferred.
 - `lvcore corpus-validate`, a private audit command for the reader path. It
   emits a stable `lvcore.corpus_validate.v1` JSON summary, optional JSONL
   targets/failures/diagnostics streams, progress output, package-family counts,

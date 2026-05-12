@@ -18,8 +18,11 @@ from .body_source import (
     SidecarBody,
     SidecarInfo,
     SidecarRole,
+    SidecarSupportStatus,
+    SidecarTableInfo,
     SsedBodySourceKind,
     classify_sqlite_sidecar_role,
+    compatibility_significant_sidecar_role,
     find_column,
     quote_sql_identifier,
     sqlite_columns,
@@ -258,6 +261,37 @@ class LogoVistaPackage:
         except sqlite3.DatabaseError:
             return None
 
+    def _sidecar_table_info(self, con: sqlite3.Connection, table: str) -> SidecarTableInfo:
+        columns = sqlite_columns(con, table)
+        lower = {column.lower(): column for column in columns}
+
+        def first(*names: str) -> str | None:
+            for name in names:
+                found = lower.get(name.lower())
+                if found is not None:
+                    return found
+            return None
+
+        block_col = first("Block", "Block_s", "f_block")
+        offset_col = first("Offset", "Offset_s", "f_offset")
+        role = classify_sqlite_sidecar_role("sqlite_unmapped", (table,), {table: columns})
+        return SidecarTableInfo(
+            table=table,
+            columns=tuple(columns),
+            row_count=self._row_count(con, table),
+            role=role,
+            id_column=first("ID", "No", "ItemID", "f_DataId", "f_data_id", "f_array_no", "f_contents_id", "f_order_id", "id", "index"),
+            title_column=first("Title", "Title_UTF8", "Title_SJIS", "f_Title", "f_title", "Midashi", "MidashiJ", "f_midasi", "f_midashi_hyoki", "f_midashi_key"),
+            html_column=first("f_Html", "f_html_text", "Contents_HTML_box", "Contents_HTML_list", "f_contents"),
+            plain_column=first("Body", "f_body", "f_Plane", "f_plane", "f_plane_text", "h_text", "Value", "data"),
+            blob_column=first("f_blob", "f_main"),
+            name_column=first("f_name", "name"),
+            block_column=block_col,
+            offset_column=offset_col,
+            end_block_column=first("Block_e"),
+            end_offset_column=first("Offset_e"),
+        )
+
     def _inspect_sqlite_sidecar(self, path: Path) -> SidecarInfo | None:
         key = str(path)
         if key in self._sqlite_schema_cache:
@@ -274,10 +308,15 @@ class LogoVistaPackage:
             return None
         try:
             tables = [row[0] for row in con.execute("select name from sqlite_master where type='table' order by name")]
+            table_infos = tuple(self._sidecar_table_info(con, table) for table in tables)
+            columns_by_table = {info.table: list(info.columns) for info in table_infos}
             for table in ("t_contents", "HONBUN", "main"):
                 if table not in tables:
                     continue
                 columns = sqlite_columns(con, table)
+                table_info = next((info for info in table_infos if info.table == table), None)
+                if table_info is not None:
+                    table_info = replace(table_info, role=SidecarRole.BODY_CRITICAL)
                 if table == "HONBUN":
                     id_col = find_column(columns, "ID", "f_DataId", "f_data_id")
                     title_col = find_column(columns, "Title_UTF8", "Title_SJIS", "Title", "f_Title")
@@ -289,12 +328,14 @@ class LogoVistaPackage:
                             kind="honbun",
                             storage=storage,
                             role=classify_sqlite_sidecar_role("honbun", tables),
+                            support_status=SidecarSupportStatus.BODY_RESOLVER,
                             table=table,
                             id_column=id_col,
                             title_column=title_col,
                             html_column=html_col,
                             plain_column=plain_col,
                             row_count=self._row_count(con, table),
+                            tables=(table_info,) if table_info is not None else (),
                         )
                         self._sqlite_schema_cache[key] = info
                         return info
@@ -308,12 +349,14 @@ class LogoVistaPackage:
                             kind="main_wordlist",
                             storage=storage,
                             role=classify_sqlite_sidecar_role("main_wordlist", tables),
+                            support_status=SidecarSupportStatus.BODY_RESOLVER,
                             table=table,
                             id_column=id_col,
                             title_column=title_col,
                             html_column=None,
                             plain_column=plain_col,
                             row_count=self._row_count(con, table),
+                            tables=(table_info,) if table_info is not None else (),
                         )
                         self._sqlite_schema_cache[key] = info
                         return info
@@ -328,20 +371,27 @@ class LogoVistaPackage:
                             kind="t_contents",
                             storage=storage,
                             role=classify_sqlite_sidecar_role("t_contents", tables),
+                            support_status=SidecarSupportStatus.BODY_RESOLVER,
                             table=table,
                             id_column=id_col,
                             title_column=title_col,
                             html_column=html_col,
                             plain_column=plain_col,
                             row_count=self._row_count(con, table),
+                            tables=(table_info,) if table_info is not None else (),
                         )
                         self._sqlite_schema_cache[key] = info
                         return info
+            role = classify_sqlite_sidecar_role("sqlite_unmapped", tables, columns_by_table)
             self._sqlite_schema_cache[key] = SidecarInfo(
                 path=path,
                 kind="sqlite_unmapped",
                 storage=storage,
-                role=classify_sqlite_sidecar_role("sqlite_unmapped", tables),
+                role=role,
+                support_status=SidecarSupportStatus.SCHEMA_CLASSIFIED
+                if role != SidecarRole.UNKNOWN
+                else SidecarSupportStatus.UNSUPPORTED_SCHEMA,
+                tables=table_infos,
                 notes=tuple(tables[:8]),
             )
             return self._sqlite_schema_cache[key]
@@ -360,6 +410,9 @@ class LogoVistaPackage:
         role_counts: dict[str, int] = {}
         unsupported_role_counts: dict[str, int] = {}
         supported_role_counts: dict[str, int] = {}
+        compatibility_significant_unsupported_counts: dict[str, int] = {}
+        support_status_counts: dict[str, int] = {}
+        unsupported_sidecars: list[dict[str, object]] = []
         sqlite_count = 0
         non_sqlite_count = 0
         candidates = self._sidecar_file_candidates()
@@ -369,14 +422,31 @@ class LogoVistaPackage:
                 non_sqlite_count += 1
                 role = SidecarRole.NON_SQLITE_OR_UNKNOWN.value
                 role_counts[role] = role_counts.get(role, 0) + 1
+                status = SidecarSupportStatus.NON_SQLITE_OR_UNKNOWN.value
+                support_status_counts[status] = support_status_counts.get(status, 0) + 1
                 continue
             sqlite_count += 1
             role = sidecar.role.value if isinstance(sidecar.role, SidecarRole) else str(sidecar.role)
+            status = sidecar.support_status.value if isinstance(sidecar.support_status, SidecarSupportStatus) else str(sidecar.support_status)
             role_counts[role] = role_counts.get(role, 0) + 1
-            if sidecar.kind == "sqlite_unmapped":
-                unsupported_role_counts[role] = unsupported_role_counts.get(role, 0) + 1
-            else:
+            support_status_counts[status] = support_status_counts.get(status, 0) + 1
+            if status == SidecarSupportStatus.BODY_RESOLVER.value:
                 supported_role_counts[role] = supported_role_counts.get(role, 0) + 1
+            else:
+                unsupported_role_counts[role] = unsupported_role_counts.get(role, 0) + 1
+                significant = compatibility_significant_sidecar_role(role)
+                if significant:
+                    compatibility_significant_unsupported_counts[role] = compatibility_significant_unsupported_counts.get(role, 0) + 1
+                unsupported_sidecars.append(
+                    {
+                        "name": sidecar.path.name,
+                        "kind": sidecar.kind,
+                        "role": role,
+                        "support_status": status,
+                        "compatibility_significant": significant,
+                        "tables": [table.table for table in sidecar.tables] or list(sidecar.notes),
+                    }
+                )
         return {
             "candidate_count": len(candidates),
             "sqlite_count": sqlite_count,
@@ -384,7 +454,64 @@ class LogoVistaPackage:
             "role_counts": role_counts,
             "supported_role_counts": supported_role_counts,
             "unsupported_role_counts": unsupported_role_counts,
+            "compatibility_significant_unsupported_counts": compatibility_significant_unsupported_counts,
+            "support_status_counts": support_status_counts,
+            "unsupported_sidecars": unsupported_sidecars,
         }
+
+    def sidecar_references(self, address: Address, *, limit: int = 32, debug: bool = False) -> list[dict[str, object]]:
+        """Return structural sidecar rows that point at an entry address.
+
+        This is a read-only metadata resolver for supplemental sidecars such as
+        example/idiom/search/navigation tables. It reports table relationships
+        without returning dictionary text.
+        """
+
+        matches: list[dict[str, object]] = []
+        for sidecar in self._body_sidecars():
+            candidate_tables = [table for table in sidecar.tables if table.block_column and table.offset_column]
+            if not candidate_tables:
+                continue
+            sqlite_path = self._sqlite_path_for_sidecar(sidecar.path, sidecar.storage)
+            try:
+                con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+            except sqlite3.DatabaseError:
+                continue
+            try:
+                for table in candidate_tables:
+                    sql = (
+                        f"select count(*) from {quote_sql_identifier(table.table)} "
+                        f"where {quote_sql_identifier(table.block_column or '')}=? "
+                        f"and {quote_sql_identifier(table.offset_column or '')}=?"
+                    )
+                    try:
+                        count = int(con.execute(sql, (address.block, address.offset)).fetchone()[0])
+                    except sqlite3.DatabaseError:
+                        continue
+                    if count <= 0:
+                        continue
+                    role = table.role.value if isinstance(table.role, SidecarRole) else str(table.role)
+                    support_status = sidecar.support_status.value if isinstance(sidecar.support_status, SidecarSupportStatus) else str(sidecar.support_status)
+                    row: dict[str, object] = {
+                        "sidecar": sidecar.path.name,
+                        "kind": sidecar.kind,
+                        "role": role,
+                        "support_status": support_status,
+                        "table": table.table,
+                        "match_count": count,
+                        "status": "matched",
+                    }
+                    if debug:
+                        row["block_column"] = table.block_column
+                        row["offset_column"] = table.offset_column
+                        row["title_column"] = table.title_column
+                        row["plain_column"] = table.plain_column
+                    matches.append(row)
+                    if len(matches) >= limit:
+                        return matches
+            finally:
+                con.close()
+        return matches
 
     @staticmethod
     def _marker_offsets(reader: SsedData, *, limit: int | None = None) -> list[int]:
@@ -1509,11 +1636,50 @@ class LogoVistaPackage:
             "unresolved_link": 0,
             "unresolved_link_by_reason": {},
         }
+        sidecar_reference_counters: dict[str, object] = {
+            "addresses_checked": 0,
+            "matched": 0,
+            "by_role": {},
+            "by_status": {},
+            "by_table": {},
+        }
+        sidecar_reference_seen: set[tuple[int, int, str | None]] = set()
         decode_counters = {"unknown_controls": 0, "unknown_bytes": 0}
         decode_counter_seen: set[tuple[int, int, str | None]] = set()
         entries_checked = 0
         render_ok = 0
         entry_errors: list[str] = []
+
+        def count_sidecar_references(address: Address) -> None:
+            key = (address.block, address.offset, address.component)
+            if key in sidecar_reference_seen:
+                return
+            sidecar_reference_seen.add(key)
+            sidecar_reference_counters["addresses_checked"] = int(sidecar_reference_counters.get("addresses_checked", 0)) + 1
+            matches = self.sidecar_references(address)
+            if not matches:
+                return
+            sidecar_reference_counters["matched"] = int(sidecar_reference_counters.get("matched", 0)) + len(matches)
+            by_role = sidecar_reference_counters.setdefault("by_role", {})
+            by_status = sidecar_reference_counters.setdefault("by_status", {})
+            by_table = sidecar_reference_counters.setdefault("by_table", {})
+            if isinstance(by_role, dict) and isinstance(by_status, dict) and isinstance(by_table, dict):
+                for match in matches:
+                    self._increment_reason(by_role, match.get("role"))
+                    self._increment_reason(by_status, match.get("support_status"))
+                    self._increment_reason(by_table, match.get("table"))
+
+        for unsupported in sidecar_roles.get("unsupported_sidecars", []) if isinstance(sidecar_roles.get("unsupported_sidecars"), list) else []:
+            if not isinstance(unsupported, dict):
+                continue
+            role = str(unsupported.get("role") or "unknown")
+            significant = bool(unsupported.get("compatibility_significant"))
+            severity = Severity.WARNING if significant else Severity.INFO
+            diagnostics_by_severity[severity.value] = diagnostics_by_severity.get(severity.value, 0) + 1
+            diagnostics_by_area[DiagnosticArea.VALIDATION.value] = diagnostics_by_area.get(DiagnosticArea.VALIDATION.value, 0) + 1
+            diagnostics_by_code["unsupported_sidecar_schema"] = diagnostics_by_code.get("unsupported_sidecar_schema", 0) + 1
+            if significant:
+                diagnostics_by_code[f"unsupported_{role}_sidecar"] = diagnostics_by_code.get(f"unsupported_{role}_sidecar", 0) + 1
 
         def count_decode_telemetry(entry: Entry) -> None:
             key = (entry.address.block, entry.address.offset, entry.address.component)
@@ -1528,6 +1694,7 @@ class LogoVistaPackage:
                 entries_checked += 1
                 try:
                     document = entry.document()
+                    count_sidecar_references(entry.address)
                     count_decode_telemetry(entry)
                     render_html(document)
                     render_text(document)
@@ -1576,6 +1743,7 @@ class LogoVistaPackage:
                         self._increment_reason(title_failure_by_reason, diagnostic.details.get("reason"))
                 entry = self.entry_for_hit(hit)
                 search_hits_dereferenced += 1
+                count_sidecar_references(entry.address)
                 document = entry.document()
                 count_decode_telemetry(entry)
                 self._count_diagnostics(document.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
@@ -1643,6 +1811,7 @@ class LogoVistaPackage:
             "sidecar_resolution": sidecar_resolution,
             "sidecar_roles": sidecar_roles,
             "resource_resolution": resource_resolution,
+            "sidecar_references": sidecar_reference_counters,
             "decode_telemetry": decode_counters,
             "title_dereference": {
                 "attempts": title_attempts,

@@ -204,6 +204,10 @@ bytes so private corpus audits can separate safe fallback behavior from real
 compatibility gaps. Sidecar reports also classify sibling
 SQLite and non-SQLite files by observed role, such as body-critical,
 media/resource, examples/idioms, search, kanji-support, ancillary, or unknown.
+For sidecars with visible block/offset columns, validation now records whether
+sampled entry addresses are referenced by supplemental tables. Those matches
+are counted as compatibility-significant metadata, not as body rendering
+support, unless the body-provider mapping is also understood.
 
 `corpus-validate` is the private full-corpus audit entry point. Its JSON summary
 uses the `lvcore.corpus_validate.v1` schema and reports package-family counts,

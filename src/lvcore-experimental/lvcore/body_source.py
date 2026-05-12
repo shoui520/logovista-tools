@@ -46,11 +46,65 @@ class SidecarRole(str, Enum):
     BODY_CRITICAL = "body_critical"
     MEDIA_RESOURCE = "media_resource"
     EXAMPLES_IDIOMS = "examples_idioms"
+    LINK_REFERENCE = "link_reference"
     SEARCH = "search"
     KANJI_SUPPORT = "kanji_support"
     ANCILLARY = "ancillary"
     NON_SQLITE_OR_UNKNOWN = "non_sqlite_or_unknown"
     UNKNOWN = "unknown"
+
+
+class SidecarSupportStatus(str, Enum):
+    BODY_RESOLVER = "body_resolver"
+    SCHEMA_CLASSIFIED = "schema_classified"
+    UNSUPPORTED_SCHEMA = "unsupported_schema"
+    NON_SQLITE_OR_UNKNOWN = "non_sqlite_or_unknown"
+
+
+@dataclass(frozen=True)
+class SidecarTableInfo:
+    table: str
+    columns: tuple[str, ...] = ()
+    row_count: int | None = None
+    role: SidecarRole | str = SidecarRole.UNKNOWN
+    id_column: str | None = None
+    title_column: str | None = None
+    html_column: str | None = None
+    plain_column: str | None = None
+    blob_column: str | None = None
+    name_column: str | None = None
+    block_column: str | None = None
+    offset_column: str | None = None
+    end_block_column: str | None = None
+    end_offset_column: str | None = None
+
+    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+        role = self.role.value if isinstance(self.role, SidecarRole) else str(self.role)
+        data: dict[str, Any] = {
+            "table": self.table,
+            "row_count": self.row_count,
+            "role": role,
+            "has_body_text": bool(self.html_column or self.plain_column),
+            "has_blob": bool(self.blob_column),
+            "has_address_mapping": bool(self.block_column and self.offset_column),
+        }
+        if debug:
+            data.update(
+                {
+                    "columns": list(self.columns),
+                    "id_column": self.id_column,
+                    "title_column": self.title_column,
+                    "html_column": self.html_column,
+                    "plain_column": self.plain_column,
+                    "blob_column": self.blob_column,
+                    "name_column": self.name_column,
+                    "block_column": self.block_column,
+                    "offset_column": self.offset_column,
+                    "end_block_column": self.end_block_column,
+                    "end_offset_column": self.end_offset_column,
+                }
+            )
+        return data
 
 
 @dataclass(frozen=True)
@@ -59,27 +113,36 @@ class SidecarInfo:
     kind: str
     storage: str
     role: SidecarRole | str = SidecarRole.UNKNOWN
+    support_status: SidecarSupportStatus | str = SidecarSupportStatus.UNSUPPORTED_SCHEMA
     table: str | None = None
     id_column: str | None = None
     title_column: str | None = None
     html_column: str | None = None
     plain_column: str | None = None
+    blob_column: str | None = None
+    name_column: str | None = None
     row_count: int | None = None
+    tables: tuple[SidecarTableInfo, ...] = ()
     notes: tuple[str, ...] = ()
 
     def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+        support_status = self.support_status.value if isinstance(self.support_status, SidecarSupportStatus) else str(self.support_status)
         data = {
             "path": str(self.path),
             "name": self.path.name,
             "kind": self.kind,
             "storage": self.storage,
             "role": self.role.value if isinstance(self.role, SidecarRole) else str(self.role),
+            "support_status": support_status,
             "table": self.table,
             "id_column": self.id_column,
             "title_column": self.title_column,
             "html_column": self.html_column,
             "plain_column": self.plain_column,
+            "blob_column": self.blob_column,
+            "name_column": self.name_column,
             "row_count": self.row_count,
+            "tables": [table.to_dict(debug=debug) for table in self.tables],
             "notes": list(self.notes),
         }
         if not debug:
@@ -192,7 +255,33 @@ def find_column(columns: list[str], *candidates: str) -> str | None:
     return None
 
 
-def classify_sqlite_sidecar_role(kind: str, tables: list[str] | tuple[str, ...]) -> SidecarRole:
+def compatibility_significant_sidecar_role(role: SidecarRole | str) -> bool:
+    value = role.value if isinstance(role, SidecarRole) else str(role)
+    return value in {
+        SidecarRole.BODY_CRITICAL.value,
+        SidecarRole.MEDIA_RESOURCE.value,
+        SidecarRole.EXAMPLES_IDIOMS.value,
+        SidecarRole.LINK_REFERENCE.value,
+        SidecarRole.SEARCH.value,
+        SidecarRole.UNKNOWN.value,
+    }
+
+
+def _columns_for_table(columns_by_table: dict[str, list[str]] | None, table: str) -> set[str]:
+    if not columns_by_table:
+        return set()
+    return {column.lower() for column in columns_by_table.get(table, [])}
+
+
+def _has_any(columns: set[str], *candidates: str) -> bool:
+    return any(candidate.lower() in columns for candidate in candidates)
+
+
+def classify_sqlite_sidecar_role(
+    kind: str,
+    tables: list[str] | tuple[str, ...],
+    columns_by_table: dict[str, list[str]] | None = None,
+) -> SidecarRole:
     lowered = {table.lower() for table in tables}
     if kind in {"honbun", "main_wordlist", "t_contents"}:
         return SidecarRole.BODY_CRITICAL
@@ -207,4 +296,11 @@ def classify_sqlite_sidecar_role(kind: str, tables: list[str] | tuple[str, ...])
             return SidecarRole.KANJI_SUPPORT
         if any("chronology" in table or table.startswith("d_") for table in lowered):
             return SidecarRole.ANCILLARY
+        for table in tables:
+            columns = _columns_for_table(columns_by_table, table)
+            has_block = _has_any(columns, "block", "block_s", "f_block")
+            has_offset = _has_any(columns, "offset", "offset_s", "f_offset")
+            has_bodyish = _has_any(columns, "body", "title", "midashi", "keyword", "h_text", "f_midasi", "f_midashi_hyoki")
+            if has_block and has_offset and has_bodyish:
+                return SidecarRole.LINK_REFERENCE
     return SidecarRole.UNKNOWN

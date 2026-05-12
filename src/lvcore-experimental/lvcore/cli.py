@@ -223,6 +223,7 @@ def _corpus_validate_one(path_str: str, sample_entries: int, sample_search_hits:
             "body_source": report.get("body_source"),
             "sidecar_resolution": report.get("sidecar_resolution"),
             "sidecar_roles": report.get("sidecar_roles"),
+            "sidecar_references": report.get("sidecar_references"),
             "resource_resolution": report.get("resource_resolution"),
             "decode_telemetry": report.get("decode_telemetry"),
             "title_dereference": report.get("title_dereference"),
@@ -372,6 +373,15 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
     sidecar_role_counts: dict[str, int] = {}
     supported_sidecar_role_counts: dict[str, int] = {}
     unsupported_sidecar_role_counts: dict[str, int] = {}
+    compatibility_significant_unsupported_sidecar_counts: dict[str, int] = {}
+    sidecar_support_status_counts: dict[str, int] = {}
+    sidecar_reference_counts: dict[str, Any] = {
+        "addresses_checked": 0,
+        "matched": 0,
+        "by_role": {},
+        "by_status": {},
+        "by_table": {},
+    }
     resource_resolution_counts = {
         "unresolved_gaiji": 0,
         "unresolved_media": 0,
@@ -447,6 +457,20 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
             supported_sidecar_role_counts[key] = supported_sidecar_role_counts.get(key, 0) + int(count)
         for key, count in (sidecar_roles.get("unsupported_role_counts") or {}).items():
             unsupported_sidecar_role_counts[key] = unsupported_sidecar_role_counts.get(key, 0) + int(count)
+        for key, count in (sidecar_roles.get("compatibility_significant_unsupported_counts") or {}).items():
+            compatibility_significant_unsupported_sidecar_counts[key] = compatibility_significant_unsupported_sidecar_counts.get(key, 0) + int(count)
+        for key, count in (sidecar_roles.get("support_status_counts") or {}).items():
+            sidecar_support_status_counts[key] = sidecar_support_status_counts.get(key, 0) + int(count)
+        references = row.get("sidecar_references") or {}
+        sidecar_reference_counts["addresses_checked"] = int(sidecar_reference_counts.get("addresses_checked", 0)) + int(references.get("addresses_checked") or 0)
+        sidecar_reference_counts["matched"] = int(sidecar_reference_counts.get("matched", 0)) + int(references.get("matched") or 0)
+        for bucket in ("by_role", "by_status", "by_table"):
+            dest = sidecar_reference_counts.setdefault(bucket, {})
+            if not isinstance(dest, dict):
+                dest = {}
+                sidecar_reference_counts[bucket] = dest
+            for key, count in (references.get(bucket) or {}).items():
+                dest[key] = dest.get(key, 0) + int(count)
         index_summary = row.get("index_summary") or {}
         for key, count in (index_summary.get("component_type_counts") or {}).items():
             index_component_type_counts[key] = index_component_type_counts.get(key, 0) + int(count)
@@ -543,6 +567,9 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "sidecar_role_counts": sidecar_role_counts,
         "supported_sidecar_role_counts": supported_sidecar_role_counts,
         "unsupported_sidecar_role_counts": unsupported_sidecar_role_counts,
+        "compatibility_significant_unsupported_sidecar_counts": compatibility_significant_unsupported_sidecar_counts,
+        "sidecar_support_status_counts": sidecar_support_status_counts,
+        "sidecar_reference_counts": sidecar_reference_counts,
         "resource_resolution_counts": resource_resolution_counts,
         "resource_resolution_by_reason": resource_resolution_by_reason,
         "decode_telemetry_counts": decode_telemetry_counts,
