@@ -14,7 +14,8 @@ Current scope:
 - parse SSEDINFO catalogs;
 - load plain and LogoFontCipher-encrypted SSEDDATA components;
 - expand SSED chunks and read component slices;
-- parse dictionary-local `.uni` gaiji mappings;
+- parse dictionary-local `.uni` / `.UNI` gaiji mappings, plist fallback
+  metadata, GA16/GAI16 bitmap resources, and image-backed gaiji assets;
 - decode SSED text streams into model-like spans;
 - classify observed SSED `0x1f` controls through a local behavior atlas;
 - parse title streams and native index rows, including simple, tagged,
@@ -57,6 +58,8 @@ PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT t
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT term --search-profile native --format html --profile debug
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore resources /path/to/_DCT_DICT term --json --debug
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore resources /path/to/_DCT_DICT term --json --debug --include-sidecar
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore resources /path/to/_DCT_DICT term --json --debug --include-gaiji
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore gaiji /path/to/_DCT_DICT --json --debug
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore sidecars /path/to/_DCT_DICT --json --debug
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore resource-info /path/to/_DCT_DICT term media-1 --json --debug
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore resource-bytes /path/to/_DCT_DICT term media-1 --output /private/output/media.bin
@@ -148,17 +151,20 @@ is available.
 
 Gaiji, media, and links are app-facing document concepts:
 
-- Unicode gaiji mappings are preferred by default. Bitmap/resource gaiji output
-  is an explicit render policy, and unresolved gaiji render as harmless
-  placeholders with diagnostics.
+- Unicode gaiji mappings are preferred by default. Missing-Unicode gaiji are
+  classified by display readiness: bitmap-backed, image-backed,
+  formatting-helper, renderer-entry-backed, or true unresolved display
+  failure. Bitmap/resource gaiji output is an explicit render policy, and only
+  true unresolved display gaiji render as missing placeholders with diagnostics.
 - Media, image, and audio controls become `ResourceRef` nodes with stable
   `lvcore-resource://...` placeholder URLs unless a caller provides its own
   mapper. Media descriptor metadata is preserved for debug/developer use.
-  Package-local resource APIs resolve GA16 glyph bytes, `COLSCR.DIC`
-  `data`-wrapped image/media payloads, and `PCMDATA.DIC` addressed audio/media
-  ranges where exact extents are known. `resource_bytes()` returns original
-  untouched payload bytes only on explicit request; normal render/JSON output
-  never embeds media bytes.
+  Package-local resource APIs resolve GA16/GAI16 glyph bytes by JIS-grid and
+  `.uni` record-order addressing, plist/image-backed gaiji assets,
+  `COLSCR.DIC` `data`-wrapped image/media payloads, and `PCMDATA.DIC`
+  addressed audio/media ranges where exact extents are known.
+  `resource_bytes()` returns original untouched payload bytes only on explicit
+  request; normal render/JSON output never embeds media bytes.
 - URL and internal reference spans become semantic `LinkTarget` nodes when the
   target can be recovered. Unresolved link targets keep visible label text and
   record diagnostics; friendly output does not expose raw pointer bytes.
@@ -209,7 +215,8 @@ not LVED.
 
 Reader-side validation includes sidecar-resolution counters for sampled search
 hits: resolved rows, missing anchor IDs, missing sidecar rows, and unsupported
-body-source placeholders. It also reports reason-level gaiji, media, link, and
+body-source placeholders. It also reports gaiji display-readiness buckets,
+reason/source/status counts, resource-byte availability, media, link, and
 title-dereference counters plus body decode telemetry for unknown controls and
 bytes so private corpus audits can separate safe fallback behavior from real
 compatibility gaps. Sidecar reports also classify sibling

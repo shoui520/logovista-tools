@@ -11,10 +11,13 @@ package compatibility rather than authoring. See
 for `python3 -m lvcore` commands such as `search`, `render`, `validate`, and
 `corpus-validate`. The lvcore CLI also exposes explicit resource inspection:
 `resources`, `resource-info`, and `resource-bytes`, plus `sidecars` for
-role/support inspection of SSED supplemental sidecars. Resource bytes are
-written only when requested with an output path; normal render output uses safe
-`lvcore-resource://...` references. Sidecar BLOB media bytes remain untouched
-and are not printed to the terminal by default.
+role/support inspection of SSED supplemental sidecars and `gaiji` for
+dictionary-local gaiji display/resource readiness. `resources --include-gaiji`
+lists package-level gaiji resources alongside entry resources. Resource bytes
+are written only when requested with an output path; normal render output uses
+safe `lvcore-resource://...` references. Sidecar BLOB media, GA16/GAI16 glyph
+bytes, image-backed gaiji assets, and media store payloads remain untouched and
+are not printed to the terminal by default.
 
 ## CLI Commands
 

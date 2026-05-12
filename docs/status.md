@@ -184,9 +184,12 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   structured `EntryDocument` trees from spans,
   collects recoverable diagnostics, preserves typed links and media references
   as `LinkTarget` / `ResourceRef` nodes,
-  resolves GA16 glyph bytes, `COLSCR.DIC` `data`-wrapped image/media payloads,
-  and `PCMDATA.DIC` addressed audio/media ranges as untouched resource bytes
-  where exact extents are known, resolves structurally clear sidecar BLOB media
+  resolves GA16/GAI16 glyph bytes by both JIS-grid and `.uni` record-order
+  lookup, exposes image-backed gaiji assets as package resources where mapping
+  evidence is clear, separates formatting-helper gaiji from true display
+  failures, resolves `COLSCR.DIC` `data`-wrapped image/media payloads and
+  `PCMDATA.DIC` addressed audio/media ranges as untouched resource bytes where
+  exact extents are known, resolves structurally clear sidecar BLOB media
   tables as package-level resources, attaches address-mapped example/idiom,
   usage, search, and navigation sidecar rows as experimental entry supplements
   when the mapping is clear,
@@ -197,8 +200,9 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   pointer are treated as heading fallback instead of false title failures.
   Reader-side validation now samples search-hit-to-entry-to-render
   behavior in addition to marker-discovered entries and reports reason-level
-  gaiji, media, link, sidecar-role, sidecar-supplement, title-dereference,
-  index-parser, and body decode telemetry counters. Supplemental SQLite
+  gaiji display-readiness, media, link, sidecar-role, sidecar-supplement,
+  title-dereference, index-parser, and body decode telemetry counters.
+  Supplemental SQLite
   sidecars with block/offset references are classified by role and either
   attached as safe supplements where structurally clear or counted as deferred
   compatibility issues. LVED and LVLMultiView are detected but deliberately
@@ -292,6 +296,12 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   model/gaiji readiness runs should include renderer sidecar evidence for that
   package; the result is display-ready but contextual rather than a
   dictionary-global `code -> Unicode` map.
+- The current lvcore reader-side gaiji counters are display-readiness counters,
+  not just Unicode-map counters. In the latest local full SSED validation,
+  sampled gaiji occurrences split into Unicode mapped, bitmap-backed,
+  image-backed, formatting-helper, and true display-unresolved buckets. Bitmap
+  and image-backed resources have explicit byte access through resource APIs;
+  raw bytes do not appear in normal render output.
 - `dump-package-model` embeds sampled rows by default so normal runs stay
   manageable; use zero-valued limits for exhaustive per-package inspection.
   Chunked output externalizes row families, but extraction is not yet fully

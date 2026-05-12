@@ -156,10 +156,15 @@ Friendly APIs should continue rendering through recoverable diagnostics.
 
 ## Gaiji and Resources
 
-Unicode gaiji mappings are preferred by default. GA16 bitmap or image resources
-are fallbacks or explicit render-profile choices. If no display fallback is
-available, friendly rendering uses a harmless placeholder and records a
-diagnostic. Debug rendering can expose raw gaiji codes.
+Unicode gaiji mappings are preferred by default. GA16/GAI16 bitmap resources
+and image-backed gaiji assets are app-ready fallback resources or explicit
+render-profile choices. lvcore classifies gaiji display readiness as
+`unicode_mapped`, `bitmap_backed`, `image_backed`, `formatting_helper`,
+`renderer_entry_backed`, or `unresolved`. Blank bitmap glyphs and other
+formatting-helper candidates are not treated as missing display glyphs. If no
+display fallback is available, friendly rendering uses a harmless placeholder
+and records a diagnostic. Debug rendering can expose raw gaiji codes, lookup
+source, glyph index, and reason.
 
 Media, image, audio, and unresolved payload references are first-class resource
 references. Friendly HTML may use stable placeholders such as
@@ -178,11 +183,13 @@ metadata.
 Resource rendering is caller-mappable: the default renderer emits stable
 `lvcore-resource://...` URLs, while applications can provide their own mapper
 when serving bitmap gaiji, images, audio, or other resources. Plain text remains
-readable and uses Unicode gaiji where available plus compact media labels.
-Package-level resource APIs can report original GA16 glyph bytes, resolved
-COLSCR payloads, resolved PCMDATA ranges, or precise unresolved reasons where
-lvcore does not yet know an exact extent. Media bytes are not transformed,
-transcoded, resized, wrapped, or copied by the reader model.
+readable, uses Unicode gaiji where available, suppresses formatting helpers,
+and uses compact media labels. Package-level resource APIs can report original
+GA16/GAI16 glyph bytes resolved by JIS-grid or `.uni` record-order lookup,
+package-local image-backed gaiji bytes, resolved COLSCR payloads, resolved
+PCMDATA ranges, or precise unresolved reasons where lvcore does not yet know an
+exact extent. Media and gaiji resource bytes are not transformed, transcoded,
+resized, wrapped, or copied by the reader model.
 
 URL spans and pointer-bearing reference spans are represented as semantic link
 nodes with typed targets such as external URL, body reference, menu navigation,

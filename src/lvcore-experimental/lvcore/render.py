@@ -60,6 +60,8 @@ def _public_href(href: str, *, profile: HtmlProfile) -> str:
 
 
 def _gaiji_text(node: InlineNode, policy: GaijiPolicy) -> str:
+    if str(node.attrs.get("gaiji_display_status") or "") == "formatting_helper":
+        return "" if policy != GaijiPolicy.DEBUG_RAW_CODE else f"<h{(node.code or '').upper()}>"
     if policy == GaijiPolicy.DEBUG_RAW_CODE and node.code:
         return f"<h{node.code.upper()}>"
     if policy == GaijiPolicy.PLACEHOLDER:
@@ -93,15 +95,20 @@ def _render_gaiji_html(
     effective_policy = gaiji_policy if profile != HtmlProfile.DEBUG else GaijiPolicy.DEBUG_RAW_CODE
     text = escape(_gaiji_text(node, effective_policy))
     resource_id = node.resource_id or (f"gaiji-{node.code}" if node.code else "")
+    status = str(node.attrs.get("gaiji_display_status") or "")
+    reason = str(node.attrs.get("gaiji_reason") or "")
     if profile == HtmlProfile.DEBUG:
         return (
             f'<span class="lv-gaiji-debug" data-code="{escape(node.code or "")}" '
-            f'data-resource-id="{escape(resource_id)}">{text}</span>'
+            f'data-resource-id="{escape(resource_id)}" data-gaiji-status="{escape(status)}" '
+            f'data-gaiji-reason="{escape(reason)}">{text}</span>'
         )
     if profile == HtmlProfile.SEMANTIC:
         return f'<span class="lv-inline lv-inline-gaiji" data-kind="gaiji">{text}</span>'
     if profile == HtmlProfile.LOGOVISTA_LIKE and node.text:
         return f'<span class="lv-lvlike-gaiji">{text}</span>'
+    if status == "formatting_helper":
+        return '<span class="lv-gaiji lv-gaiji-helper" aria-hidden="true"></span>'
     if gaiji_policy in {GaijiPolicy.BITMAP_PREFERRED, GaijiPolicy.BITMAP_ONLY} and resource_id:
         fallback = text if gaiji_policy == GaijiPolicy.BITMAP_PREFERRED and node.text else "□"
         return (

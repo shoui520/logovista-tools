@@ -566,6 +566,17 @@ display fidelity because the display text is already known. For example,
 accented Latin gaiji in HAESPJPN display correctly from `.uni`, but many lack
 ASCII fallback text such as `e` for `é`.
 
+The experimental lvcore reader uses the same display-readiness vocabulary for
+entry diagnostics and resource APIs. `resource_info()` reports Unicode,
+GA16/GAI16 grid, `.uni` record-order, plist/image, formatting-helper, or
+renderer-contextual evidence. `resource_bytes()` returns original GA16 glyph
+bytes or original image-backed gaiji bytes only when the exact resource is
+known and the caller explicitly asks for bytes. Friendly rendering prefers
+Unicode display text, can use `lvcore-resource://...` placeholders for
+bitmap/image policies, suppresses formatting helpers, and records diagnostics
+only for true display-unresolved gaiji. Debug output may expose the raw code,
+source, glyph index, and reason, but not raw glyph or image bytes.
+
 ## SQL/DictFULLDB Validation
 
 SQL and `DictFULLDB` payloads are useful for validating gaiji mappings, but

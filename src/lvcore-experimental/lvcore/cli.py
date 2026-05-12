@@ -179,7 +179,16 @@ def cmd_render(args: argparse.Namespace) -> int:
     return 0
 
 
-def _resources_for_query(package, term: str, *, profile: str, limit: int, debug: bool, include_sidecar: bool = False) -> list[dict[str, Any]]:
+def _resources_for_query(
+    package,
+    term: str,
+    *,
+    profile: str,
+    limit: int,
+    debug: bool,
+    include_sidecar: bool = False,
+    include_gaiji: bool = False,
+) -> list[dict[str, Any]]:
     results = package.search(term, limit=limit, profile=profile, debug=debug)
     rows: list[dict[str, Any]] = []
     for hit_index, hit in enumerate(results.hits):
@@ -203,11 +212,21 @@ def _resources_for_query(package, term: str, *, profile: str, limit: int, debug:
                     "info": package.resource_info(resource),
                 }
             )
+    if include_gaiji:
+        for resource in package.gaiji_resources(limit=limit):
+            rows.append(
+                {
+                    "hit_index": None,
+                    "hit": None,
+                    "resource": resource.to_dict(debug=debug),
+                    "info": package.resource_info(resource),
+                }
+            )
     return rows
 
 
 def _find_resource_for_query(package, term: str, resource_id: str, *, profile: str, limit: int, debug: bool):
-    for row in _resources_for_query(package, term, profile=profile, limit=limit, debug=debug, include_sidecar=True):
+    for row in _resources_for_query(package, term, profile=profile, limit=limit, debug=debug, include_sidecar=True, include_gaiji=True):
         resource = row.get("resource") if isinstance(row.get("resource"), dict) else {}
         if resource.get("id") == resource_id:
             return row
@@ -223,8 +242,29 @@ def cmd_resources(args: argparse.Namespace) -> int:
         limit=args.limit,
         debug=args.debug,
         include_sidecar=args.include_sidecar,
+        include_gaiji=args.include_gaiji,
     )
     emit({"query": args.term, "search_profile": args.search_profile, "resources": rows})
+    return 0
+
+
+def cmd_gaiji(args: argparse.Namespace) -> int:
+    package = open_package(args.path)
+    resources = [resource.to_dict(debug=args.debug) for resource in package.gaiji_resources(limit=args.limit)]
+    rows = [
+        {
+            "resource": resource.to_dict(debug=args.debug),
+            "info": package.resource_info(resource),
+        }
+        for resource in package.gaiji_resources(limit=args.limit)
+    ]
+    emit(
+        {
+            "package": package.info.to_dict(),
+            "gaiji": package.summary().get("gaiji"),
+            "resources": rows if args.debug else resources,
+        }
+    )
     return 0
 
 
@@ -794,9 +834,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_resources.add_argument("--limit", type=int, default=3)
     p_resources.add_argument("--search-profile", choices=[profile.value for profile in SearchProfile], default=SearchProfile.NATIVE.value)
     p_resources.add_argument("--include-sidecar", action="store_true", help="Also list package-level sidecar media resources")
+    p_resources.add_argument("--include-gaiji", action="store_true", help="Also list package-level gaiji mappings/resources")
     p_resources.add_argument("--json", action="store_true", help="Emit JSON output (default)")
     p_resources.add_argument("--debug", action="store_true", help="Include decoded resource details")
     p_resources.set_defaults(func=cmd_resources)
+
+    p_gaiji = sub.add_parser("gaiji", help="Inspect package gaiji display mappings and resource readiness")
+    p_gaiji.add_argument("path", type=Path)
+    p_gaiji.add_argument("--limit", type=int, default=50)
+    p_gaiji.add_argument("--json", action="store_true", help="Emit JSON output (default)")
+    p_gaiji.add_argument("--debug", action="store_true", help="Include gaiji source/resource details")
+    p_gaiji.set_defaults(func=cmd_gaiji)
 
     p_sidecars = sub.add_parser("sidecars", help="Inspect package sidecar roles and supported sidecar resources")
     p_sidecars.add_argument("path", type=Path)

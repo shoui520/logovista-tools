@@ -124,6 +124,14 @@ page tails, text-like index outliers, unsupported component types, and
 grouped-continuation rows; body decode telemetry records unknown control and
 byte totals from sampled entries without exposing entry text.
 
+The latest lvcore reader validation also reports gaiji display-readiness
+buckets instead of treating every non-Unicode code as unresolved. A full local
+SSED validation sampled 12,405 gaiji occurrences: 2,713 Unicode-mapped, 2,758
+bitmap-backed, 6,340 image-backed, 479 formatting-helper, and 115 true
+display-unresolved. Resource-byte availability is counted separately; bitmap
+and image-backed gaiji remain original package bytes and are available only via
+explicit resource APIs.
+
 ## Windows SSED Corpus Profile
 
 An earlier Windows SSED corpus pass profiled 169 packages with raw SSED expansion,

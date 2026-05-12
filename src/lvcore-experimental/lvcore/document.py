@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 import hashlib
 from typing import Any, Iterable
@@ -321,6 +321,9 @@ class EntryDocument:
 
 
 def _gaiji_unresolved(span: Span) -> bool:
+    status = span.attrs.get("gaiji_display_status") if isinstance(span.attrs, dict) else None
+    if status:
+        return str(status) == "unresolved"
     if not span.code:
         return False
     if span.text is None:
@@ -559,6 +562,10 @@ def build_entry_document(entry: Entry) -> EntryDocument:
 
     diagnostics = DiagnosticBag()
     diagnostics.diagnostics.extend(entry.entry_diagnostics)
+    renderer_entry_backed = any(
+        getattr(diagnostic, "code", None) == "sidecar_body_resolved"
+        for diagnostic in entry.entry_diagnostics
+    )
     blocks: list[BlockNode] = []
     inlines: list[InlineNode] = []
     resources: list[ResourceRef] = []
@@ -592,19 +599,40 @@ def build_entry_document(entry: Entry) -> EntryDocument:
             continue
 
         if span.kind == "gaiji":
-            unresolved = _gaiji_unresolved(span)
+            attrs = dict(span.attrs)
+            status = str(attrs.get("gaiji_display_status") or "")
+            if renderer_entry_backed and (not status or status == "unresolved") and _gaiji_unresolved(span):
+                status = "renderer_entry_backed"
+                attrs["gaiji_display_status"] = status
+                attrs["gaiji_reason"] = "renderer_contextual_required"
+            unresolved = _gaiji_unresolved(replace(span, attrs=attrs))
+            reason = str(attrs.get("gaiji_reason") or ("missing_unicode_mapping" if unresolved else "unicode_mapping"))
+            display_text = attrs.get("display_text")
+            if not isinstance(display_text, str) or not display_text:
+                display_text = span.text if not _gaiji_unresolved(span) else None
+            if status == "formatting_helper":
+                display_text = ""
             resource_counter += 1
-            resource_id = f"gaiji-{resource_counter}"
+            resource_id = str(attrs.get("resource_id") or f"gaiji-{resource_counter}")
             resources.append(
                 ResourceRef(
                     id=resource_id,
                     kind=ResourceKind.GAIJI,
-                    label=span.text or "gaiji",
+                    label=display_text or span.text or "gaiji",
                     status=ResourceStatus.UNRESOLVED if unresolved else ResourceStatus.RESOLVED,
+                    mime_type=str(attrs.get("mime_type")) if attrs.get("mime_type") else None,
                     component=entry.address.component,
                     code=span.code,
                     source_offset=span.offset,
-                    details={"resolved": not unresolved, "reason": "missing_unicode_mapping" if unresolved else "unicode_mapping"},
+                    details={
+                        "resolved": not unresolved,
+                        "reason": reason,
+                        "display_status": status or ("unresolved" if unresolved else "unicode_mapped"),
+                        "display_text": display_text,
+                        "fallback_text": attrs.get("fallback_text"),
+                        "source": attrs.get("gaiji_source"),
+                        "byte_length": attrs.get("byte_length"),
+                    },
                 )
             )
             if unresolved:
@@ -614,14 +642,19 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                     "unresolved_gaiji",
                     "gaiji has no Unicode mapping in the current package context",
                     location=location(span),
-                    details={"code": span.code, "reason": "missing_unicode_mapping"},
+                    details={"code": span.code, "reason": reason},
                 )
             node = InlineNode(
                 InlineKind.GAIJI,
-                text=None if unresolved else span.text,
+                text=None if unresolved else display_text,
                 code=span.code,
                 resource_id=resource_id,
-                attrs={"resolved": not unresolved, "raw_text": span.text},
+                attrs={
+                    "resolved": not unresolved,
+                    "raw_text": span.text,
+                    "gaiji_display_status": status or ("unresolved" if unresolved else "unicode_mapped"),
+                    "gaiji_reason": reason,
+                },
             )
             _append_inline(inlines, _wrap_styles(node, active_styles))
             continue

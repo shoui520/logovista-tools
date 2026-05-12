@@ -175,6 +175,13 @@ Resources should have stable IDs within the rendered document. Inline nodes
 should reference resource IDs instead of embedding raw payloads. Applications
 can then map those IDs to URLs, blobs, streams, or platform resources.
 
+Gaiji resources should carry display-readiness status separately from byte
+availability. Unicode mappings, bitmap-backed GA16/GAI16 glyphs,
+image-backed package assets, formatting helpers, renderer-entry-backed
+contextual cases, and true unresolved display failures are different API
+states. A future Rust API should keep those states as simple enum-like values
+and expose original glyph/image bytes only through explicit resource access.
+
 ### Diagnostic
 
 Diagnostics are first-class. They should distinguish hard failures from

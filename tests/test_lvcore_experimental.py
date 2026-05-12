@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import json
+import plistlib
 import sqlite3
 import subprocess
 import sys
@@ -18,7 +19,7 @@ from lvcore import Address, Diagnostic, DiagnosticArea, Location, PackageFamily,
 from lvcore.body_source import SidecarRole, classify_sqlite_sidecar_role, quote_sql_identifier, sqlite_columns  # noqa: E402
 from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, LinkTargetKind, ResourceKind, ResourceRef, ResourceStatus, build_entry_document  # noqa: E402
 from lvcore.errors import FormatError  # noqa: E402
-from lvcore.gaiji import ga16_glyph_size, parse_ga16  # noqa: E402
+from lvcore.gaiji import ga16_glyph_size, gaiji_grid_code_for_index, parse_ga16  # noqa: E402
 from lvcore.index import parse_index  # noqa: E402
 from lvcore.model import Component, ComponentRole, Entry  # noqa: E402
 from lvcore.opcodes import OpcodeCategory, behavior_for  # noqa: E402
@@ -182,6 +183,80 @@ def make_synthetic_package(root: Path) -> None:
     (root / "HONMON.DIC").write_bytes(literal_sseddata(entry, start_block=honmon_start, kind=0))
     (root / "FHTITLE.DIC").write_bytes(literal_sseddata(title, start_block=title_start, kind=5))
     (root / "FHINDEX.DIC").write_bytes(literal_sseddata(index, start_block=index_start, kind=0x91))
+
+
+def ga16_file(*, width: int, height: int, start_code: int, glyphs: list[bytes]) -> bytes:
+    header = bytearray(BLOCK_SIZE)
+    header[8] = width
+    header[9] = height
+    header[10:12] = be16(start_code)
+    header[12:14] = be16(len(glyphs))
+    return bytes(header) + b"".join(glyphs)
+
+
+def uni_file(records: list[tuple[str, str, str]], *, section: str = "half") -> bytes:
+    def record(code: str, display: str, fallback: str) -> bytes:
+        out = bytearray(bytes.fromhex(code))
+        out.extend(b"\x00\x00")
+        for text in (display, fallback, ""):
+            units = text.encode("utf-16-be")[:4].ljust(4, b"\x00")
+            out.extend(units)
+        return bytes(out[:16]).ljust(16, b"\x00")
+
+    half = records if section == "half" else []
+    full = records if section == "full" else []
+    out = bytearray(b"Ver2  ")
+    out.extend(be32(len(half)))
+    for item in half:
+        out.extend(record(*item))
+    out.extend(be32(len(full)))
+    for item in full:
+        out.extend(record(*item))
+    return bytes(out)
+
+
+def make_gaiji_package(
+    root: Path,
+    *,
+    raw_code: bytes,
+    uni_records: list[tuple[str, str, str]] | None = None,
+    ga16_name: str | None = None,
+    ga16_payload: bytes | None = None,
+    plist_payload: dict | None = None,
+    image_payload: tuple[str, bytes] | None = None,
+) -> None:
+    honmon_start = 2
+    title_start = 3
+    index_start = 4
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("FHTITLE.DIC", 0x05, title_start, title_start, b"\x01\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start, b"\x02\x01\x55\x40"),
+    ]
+    if ga16_name and ga16_payload is not None:
+        components.append((ga16_name, 0xF0, 0, 0, b"\x00\x00\x00\x00"))
+    entry = b"\x1f\x09\x00\x01" + body_text("gaiji") + b"\x1f\x0a" + raw_code + b"\x1f\x0a"
+    title = body_text("gaiji") + b"\x1f\x0a"
+    key = index_key("gaiji")
+    row = bytes([len(key)]) + key + be32(honmon_start) + be16(0) + be32(title_start) + be16(0)
+    index = be16(0x8000) + be16(1) + row
+    root.mkdir(exist_ok=True)
+    (root / "GAIJI.IDX").write_bytes(ssedinfo("Gaiji", components))
+    (root / "HONMON.DIC").write_bytes(literal_sseddata(entry, start_block=honmon_start, kind=0))
+    (root / "FHTITLE.DIC").write_bytes(literal_sseddata(title, start_block=title_start, kind=5))
+    (root / "FHINDEX.DIC").write_bytes(literal_sseddata(index, start_block=index_start, kind=0x91))
+    if uni_records is not None:
+        (root / "GAIJI.uni").write_bytes(uni_file(uni_records))
+    if ga16_name and ga16_payload is not None:
+        (root / ga16_name).write_bytes(ga16_payload)
+    if plist_payload is not None:
+        with (root / "Gaiji.plist").open("wb") as fh:
+            plistlib.dump(plist_payload, fh)
+    if image_payload is not None:
+        rel, payload = image_payload
+        image_path = root / rel
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        image_path.write_bytes(payload)
 
 
 def make_media_resource_package(root: Path) -> None:
@@ -1762,6 +1837,124 @@ def test_lvcore_gaiji_document_nodes_and_render_policies() -> None:
     assert "lvcore-resource://gaiji-2" in render_html(document, gaiji_policy=GaijiPolicy.BITMAP_ONLY)
     assert "&lt;hA126&gt;" in render_html(document, profile=HtmlProfile.DEBUG)
     assert any(diagnostic.code == "unresolved_gaiji" for diagnostic in document.diagnostics)
+
+
+def test_lvcore_ga16_jis_grid_and_record_order_gaiji_resolution(tmp_path: Path) -> None:
+    assert gaiji_grid_code_for_index(0xA121, 0x5D) == 0xA17E
+    assert gaiji_grid_code_for_index(0xA121, 0x5E) == 0xA221
+
+    glyph0 = bytes([0x80] * 16)
+    glyph1 = bytes([0x40] * 16)
+    make_gaiji_package(
+        tmp_path,
+        raw_code=bytes.fromhex("a130"),
+        uni_records=[("a130", "", ""), ("a140", "", "")],
+        ga16_name="GA16HALF",
+        ga16_payload=ga16_file(width=8, height=16, start_code=0xA121, glyphs=[glyph0, glyph1]),
+    )
+
+    package = open_package(tmp_path)
+    entry = package.search("gaiji", limit=1).hits[0].entry()
+    document = entry.document()
+    resource = next(item for item in document.resources if item.kind == ResourceKind.GAIJI)
+    info = package.resource_info(resource)
+
+    assert resource.details["display_status"] == "bitmap_backed"
+    assert resource.details["reason"] == "uni_record_order_ga16"
+    assert info["display_status"] == "bitmap_backed"
+    assert info["glyph_index"] == 0
+    assert package.resource_bytes(resource) == glyph0
+    assert "lvcore-resource://" in render_html(document, gaiji_policy=GaijiPolicy.BITMAP_ONLY)
+
+
+def test_lvcore_blank_ga16_glyph_is_formatting_helper(tmp_path: Path) -> None:
+    make_gaiji_package(
+        tmp_path,
+        raw_code=bytes.fromhex("a130"),
+        uni_records=[("a130", "", "")],
+        ga16_name="GA16HALF",
+        ga16_payload=ga16_file(width=8, height=16, start_code=0xA121, glyphs=[bytes(16)]),
+    )
+
+    package = open_package(tmp_path)
+    entry = package.search("gaiji", limit=1).hits[0].entry()
+    document = entry.document()
+    resource = next(item for item in document.resources if item.kind == ResourceKind.GAIJI)
+
+    assert resource.status == ResourceStatus.RESOLVED
+    assert resource.details["display_status"] == "formatting_helper"
+    assert resource.details["reason"] == "blank_bitmap_formatting_helper"
+    assert "lv-gaiji-helper" in render_html(document)
+    assert "□" not in render_text(document)
+    report = package.validate(sample_entries=1, sample_search_hits=1)
+    assert report["resource_resolution"]["gaiji_formatting_helper"] >= 1
+    assert report["resource_resolution"]["unresolved_gaiji"] == 0
+
+
+def test_lvcore_plist_unicode_and_image_backed_gaiji_resources(tmp_path: Path) -> None:
+    png = b"\x89PNG\r\n\x1a\nimage"
+    make_gaiji_package(
+        tmp_path,
+        raw_code=bytes.fromhex("b123"),
+        plist_payload={"a155": "Ω", "b123": "img/b123.png"},
+        image_payload=("img/b123.png", png),
+    )
+    package = open_package(tmp_path)
+    assert package.gaiji.resolve("a155") == "Ω"
+
+    entry = package.search("gaiji", limit=1).hits[0].entry()
+    document = entry.document()
+    resource = next(item for item in document.resources if item.kind == ResourceKind.GAIJI)
+    info = package.resource_info(resource)
+
+    assert resource.details["display_status"] == "image_backed"
+    assert info["display_status"] == "image_backed"
+    assert info["mime_type"] == "image/png"
+    assert package.resource_bytes(resource) == png
+    assert "lvcore-resource://" in render_html(document, gaiji_policy=GaijiPolicy.BITMAP_ONLY)
+
+
+def test_lvcore_renderer_entry_backed_gaiji_is_not_global_mapping() -> None:
+    diagnostic = Diagnostic(
+        severity=Severity.INFO,
+        area=DiagnosticArea.BODY,
+        code="sidecar_body_resolved",
+        message="sidecar body resolved",
+    )
+    span = Span(kind="gaiji", text="<hA130>", code="a130", raw=bytes.fromhex("a130"))
+    entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, 2, "HONMON.DIC"), "ctx", "<hA130>", (span,), entry_diagnostics=(diagnostic,))
+    document = entry.document()
+    resource = document.resources[0]
+
+    assert resource.details["display_status"] == "renderer_entry_backed"
+    assert resource.details["reason"] == "renderer_contextual_required"
+    assert not any(diagnostic.code == "unresolved_gaiji" for diagnostic in document.diagnostics)
+    assert "A130" not in render_html(document)
+    assert "A130" in render_html(document, profile=HtmlProfile.DEBUG)
+
+
+def test_lvcore_gaiji_cli_lists_display_readiness(tmp_path: Path) -> None:
+    glyph = bytes([0x80] * 16)
+    make_gaiji_package(
+        tmp_path,
+        raw_code=bytes.fromhex("a130"),
+        uni_records=[("a130", "", "")],
+        ga16_name="GA16HALF",
+        ga16_payload=ga16_file(width=8, height=16, start_code=0xA121, glyphs=[glyph]),
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-m", "lvcore", "gaiji", str(tmp_path), "--json", "--debug"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    data = json.loads(result.stdout)
+
+    assert data["gaiji"]["ga16"][0]["section"] == "half"
+    assert data["resources"][0]["info"]["display_status"] == "bitmap_backed"
+    assert data["resources"][0]["info"]["reason"] == "uni_record_order_ga16"
 
 
 def test_lvcore_media_refs_become_resources_and_safe_placeholders() -> None:

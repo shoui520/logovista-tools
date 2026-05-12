@@ -31,9 +31,18 @@ from .body_source import (
 from .crypto import decrypt_logofont, decrypt_logofont_prefix
 from .detect import detect_family
 from .diagnostics import Diagnostic, DiagnosticArea, Location, Severity
-from .document import BlockNode, InlineKind, InlineNode, ResourceKind, ResourceRef
+from .document import BlockNode, InlineKind, InlineNode, ResourceKind, ResourceRef, ResourceStatus
 from .errors import FormatError, UnsupportedPackageError
-from .gaiji import Ga16Resource, GaijiMap, load_gaiji_map, parse_ga16
+from .gaiji import (
+    Ga16Resource,
+    GaijiDisplayStatus,
+    GaijiMap,
+    GaijiResolutionReason,
+    ImageGaijiResource,
+    load_gaiji_map,
+    load_image_gaiji_resources,
+    parse_ga16,
+)
 from .index import IndexRow
 from .index import IndexParse, parse_index
 from .model import Address, Component, ComponentRole, Entry, PackageFamily, PackageInfo, SearchProfile, Span
@@ -93,13 +102,9 @@ class LogoVistaPackage:
             replace(component, path=find_file_case_insensitive(idx_path.parent, component.name))
             for component in self.catalog.components
         )
-        self.ga16: tuple[Ga16Resource, ...] = tuple(
-            resource
-            for component in self.components
-            if component.role == ComponentRole.GAIJI and component.path is not None
-            for resource in [parse_ga16(component.path)]
-            if resource is not None
-        )
+        self.ga16: tuple[Ga16Resource, ...] = self._load_ga16_resources(idx_path.parent, self.components)
+        self.gaiji_images: tuple[ImageGaijiResource, ...] = load_image_gaiji_resources(idx_path.parent)
+        self._gaiji_image_by_code = {resource.code: resource for resource in self.gaiji_images}
         self._component_by_name = {component.name.lower(): component for component in self.components}
         self._data_cache: dict[str, SsedData] = {}
         self._index_cache: dict[str, IndexParse] = {}
@@ -112,6 +117,36 @@ class LogoVistaPackage:
         self._sqlite_schema_cache: dict[str, SidecarInfo | None] = {}
         self._tempdir: tempfile.TemporaryDirectory[str] | None = None
         self._closed = False
+
+    @staticmethod
+    def _load_ga16_resources(root: Path, components: tuple[Component, ...]) -> tuple[Ga16Resource, ...]:
+        paths: list[Path] = []
+        for component in components:
+            if component.role == ComponentRole.GAIJI and component.path is not None:
+                paths.append(component.path)
+        try:
+            for path in root.rglob("*"):
+                if not path.is_file():
+                    continue
+                upper = path.name.upper()
+                if upper.startswith(("GA16", "GAI16")):
+                    paths.append(path)
+        except OSError:
+            pass
+        resources: list[Ga16Resource] = []
+        seen: set[Path] = set()
+        for path in paths:
+            try:
+                resolved = path.resolve()
+            except OSError:
+                resolved = path
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            parsed = parse_ga16(path)
+            if parsed is not None:
+                resources.append(parsed)
+        return tuple(resources)
 
     def __del__(self) -> None:  # pragma: no cover - best-effort cleanup
         try:
@@ -197,7 +232,262 @@ class LogoVistaPackage:
 
     def decode_component(self, component: str | Component) -> DecodeResult:
         self._ensure_open()
-        return decode_text_stream(self.expanded(component), self.gaiji.mapping)
+        decoded = decode_text_stream(self.expanded(component), self.gaiji.mapping)
+        return DecodeResult(
+            spans=self._annotate_gaiji_spans(decoded.spans),
+            text=decoded.text,
+            unknown_controls=decoded.unknown_controls,
+            unknown_bytes=decoded.unknown_bytes,
+        )
+
+    def _decode_text_stream(self, data: bytes, *, renderer_entry_backed: bool = False) -> DecodeResult:
+        decoded = decode_text_stream(data, self.gaiji.mapping)
+        return DecodeResult(
+            spans=self._annotate_gaiji_spans(decoded.spans, renderer_entry_backed=renderer_entry_backed),
+            text=decoded.text,
+            unknown_controls=decoded.unknown_controls,
+            unknown_bytes=decoded.unknown_bytes,
+        )
+
+    @staticmethod
+    def _gaiji_resource_id(code: str, *, source: str = "gaiji") -> str:
+        digest = hashlib.sha1(f"{source}:{code.lower()}".encode("utf-8")).hexdigest()[:12]
+        return f"gaiji-{code.lower()}-{digest}"
+
+    @staticmethod
+    def _is_blank_glyph(glyph: bytes | None) -> bool:
+        return bool(glyph is not None) and all(byte == 0 for byte in glyph)
+
+    def _gaiji_image_info(self, code: str) -> dict[str, object] | None:
+        image = self._gaiji_image_by_code.get(code.lower())
+        if image is None:
+            return None
+        try:
+            payload = image.path.read_bytes()
+        except OSError:
+            return {
+                "display_status": GaijiDisplayStatus.UNRESOLVED.value,
+                "reason": GaijiResolutionReason.MISSING_IMAGE_RESOURCE.value,
+                "source": image.source,
+                "image_path": str(image.path),
+            }
+        mime_type, format_hint, container_kind = _media_mime_and_format(payload[:256], store_kind="gaiji_image")
+        if mime_type == "application/octet-stream":
+            suffix = image.path.suffix.lower()
+            mime_type = {
+                ".png": "image/png",
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".gif": "image/gif",
+                ".bmp": "image/bmp",
+            }.get(suffix, mime_type)
+            format_hint = suffix.removeprefix(".") or format_hint
+            container_kind = "image" if mime_type.startswith("image/") else container_kind
+        return {
+            "display_status": GaijiDisplayStatus.IMAGE_BACKED.value,
+            "reason": GaijiResolutionReason.IMAGE_ASSET.value,
+            "source": "image",
+            "resource_id": self._gaiji_resource_id(code, source="image"),
+            "resource_kind": ResourceKind.GAIJI.value,
+            "mime_type": mime_type,
+            "format_hint": format_hint,
+            "container_kind": container_kind,
+            "byte_length": len(payload),
+            "image_path": str(image.path),
+            "image_source": image.source,
+            "image_key": image.key,
+        }
+
+    def _gaiji_glyph_info(self, code: str, *, prefer_record_order: bool = True) -> dict[str, object] | None:
+        try:
+            code_int = int(code, 16)
+        except ValueError:
+            return {
+                "display_status": GaijiDisplayStatus.UNRESOLVED.value,
+                "reason": GaijiResolutionReason.MALFORMED_GAIJI_CODE.value,
+            }
+        record = self.gaiji.record_for_code(code)
+        if prefer_record_order and record is not None and record.index >= 0:
+            for resource in self.ga16:
+                if resource.section not in {record.section, "unknown"}:
+                    continue
+                glyph = resource.glyph_by_index(record.index)
+                if glyph is None:
+                    continue
+                status = GaijiDisplayStatus.FORMATTING_HELPER if self._is_blank_glyph(glyph) else GaijiDisplayStatus.BITMAP_BACKED
+                reason = (
+                    GaijiResolutionReason.BLANK_BITMAP_FORMATTING_HELPER
+                    if status == GaijiDisplayStatus.FORMATTING_HELPER
+                    else GaijiResolutionReason.UNI_RECORD_ORDER_GA16
+                )
+                return {
+                    "display_status": status.value,
+                    "reason": reason.value,
+                    "source": "ga16_record_order",
+                    "resource_id": self._gaiji_resource_id(code, source="ga16-record"),
+                    "resource_kind": ResourceKind.GAIJI.value,
+                    "mime_type": "application/x-logovista-ga16-bitmap",
+                    "byte_length": len(glyph),
+                    "source_path": str(resource.path),
+                    "glyph_index": record.index,
+                    "glyph_width": resource.width,
+                    "glyph_height": resource.height,
+                    "glyph_bytes": resource.glyph_bytes,
+                    "ga16_section": resource.section,
+                }
+        for resource in self.ga16:
+            index = resource.index_for_code(code_int)
+            glyph = resource.glyph_by_index(index)
+            if glyph is None:
+                continue
+            status = GaijiDisplayStatus.FORMATTING_HELPER if self._is_blank_glyph(glyph) else GaijiDisplayStatus.BITMAP_BACKED
+            reason = (
+                GaijiResolutionReason.BLANK_BITMAP_FORMATTING_HELPER
+                if status == GaijiDisplayStatus.FORMATTING_HELPER
+                else GaijiResolutionReason.JIS_GRID_GA16
+            )
+            return {
+                "display_status": status.value,
+                "reason": reason.value,
+                "source": "ga16_grid",
+                "resource_id": self._gaiji_resource_id(code, source="ga16-grid"),
+                "resource_kind": ResourceKind.GAIJI.value,
+                "mime_type": "application/x-logovista-ga16-bitmap",
+                "byte_length": len(glyph),
+                "source_path": str(resource.path),
+                "glyph_index": index,
+                "glyph_width": resource.width,
+                "glyph_height": resource.height,
+                "glyph_bytes": resource.glyph_bytes,
+                "ga16_section": resource.section,
+            }
+        return None
+
+    def gaiji_info(self, code_or_resource: str | ResourceRef | dict[str, object]) -> dict[str, object]:
+        if isinstance(code_or_resource, ResourceRef):
+            code = code_or_resource.code or ""
+            resource_id = code_or_resource.id
+            details = dict(code_or_resource.details)
+        elif isinstance(code_or_resource, dict):
+            code_value = code_or_resource.get("code")
+            code = str(code_value or "")
+            resource_id = str(code_or_resource.get("id") or self._gaiji_resource_id(code))
+            details_value = code_or_resource.get("details") or {}
+            details = dict(details_value) if isinstance(details_value, dict) else {}
+        else:
+            code = str(code_or_resource or "")
+            resource_id = self._gaiji_resource_id(code)
+            details = {}
+        code = code.lower()
+        info: dict[str, object] = self._media_info_base(resource_id, ResourceKind.GAIJI.value)
+        info["code"] = code
+        if len(code) != 4:
+            info["status"] = "malformed"
+            info["display_status"] = GaijiDisplayStatus.UNRESOLVED.value
+            info["details"] = {"reason": GaijiResolutionReason.MALFORMED_GAIJI_CODE.value}
+            return info
+
+        record = self.gaiji.record_for_code(code)
+        display_text = self.gaiji.resolve(code)
+        image_info = self._gaiji_image_info(code)
+        glyph_info = self._gaiji_glyph_info(code)
+        if display_text:
+            reason = (
+                GaijiResolutionReason.PLIST_MAPPING.value
+                if record is not None and record.source == "plist"
+                else GaijiResolutionReason.UNICODE_MAPPING.value
+            )
+            if record is not None and not record.display and record.fallback:
+                reason = GaijiResolutionReason.UNICODE_FALLBACK_MAPPING.value
+            info.update(
+                {
+                    "status": "resolved",
+                    "display_status": GaijiDisplayStatus.UNICODE_MAPPED.value,
+                    "reason": reason,
+                    "display_text": display_text,
+                    "fallback_text": record.fallback if record is not None else None,
+                    "source": record.source if record is not None else "uni",
+                    "details": {
+                        "reason": reason,
+                        "display_status": GaijiDisplayStatus.UNICODE_MAPPED.value,
+                        "source": record.source if record is not None else "uni",
+                    },
+                }
+            )
+            backing = glyph_info or image_info
+            if backing and backing.get("display_status") != GaijiDisplayStatus.UNRESOLVED.value:
+                info["resource_id"] = backing.get("resource_id")
+                info["mime_type"] = backing.get("mime_type")
+                info["byte_length"] = backing.get("byte_length")
+                for key in ("source_path", "image_path", "glyph_index", "glyph_width", "glyph_height", "glyph_bytes", "ga16_section"):
+                    if key in backing:
+                        info[key] = backing[key]
+                info["details"] = {**info["details"], "backing_resource": backing}
+            return info
+
+        if details.get("display_status") == GaijiDisplayStatus.RENDERER_ENTRY_BACKED.value:
+            info.update(
+                {
+                    "status": "resolved",
+                    "display_status": GaijiDisplayStatus.RENDERER_ENTRY_BACKED.value,
+                    "reason": GaijiResolutionReason.RENDERER_CONTEXTUAL_REQUIRED.value,
+                    "details": {
+                        "reason": GaijiResolutionReason.RENDERER_CONTEXTUAL_REQUIRED.value,
+                        "display_status": GaijiDisplayStatus.RENDERER_ENTRY_BACKED.value,
+                    },
+                }
+            )
+            return info
+
+        backing = image_info or glyph_info
+        if backing is not None and backing.get("display_status") != GaijiDisplayStatus.UNRESOLVED.value:
+            status = str(backing.get("display_status"))
+            info.update(backing)
+            info["status"] = "resolved"
+            info["display_status"] = status
+            info["details"] = dict(backing)
+            return info
+
+        reason = GaijiResolutionReason.MISSING_UNICODE_MAPPING.value
+        if not self.ga16 and not self.gaiji_images:
+            reason = GaijiResolutionReason.MISSING_GAIJI_TABLE.value
+        info.update(
+            {
+                "status": "unresolved",
+                "display_status": GaijiDisplayStatus.UNRESOLVED.value,
+                "reason": reason,
+                "details": {"reason": reason, "display_status": GaijiDisplayStatus.UNRESOLVED.value},
+            }
+        )
+        return info
+
+    def _annotate_gaiji_spans(self, spans: tuple[Span, ...], *, renderer_entry_backed: bool = False) -> tuple[Span, ...]:
+        out: list[Span] = []
+        for span in spans:
+            if span.kind != "gaiji" or not span.code:
+                out.append(span)
+                continue
+            info = self.gaiji_info(span.code)
+            details = info.get("details") if isinstance(info.get("details"), dict) else {}
+            attrs = dict(span.attrs)
+            attrs.update(
+                {
+                    "gaiji_display_status": info.get("display_status"),
+                    "gaiji_reason": info.get("reason") or details.get("reason"),
+                    "display_text": info.get("display_text"),
+                    "fallback_text": info.get("fallback_text"),
+                    "resource_id": info.get("resource_id"),
+                    "resource_kind": info.get("resource_kind"),
+                    "mime_type": info.get("mime_type"),
+                    "byte_length": info.get("byte_length"),
+                    "gaiji_source": info.get("source") or details.get("source"),
+                }
+            )
+            if renderer_entry_backed and attrs.get("gaiji_display_status") == GaijiDisplayStatus.UNRESOLVED.value:
+                attrs["gaiji_display_status"] = GaijiDisplayStatus.RENDERER_ENTRY_BACKED.value
+                attrs["gaiji_reason"] = GaijiResolutionReason.RENDERER_CONTEXTUAL_REQUIRED.value
+            out.append(replace(span, attrs=attrs))
+        return tuple(out)
 
     def read_address(self, address: Address, size: int, *, role: ComponentRole | None = None) -> bytes:
         component = self.component_for_address(address, role=role)
@@ -758,6 +1048,37 @@ class LogoVistaPackage:
                 con.close()
         return tuple(resources)
 
+    def gaiji_resources(self, *, limit: int | None = None) -> tuple[ResourceRef, ...]:
+        """List package-level gaiji resources and display mappings."""
+
+        codes = sorted({record.code for record in self.gaiji.records} | set(self._gaiji_image_by_code))
+        resources: list[ResourceRef] = []
+        for code in codes:
+            info = self.gaiji_info(code)
+            details = info.get("details") if isinstance(info.get("details"), dict) else {}
+            resources.append(
+                ResourceRef(
+                    id=str(info.get("resource_id") or self._gaiji_resource_id(code)),
+                    kind=ResourceKind.GAIJI,
+                    label=str(info.get("display_text") or code),
+                    status=ResourceStatus.RESOLVED if info.get("status") == "resolved" else ResourceStatus.UNRESOLVED,
+                    mime_type=str(info.get("mime_type")) if info.get("mime_type") else None,
+                    code=code,
+                    source_path=str(info.get("source_path") or info.get("image_path") or "") or None,
+                    details={
+                        "resolved": info.get("status") == "resolved",
+                        "reason": info.get("reason") or details.get("reason"),
+                        "display_status": info.get("display_status") or details.get("display_status"),
+                        "display_text": info.get("display_text"),
+                        "source": info.get("source") or details.get("source"),
+                        "byte_length": info.get("byte_length"),
+                    },
+                )
+            )
+            if limit is not None and len(resources) >= limit:
+                break
+        return tuple(resources)
+
     def sidecar_supplement_summary(self) -> dict[str, object]:
         summary: dict[str, object] = {
             "examples_idioms_rows_seen": 0,
@@ -913,7 +1234,7 @@ class LogoVistaPackage:
         reader = self.data(honmon)
         count = 0
         for start, end in self.iter_entry_slices(limit=limit):
-            decoded = decode_text_stream(reader.read(start, end - start), self.gaiji.mapping)
+            decoded = self._decode_text_stream(reader.read(start, end - start))
             text = decoded.text.strip("\x00")
             head = ""
             lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -1141,7 +1462,7 @@ class LogoVistaPackage:
     def entry_at(self, address: Address, *, max_bytes: int = 512 * 1024) -> Entry:
         honmon, start, end_offset, diagnostics = self._entry_range_for_address(address, max_bytes=max_bytes)
         reader = self.data(honmon)
-        decoded = decode_text_stream(reader.read(start, end_offset - start), self.gaiji.mapping)
+        decoded = self._decode_text_stream(reader.read(start, end_offset - start))
         lines = [line.strip() for line in decoded.text.splitlines() if line.strip()]
         headword = lines[0] if lines else ""
         entry = Entry(
@@ -1355,7 +1676,7 @@ class LogoVistaPackage:
             if pos >= 0
         ]
         end = min(end_candidates) if end_candidates else len(data)
-        decoded = decode_text_stream(data[:end], self.gaiji.mapping)
+        decoded = self._decode_text_stream(data[:end])
         title = " ".join(line.strip() for line in decoded.text.splitlines() if line.strip()).strip("\x00 ")
         if title:
             return title, ()
@@ -2065,33 +2386,7 @@ class LogoVistaPackage:
         if details.get("sidecar_media"):
             return self._resolve_sidecar_media_resource(resource_id, kind, details)
         if kind == ResourceKind.GAIJI.value and code:
-            try:
-                code_int = int(code, 16)
-            except ValueError:
-                info["status"] = "malformed"
-                info["details"] = {"reason": "malformed_gaiji_code"}
-                return info
-            for ga16 in self.ga16:
-                glyph = ga16.glyph(code_int)
-                if glyph is None:
-                    continue
-                info.update(
-                    {
-                        "status": "resolved",
-                        "mime_type": "application/x-logovista-ga16-bitmap",
-                        "source_path": str(ga16.path),
-                        "byte_length": len(glyph),
-                        "details": {
-                            "reason": "ga16_glyph",
-                            "width": ga16.width,
-                            "height": ga16.height,
-                            "glyph_bytes": ga16.glyph_bytes,
-                        },
-                    }
-                )
-                return info
-            info["details"] = {"reason": "missing_ga16_resource"}
-            return info
+            return self.gaiji_info(resource)
 
         range_start = details.get("range_start")
         range_end = details.get("range_end")
@@ -2128,6 +2423,25 @@ class LogoVistaPackage:
             code = str(code_value) if code_value is not None else None
 
         if kind == ResourceKind.GAIJI.value and code:
+            info = self.gaiji_info(resource)
+            if info.get("status") != "resolved":
+                return None
+            details = info.get("details") if isinstance(info.get("details"), dict) else {}
+            status = str(info.get("display_status") or details.get("display_status") or "")
+            if status == GaijiDisplayStatus.UNICODE_MAPPED.value and not info.get("byte_length"):
+                return None
+            source_path = info.get("source_path") or info.get("image_path")
+            if isinstance(source_path, str) and info.get("image_path"):
+                try:
+                    return Path(source_path).read_bytes()
+                except OSError:
+                    return None
+            glyph_index = info.get("glyph_index")
+            source_path_value = info.get("source_path")
+            if isinstance(glyph_index, int) and isinstance(source_path_value, str):
+                for resource_info in self.ga16:
+                    if str(resource_info.path) == source_path_value:
+                        return resource_info.glyph_by_index(glyph_index)
             try:
                 code_int = int(code, 16)
             except ValueError:
@@ -2207,6 +2521,9 @@ class LogoVistaPackage:
 
     def _count_document_resources(self, resources: tuple[ResourceRef, ...], counters: dict[str, object]) -> None:
         gaiji_by_reason = counters.setdefault("unresolved_gaiji_by_reason", {})
+        gaiji_by_status = counters.setdefault("gaiji_by_status", {})
+        gaiji_by_source = counters.setdefault("gaiji_by_source", {})
+        gaiji_by_reason = counters.setdefault("gaiji_by_reason", gaiji_by_reason)
         media_by_reason = counters.setdefault("unresolved_media_by_reason", {})
         media_kind_counts = counters.setdefault("media_kind_counts", {})
         media_mime_counts = counters.setdefault("media_mime_counts", {})
@@ -2214,9 +2531,16 @@ class LogoVistaPackage:
         colscr_malformed = counters.setdefault("colscr_records_malformed_by_reason", {})
         pcmdata_unresolved = counters.setdefault("pcmdata_ranges_unresolved_by_reason", {})
         media_bytes_unavailable = counters.setdefault("media_bytes_unavailable_by_reason", {})
-        if not isinstance(gaiji_by_reason, dict):
-            gaiji_by_reason = {}
-            counters["unresolved_gaiji_by_reason"] = gaiji_by_reason
+        for key, value in (
+            ("unresolved_gaiji_by_reason", gaiji_by_reason),
+            ("gaiji_by_status", gaiji_by_status),
+            ("gaiji_by_source", gaiji_by_source),
+            ("gaiji_by_reason", counters.get("gaiji_by_reason")),
+        ):
+            if not isinstance(value, dict):
+                value = {}
+                counters[key] = value
+        gaiji_by_reason = counters["unresolved_gaiji_by_reason"]
         if not isinstance(media_by_reason, dict):
             media_by_reason = {}
             counters["unresolved_media_by_reason"] = media_by_reason
@@ -2235,11 +2559,38 @@ class LogoVistaPackage:
             status = resource.status.value if hasattr(resource.status, "value") else str(resource.status)
             reason = resource.details.get("reason")
             if resource.kind == ResourceKind.GAIJI:
-                if status == "resolved":
+                info = self.resource_info(resource)
+                info_details = info.get("details") if isinstance(info.get("details"), dict) else {}
+                display_status = str(
+                    resource.details.get("display_status")
+                    or info.get("display_status")
+                    or info_details.get("display_status")
+                    or ("unresolved" if status != "resolved" else "unicode_mapped")
+                )
+                display_reason = resource.details.get("reason") or info.get("reason") or info_details.get("reason") or reason
+                source = resource.details.get("source") or info.get("source") or info_details.get("source") or "unknown"
+                counters["gaiji_occurrences"] = int(counters.get("gaiji_occurrences", 0)) + 1
+                status_key = f"gaiji_{display_status}"
+                counters[status_key] = int(counters.get(status_key, 0)) + 1
+                if isinstance(counters.get("gaiji_by_status"), dict):
+                    self._increment_reason(counters["gaiji_by_status"], display_status)
+                if isinstance(counters.get("gaiji_by_source"), dict):
+                    self._increment_reason(counters["gaiji_by_source"], source)
+                if isinstance(counters.get("gaiji_by_reason"), dict):
+                    self._increment_reason(counters["gaiji_by_reason"], display_reason)
+                byte_length = info.get("byte_length")
+                if isinstance(byte_length, int) and byte_length > 0:
+                    counters["gaiji_resource_bytes_available"] = int(counters.get("gaiji_resource_bytes_available", 0)) + 1
+                elif display_status in {GaijiDisplayStatus.BITMAP_BACKED.value, GaijiDisplayStatus.IMAGE_BACKED.value}:
+                    unavailable = counters.setdefault("gaiji_resource_bytes_unavailable_by_reason", {})
+                    if isinstance(unavailable, dict):
+                        self._increment_reason(unavailable, display_reason)
+                if display_status != GaijiDisplayStatus.UNRESOLVED.value:
                     counters["resolved_gaiji"] = int(counters.get("resolved_gaiji", 0)) + 1
                 else:
                     counters["unresolved_gaiji"] = int(counters.get("unresolved_gaiji", 0)) + 1
-                    self._increment_reason(gaiji_by_reason, reason)
+                    counters["gaiji_display_unresolved"] = int(counters.get("gaiji_display_unresolved", 0)) + 1
+                    self._increment_reason(gaiji_by_reason, display_reason)
             elif resource.kind in {ResourceKind.MEDIA, ResourceKind.IMAGE, ResourceKind.AUDIO}:
                 info = self.resource_info(resource)
                 kind_value = resource.kind.value
@@ -2311,6 +2662,19 @@ class LogoVistaPackage:
             "resolved_gaiji": 0,
             "unresolved_gaiji": 0,
             "unresolved_gaiji_by_reason": {},
+            "gaiji_occurrences": 0,
+            "gaiji_unicode_mapped": 0,
+            "gaiji_bitmap_backed": 0,
+            "gaiji_image_backed": 0,
+            "gaiji_formatting_helper": 0,
+            "gaiji_renderer_entry_backed": 0,
+            "gaiji_display_unresolved": 0,
+            "gaiji_search_fallback_missing": 0,
+            "gaiji_resource_bytes_available": 0,
+            "gaiji_resource_bytes_unavailable_by_reason": {},
+            "gaiji_by_reason": {},
+            "gaiji_by_source": {},
+            "gaiji_by_status": {},
             "resolved_media": 0,
             "unresolved_media": 0,
             "unresolved_media_by_reason": {},
@@ -2519,6 +2883,19 @@ class LogoVistaPackage:
             "unresolved_media": resource_counters["unresolved_media"],
             "unresolved_link": diagnostics_by_code.get("unresolved_link_target", 0),
             "resolved_gaiji": resource_counters["resolved_gaiji"],
+            "gaiji_occurrences": resource_counters.get("gaiji_occurrences", 0),
+            "gaiji_unicode_mapped": resource_counters.get("gaiji_unicode_mapped", 0),
+            "gaiji_bitmap_backed": resource_counters.get("gaiji_bitmap_backed", 0),
+            "gaiji_image_backed": resource_counters.get("gaiji_image_backed", 0),
+            "gaiji_formatting_helper": resource_counters.get("gaiji_formatting_helper", 0),
+            "gaiji_renderer_entry_backed": resource_counters.get("gaiji_renderer_entry_backed", 0),
+            "gaiji_display_unresolved": resource_counters.get("gaiji_display_unresolved", 0),
+            "gaiji_search_fallback_missing": resource_counters.get("gaiji_search_fallback_missing", 0),
+            "gaiji_resource_bytes_available": resource_counters.get("gaiji_resource_bytes_available", 0),
+            "gaiji_resource_bytes_unavailable_by_reason": resource_counters.get("gaiji_resource_bytes_unavailable_by_reason", {}),
+            "gaiji_by_reason": resource_counters.get("gaiji_by_reason", {}),
+            "gaiji_by_source": resource_counters.get("gaiji_by_source", {}),
+            "gaiji_by_status": resource_counters.get("gaiji_by_status", {}),
             "resolved_media": resource_counters["resolved_media"],
             "resolved_link": resource_counters["resolved_link"],
             "unresolved_gaiji_by_reason": resource_counters["unresolved_gaiji_by_reason"],
@@ -2569,6 +2946,10 @@ class LogoVistaPackage:
                 "uni_records": len(self.gaiji.records),
                 "unicode_mappings": len(self.gaiji.mapping),
                 "ga16_resources": len(self.ga16),
+                "image_resources": len(self.gaiji_images),
+                "plist_unicode_mappings": self.gaiji.plist_unicode_mappings,
+                "plist_mapping_ambiguous": self.gaiji.plist_mapping_ambiguous,
+                "plist_parse_failures": self.gaiji.plist_parse_failures,
             },
             "indexes": index_stats,
             "index_summary": {
@@ -2616,6 +2997,10 @@ class LogoVistaPackage:
                 "records": len(self.gaiji.records),
                 "mapped": len(self.gaiji.mapping),
                 "paths": [str(path) for path in self.gaiji.paths],
+                "image_resources": len(self.gaiji_images),
+                "plist_unicode_mappings": self.gaiji.plist_unicode_mappings,
+                "plist_mapping_ambiguous": self.gaiji.plist_mapping_ambiguous,
+                "plist_parse_failures": self.gaiji.plist_parse_failures,
                 "ga16": [
                     {
                         "path": str(resource.path),
@@ -2624,6 +3009,7 @@ class LogoVistaPackage:
                         "start_code": f"{resource.start_code:04x}",
                         "count": resource.count,
                         "glyph_bytes": resource.glyph_bytes,
+                        "section": resource.section,
                     }
                     for resource in self.ga16
                 ],

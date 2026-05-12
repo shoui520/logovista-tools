@@ -57,6 +57,9 @@ Use this checklist when reviewing changes under `src/lvcore-experimental`.
 - Sidecar reports distinguish body-critical schemas from media/resource,
   examples/idioms, search, kanji-support, ancillary, non-SQLite, and unknown
   roles.
+- Gaiji reports distinguish Unicode-mapped, bitmap-backed, image-backed,
+  formatting-helper, renderer-entry-backed, and true display-unresolved
+  occurrences, with resource-byte availability counted separately.
 - Full-corpus reports are private artifacts and are not committed.
 
 ## Public/Private Boundary
