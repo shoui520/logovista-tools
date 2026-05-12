@@ -1145,6 +1145,68 @@ Observed export signature variants:
 | 1 | `epwing2HtmlBodydata`<br>`getCustomCharacterDIB`<br>`modifyHeadwordEx` | `IBIO5` |
 | 1 | `epwing2HtmlBodydata`<br>`modifyHeadwordAddr` | `KQSYNONM` |
 
+### Windows Panel Subsystem
+
+The Panel subsystem is now decoded as a Windows SSED navigation/UI layer rather
+than a generic file-family inventory item.
+
+Complete Panel packages have `Panels.dtd`, `Panels.xml`, `Panel.html`,
+`Cell.html`, and external `.bin` payloads. The DTD schema is stable across the
+decoded set: `panels` contains package information and `panel+`; each `panel`
+contains a `title` and one or more `data` nodes; `data` may contain inline
+`cell` nodes or reference an external file. `paneltype` separates menu and
+contents panels. Menu panels use inline cells whose `ref` attributes point to
+other Panel `index` values. Content panels usually use `data type="bin"` and a
+`filename`; a few use `data type="html"`.
+
+The decoded binary payload grammar is:
+
+```text
+uint32le record_count
+uint32le text_width
+repeat record_count:
+  uint32le target_block
+  uint32le target_offset
+  byte[text_width] label_text_stream
+```
+
+`label_text_stream` uses the same conservative LogoVista text decoding model as
+body/title text: JIS pairs, gaiji pairs, NUL padding, and `0x1f` display
+controls. This matters because many observed labels contain halfwidth and
+superscript controls; treating them as raw byte pairs loses display semantics.
+
+The current Panel decode pass covered the observed complete Panel XML/BIN set:
+
+```text
+complete Panels.xml packages: 10
+Panel BIN files decoded:       2,457
+Panel BIN rows decoded:      577,728
+binary decode failures:           0
+```
+
+All decoded row addresses resolve into declared SSED components. Rows mostly
+target `HONMON.DIC`; one decoded package also has a small set of rows targeting
+`MENU.DIC`. This makes Panel content an optional navigation surface: label ->
+raw SSED address. It is not an entry body store, media store, compressed
+container, SQLite sidecar, or replacement for normal native index search.
+
+Observed packaging details:
+
+- One package stores Panel `.bin` payloads in a sibling `_Panel` directory
+  rather than a package-local `Panel/` directory.
+- XML filenames use Windows backslashes and require path normalization.
+- Some packages carry Panel templates or DTD fragments without `Panels.xml`;
+  those files are renderer/template residue, not a complete decodable Panel
+  navigation surface by themselves.
+- One Windows package copy has a missing Panel `.bin` referenced from XML; the
+  corresponding iOS package copy supplies that same file, and it decodes with
+  the same fixed-record grammar.
+
+Reader impact: Panel support should be exposed as an explicit optional
+navigation/sidebar API. Friendly entry rendering should not automatically merge
+Panel rows into normal body text, but a reader can safely show Panel labels as
+links to the decoded target addresses.
+
 ### SIZK / NHK 文学のしずく Read-Aloud Packages
 
 The corpus contains 30 SIZK packages, `SIZK0101` through `SIZK0605`. These are

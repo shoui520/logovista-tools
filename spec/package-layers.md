@@ -90,6 +90,77 @@ Numeric sidecar names often share the HC product code
 `HTMLDLL` is the authoritative renderer link; some HC-bearing packages have no
 numeric index and a few have a numeric index whose code differs from the HC DLL.
 
+## Windows Panel Subsystem
+
+Some Windows SSED packages include a Panel UI/navigation layer alongside the raw
+dictionary core. A complete observed Panel set uses:
+
+```text
+Panels.dtd
+Panels.xml
+Panel.html
+Cell.html
+Panel/*.bin
+```
+
+One observed layout stores the `.bin` payloads in a sibling package directory
+instead of a package-local `Panel/` directory. Panel XML paths use Windows
+backslashes, so portable tooling must normalize path separators and perform
+case-insensitive package-local lookup.
+
+`Panels.dtd` is a small XML schema:
+
+```text
+panels      -> information, panel+
+information -> dictionaryName, creationDate
+panel       -> title, data+
+data        -> cell*
+cell        -> #PCDATA
+```
+
+Important attributes:
+
+```text
+panels: version, fontsize, color/bkcolor/linecolor, focused_*,
+        noref_*, cell_w, cell_h
+panel:  index, paneltype=(menu|contents|mixed),
+        datatype=(internal|external|mixed), flow, direction,
+        count_all/count_x/count_y, style attributes, font-stretch,
+        multi-line, cell_w, cell_h
+data:   type=(inline|bin|html), filename
+cell:   ref, direction, color/bkcolor, fontsize
+```
+
+Menu panels normally use inline `cell` elements whose `ref` values point to
+other Panel `index` values. Content panels normally use external
+`data type="bin"` rows, or less commonly `data type="html"`.
+
+The decoded Panel `.bin` grammar is fixed-width and little-endian:
+
+```text
+uint32 record_count
+uint32 text_width
+repeat record_count:
+    uint32 target_block
+    uint32 target_offset
+    byte[text_width] label_text_stream
+```
+
+The exact file size is `8 + record_count * (8 + text_width)`. Decoded records
+are label-to-address rows for optional Panel navigation surfaces. The target is
+an SSED logical block/offset pair; in the decoded Windows corpus these rows
+target `HONMON.DIC`, with a small observed set targeting `MENU.DIC`.
+
+`label_text_stream` is not an arbitrary byte label. It is a NUL-padded
+LogoVista text stream using JIS pairs, gaiji pairs, and known `0x1f` display
+controls such as halfwidth and superscript spans. Readers should decode it with
+the same conservative text-stream logic used for body/title text.
+
+`Panel.html` and `Cell.html` are viewer templates for presenting the Panel
+tree/cells. They do not define the binary record grammar. A reader that does
+not implement the original UI can still expose the decoded Panel rows as an
+optional navigation API without merging them into ordinary entry body rendering.
+
 Observed Windows `vlpljbl*` names are not one format. Content classification
 is required before interpreting them:
 

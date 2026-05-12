@@ -314,6 +314,13 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   Compatibility-significant unsupported sidecars, sampled native search misses,
   unresolved media, unresolved links, and true display-unresolved gaiji are all
   zero in that validation run.
+- The Windows Panel subsystem has a decoded package-layer model. Complete
+  Panel packages use `Panels.dtd`, `Panels.xml`, `Panel.html`, `Cell.html`, and
+  external `.bin` tables. The `.bin` files are fixed-width little-endian
+  label-to-address tables, and the observed complete Panel corpus decodes
+  2,457 files / 577,728 rows with no binary decode failures. Rows mostly target
+  `HONMON.DIC`; a small observed set targets `MENU.DIC`. Panel rows are
+  optional navigation/sidebar data, not ordinary entry bodies.
 - `dump-package-model` embeds sampled rows by default so normal runs stay
   manageable; use zero-valued limits for exhaustive per-package inspection.
   Chunked output externalizes row families, but extraction is not yet fully
