@@ -90,6 +90,38 @@ Numeric sidecar names often share the HC product code
 `HTMLDLL` is the authoritative renderer link; some HC-bearing packages have no
 numeric index and a few have a numeric index whose code differs from the HC DLL.
 
+## CCALTSTR Alternate-String Tables
+
+Some Windows SSED packages carry `CCALTSTR.HA` and, less commonly,
+`CCALTSTR.FU`. These are fixed-record custom-character alternate-string tables,
+not body streams, Panel files, media stores, compressed containers, or SQLite
+sidecars.
+
+The decoded table layout is:
+
+```text
+offset  size  meaning
+0x00    8     ASCII magic: SDICALTH for .HA, SDICALTF for .FU
+0x08    2     uint16le version, observed as 1
+0x0a    2     uint16be start custom-character code
+0x0c    2     uint16be record count
+0x0e    2     reserved/flags
+0x10    ...   record_count fixed records
+
+record:
+0x00    2     uint16be custom-character code
+0x02    60    NUL-terminated alternate string, ASCII with CP932 fallback
+```
+
+The exact file size is `16 + record_count * 62`. Record codes advance in JIS
+row/cell order, so the code after `A17E` is `A221`, not `A17F`.
+
+`CCALTSTR` keys overlap the package-local custom-character codes from `.uni`
+resources, but the value field is a separate short alternate string rather than
+the display glyph mapping. Reader impact is search/headword normalization:
+these tables provide roman/ASCII fallback strings for custom characters. They
+should not be merged into entry body rendering.
+
 ## Windows Panel Subsystem
 
 Some Windows SSED packages include a Panel UI/navigation layer alongside the raw

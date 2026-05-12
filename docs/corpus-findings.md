@@ -1207,6 +1207,34 @@ navigation/sidebar API. Friendly entry rendering should not automatically merge
 Panel rows into normal body text, but a reader can safely show Panel labels as
 links to the decoded target addresses.
 
+### CCALTSTR Alternate-String Tables
+
+The observed Windows corpus contains four `CCALTSTR.HA` files in the targeted
+English/Japanese-English packages, plus one `CCALTSTR.FU` sibling in the
+French/Japanese-French package family. The files decode as fixed-record
+custom-character alternate-string tables.
+
+Observed table facts:
+
+```text
+magic values:      SDICALTH (.HA), SDICALTF (.FU)
+header size:       16 bytes
+record size:       62 bytes
+value field:       60-byte NUL-terminated alternate string
+code sequence:     JIS row/cell order
+file size rule:    16 + record_count * 62
+```
+
+The `.HA` tables use half-width/custom-character ranges such as `A121...`; the
+observed `.FU` table uses a full-width/custom-character range beginning at
+`B121`. Nonempty rows overlap the package-local `.uni` custom-character code
+set, but the values are short alternate strings rather than display text or
+glyph data.
+
+Reader impact: `CCALTSTR` is relevant to search/headword normalization for
+custom characters. It is not an entry body store, Panel data, media, a gaiji
+bitmap/image store, or a replacement for `.uni` display mappings.
+
 ### SIZK / NHK 文学のしずく Read-Aloud Packages
 
 The corpus contains 30 SIZK packages, `SIZK0101` through `SIZK0605`. These are
