@@ -184,6 +184,9 @@ packages are not LVED/LVLMultiView; they remain SSED body-source variants.
   structured `EntryDocument` trees from spans,
   collects recoverable diagnostics, preserves typed links and media references
   as `LinkTarget` / `ResourceRef` nodes,
+  resolves GA16 glyph bytes, `COLSCR.DIC` `data`-wrapped image/media payloads,
+  and `PCMDATA.DIC` addressed audio/media ranges as untouched resource bytes
+  where exact extents are known,
   and renders friendly/semantic/LogoVista-like/debug HTML plus plain text.
   Friendly rendering hides raw opcodes and offsets; debug search/render output
   is explicit. Search hits carry reader-facing heading, heading-source, and

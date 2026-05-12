@@ -130,6 +130,7 @@ def _render_link_html(
     status = str(target.get("status") or "unresolved")
     visible_text = _inline_text(node, gaiji_policy=GaijiPolicy.UNICODE_PREFERRED).strip()
     href = str(target.get("href") or "")
+    resource_id = str(target.get("resource_id") or node.attrs.get("resource_id") or "")
     is_external = kind in {"url", "external_url"}
     if is_external and not href and _is_safe_url(visible_text):
         href = visible_text
@@ -155,6 +156,16 @@ def _render_link_html(
         if not is_external:
             data_link = f' data-lvcore-link="{escape(public_href, quote=True)}"'
         return f'<a class="{class_name}" href="{escape(public_href, quote=True)}"{data_link}{debug_attrs}>{children}</a>'
+    if resource_id:
+        class_name = "lv-link lv-link-resource"
+        if profile == HtmlProfile.SEMANTIC:
+            class_name = "lv-inline lv-inline-link lv-link lv-link-resource"
+        elif profile == HtmlProfile.LOGOVISTA_LIKE:
+            class_name = "lv-lvlike-link lv-link lv-link-resource"
+        return (
+            f'<span class="{class_name}" data-resource-url="{escape(_resource_url(resource_id, resource_url_mapper), quote=True)}" '
+            f'data-resource-kind="audio"{debug_attrs}>{children}</span>'
+        )
     class_name = "lv-link lv-link-unresolved"
     if profile == HtmlProfile.SEMANTIC:
         class_name = "lv-inline lv-inline-link lv-link lv-link-unresolved"

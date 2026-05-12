@@ -166,6 +166,11 @@ records use the same wrapper as BMP/JPEG records: ASCII `data`, a little-endian
 payload length, and then a native PNG byte stream beginning with the PNG
 signature. Width and height are recovered from the IHDR chunk when present.
 
+The experimental lvcore reader resolves these records as original media
+payloads plus wrapper/source metadata. It does not transform, resize, reencode,
+or write converted image files; applications fetch bytes explicitly through
+resource APIs and decide how to present them.
+
 ## `PCMDATA.DIC` Audio/Media Resources
 
 `PCMDATA.DIC` is a compressed SSED component, usually listed as component type
@@ -248,6 +253,12 @@ The unreferenced count matters: `PCMDATA.DIC` is not merely a lookup table for
 HONMON references. It is a sequential media store, and some records can exist
 between referenced ranges. The `pcmdata` command therefore reports both
 HONMON-referenced records and unreferenced records found in nonzero gaps.
+
+The experimental lvcore reader treats `1f4a` / `1f6a` ranges as original byte
+ranges. It records the resolved component, offsets, length, MIME/format hints,
+and range metadata, but it does not wrap chunk fragments into WAVE files or
+convert payloads. Portable playback/export remains a higher-level tool or
+application concern.
 
 Corpus-wide component forensics currently covers 12 `PCMDATA.DIC` components
 with zero nonzero unparsed bytes. `ARCHSIC3` is the observed shared-WAVE

@@ -52,6 +52,9 @@ PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT t
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT term --search-profile native --format html --profile semantic
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT term --search-profile native --format html --profile logovista-like
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT term --search-profile native --format html --profile debug
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore resources /path/to/_DCT_DICT term --json --debug
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore resource-info /path/to/_DCT_DICT term media-1 --json --debug
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore resource-bytes /path/to/_DCT_DICT term media-1 --output /private/output/media.bin
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore validate /path/to/_DCT_DICT --sample-search-hits 5 --json
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate /path/to/corpus --json --full --jobs 0
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate /path/to/corpus --json --jobs 0 --progress --output-dir /private/reports/lvcore-corpus
@@ -145,9 +148,12 @@ Gaiji, media, and links are app-facing document concepts:
   placeholders with diagnostics.
 - Media, image, and audio controls become `ResourceRef` nodes with stable
   `lvcore-resource://...` placeholder URLs unless a caller provides its own
-  mapper. Media descriptor metadata is preserved for debug/developer use, and
-  package-local resource APIs can report original component addresses or GA16
-  glyph bytes where lvcore knows a safe untouched source.
+  mapper. Media descriptor metadata is preserved for debug/developer use.
+  Package-local resource APIs resolve GA16 glyph bytes, `COLSCR.DIC`
+  `data`-wrapped image/media payloads, and `PCMDATA.DIC` addressed audio/media
+  ranges where exact extents are known. `resource_bytes()` returns original
+  untouched payload bytes only on explicit request; normal render/JSON output
+  never embeds media bytes.
 - URL and internal reference spans become semantic `LinkTarget` nodes when the
   target can be recovered. Unresolved link targets keep visible label text and
   record diagnostics; friendly output does not expose raw pointer bytes.

@@ -179,6 +179,65 @@ def cmd_render(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resources_for_query(package, term: str, *, profile: str, limit: int, debug: bool) -> list[dict[str, Any]]:
+    results = package.search(term, limit=limit, profile=profile, debug=debug)
+    rows: list[dict[str, Any]] = []
+    for hit_index, hit in enumerate(results.hits):
+        entry = package.entry_for_hit(hit)
+        document = entry.document()
+        for resource in document.resources:
+            row = {
+                "hit_index": hit_index,
+                "hit": hit.to_dict(debug=debug),
+                "resource": resource.to_dict(debug=debug),
+                "info": package.resource_info(resource),
+            }
+            rows.append(row)
+    return rows
+
+
+def _find_resource_for_query(package, term: str, resource_id: str, *, profile: str, limit: int, debug: bool):
+    for row in _resources_for_query(package, term, profile=profile, limit=limit, debug=debug):
+        resource = row.get("resource") if isinstance(row.get("resource"), dict) else {}
+        if resource.get("id") == resource_id:
+            return row
+    return None
+
+
+def cmd_resources(args: argparse.Namespace) -> int:
+    package = open_package(args.path)
+    rows = _resources_for_query(package, args.term, profile=args.search_profile, limit=args.limit, debug=args.debug)
+    emit({"query": args.term, "search_profile": args.search_profile, "resources": rows})
+    return 0
+
+
+def cmd_resource_info(args: argparse.Namespace) -> int:
+    package = open_package(args.path)
+    row = _find_resource_for_query(package, args.term, args.resource_id, profile=args.search_profile, limit=args.limit, debug=args.debug)
+    if row is None:
+        emit({"ok": False, "error": "resource_not_found", "resource_id": args.resource_id})
+        return 1
+    emit({"ok": True, **row})
+    return 0
+
+
+def cmd_resource_bytes(args: argparse.Namespace) -> int:
+    package = open_package(args.path)
+    row = _find_resource_for_query(package, args.term, args.resource_id, profile=args.search_profile, limit=args.limit, debug=True)
+    if row is None:
+        emit({"ok": False, "error": "resource_not_found", "resource_id": args.resource_id})
+        return 1
+    resource = row.get("resource") if isinstance(row.get("resource"), dict) else {}
+    payload = package.resource_bytes(resource)
+    if payload is None:
+        emit({"ok": False, "error": "resource_bytes_unavailable", "resource_id": args.resource_id, "info": row.get("info")})
+        return 1
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_bytes(payload)
+    emit({"ok": True, "resource_id": args.resource_id, "output": str(args.output), "byte_length": len(payload), "info": row.get("info")})
+    return 0
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     package = open_package(args.path)
     report = package.validate(sample_entries=args.sample_entries, sample_search_hits=args.sample_search_hits)
@@ -395,6 +454,7 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "unresolved_media": {},
         "unresolved_link": {},
     }
+    media_resolution_counts: dict[str, dict[str, int]] = {}
     decode_telemetry_counts = {"unknown_controls": 0, "unknown_bytes": 0}
     title_dereference_counts = {
         "attempts": 0,
@@ -487,9 +547,14 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         index_dangling_continuation_rows += int(index_summary.get("dangling_continuation_rows") or 0)
         for key, count in (row.get("resource_resolution") or {}).items():
             if isinstance(count, dict):
-                reason_bucket = resource_resolution_by_reason.setdefault(key.removesuffix("_by_reason"), {})
-                for reason, reason_count in count.items():
-                    reason_bucket[reason] = reason_bucket.get(reason, 0) + int(reason_count)
+                if key.endswith("_by_reason"):
+                    reason_bucket = resource_resolution_by_reason.setdefault(key.removesuffix("_by_reason"), {})
+                    for reason, reason_count in count.items():
+                        reason_bucket[reason] = reason_bucket.get(reason, 0) + int(reason_count)
+                else:
+                    media_bucket = media_resolution_counts.setdefault(key, {})
+                    for reason, reason_count in count.items():
+                        media_bucket[reason] = media_bucket.get(reason, 0) + int(reason_count)
                 continue
             resource_resolution_counts[key] = resource_resolution_counts.get(key, 0) + int(count)
         for key, count in (row.get("decode_telemetry") or {}).items():
@@ -572,6 +637,7 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         "sidecar_reference_counts": sidecar_reference_counts,
         "resource_resolution_counts": resource_resolution_counts,
         "resource_resolution_by_reason": resource_resolution_by_reason,
+        "media_resolution_counts": media_resolution_counts,
         "decode_telemetry_counts": decode_telemetry_counts,
         "title_dereference_counts": title_dereference_counts,
         "failure_count": len(failures),
@@ -674,6 +740,34 @@ def build_parser() -> argparse.ArgumentParser:
     p_render.add_argument("--diagnostics", action="store_true", help="Include diagnostics in rendered output")
     p_render.add_argument("--debug", action="store_true", help="Include debug hit details in JSON output")
     p_render.set_defaults(func=cmd_render)
+
+    p_resources = sub.add_parser("resources", help="Search an entry and list app-facing resources")
+    p_resources.add_argument("path", type=Path)
+    p_resources.add_argument("term")
+    p_resources.add_argument("--limit", type=int, default=3)
+    p_resources.add_argument("--search-profile", choices=[profile.value for profile in SearchProfile], default=SearchProfile.NATIVE.value)
+    p_resources.add_argument("--json", action="store_true", help="Emit JSON output (default)")
+    p_resources.add_argument("--debug", action="store_true", help="Include decoded resource details")
+    p_resources.set_defaults(func=cmd_resources)
+
+    p_resource_info = sub.add_parser("resource-info", help="Resolve metadata for a resource found by search")
+    p_resource_info.add_argument("path", type=Path)
+    p_resource_info.add_argument("term")
+    p_resource_info.add_argument("resource_id")
+    p_resource_info.add_argument("--limit", type=int, default=3)
+    p_resource_info.add_argument("--search-profile", choices=[profile.value for profile in SearchProfile], default=SearchProfile.NATIVE.value)
+    p_resource_info.add_argument("--json", action="store_true", help="Emit JSON output (default)")
+    p_resource_info.add_argument("--debug", action="store_true", help="Include decoded resource details")
+    p_resource_info.set_defaults(func=cmd_resource_info)
+
+    p_resource_bytes = sub.add_parser("resource-bytes", help="Write untouched resolved resource payload bytes")
+    p_resource_bytes.add_argument("path", type=Path)
+    p_resource_bytes.add_argument("term")
+    p_resource_bytes.add_argument("resource_id")
+    p_resource_bytes.add_argument("--output", type=Path, required=True, help="Destination file for original resource bytes")
+    p_resource_bytes.add_argument("--limit", type=int, default=3)
+    p_resource_bytes.add_argument("--search-profile", choices=[profile.value for profile in SearchProfile], default=SearchProfile.NATIVE.value)
+    p_resource_bytes.set_defaults(func=cmd_resource_bytes)
 
     p_validate = sub.add_parser("validate", help="Validate reader-side open/search/decode/render safety")
     p_validate.add_argument("path", type=Path)

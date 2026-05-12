@@ -204,7 +204,35 @@ def make_media_resource_package(root: Path) -> None:
     root.mkdir(exist_ok=True)
     (root / "MEDIA.IDX").write_bytes(ssedinfo("Media", components))
     (root / "HONMON.DIC").write_bytes(literal_sseddata(entry, start_block=honmon_start, kind=0))
-    (root / "COLSCR.DIC").write_bytes(literal_sseddata(b"original media bytes", start_block=media_start, kind=0xD2))
+    image_payload = b"\x89PNG\r\n\x1a\n"
+    media_record = b"data" + len(image_payload).to_bytes(4, "little") + image_payload
+    (root / "COLSCR.DIC").write_bytes(literal_sseddata(media_record, start_block=media_start, kind=0xD2))
+    (root / "FHTITLE.DIC").write_bytes(literal_sseddata(title, start_block=title_start, kind=5))
+    (root / "FHINDEX.DIC").write_bytes(literal_sseddata(index, start_block=index_start, kind=0x91))
+
+
+def make_pcmdata_resource_package(root: Path) -> None:
+    honmon_start = 2
+    pcm_start = 3
+    title_start = 4
+    index_start = 5
+    audio_payload = b"ID3abc123"
+    pcm_payload = b"\x00\x01\x00\x00" + be32(pcm_start) + be16(0) + be32(pcm_start) + be16(len(audio_payload))
+    entry = body_text("audio") + b"\x1f\x0a" + b"\x1f\x4a" + pcm_payload + body_text("play") + b"\x1f\x6a\x1f\x0a"
+    title = body_text("audio") + b"\x1f\x0a"
+    key = index_key("audio")
+    row = bytes([len(key)]) + key + be32(honmon_start) + be16(0) + be32(title_start) + be16(0)
+    index = be16(0x8000) + be16(1) + row
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("PCMDATA.DIC", 0xD8, pcm_start, pcm_start, b"\x00\x00\x00\x00"),
+        ("FHTITLE.DIC", 0x05, title_start, title_start, b"\x01\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start, b"\x02\x01\x55\x40"),
+    ]
+    root.mkdir(exist_ok=True)
+    (root / "PCM.IDX").write_bytes(ssedinfo("PCM", components))
+    (root / "HONMON.DIC").write_bytes(literal_sseddata(entry, start_block=honmon_start, kind=0))
+    (root / "PCMDATA.DIC").write_bytes(literal_sseddata(audio_payload, start_block=pcm_start, kind=0xD8))
     (root / "FHTITLE.DIC").write_bytes(literal_sseddata(title, start_block=title_start, kind=5))
     (root / "FHINDEX.DIC").write_bytes(literal_sseddata(index, start_block=index_start, kind=0x91))
 
@@ -1682,11 +1710,112 @@ def test_lvcore_media_resource_info_resolves_original_component_address(tmp_path
 
     assert resource.kind == ResourceKind.MEDIA
     assert resource.details["target_address"] == {"block": 3, "offset": 0}
-    assert info["status"] == "deferred"
+    assert info["status"] == "resolved"
+    assert info["reason"] == "colscr_data_record"
     assert info["source_component"] == "COLSCR.DIC"
     assert info["source_offset"] == 0
-    assert info["details"]["reason"] == "media_address_resolved_without_extent"
+    assert info["record_offset"] == 0
+    assert info["record_length"] == 16
+    assert info["payload_offset"] == 8
+    assert info["payload_length"] == 8
+    assert info["mime_type"] == "image/png"
+    assert info["store_kind"] == "colscr"
+    assert package.resource_bytes(resource) == b"\x89PNG\r\n\x1a\n"
+    assert package.resource_record_bytes(resource) == b"data\x08\x00\x00\x00\x89PNG\r\n\x1a\n"
+
+
+def test_lvcore_pcmdata_audio_range_resolves_original_bytes(tmp_path: Path) -> None:
+    make_pcmdata_resource_package(tmp_path)
+    package = open_package(tmp_path)
+    hit = package.search("audio", profile=SearchProfile.EXACT).hits[0]
+    entry = package.entry_for_hit(hit)
+    document = entry.document()
+
+    assert [resource.kind for resource in document.resources] == [ResourceKind.AUDIO]
+    resource = document.resources[0]
+    info = package.resource_info(resource)
+
+    assert resource.id == "audio-1"
+    assert resource.details["range_start"] == {"block": 3, "offset": 0}
+    assert resource.details["range_end"] == {"block": 3, "offset": 9}
+    assert info["status"] == "resolved"
+    assert info["reason"] == "pcmdata_range"
+    assert info["source_component"] == "PCMDATA.DIC"
+    assert info["payload_offset"] == 0
+    assert info["payload_length"] == 9
+    assert info["mime_type"] == "audio/mpeg"
+    assert info["store_kind"] == "pcmdata"
+    assert package.resource_bytes(resource) == b"ID3abc123"
+    assert "lvcore-resource://audio-1" in render_html(document)
+    assert "ID3abc123" not in render_html(document)
+
+
+def test_lvcore_validate_counts_resolved_media_stores(tmp_path: Path) -> None:
+    make_media_resource_package(tmp_path)
+    package = open_package(tmp_path)
+    report = package.validate(sample_entries=1, sample_search_hits=1)
+
+    media = report["resource_resolution"]
+    assert media["resolved_media"] >= 1
+    assert media["unresolved_media"] == 0
+    assert media["colscr_records_resolved"] >= 1
+    assert media["media_store_kind_counts"]["colscr"] >= 1
+    assert media["media_mime_counts"]["image/png"] >= 1
+    assert media["media_bytes_available"] >= 1
+
+
+def test_lvcore_colscr_malformed_record_reports_reason(tmp_path: Path) -> None:
+    make_media_resource_package(tmp_path)
+    (tmp_path / "COLSCR.DIC").write_bytes(literal_sseddata(b"not-data", start_block=3, kind=0xD2))
+    package = open_package(tmp_path)
+    hit = package.search("media", profile=SearchProfile.EXACT).hits[0]
+    resource = package.entry_for_hit(hit).document().resources[0]
+
+    info = package.resource_info(resource)
+
+    assert info["status"] == "unsupported"
+    assert info["details"]["reason"] == "missing_data_magic"
     assert package.resource_bytes(resource) is None
+
+
+def test_lvcore_resource_cli_lists_info_and_writes_bytes(tmp_path: Path) -> None:
+    make_media_resource_package(tmp_path)
+    output = tmp_path / "resource.bin"
+
+    resources_result = subprocess.run(
+        [sys.executable, "-m", "lvcore", "resources", str(tmp_path), "media", "--json", "--debug"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    resources = json.loads(resources_result.stdout)
+    assert resources["resources"][0]["resource"]["id"] == "media-1"
+    assert resources["resources"][0]["info"]["status"] == "resolved"
+    assert resources["resources"][0]["info"]["mime_type"] == "image/png"
+
+    info_result = subprocess.run(
+        [sys.executable, "-m", "lvcore", "resource-info", str(tmp_path), "media", "media-1", "--json"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    info = json.loads(info_result.stdout)
+    assert info["ok"] is True
+    assert info["info"]["store_kind"] == "colscr"
+
+    bytes_result = subprocess.run(
+        [sys.executable, "-m", "lvcore", "resource-bytes", str(tmp_path), "media", "media-1", "--output", str(output)],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    data = json.loads(bytes_result.stdout)
+    assert data["ok"] is True
+    assert data["byte_length"] == 8
+    assert output.read_bytes() == b"\x89PNG\r\n\x1a\n"
 
 
 def test_lvcore_image_and_audio_media_refs_are_first_class_resources() -> None:

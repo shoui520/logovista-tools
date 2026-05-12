@@ -9,7 +9,10 @@ reader-only, does not import `logovista_tools`, and targets real LogoVista
 package compatibility rather than authoring. See
 [`src/lvcore-experimental/README.md`](../src/lvcore-experimental/README.md)
 for `python3 -m lvcore` commands such as `search`, `render`, `validate`, and
-`corpus-validate`.
+`corpus-validate`. The lvcore CLI also exposes explicit resource inspection:
+`resources`, `resource-info`, and `resource-bytes`. Resource bytes are written
+only when requested with an output path; normal render output uses safe
+`lvcore-resource://...` references.
 
 ## CLI Commands
 
@@ -32,8 +35,10 @@ payload inspection, and LVLMultiView/SIZK package inspection.
 `capability-matrix` is also corpus-oriented, but it reads already-generated
 report directories rather than re-scanning raw dictionary files.
 
-For huge corpora, start with a moderate value such as `--jobs 8` or `--jobs 16`
-when also writing many JSON/media files. `--jobs 0` is useful for CPU-heavy
+For local corpus work, use the host's exposed parallelism unless current memory
+or I/O pressure says otherwise. A moderate explicit value such as `--jobs 8`,
+`--jobs 16`, or `--jobs 36` can be useful when also writing many JSON/media
+files. `--jobs 0` uses all available CPUs and is appropriate for CPU-heavy
 audits on local SSD/NVMe storage, but it can be counterproductive on slow or
 network-mounted disks.
 

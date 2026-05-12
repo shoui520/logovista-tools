@@ -167,13 +167,22 @@ references. Friendly HTML may use stable placeholders such as
 friendly output. Resource records carry stable IDs plus resolution status,
 reason-level diagnostics, and debug-only payload metadata.
 
+For SSED media stores, lvcore resolves exact original extents where the corpus
+structure is understood. `COLSCR.DIC` `data` records expose native image/media
+payload bytes and wrapper metadata. `PCMDATA.DIC` audio/media controls expose
+the original addressed byte range without adding RIFF/WAVE wrappers or
+transcoding. Byte access is explicit through package resource APIs and CLI
+resource commands; render output only contains safe resource references and
+metadata.
+
 Resource rendering is caller-mappable: the default renderer emits stable
 `lvcore-resource://...` URLs, while applications can provide their own mapper
 when serving bitmap gaiji, images, audio, or other resources. Plain text remains
 readable and uses Unicode gaiji where available plus compact media labels.
-Package-level resource APIs can report original GA16 glyph bytes or media
-component addresses where lvcore has a safe untouched source. Media bytes are
-not transformed, transcoded, resized, or copied by the reader model.
+Package-level resource APIs can report original GA16 glyph bytes, resolved
+COLSCR payloads, resolved PCMDATA ranges, or precise unresolved reasons where
+lvcore does not yet know an exact extent. Media bytes are not transformed,
+transcoded, resized, wrapped, or copied by the reader model.
 
 URL spans and pointer-bearing reference spans are represented as semantic link
 nodes with typed targets such as external URL, body reference, menu navigation,

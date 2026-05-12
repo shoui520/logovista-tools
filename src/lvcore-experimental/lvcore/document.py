@@ -387,7 +387,33 @@ def _media_descriptor_from_payload(payload: bytes) -> dict[str, Any]:
     return descriptor
 
 
-def _link_attrs_for_start(span: Span) -> dict[str, Any]:
+def _pcm_descriptor_from_payload(payload: bytes) -> dict[str, Any]:
+    descriptor: dict[str, Any] = {
+        "payload_length": len(payload),
+        "resolved": False,
+        "reason": "unresolved_audio_range",
+    }
+    if payload:
+        descriptor["payload_hex"] = payload.hex()
+    address_range = _range_from_pcm_payload(payload)
+    if address_range is None:
+        descriptor["status"] = ResourceStatus.MALFORMED.value if payload else ResourceStatus.UNRESOLVED.value
+        descriptor["reason"] = "malformed_audio_range" if payload else "missing_audio_range_payload"
+        return descriptor
+    start, end = address_range
+    descriptor.update(
+        {
+            "status": ResourceStatus.DEFERRED.value,
+            "reason": "pcmdata_range_address_only",
+            "range_start": start.to_dict(),
+            "range_end": end.to_dict(),
+            "kind_flags": payload[:4].hex(),
+        }
+    )
+    return descriptor
+
+
+def _link_attrs_for_start(span: Span, *, resource_id: str | None = None) -> dict[str, Any]:
     op_hex = f"{span.op:02x}" if span.op is not None else None
     kind = LINK_START_KINDS.get(span.op, LinkTargetKind.UNKNOWN)
     if span.op == 0x3B:
@@ -408,7 +434,9 @@ def _link_attrs_for_start(span: Span) -> dict[str, Any]:
                     "range_start": start.to_dict(),
                     "range_end": end.to_dict(),
                     "kind_flags": span.payload[:4].hex(),
+                    "resource_id": resource_id,
                 },
+                resource_id=resource_id,
             )
         else:
             target = LinkTarget(
@@ -417,6 +445,7 @@ def _link_attrs_for_start(span: Span) -> dict[str, Any]:
                 start_op=op_hex,
                 start_payload=span.payload.hex(),
                 status=LinkTargetStatus.MALFORMED if span.payload else LinkTargetStatus.UNRESOLVED,
+                resource_id=resource_id,
             )
     else:
         target = LinkTarget(
@@ -430,6 +459,7 @@ def _link_attrs_for_start(span: Span) -> dict[str, Any]:
         "link_target": target.to_dict(debug=True),
         "start_op": op_hex,
         "start_payload": span.payload.hex(),
+        "resource_id": resource_id,
     }
 
 
@@ -582,14 +612,15 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                     active_styles,
                 ),
             )
-            diagnostics.add(
-                Severity.WARNING,
-                DiagnosticArea.MEDIA,
-                "unresolved_media_ref",
-                "media reference is preserved but not resolved to a payload",
-                location=location(span),
-                details={"resource_id": resource.id, "reason": descriptor.get("reason"), "target_address": descriptor.get("target_address")},
-            )
+            if status != ResourceStatus.DEFERRED:
+                diagnostics.add(
+                    Severity.WARNING,
+                    DiagnosticArea.MEDIA,
+                    "unresolved_media_ref",
+                    "media reference is preserved but not resolved to a payload",
+                    location=location(span),
+                    details={"resource_id": resource.id, "reason": descriptor.get("reason"), "target_address": descriptor.get("target_address")},
+                )
             continue
 
         if span.kind == "unknown_byte":
@@ -608,7 +639,36 @@ def build_entry_document(entry: Entry) -> EntryDocument:
             tag = span.attrs.get("tag")
             behavior = behavior_for(span.op)
             if tag in STYLE_START_TO_KIND and span.op in STYLE_START_OPS:
-                attrs = _link_attrs_for_start(span) if span.op in LINK_START_OPS else {}
+                attrs: dict[str, Any]
+                if span.op == 0x4A:
+                    resource_counter += 1
+                    descriptor = _pcm_descriptor_from_payload(span.payload)
+                    status = ResourceStatus(descriptor.get("status", ResourceStatus.UNRESOLVED.value))
+                    resource = ResourceRef(
+                        id=f"audio-{resource_counter}",
+                        kind=ResourceKind.AUDIO,
+                        label="audio",
+                        status=status,
+                        component=entry.address.component,
+                        source_offset=span.offset,
+                        details=descriptor,
+                    )
+                    resources.append(resource)
+                    attrs = _link_attrs_for_start(span, resource_id=resource.id)
+                    attrs["resource_kind"] = resource.kind.value
+                    attrs["resource_status"] = status.value
+                    attrs["media_descriptor"] = descriptor
+                    if status == ResourceStatus.MALFORMED:
+                        diagnostics.add(
+                            Severity.WARNING,
+                            DiagnosticArea.MEDIA,
+                            "unresolved_media_ref",
+                            "audio range is preserved but not resolved to a payload",
+                            location=location(span),
+                            details={"resource_id": resource.id, "reason": descriptor.get("reason")},
+                        )
+                else:
+                    attrs = _link_attrs_for_start(span) if span.op in LINK_START_OPS else {}
                 active_styles.append(ActiveInline(STYLE_START_TO_KIND[tag], attrs))
             elif tag in STYLE_START_TO_KIND and span.op in STYLE_END_OPS:
                 style = STYLE_START_TO_KIND[tag]

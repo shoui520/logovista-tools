@@ -47,6 +47,24 @@ ENTRY_MARKER = b"\x1f\x09\x00\x01"
 SearchValueRow = tuple[IndexRow, tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]
 
 
+def _media_mime_and_format(payload: bytes, *, store_kind: str) -> tuple[str, str, str]:
+    if payload.startswith(b"BM"):
+        return "image/bmp", "bmp", "bitmap"
+    if payload.startswith(b"\xff\xd8"):
+        return "image/jpeg", "jpeg", "image"
+    if payload.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png", "png", "image"
+    if payload.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif", "gif", "image"
+    if payload.startswith(b"ID3") or (len(payload) >= 2 and payload[0] == 0xFF and (payload[1] & 0xE0) == 0xE0):
+        return "audio/mpeg", "mp3", "audio"
+    if payload.startswith(b"fmt ") or (b"fmt " in payload[:64] and b"data" in payload[:256]):
+        return "audio/x-logovista-wave-chunks", "wave_chunks", "audio"
+    if store_kind == "pcmdata" and payload:
+        return "application/octet-stream", "unknown_pcmdata_payload", "audio"
+    return "application/octet-stream", "unknown", "binary"
+
+
 def open_package(path: str | Path) -> "LogoVistaPackage":
     info = detect_family(Path(path))
     if info.family != PackageFamily.SSED:
@@ -1442,6 +1460,190 @@ class LogoVistaPackage:
     def entry_diagnostics(self, entry: Entry) -> tuple[object, ...]:
         return entry.document().diagnostics
 
+    @staticmethod
+    def _address_from_details(value: object) -> Address | None:
+        if not isinstance(value, dict):
+            return None
+        try:
+            component_value = value.get("component")
+            component = str(component_value) if component_value else None
+            return Address(int(value["block"]), int(value.get("offset", 0)), component)
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def _media_info_base(self, resource_id: str, kind: str) -> dict[str, object]:
+        return {
+            "id": resource_id,
+            "kind": kind,
+            "status": "unresolved",
+            "details": {},
+        }
+
+    def _resolve_colscr_resource(self, resource_id: str, kind: str, address: Address, original_target: object) -> dict[str, object]:
+        info = self._media_info_base(resource_id, kind)
+        component = self.component_for_address(address, role=ComponentRole.MEDIA)
+        if component is None:
+            info["status"] = "deferred"
+            info["details"] = {"reason": "target_media_component_not_found", "target_address": original_target}
+            return info
+        rel = self._relative_offset(component, address)
+        expanded_size = self.data(component).expanded_size
+        if rel < 0 or rel >= expanded_size:
+            info["status"] = "malformed"
+            info["source_component"] = component.name
+            info["source_offset"] = rel
+            info["available_bytes"] = max(0, expanded_size - rel)
+            info["details"] = {"reason": "media_target_out_of_bounds", "target_address": original_target}
+            return info
+        header = self.data(component).read(rel, 8)
+        if len(header) < 8:
+            info["status"] = "malformed"
+            info["source_component"] = component.name
+            info["source_offset"] = rel
+            info["available_bytes"] = max(0, expanded_size - rel)
+            info["details"] = {"reason": "truncated_media_record_header", "target_address": original_target}
+            return info
+        if header[:4] != b"data":
+            info["status"] = "unsupported"
+            info["source_component"] = component.name
+            info["source_offset"] = rel
+            info["available_bytes"] = max(0, expanded_size - rel)
+            info["details"] = {"reason": "missing_data_magic", "target_address": original_target}
+            return info
+        payload_length = int.from_bytes(header[4:8], "little")
+        payload_offset = rel + 8
+        record_length = 8 + payload_length
+        if payload_length < 0 or record_length < 8:
+            info["status"] = "malformed"
+            info["source_component"] = component.name
+            info["source_offset"] = rel
+            info["details"] = {"reason": "malformed_data_size", "target_address": original_target}
+            return info
+        if payload_offset + payload_length > expanded_size:
+            info["status"] = "malformed"
+            info["source_component"] = component.name
+            info["source_offset"] = rel
+            info["available_bytes"] = max(0, expanded_size - payload_offset)
+            info["details"] = {
+                "reason": "truncated_data_payload",
+                "target_address": original_target,
+                "payload_length": payload_length,
+            }
+            return info
+        payload_prefix = self.data(component).read(payload_offset, min(payload_length, 512))
+        mime_type, format_hint, container_kind = _media_mime_and_format(payload_prefix, store_kind="colscr")
+        source_path = str(component.path) if component.path is not None else None
+        info.update(
+            {
+                "status": "resolved",
+                "reason": "colscr_data_record",
+                "mime_type": mime_type,
+                "byte_length": payload_length,
+                "source_component": component.name,
+                "source_path": source_path,
+                "source_offset": rel,
+                "record_offset": rel,
+                "record_length": record_length,
+                "payload_offset": payload_offset,
+                "payload_length": payload_length,
+                "store_kind": "colscr",
+                "format_hint": format_hint,
+                "container_kind": container_kind,
+                "details": {
+                    "reason": "colscr_data_record",
+                    "target_address": original_target,
+                    "record_magic": "data",
+                },
+            }
+        )
+        return info
+
+    def _resolve_pcmdata_resource(
+        self,
+        resource_id: str,
+        kind: str,
+        start: Address,
+        end: Address,
+        original_start: object,
+        original_end: object,
+    ) -> dict[str, object]:
+        info = self._media_info_base(resource_id, kind)
+        start_component = self.component_for_address(start, role=ComponentRole.MEDIA)
+        end_component = self.component_for_address(end, role=ComponentRole.MEDIA)
+        if start_component is None or end_component is None:
+            info["status"] = "deferred"
+            info["details"] = {
+                "reason": "target_pcm_component_not_found",
+                "range_start": original_start,
+                "range_end": original_end,
+            }
+            return info
+        if start_component.name.lower() != end_component.name.lower():
+            info["status"] = "unsupported"
+            info["details"] = {
+                "reason": "range_crosses_unsupported_components",
+                "range_start": original_start,
+                "range_end": original_end,
+                "start_component": start_component.name,
+                "end_component": end_component.name,
+            }
+            return info
+        start_rel = self._relative_offset(start_component, start)
+        end_rel = self._relative_offset(start_component, end)
+        expanded_size = self.data(start_component).expanded_size
+        if start_rel < 0 or end_rel < 0 or start_rel > expanded_size or end_rel > expanded_size:
+            info["status"] = "malformed"
+            info["source_component"] = start_component.name
+            info["source_offset"] = start_rel
+            info["details"] = {
+                "reason": "range_out_of_bounds",
+                "range_start": original_start,
+                "range_end": original_end,
+                "expanded_size": expanded_size,
+            }
+            return info
+        if end_rel < start_rel:
+            info["status"] = "malformed"
+            info["source_component"] = start_component.name
+            info["source_offset"] = start_rel
+            info["details"] = {"reason": "malformed_audio_range", "range_start": original_start, "range_end": original_end}
+            return info
+        payload_length = end_rel - start_rel
+        if payload_length == 0:
+            info["status"] = "malformed"
+            info["source_component"] = start_component.name
+            info["source_offset"] = start_rel
+            info["details"] = {"reason": "zero_length_audio_range", "range_start": original_start, "range_end": original_end}
+            return info
+        payload_prefix = self.data(start_component).read(start_rel, min(payload_length, 1024))
+        mime_type, format_hint, container_kind = _media_mime_and_format(payload_prefix, store_kind="pcmdata")
+        source_path = str(start_component.path) if start_component.path is not None else None
+        info.update(
+            {
+                "status": "resolved",
+                "reason": "pcmdata_range",
+                "mime_type": mime_type,
+                "byte_length": payload_length,
+                "source_component": start_component.name,
+                "source_path": source_path,
+                "source_offset": start_rel,
+                "payload_offset": start_rel,
+                "payload_length": payload_length,
+                "range_start_offset": start_rel,
+                "range_end_offset": end_rel,
+                "store_kind": "pcmdata",
+                "format_hint": format_hint,
+                "container_kind": container_kind,
+                "details": {
+                    "reason": "pcmdata_range",
+                    "range_start": original_start,
+                    "range_end": original_end,
+                    "range_end_semantics": "exclusive",
+                },
+            }
+        )
+        return info
+
     def resource_info(self, resource: ResourceRef | dict[str, object]) -> dict[str, object]:
         """Return package-local metadata for a document resource.
 
@@ -1463,12 +1665,7 @@ class LogoVistaPackage:
             details_value = resource.get("details") or {}
             details = dict(details_value) if isinstance(details_value, dict) else {}
 
-        info: dict[str, object] = {
-            "id": resource_id,
-            "kind": kind,
-            "status": "unresolved",
-            "details": {},
-        }
+        info: dict[str, object] = self._media_info_base(resource_id, kind)
         if kind == ResourceKind.GAIJI.value and code:
             try:
                 code_int = int(code, 16)
@@ -1498,30 +1695,25 @@ class LogoVistaPackage:
             info["details"] = {"reason": "missing_ga16_resource"}
             return info
 
+        range_start = details.get("range_start")
+        range_end = details.get("range_end")
+        if kind in {ResourceKind.MEDIA.value, ResourceKind.IMAGE.value, ResourceKind.AUDIO.value} and isinstance(range_start, dict) and isinstance(range_end, dict):
+            start = self._address_from_details(range_start)
+            end = self._address_from_details(range_end)
+            if start is None or end is None:
+                info["status"] = "malformed"
+                info["details"] = {"reason": "malformed_audio_range", "range_start": range_start, "range_end": range_end}
+                return info
+            return self._resolve_pcmdata_resource(resource_id, kind, start, end, range_start, range_end)
+
         target_address = details.get("target_address")
         if kind in {ResourceKind.MEDIA.value, ResourceKind.IMAGE.value, ResourceKind.AUDIO.value} and isinstance(target_address, dict):
-            try:
-                address = Address(int(target_address["block"]), int(target_address.get("offset", 0)), str(target_address.get("component")) if target_address.get("component") else None)
-            except (KeyError, TypeError, ValueError):
+            address = self._address_from_details(target_address)
+            if address is None:
                 info["status"] = "malformed"
                 info["details"] = {"reason": "malformed_media_target_address"}
                 return info
-            component = self.component_for_address(address, role=ComponentRole.MEDIA)
-            if component is None:
-                info["status"] = "deferred"
-                info["details"] = {"reason": "target_media_component_not_found", "target_address": target_address}
-                return info
-            rel = self._relative_offset(component, address)
-            info.update(
-                {
-                    "status": "deferred",
-                    "source_component": component.name,
-                    "source_offset": rel,
-                    "available_bytes": max(0, self.data(component).expanded_size - rel),
-                    "details": {"reason": "media_address_resolved_without_extent", "target_address": target_address},
-                }
-            )
-            return info
+            return self._resolve_colscr_resource(resource_id, kind, address, target_address)
 
         info["details"] = {"reason": details.get("reason") or "resource_resolution_not_supported"}
         return info
@@ -1546,7 +1738,30 @@ class LogoVistaPackage:
                 glyph = ga16.glyph(code_int)
                 if glyph is not None:
                     return glyph
+        if kind in {ResourceKind.MEDIA.value, ResourceKind.IMAGE.value, ResourceKind.AUDIO.value}:
+            info = self.resource_info(resource)
+            if info.get("status") != "resolved":
+                return None
+            component_name = info.get("source_component")
+            payload_offset = info.get("payload_offset")
+            payload_length = info.get("payload_length")
+            if not isinstance(component_name, str) or not isinstance(payload_offset, int) or not isinstance(payload_length, int):
+                return None
+            return self.data(component_name).read(payload_offset, payload_length)
         return None
+
+    def resource_record_bytes(self, resource: ResourceRef | dict[str, object]) -> bytes | None:
+        """Return original wrapped record bytes when a resolved store has a wrapper."""
+
+        info = self.resource_info(resource)
+        if info.get("status") != "resolved" or info.get("store_kind") != "colscr":
+            return None
+        component_name = info.get("source_component")
+        record_offset = info.get("record_offset")
+        record_length = info.get("record_length")
+        if not isinstance(component_name, str) or not isinstance(record_offset, int) or not isinstance(record_length, int):
+            return None
+        return self.data(component_name).read(record_offset, record_length)
 
     def resolve_resource(self, resource: ResourceRef | dict[str, object]) -> dict[str, object]:
         return self.resource_info(resource)
@@ -1566,12 +1781,29 @@ class LogoVistaPackage:
     def _count_document_resources(self, resources: tuple[ResourceRef, ...], counters: dict[str, object]) -> None:
         gaiji_by_reason = counters.setdefault("unresolved_gaiji_by_reason", {})
         media_by_reason = counters.setdefault("unresolved_media_by_reason", {})
+        media_kind_counts = counters.setdefault("media_kind_counts", {})
+        media_mime_counts = counters.setdefault("media_mime_counts", {})
+        media_store_kind_counts = counters.setdefault("media_store_kind_counts", {})
+        colscr_malformed = counters.setdefault("colscr_records_malformed_by_reason", {})
+        pcmdata_unresolved = counters.setdefault("pcmdata_ranges_unresolved_by_reason", {})
+        media_bytes_unavailable = counters.setdefault("media_bytes_unavailable_by_reason", {})
         if not isinstance(gaiji_by_reason, dict):
             gaiji_by_reason = {}
             counters["unresolved_gaiji_by_reason"] = gaiji_by_reason
         if not isinstance(media_by_reason, dict):
             media_by_reason = {}
             counters["unresolved_media_by_reason"] = media_by_reason
+        for key, value in (
+            ("media_kind_counts", media_kind_counts),
+            ("media_mime_counts", media_mime_counts),
+            ("media_store_kind_counts", media_store_kind_counts),
+            ("colscr_records_malformed_by_reason", colscr_malformed),
+            ("pcmdata_ranges_unresolved_by_reason", pcmdata_unresolved),
+            ("media_bytes_unavailable_by_reason", media_bytes_unavailable),
+        ):
+            if not isinstance(value, dict):
+                value = {}
+                counters[key] = value
         for resource in resources:
             status = resource.status.value if hasattr(resource.status, "value") else str(resource.status)
             reason = resource.details.get("reason")
@@ -1583,12 +1815,34 @@ class LogoVistaPackage:
                     self._increment_reason(gaiji_by_reason, reason)
             elif resource.kind in {ResourceKind.MEDIA, ResourceKind.IMAGE, ResourceKind.AUDIO}:
                 info = self.resource_info(resource)
+                kind_value = resource.kind.value
+                if isinstance(counters["media_kind_counts"], dict):
+                    self._increment_reason(counters["media_kind_counts"], kind_value)
                 if info.get("status") == "resolved":
                     counters["resolved_media"] = int(counters.get("resolved_media", 0)) + 1
+                    counters["media_bytes_available"] = int(counters.get("media_bytes_available", 0)) + 1
+                    if isinstance(counters["media_mime_counts"], dict):
+                        self._increment_reason(counters["media_mime_counts"], info.get("mime_type"))
+                    if isinstance(counters["media_store_kind_counts"], dict):
+                        self._increment_reason(counters["media_store_kind_counts"], info.get("store_kind"))
+                    if info.get("store_kind") == "colscr":
+                        counters["colscr_records_resolved"] = int(counters.get("colscr_records_resolved", 0)) + 1
+                    elif info.get("store_kind") == "pcmdata":
+                        counters["pcmdata_ranges_resolved"] = int(counters.get("pcmdata_ranges_resolved", 0)) + 1
                 else:
                     counters["unresolved_media"] = int(counters.get("unresolved_media", 0)) + 1
                     info_details = info.get("details") if isinstance(info.get("details"), dict) else {}
-                    self._increment_reason(media_by_reason, info_details.get("reason") if isinstance(info_details, dict) else reason)
+                    unresolved_reason = info_details.get("reason") if isinstance(info_details, dict) else reason
+                    self._increment_reason(media_by_reason, unresolved_reason)
+                    if isinstance(counters["media_bytes_unavailable_by_reason"], dict):
+                        self._increment_reason(counters["media_bytes_unavailable_by_reason"], unresolved_reason)
+                    store_reason = str(unresolved_reason or "unknown")
+                    if store_reason.startswith(("missing_data", "malformed_data", "truncated_data", "media_target", "target_media", "truncated_media")):
+                        if isinstance(counters["colscr_records_malformed_by_reason"], dict):
+                            self._increment_reason(counters["colscr_records_malformed_by_reason"], unresolved_reason)
+                    if store_reason.startswith(("target_pcm", "range_", "zero_length", "malformed_audio")):
+                        if isinstance(counters["pcmdata_ranges_unresolved_by_reason"], dict):
+                            self._increment_reason(counters["pcmdata_ranges_unresolved_by_reason"], unresolved_reason)
 
     @staticmethod
     def _iter_inline_nodes(blocks: tuple[BlockNode, ...]):
@@ -1632,6 +1886,17 @@ class LogoVistaPackage:
             "resolved_media": 0,
             "unresolved_media": 0,
             "unresolved_media_by_reason": {},
+            "media_kind_counts": {},
+            "media_mime_counts": {},
+            "media_store_kind_counts": {},
+            "colscr_records_resolved": 0,
+            "colscr_records_malformed_by_reason": {},
+            "pcmdata_ranges_resolved": 0,
+            "pcmdata_ranges_unresolved_by_reason": {},
+            "sidecar_media_resolved": 0,
+            "sidecar_media_unresolved_by_reason": {},
+            "media_bytes_available": 0,
+            "media_bytes_unavailable_by_reason": {},
             "resolved_link": 0,
             "unresolved_link": 0,
             "unresolved_link_by_reason": {},
@@ -1796,7 +2061,7 @@ class LogoVistaPackage:
         }
         resource_resolution = {
             "unresolved_gaiji": diagnostics_by_code.get("unresolved_gaiji", 0),
-            "unresolved_media": diagnostics_by_code.get("unresolved_media_ref", 0),
+            "unresolved_media": resource_counters["unresolved_media"],
             "unresolved_link": diagnostics_by_code.get("unresolved_link_target", 0),
             "resolved_gaiji": resource_counters["resolved_gaiji"],
             "resolved_media": resource_counters["resolved_media"],
@@ -1804,6 +2069,17 @@ class LogoVistaPackage:
             "unresolved_gaiji_by_reason": resource_counters["unresolved_gaiji_by_reason"],
             "unresolved_media_by_reason": resource_counters["unresolved_media_by_reason"],
             "unresolved_link_by_reason": resource_counters["unresolved_link_by_reason"],
+            "media_kind_counts": resource_counters["media_kind_counts"],
+            "media_mime_counts": resource_counters["media_mime_counts"],
+            "media_store_kind_counts": resource_counters["media_store_kind_counts"],
+            "colscr_records_resolved": resource_counters["colscr_records_resolved"],
+            "colscr_records_malformed_by_reason": resource_counters["colscr_records_malformed_by_reason"],
+            "pcmdata_ranges_resolved": resource_counters["pcmdata_ranges_resolved"],
+            "pcmdata_ranges_unresolved_by_reason": resource_counters["pcmdata_ranges_unresolved_by_reason"],
+            "sidecar_media_resolved": resource_counters["sidecar_media_resolved"],
+            "sidecar_media_unresolved_by_reason": resource_counters["sidecar_media_unresolved_by_reason"],
+            "media_bytes_available": resource_counters["media_bytes_available"],
+            "media_bytes_unavailable_by_reason": resource_counters["media_bytes_unavailable_by_reason"],
         }
         return {
             "package": self.info.to_dict(),
