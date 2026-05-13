@@ -15,7 +15,7 @@ from typing import Any, Callable, Iterable
 
 from .entries import decode_jis_pair, discover_dictionaries, gaiji_text, normalize_fullwidth_ascii
 from .gaiji import load_gaiji_profile
-from .ssed import BLOCK_SIZE, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
+from .ssed import BLOCK_SIZE, SsedRandomReader, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 
 
 INDEX_TYPES = {0x30, 0x60, 0x70, 0x71, 0x72, 0x80, 0x81, 0x90, 0x91, 0x92, 0xA1}
@@ -810,27 +810,97 @@ def scan_index_component(
     gaiji_map: dict[str, str],
     emit_internal: bool = False,
     emit_row: Callable[[dict[str, Any]], None] | None = None,
+    row_limit: int | None = None,
+) -> ComponentIndexResult:
+    return _scan_index_component_pages(
+        component_name,
+        component_type,
+        page_count=len(data) // BLOCK_SIZE,
+        expanded_bytes=len(data),
+        start_block=start_block,
+        page_at=lambda page_zero: data[page_zero * BLOCK_SIZE : (page_zero + 1) * BLOCK_SIZE],
+        gaiji=gaiji,
+        gaiji_map=gaiji_map,
+        emit_internal=emit_internal,
+        emit_row=emit_row,
+        row_limit=row_limit,
+    )
+
+
+def scan_index_component_reader(
+    component_name: str,
+    component_type: int,
+    source: Path,
+    start_block: int,
+    *,
+    gaiji: str,
+    gaiji_map: dict[str, str],
+    emit_internal: bool = False,
+    emit_row: Callable[[dict[str, Any]], None] | None = None,
+    row_limit: int | None = None,
+) -> ComponentIndexResult:
+    reader = SsedRandomReader(source)
+    return _scan_index_component_pages(
+        component_name,
+        component_type,
+        page_count=reader.expanded_size // BLOCK_SIZE,
+        expanded_bytes=reader.expanded_size,
+        start_block=start_block,
+        page_at=lambda page_zero: reader.read(page_zero * BLOCK_SIZE, BLOCK_SIZE),
+        gaiji=gaiji,
+        gaiji_map=gaiji_map,
+        emit_internal=emit_internal,
+        emit_row=emit_row,
+        row_limit=row_limit,
+    )
+
+
+def _scan_index_component_pages(
+    component_name: str,
+    component_type: int,
+    *,
+    page_count: int,
+    expanded_bytes: int,
+    start_block: int,
+    page_at: Callable[[int], bytes],
+    gaiji: str,
+    gaiji_map: dict[str, str],
+    emit_internal: bool,
+    emit_row: Callable[[dict[str, Any]], None] | None,
+    row_limit: int | None,
 ) -> ComponentIndexResult:
     result = ComponentIndexResult(
         component=component_name,
         type=component_type,
         data_flags="",
-        expanded_bytes=len(data),
+        expanded_bytes=expanded_bytes,
         warnings=[],
     )
     current_key: str | None = None
     current_count_hint: int | None = None
     current_title: IndexPointer | None = None
+    emitted_rows = 0
 
-    page_count = len(data) // BLOCK_SIZE
+    def maybe_emit(row: dict[str, Any]) -> bool:
+        nonlocal emitted_rows
+        if row_limit is not None and emitted_rows >= row_limit:
+            return True
+        if emit_row is not None:
+            emit_row(row)
+        emitted_rows += 1
+        return row_limit is not None and emitted_rows >= row_limit
+
+    stopped_by_limit = False
     for page_zero in range(page_count):
-        page = data[page_zero * BLOCK_SIZE : (page_zero + 1) * BLOCK_SIZE]
+        page = page_at(page_zero)
         word = be16(page, 0)
         page_index = page_zero + 1
         logical_block = start_block + page_zero
 
         if not is_leaf_page(word):
             result.internal_pages += 1
+            if row_limit is not None and not emit_internal:
+                continue
             internal_rows = list(
                 parse_internal_page(
                     component_name,
@@ -844,18 +914,21 @@ def scan_index_component(
             result.internal_rows += len(internal_rows)
             if emit_internal:
                 for row in internal_rows:
-                    if emit_row is not None:
-                        emit_row(
-                            {
-                                "kind": "internal",
-                                "component": row.component,
-                                "page_index": row.page_index,
-                                "logical_block": row.logical_block,
-                                "row_index": row.row_index,
-                                "key": row.key,
-                                "child_block": row.child_block,
-                            }
-                        )
+                    stopped_by_limit = maybe_emit(
+                        {
+                            "kind": "internal",
+                            "component": row.component,
+                            "page_index": row.page_index,
+                            "logical_block": row.logical_block,
+                            "row_index": row.row_index,
+                            "key": row.key,
+                            "child_block": row.child_block,
+                        }
+                    )
+                    if stopped_by_limit:
+                        break
+            if stopped_by_limit:
+                break
             continue
 
         result.leaf_pages += 1
@@ -951,27 +1024,33 @@ def scan_index_component(
 
         result.leaf_rows += len(leaf_rows)
         for row in leaf_rows:
-            if emit_row is not None:
-                emit_row(
-                    {
-                        "kind": "leaf",
-                        "component": row.component,
-                        "page_index": row.page_index,
-                        "logical_block": row.logical_block,
-                        "row_index": row.row_index,
-                        "key": row.key,
-                        "target_key": row.target_key,
-                        "body": row.body.as_dict(),
-                        "title": row.title.as_dict(),
-                        "tagged": row.tagged,
-                        "target_count_hint": row.target_count_hint,
-                        "continued_group": row.continued_group,
-                    }
-                )
+            stopped_by_limit = maybe_emit(
+                {
+                    "kind": "leaf",
+                    "component": row.component,
+                    "page_index": row.page_index,
+                    "logical_block": row.logical_block,
+                    "row_index": row.row_index,
+                    "key": row.key,
+                    "target_key": row.target_key,
+                    "body": row.body.as_dict(),
+                    "title": row.title.as_dict(),
+                    "tagged": row.tagged,
+                    "target_count_hint": row.target_count_hint,
+                    "continued_group": row.continued_group,
+                }
+            )
+            if stopped_by_limit:
+                break
+        if stopped_by_limit:
+            break
 
     if result.unknown_leaf_bytes:
         result.warnings = result.warnings or []
         result.warnings.append("Some leaf subrecords could not be parsed.")
+    if stopped_by_limit:
+        result.warnings = result.warnings or []
+        result.warnings.append("Stopped after the row emission limit; component summary is partial.")
     return result
 
 
@@ -1042,7 +1121,6 @@ def extract_indexes_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) 
             source = find_case_insensitive(idx.parent, element.filename)
             if source is None:
                 continue
-            expanded = expand_sseddata_file(source)
 
             def emit_row(row: dict[str, Any]) -> None:
                 nonlocal emitted
@@ -1053,18 +1131,37 @@ def extract_indexes_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) 
                 out.write("\n")
                 emitted += 1
 
-            component_summary = scan_index_component(
-                element.filename,
-                element.type,
-                expanded,
-                element.start,
-                gaiji=args.gaiji,
-                gaiji_map=gaiji_profile.map,
-                emit_internal=args.include_internal,
-                emit_row=emit_row,
-            )
+            remaining = args.limit - emitted if args.limit else None
+            if remaining is not None and remaining <= 0:
+                break
+            if remaining is not None:
+                component_summary = scan_index_component_reader(
+                    element.filename,
+                    element.type,
+                    source,
+                    element.start,
+                    gaiji=args.gaiji,
+                    gaiji_map=gaiji_profile.map,
+                    emit_internal=args.include_internal,
+                    emit_row=emit_row,
+                    row_limit=remaining,
+                )
+            else:
+                expanded = expand_sseddata_file(source)
+                component_summary = scan_index_component(
+                    element.filename,
+                    element.type,
+                    expanded,
+                    element.start,
+                    gaiji=args.gaiji,
+                    gaiji_map=gaiji_profile.map,
+                    emit_internal=args.include_internal,
+                    emit_row=emit_row,
+                )
             component_summary.data_flags = element.data.hex()
             summaries.append(component_summary.as_dict())
+            if args.limit and emitted >= args.limit:
+                break
 
     summary = {
         "dict_id": dict_id,
@@ -1085,7 +1182,7 @@ def extract_indexes_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) 
 
 
 def extract_indexes_for_sources(args: argparse.Namespace) -> list[dict[str, Any]]:
-    sources = discover_dictionaries(args.root or [Path(".")])
+    sources = discover_dictionaries(args.root or [Path(".")], dict_ids=args.dict, include_images=False)
     if args.dict:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]

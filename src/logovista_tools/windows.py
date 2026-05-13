@@ -20,7 +20,7 @@ from .lvcrypto import (
     decrypt_logofont_cipher_file_to_path,
     decrypt_logofont_cipher_prefix,
 )
-from .ssed import BLOCK_SIZE, SsedInfoElement, find_case_insensitive
+from .ssed import BLOCK_SIZE, SsedInfoElement, find_case_insensitive, read_file_prefix
 
 
 SQLITE_MAGIC = b"SQLite format 3\x00"
@@ -843,7 +843,7 @@ def vlpljbl_role_for_content(content_kind: str, suffix: str, tables: tuple[dict[
 def classify_vlpljbl_file(path: Path, *, inspect_sqlite: bool = True, compute_hash: bool = True) -> VlpljblClassification:
     """Classify one ``vlpljbl*`` file by magic and optional SQLite schema."""
 
-    prefix = path.read_bytes()[:4096]
+    prefix = read_file_prefix(path, 4096)
     suffix = vlpljbl_suffix(path)
     plain_kind = file_magic_kind(prefix)
     storage = "plain"

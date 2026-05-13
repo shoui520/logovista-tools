@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from .cli_args import add_menus_args
 from .colscr import decode_bcd_decimal
 from .entries import (
     CONTROL_ARG_LENGTHS,
@@ -19,7 +20,7 @@ from .entries import (
     normalize_fullwidth_ascii,
 )
 from .gaiji import load_gaiji_profile
-from .ssed import BLOCK_SIZE, SsedInfoElement, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
+from .ssed import BLOCK_SIZE, CHUNK_SIZE, SsedInfoElement, SsedRandomReader, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 
 
 MENU_TYPE = 0x01
@@ -491,6 +492,30 @@ def write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _parse_menu_for_limit(
+    source: Path,
+    *,
+    limit: int | None,
+    gaiji: str,
+    gaiji_map: dict[str, str],
+) -> tuple[MenuParseResult, int, int, bool]:
+    if not limit:
+        expanded = expand_sseddata_file(source)
+        return parse_menu_stream(expanded, gaiji=gaiji, gaiji_map=gaiji_map), len(expanded), len(expanded), True
+
+    reader = SsedRandomReader(source)
+    size = min(reader.expanded_size, CHUNK_SIZE)
+    while True:
+        data = reader.read(0, size)
+        parsed = parse_menu_stream(data, gaiji=gaiji, gaiji_map=gaiji_map)
+        complete = size >= reader.expanded_size
+        # Require one extra decoded record so the requested final record is not
+        # the synthetic flush of a chopped prefix.
+        if len(parsed.records) > limit or complete:
+            return parsed, reader.expanded_size, size, complete
+        size = min(reader.expanded_size, size + CHUNK_SIZE)
+
+
 def extract_menus_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
     title, elements = parse_ssedinfo(idx)
     dict_id = idx.parent.parent.name if idx.parent.name == idx.parent.parent.name else idx.stem
@@ -520,8 +545,12 @@ def extract_menus_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) ->
                 )
                 continue
 
-            expanded = expand_sseddata_file(source)
-            parsed = parse_menu_stream(expanded, gaiji=args.gaiji, gaiji_map=gaiji_profile.map)
+            parsed, expanded_bytes, bytes_decoded, stream_complete = _parse_menu_for_limit(
+                source,
+                limit=args.limit,
+                gaiji=args.gaiji,
+                gaiji_map=gaiji_profile.map,
+            )
             resolve_menu_record_destinations(parsed.records, elements)
             destination_counts = menu_destination_resolution_counts(parsed.records)
             target_kinds: dict[str, int] = {}
@@ -558,8 +587,11 @@ def extract_menus_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) ->
                     "component": element.filename,
                     "type": element.type,
                     "data_flags": element.data.hex(),
-                    "expanded_bytes": len(expanded),
-                    "lines_total": len(parsed.records),
+                    "expanded_bytes": expanded_bytes,
+                    "bytes_decoded": bytes_decoded,
+                    "stream_complete": stream_complete,
+                    "lines_total": len(parsed.records) if stream_complete else None,
+                    "lines_decoded": len(parsed.records),
                     "lines_emitted": component_emitted,
                     "links": parsed.stats["links"],
                     **destination_counts,
@@ -598,20 +630,11 @@ def extract_menus_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) ->
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--root",
-        type=Path,
-        action="append",
-        help="Dictionary collection directory or a direct .IDX path. Can repeat.",
-    )
-    parser.add_argument("--out-dir", type=Path, default=Path("logovista-raw-menus"))
-    parser.add_argument("--limit", type=int, help="Limit emitted menu lines per component.")
-    parser.add_argument("--gaiji", choices=("drop", "h-placeholder", "placeholder"), default="h-placeholder")
-    parser.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
+    add_menus_args(parser)
     args = parser.parse_args()
 
     roots = args.root or [Path(".")]
-    sources = discover_dictionaries(roots)
+    sources = discover_dictionaries(roots, jobs=args.jobs, dict_ids=args.dict, include_images=False)
     if args.dict:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]

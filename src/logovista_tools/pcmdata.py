@@ -13,7 +13,7 @@ from typing import Any, Iterable
 from .colscr import decode_bcd_decimal
 from .entries import decode_tokens, discover_dictionaries, tokens_to_text
 from .parallel import parallel_map_ordered, worker_args
-from .ssed import BLOCK_SIZE, SsedRandomReader, find_case_insensitive, parse_ssedinfo
+from .ssed import BLOCK_SIZE, CHUNK_SIZE, SsedRandomReader, find_case_insensitive, parse_ssedinfo
 
 
 PCMDATA_TYPE = 0xD8
@@ -513,6 +513,29 @@ def write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def pcm_references_for_limit(
+    honmon_path: Path,
+    limit: int | None,
+    gaiji_map: dict[str, str] | None,
+) -> tuple[list[PcmReference], int, int, bool]:
+    reader = SsedRandomReader(honmon_path)
+    if not limit:
+        honmon_data = reader.read(0, reader.expanded_size)
+        return list(iter_pcm_references(honmon_data, gaiji_map)), reader.expanded_size, reader.expanded_size, True
+
+    size = min(reader.expanded_size, CHUNK_SIZE)
+    while True:
+        # Audio labels can appear between 1f4a and 1f6a, so decode a small
+        # lookahead beyond the scan window without forcing a full HONMON read.
+        read_size = min(reader.expanded_size, size + 512)
+        data = reader.read(0, read_size)
+        references = list(iter_pcm_references(data, gaiji_map))
+        complete = read_size >= reader.expanded_size
+        if len(references) >= limit or complete:
+            return references[:limit], reader.expanded_size, read_size, complete
+        size = min(reader.expanded_size, size + CHUNK_SIZE)
+
+
 def block_offset_for_relative(reader: SsedRandomReader, relative_offset: int) -> tuple[int, int]:
     return reader.start_block + relative_offset // BLOCK_SIZE, relative_offset % BLOCK_SIZE
 
@@ -661,14 +684,11 @@ def extract_pcmdata_for_source(source: Any, out_dir: Path, args: argparse.Namesp
         write_json(dict_out / "pcmdata_summary.json", summary)
         return summary
 
-    honmon_data = source.honmon.read_bytes()
-    if honmon_data[:8] == b"SSEDDATA":
-        from .ssed import expand_sseddata_bytes
-
-        honmon_data = expand_sseddata_bytes(honmon_data)
-    references = list(iter_pcm_references(honmon_data, source.gaiji_map))
-    if args.limit:
-        references = references[: args.limit]
+    references, honmon_expanded_bytes, honmon_bytes_scanned, honmon_scan_complete = pcm_references_for_limit(
+        source.honmon,
+        args.limit,
+        source.gaiji_map,
+    )
 
     reader = SsedRandomReader(pcmdata_path)
     header_sample = reader.read(0, min(PCMDATA_DIRECTORY_BYTES, reader.expanded_size))
@@ -803,6 +823,9 @@ def extract_pcmdata_for_source(source: Any, out_dir: Path, args: argparse.Namesp
         "dict_title": source.title,
         "idx": str(source.idx),
         "honmon": str(source.honmon),
+        "honmon_expanded_bytes": honmon_expanded_bytes,
+        "honmon_bytes_scanned": honmon_bytes_scanned,
+        "honmon_scan_complete": honmon_scan_complete,
         "pcmdata": str(pcmdata_path),
         "pcmdata_start_block": reader.start_block,
         "pcmdata_end_block": reader.end_block,
@@ -837,7 +860,12 @@ def _pcmdata_source_task(payload: tuple[Any, Path, argparse.Namespace]) -> dict[
 
 
 def extract_pcmdata_for_sources(args: argparse.Namespace) -> list[dict[str, Any]]:
-    sources = discover_dictionaries(args.root or [Path(".")], jobs=getattr(args, "jobs", 1))
+    sources = discover_dictionaries(
+        args.root or [Path(".")],
+        jobs=getattr(args, "jobs", 1),
+        dict_ids=args.dict,
+        include_images=False,
+    )
     if args.dict:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]

@@ -1,12 +1,36 @@
 import pytest
 import json
 import zipfile
+from argparse import Namespace
 
-from logovista_tools.entries import decode_tokens, iter_entry_slices_with_boundaries, tokens_to_html, tokens_to_text
+from logovista_tools.entries import (
+    decode_tokens,
+    discover_dictionaries,
+    entry_marker_status_text,
+    extract_dictionary,
+    iter_entry_slices_with_boundaries,
+    tokens_to_html,
+    tokens_to_text,
+)
+from logovista_tools.colscr import media_references_for_limit
 from logovista_tools.gaiji import parse_ga16_resource, parse_uni_resource
-from logovista_tools.indexes import IndexPointer, parse_internal_page, parse_simple_leaf_page, scan_index_component
+from logovista_tools.indexes import (
+    IndexPointer,
+    parse_internal_page,
+    parse_simple_leaf_page,
+    scan_index_component,
+    scan_index_component_reader,
+)
+from logovista_tools.pcmdata import pcm_references_for_limit
 from logovista_tools.spans import decode_lossless_spans
-from logovista_tools.ssed import BLOCK_SIZE, expand_sseddata_bytes, expand_sseddata_file, parse_sseddata_header, parse_ssedinfo
+from logovista_tools.ssed import (
+    BLOCK_SIZE,
+    SsedRandomReader,
+    expand_sseddata_bytes,
+    expand_sseddata_file,
+    parse_sseddata_header,
+    parse_ssedinfo,
+)
 from logovista_tools.writer import (
     FULL_GAIJI_START,
     HALF_GAIJI_START,
@@ -83,6 +107,18 @@ def test_sseddata_literal_encoder_roundtrips_multiple_chunks() -> None:
     assert expanded.startswith(payload)
     assert len(expanded) % BLOCK_SIZE == 0
     assert expanded[len(payload) :] == bytes(len(expanded) - len(payload))
+
+
+def test_plain_ssed_random_reader_is_file_backed(tmp_path) -> None:
+    payload = b"abc" + (b"x" * (BLOCK_SIZE * 40)) + b"tail"
+    path = tmp_path / "HONMON.DIC"
+    path.write_bytes(encode_sseddata_literal(payload, start_block=1))
+
+    reader = SsedRandomReader(path)
+
+    assert reader.data is None
+    assert reader.read(0, 3) == b"abc"
+    assert reader.read(BLOCK_SIZE * 40 + 3, 4) == b"tail"
 
 
 def test_sseddata_compressed_encoder_roundtrips_and_reduces_repetitive_data() -> None:
@@ -697,3 +733,178 @@ def test_plain_honmon_package_writer_can_emit_simple_only_layout(tmp_path) -> No
         "BHINDEX.DIC",
     }
     assert not (tmp_path / "FKINDEX.DIC").exists()
+
+
+def test_streaming_entries_reports_partial_marker_count(tmp_path) -> None:
+    package = build_plain_honmon_package(
+        dict_id="STREAM",
+        title="Streaming Summary",
+        entries=[
+            WriterEntry("alpha", "first entry"),
+            WriterEntry("beta", "second entry"),
+            WriterEntry("gamma", "third entry"),
+        ],
+        include_tagged_indexes=False,
+    )
+    write_plain_package(package, tmp_path)
+    source = discover_dictionaries([tmp_path], dict_ids=["STREAM"])[0]
+
+    args = Namespace(
+        limit=1,
+        min_chars=1,
+        gaiji="h-placeholder",
+        image_gaiji=False,
+        media_placeholder=False,
+        section_markers=False,
+        html=False,
+        section_image=None,
+        skip_dense_marker_honmon=True,
+        index_boundaries=False,
+        full_scan=False,
+        debug=False,
+    )
+    limited = extract_dictionary(source, tmp_path / "limited", args)
+
+    assert limited["entries_emitted"] == 1
+    assert limited["entry_markers"] is None
+    assert limited["entry_markers_complete"] is False
+    assert limited["entry_markers_seen"] >= 2
+    assert entry_marker_status_text(limited).startswith("seen=")
+
+    args.limit = None
+    complete = extract_dictionary(source, tmp_path / "complete", args)
+
+    assert complete["entries_emitted"] == 3
+    assert complete["entry_markers"] == 3
+    assert complete["entry_markers_seen"] == 3
+    assert complete["entry_markers_complete"] is True
+
+
+def test_full_scan_entries_reports_complete_marker_count(tmp_path) -> None:
+    package = build_plain_honmon_package(
+        dict_id="FULLSCAN",
+        title="Full Scan Summary",
+        entries=[WriterEntry("alpha", "first entry"), WriterEntry("beta", "second entry")],
+        include_tagged_indexes=False,
+    )
+    write_plain_package(package, tmp_path)
+    source = discover_dictionaries([tmp_path], dict_ids=["FULLSCAN"])[0]
+
+    args = Namespace(
+        limit=1,
+        min_chars=1,
+        gaiji="h-placeholder",
+        image_gaiji=False,
+        media_placeholder=False,
+        section_markers=False,
+        html=False,
+        section_image=None,
+        skip_dense_marker_honmon=True,
+        index_boundaries=False,
+        full_scan=True,
+        debug=False,
+    )
+    summary = extract_dictionary(source, tmp_path / "full-scan", args)
+
+    assert summary["entries_emitted"] == 1
+    assert summary["entry_markers"] == 2
+    assert summary["entry_markers_seen"] == 2
+    assert summary["entry_markers_complete"] is True
+
+
+def test_index_reader_scan_can_stop_after_row_limit(tmp_path) -> None:
+    package = build_plain_honmon_package(
+        dict_id="IDXSTREAM",
+        title="Index Streaming",
+        entries=[
+            WriterEntry("alpha", "first entry"),
+            WriterEntry("beta", "second entry"),
+            WriterEntry("gamma", "third entry"),
+        ],
+        include_tagged_indexes=False,
+    )
+    write_plain_package(package, tmp_path)
+    _title, elements = parse_ssedinfo(tmp_path / "IDXSTREAM.IDX")
+    element = next(item for item in elements if item.filename == "FHINDEX.DIC")
+    expanded = expand_sseddata_file(tmp_path / "FHINDEX.DIC")
+
+    full_rows: list[dict[str, object]] = []
+    limited_rows: list[dict[str, object]] = []
+    scan_index_component(
+        element.filename,
+        element.type,
+        expanded,
+        element.start,
+        gaiji="h-placeholder",
+        gaiji_map={},
+        emit_row=full_rows.append,
+    )
+    summary = scan_index_component_reader(
+        element.filename,
+        element.type,
+        tmp_path / "FHINDEX.DIC",
+        element.start,
+        gaiji="h-placeholder",
+        gaiji_map={},
+        emit_row=limited_rows.append,
+        row_limit=1,
+    )
+
+    assert limited_rows == full_rows[:1]
+    assert summary.expanded_bytes == len(expanded)
+    assert any("row emission limit" in warning for warning in summary.warnings)
+
+
+def test_colscr_reference_scan_can_stop_before_full_honmon(tmp_path) -> None:
+    media_payload = bytes(12) + bytes.fromhex("000000010008")
+    honmon = (
+        bytes.fromhex("1f090001")
+        + b"prefix"
+        + bytes.fromhex("1f4d")
+        + media_payload
+        + b"middle"
+        + bytes.fromhex("1f4d")
+        + media_payload
+        + (b"x" * (BLOCK_SIZE * 80))
+    )
+    path = tmp_path / "HONMON.DIC"
+    path.write_bytes(encode_sseddata_literal(honmon, start_block=1))
+
+    references, expanded_bytes, bytes_scanned, complete = media_references_for_limit(path, 1)
+
+    assert len(references) == 1
+    assert references[0].section_code == "0001"
+    assert references[0].pointer.block == 1
+    assert references[0].pointer.offset == 8
+    assert bytes_scanned < expanded_bytes
+    assert complete is False
+
+
+def test_pcm_reference_scan_can_stop_before_full_honmon(tmp_path) -> None:
+    pcm_payload = bytes.fromhex("00010000000000010010000000010020")
+    honmon = (
+        b"prefix"
+        + bytes.fromhex("1f4a")
+        + pcm_payload
+        + b"label"
+        + bytes.fromhex("1f6a")
+        + b"middle"
+        + bytes.fromhex("1f4a")
+        + pcm_payload
+        + b"label"
+        + bytes.fromhex("1f6a")
+        + (b"x" * (BLOCK_SIZE * 80))
+    )
+    path = tmp_path / "HONMON.DIC"
+    path.write_bytes(encode_sseddata_literal(honmon, start_block=1))
+
+    references, expanded_bytes, bytes_scanned, complete = pcm_references_for_limit(path, 1, {})
+
+    assert len(references) == 1
+    assert references[0].pointer.kind == 1
+    assert references[0].pointer.start_block == 1
+    assert references[0].pointer.start_offset == 10
+    assert references[0].pointer.end_block == 1
+    assert references[0].pointer.end_offset == 20
+    assert bytes_scanned < expanded_bytes
+    assert complete is False

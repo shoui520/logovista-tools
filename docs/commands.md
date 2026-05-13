@@ -343,13 +343,16 @@ Useful options:
 --section-markers                   preserve 1f09 section markers as placeholders
 --section-image CODE=IMAGE_KEY      insert a named image at a section marker in HTML output
 --index-boundaries                  also use parsed index body pointers as entry boundaries
---debug                             use full HONMON expansion and forensic boundary accounting
+--full-scan                         use full HONMON expansion and forensic boundary accounting
+--debug                             deprecated alias for --full-scan on entries
 --no-skip-dense-marker-honmon       force extraction on placeholder HONMON
 ```
 
 By default, `entries` uses a streaming HONMON reader and stops as soon as the
-requested `--limit` is emitted. `--index-boundaries`/`--debug` keep the older
-forensic behavior for dictionaries whose entries need index-derived boundaries.
+requested `--limit` is emitted. Partial streaming summaries report
+`entry_markers_seen` and leave `entry_markers` null until the marker scan is
+complete. `--index-boundaries`/`--full-scan` keep the older forensic behavior
+for dictionaries whose entries need index-derived boundaries.
 
 When `--html` is used, rows include `body_html` in addition to `body`.
 PNG-backed gaiji are rendered as package-relative image tags such as:
@@ -950,6 +953,10 @@ Useful options:
 --json                              emit a machine-readable summary
 ```
 
+With `--limit`, `colscr` scans `HONMON.DIC` through the random SSEDDATA reader
+and stops after the requested media references instead of expanding the whole
+body stream first. Full runs without `--limit` still scan the complete stream.
+
 ### `pcmdata`
 
 Inspect or extract audio/media records stored in `PCMDATA.DIC` and referenced
@@ -986,6 +993,11 @@ Useful options:
 --no-include-unreferenced           skip sequential records not referenced by HONMON
 --json                              emit a machine-readable summary
 ```
+
+With `--limit`, `pcmdata` scans only enough `HONMON.DIC` bytes to find the
+requested audio references plus a small label lookahead. Complete runs without
+`--limit` still scan the whole body stream, and unreferenced record discovery
+remains disabled for limit-bounded runs.
 
 For `fmt `/`data` PCM records, `--write-audio` wraps the raw chunks in a
 standard `RIFF/WAVE` container. For MPEG Layer III records stored inside WAVE
@@ -1351,6 +1363,11 @@ Each JSONL row looks like:
 Title extraction is especially useful for dictionaries whose `HONMON.DIC` is a
 placeholder table rather than a body stream.
 
+When `--limit` is used, `titles` decodes incrementally and stops after enough
+title data has been read to emit the requested rows. Component summaries include
+`stream_complete`, `bytes_decoded`, and `lines_decoded` so callers can tell a
+bounded browse from a complete extraction.
+
 ### `menus`
 
 Extract `MENU.DIC` menu lines, hierarchy, link labels, and destination
@@ -1439,6 +1456,11 @@ component. A six-byte payload of `000000000000` is emitted as `is_null: true`
 with no target and is counted as a null/sentinel destination rather than an
 unresolved pointer.
 
+When `--limit` is used, `menus` decodes incrementally and reads one extra menu
+record where possible before stopping. This keeps the requested final row from
+being the synthetic flush of a chopped prefix while avoiding full component
+expansion for normal browsing.
+
 ### `indexes`
 
 Extract lookup keys and pointer rows from expanded `*INDEX.DIC` components:
@@ -1490,6 +1512,11 @@ Useful options:
 --gaiji h-placeholder               keep half-width gaiji placeholders only
 --gaiji placeholder                 keep half-width and full-width placeholders
 ```
+
+When `--limit` is used, `indexes` scans pages through the random SSEDDATA reader
+and stops after the requested emitted row count. The component summary is marked
+with a partial warning when the limit stops the page scan before the full B-tree
+has been walked.
 
 ## Experimental Writer Commands
 

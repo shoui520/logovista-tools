@@ -14,9 +14,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .cli_args import add_titles_args
 from .entries import decode_tokens, discover_dictionaries, tokens_to_text
 from .gaiji import load_gaiji_profile
-from .ssed import expand_sseddata_file, find_case_insensitive, parse_ssedinfo
+from .ssed import CHUNK_SIZE, SsedRandomReader, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 
 
 TITLE_TYPES = {0x03, 0x04, 0x05, 0x06, 0x07, 0x09, 0x0A, 0x0D}
@@ -24,6 +25,31 @@ TITLE_TYPES = {0x03, 0x04, 0x05, 0x06, 0x07, 0x09, 0x0A, 0x0D}
 
 def write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _decode_title_lines(
+    source: Path,
+    *,
+    limit: int | None,
+    gaiji: str,
+    gaiji_map: dict[str, str],
+) -> tuple[list[tuple[int, str]], dict[str, int], int, int, bool]:
+    if not limit:
+        expanded = expand_sseddata_file(source)
+        tokens, stats = decode_tokens(expanded, gaiji=gaiji, gaiji_map=gaiji_map)
+        lines = [(index, line.strip()) for index, line in enumerate(tokens_to_text(tokens).splitlines(), start=1) if line.strip()]
+        return lines, stats, len(expanded), len(expanded), True
+
+    reader = SsedRandomReader(source)
+    size = min(reader.expanded_size, CHUNK_SIZE)
+    while True:
+        data = reader.read(0, size)
+        tokens, stats = decode_tokens(data, gaiji=gaiji, gaiji_map=gaiji_map)
+        lines = [(index, line.strip()) for index, line in enumerate(tokens_to_text(tokens).splitlines(), start=1) if line.strip()]
+        complete = size >= reader.expanded_size
+        if len(lines) > limit or complete:
+            return lines, stats, reader.expanded_size, size, complete
+        size = min(reader.expanded_size, size + CHUNK_SIZE)
 
 
 def extract_titles_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
@@ -43,14 +69,14 @@ def extract_titles_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) -
             source = find_case_insensitive(idx.parent, element.filename)
             if source is None:
                 continue
-            expanded = expand_sseddata_file(source)
-            tokens, stats = decode_tokens(expanded, gaiji=args.gaiji, gaiji_map=gaiji_profile.map)
-            text = tokens_to_text(tokens)
+            lines, stats, expanded_bytes, bytes_decoded, stream_complete = _decode_title_lines(
+                source,
+                limit=args.limit,
+                gaiji=args.gaiji,
+                gaiji_map=gaiji_profile.map,
+            )
             emitted = 0
-            for line_index, line in enumerate(text.splitlines(), start=1):
-                line = line.strip()
-                if not line:
-                    continue
+            for line_index, line in lines:
                 if args.limit and emitted >= args.limit:
                     break
                 item = {
@@ -68,7 +94,11 @@ def extract_titles_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) -
                 {
                     "component": element.filename,
                     "type": element.type,
-                    "expanded_bytes": len(expanded),
+                    "expanded_bytes": expanded_bytes,
+                    "bytes_decoded": bytes_decoded,
+                    "stream_complete": stream_complete,
+                    "lines_total": len(lines) if stream_complete else None,
+                    "lines_decoded": len(lines),
                     "lines_emitted": emitted,
                     "stats": stats,
                 }
@@ -91,20 +121,11 @@ def extract_titles_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) -
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--root",
-        type=Path,
-        action="append",
-        help="Dictionary collection directory or a direct .IDX path. Can repeat.",
-    )
-    parser.add_argument("--out-dir", type=Path, default=Path("logovista-raw-titles"))
-    parser.add_argument("--limit", type=int, help="Limit emitted title lines per component.")
-    parser.add_argument("--gaiji", choices=("drop", "h-placeholder", "placeholder"), default="h-placeholder")
-    parser.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
+    add_titles_args(parser)
     args = parser.parse_args()
 
     roots = args.root or [Path(".")]
-    sources = discover_dictionaries(roots)
+    sources = discover_dictionaries(roots, jobs=args.jobs, dict_ids=args.dict, include_images=False)
     if args.dict:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]

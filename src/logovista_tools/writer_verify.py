@@ -26,6 +26,7 @@ from .ssed import (
     find_case_insensitive,
     parse_sseddata_header,
     parse_ssedinfo,
+    read_file_prefix,
 )
 
 
@@ -114,14 +115,14 @@ def _is_ff_sentinel(key: bytes) -> bool:
 
 def find_ssedinfo_path(path: Path) -> Path:
     if path.is_file():
-        if path.read_bytes()[:8] != SSEDINFO_MAGIC:
+        if read_file_prefix(path, 8) != SSEDINFO_MAGIC:
             raise ValueError(f"not SSEDINFO: {path}")
         return path
 
     candidates = sorted([*path.glob("*.IDX"), *path.glob("*.idx")], key=lambda p: (p.name.startswith("00000"), p.name.lower()))
     for candidate in candidates:
         try:
-            if candidate.read_bytes()[:8] == SSEDINFO_MAGIC:
+            if read_file_prefix(candidate, 8) == SSEDINFO_MAGIC:
                 return candidate
         except OSError:
             continue

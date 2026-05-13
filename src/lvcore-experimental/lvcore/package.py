@@ -63,7 +63,16 @@ from .index import (
 from .model import Address, Component, ComponentRole, Entry, PackageFamily, PackageInfo, SearchProfile, Span
 from .render import HtmlProfile, render_html, render_text
 from .search import SearchHit, SearchResults, natural_backward_key, normalize_query, query_candidates
-from .ssed import BLOCK_SIZE, CHUNK_SIZE, Catalog, SsedData, TEXT_LIKE_INDEX_OUTLIER_TYPES, find_file_case_insensitive, parse_catalog
+from .ssed import (
+    BLOCK_SIZE,
+    CHUNK_SIZE,
+    Catalog,
+    SsedData,
+    TEXT_LIKE_INDEX_OUTLIER_TYPES,
+    find_file_case_insensitive,
+    parse_catalog,
+    read_file_prefix,
+)
 from .text import DecodeResult, decode_text_stream
 
 
@@ -594,7 +603,7 @@ class LogoVistaPackage:
     @staticmethod
     def _sqlite_storage(path: Path) -> str | None:
         try:
-            raw = path.read_bytes()[:2048]
+            raw = read_file_prefix(path, 2048)
         except OSError:
             return None
         if raw.startswith(SQLITE_MAGIC):

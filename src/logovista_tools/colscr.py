@@ -12,7 +12,7 @@ from typing import Any, Iterable
 
 from .entries import discover_dictionaries
 from .parallel import parallel_map_ordered, worker_args
-from .ssed import BLOCK_SIZE, SsedRandomReader, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
+from .ssed import BLOCK_SIZE, CHUNK_SIZE, SsedRandomReader, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 
 
 COLSCR_TYPE = 0xD2
@@ -249,6 +249,22 @@ def write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def media_references_for_limit(honmon_path: Path, limit: int | None) -> tuple[list[MediaReference], int, int, bool]:
+    if not limit:
+        honmon_data = expand_sseddata_file(honmon_path)
+        return list(iter_media_references(honmon_data)), len(honmon_data), len(honmon_data), True
+
+    reader = SsedRandomReader(honmon_path)
+    size = min(reader.expanded_size, CHUNK_SIZE)
+    while True:
+        data = reader.read(0, size)
+        references = list(iter_media_references(data))
+        complete = size >= reader.expanded_size
+        if len(references) >= limit or complete:
+            return references[:limit], reader.expanded_size, size, complete
+        size = min(reader.expanded_size, size + CHUNK_SIZE)
+
+
 def extract_colscr_for_source(source: Any, out_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
     colscr_path = find_colscr_path(source.idx)
     dict_out = out_dir / source.dict_id
@@ -270,10 +286,10 @@ def extract_colscr_for_source(source: Any, out_dir: Path, args: argparse.Namespa
         write_json(dict_out / "colscr_summary.json", summary)
         return summary
 
-    honmon_data = expand_sseddata_file(source.honmon)
-    references = list(iter_media_references(honmon_data))
-    if args.limit:
-        references = references[: args.limit]
+    references, honmon_expanded_bytes, honmon_bytes_scanned, honmon_scan_complete = media_references_for_limit(
+        source.honmon,
+        args.limit,
+    )
 
     reader = SsedRandomReader(colscr_path)
     media_dir = dict_out / "media"
@@ -326,6 +342,9 @@ def extract_colscr_for_source(source: Any, out_dir: Path, args: argparse.Namespa
         "dict_title": source.title,
         "idx": str(source.idx),
         "honmon": str(source.honmon),
+        "honmon_expanded_bytes": honmon_expanded_bytes,
+        "honmon_bytes_scanned": honmon_bytes_scanned,
+        "honmon_scan_complete": honmon_scan_complete,
         "colscr": str(colscr_path),
         "colscr_start_block": reader.start_block,
         "colscr_end_block": reader.end_block,
@@ -361,7 +380,13 @@ def _colscr_source_task(payload: tuple[Any, Path, argparse.Namespace]) -> dict[s
 
 
 def extract_colscr_for_sources(args: argparse.Namespace) -> list[dict[str, Any]]:
-    sources = discover_dictionaries(args.root or [Path(".")], jobs=getattr(args, "jobs", 1))
+    sources = discover_dictionaries(
+        args.root or [Path(".")],
+        jobs=getattr(args, "jobs", 1),
+        dict_ids=args.dict,
+        include_gaiji=False,
+        include_images=False,
+    )
     if args.dict:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]

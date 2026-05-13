@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from .cli_args import add_entries_args
 from .gaiji import load_gaiji_map, load_gaiji_profile
 from .parallel import parallel_map_ordered
 from .resources import load_image_resource_profile, relative_image_source
@@ -101,8 +102,10 @@ class DictionarySource:
     honmon_start_block: int
     gaiji_map: dict[str, str]
     honmon_storage: str = "unknown"
+    gaiji_loaded: bool = True
     gaiji_uni_entries: int = 0
     gaiji_plist_entries: int = 0
+    image_resources_loaded: bool = True
     image_resource_entries: int = 0
     image_gaiji_keys: frozenset[str] = frozenset()
     image_sources: dict[str, str] | None = None
@@ -616,7 +619,13 @@ def load_plist_gaiji_map(idx: Path) -> dict[str, str]:
     return load_gaiji_map(idx)
 
 
-def _dictionary_source_from_idx(idx: Path) -> DictionarySource | None:
+def _dictionary_source_from_idx(payload: Path | tuple[Path, bool, bool]) -> DictionarySource | None:
+    if isinstance(payload, tuple):
+        idx, include_gaiji, include_images = payload
+    else:
+        idx = payload
+        include_gaiji = True
+        include_images = True
     try:
         title, elements = parse_ssedinfo(idx)
     except Exception:
@@ -628,13 +637,14 @@ def _dictionary_source_from_idx(idx: Path) -> DictionarySource | None:
     if honmon is None:
         return None
     dict_id = idx.parent.parent.name if idx.parent.name == idx.parent.parent.name else idx.stem
-    gaiji_profile = load_gaiji_profile(idx)
-    image_profile = load_image_resource_profile(idx)
+    gaiji_profile = load_gaiji_profile(idx) if include_gaiji else None
+    image_profile = load_image_resource_profile(idx) if include_images else None
     image_sources = {}
-    for key, resource in image_profile.resources.items():
-        selected = resource.normal or resource.default or resource.white
-        if selected is not None:
-            image_sources[key] = relative_image_source(selected, idx)
+    if image_profile is not None:
+        for key, resource in image_profile.resources.items():
+            selected = resource.normal or resource.default or resource.white
+            if selected is not None:
+                image_sources[key] = relative_image_source(selected, idx)
     return DictionarySource(
         dict_id=dict_id,
         idx=idx,
@@ -642,17 +652,35 @@ def _dictionary_source_from_idx(idx: Path) -> DictionarySource | None:
         honmon=honmon,
         honmon_start_block=honmon_element.start,
         honmon_storage=sseddata_storage_for_file(honmon),
-        gaiji_map=gaiji_profile.map,
-        gaiji_uni_entries=gaiji_profile.uni_entries,
-        gaiji_plist_entries=gaiji_profile.plist_entries,
-        image_resource_entries=len(image_profile.resources),
-        image_gaiji_keys=image_profile.gaiji_image_keys,
+        gaiji_loaded=gaiji_profile is not None,
+        gaiji_map=gaiji_profile.map if gaiji_profile is not None else {},
+        gaiji_uni_entries=gaiji_profile.uni_entries if gaiji_profile is not None else 0,
+        gaiji_plist_entries=gaiji_profile.plist_entries if gaiji_profile is not None else 0,
+        image_resources_loaded=image_profile is not None,
+        image_resource_entries=len(image_profile.resources) if image_profile is not None else 0,
+        image_gaiji_keys=image_profile.gaiji_image_keys if image_profile is not None else frozenset(),
         image_sources=image_sources,
-        image_dirs=image_profile.image_dirs,
+        image_dirs=image_profile.image_dirs if image_profile is not None else (),
     )
 
 
-def discover_dictionaries(roots: list[Path], *, jobs: int | None = 1) -> list[DictionarySource]:
+def _candidate_dict_keys(idx: Path) -> set[str]:
+    keys = {idx.stem, idx.parent.name, idx.parent.name.removeprefix("_DCT_")}
+    if idx.parent.name == idx.parent.parent.name:
+        keys.add(idx.parent.parent.name)
+        keys.add(idx.parent.parent.name.removeprefix("_DCT_"))
+    return {key for key in keys if key}
+
+
+def discover_dictionaries(
+    roots: list[Path],
+    *,
+    jobs: int | None = 1,
+    dict_ids: list[str] | set[str] | tuple[str, ...] | None = None,
+    include_gaiji: bool = True,
+    include_images: bool = True,
+) -> list[DictionarySource]:
+    selected = {value.lower() for value in dict_ids or []}
     candidates: list[Path] = []
     seen: set[Path] = set()
     for root in roots:
@@ -664,18 +692,33 @@ def discover_dictionaries(roots: list[Path], *, jobs: int | None = 1) -> list[Di
 
     unique_candidates: list[Path] = []
     for idx in sorted(candidates):
+        if selected and not ({key.lower() for key in _candidate_dict_keys(idx)} & selected):
+            continue
         resolved = idx.resolve()
         if resolved in seen:
             continue
         seen.add(resolved)
         unique_candidates.append(resolved)
 
-    rows = parallel_map_ordered(_dictionary_source_from_idx, unique_candidates, jobs=jobs)
+    rows = parallel_map_ordered(
+        _dictionary_source_from_idx,
+        [(candidate, include_gaiji, include_images) for candidate in unique_candidates],
+        jobs=jobs,
+    )
     return [row for row in rows if row is not None]
 
 
 def write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def entry_marker_status_text(summary: dict[str, Any]) -> str:
+    if summary.get("entry_markers_complete"):
+        return str(summary.get("entry_markers") or 0)
+    seen = summary.get("entry_markers_seen")
+    if seen is None:
+        return "unknown"
+    return f"seen={seen}"
 
 
 def _empty_stats() -> dict[str, int]:
@@ -699,6 +742,7 @@ def _summary(
     honmon_storage: str,
     expanded_bytes: int,
     entry_markers: int | None,
+    entry_markers_seen: int,
     entry_markers_complete: bool,
     emitted: int,
     skipped_empty: int,
@@ -715,15 +759,18 @@ def _summary(
         "honmon_storage": honmon_storage,
         "expanded_bytes": expanded_bytes,
         "entry_markers": entry_markers,
+        "entry_markers_seen": entry_markers_seen,
         "entry_markers_complete": entry_markers_complete,
         "index_entry_boundaries": index_boundary_offsets,
         "entries_emitted": emitted,
         "entries_skipped_empty": skipped_empty,
         "stats": stats,
         "warnings": warnings,
+        "gaiji_loaded": source.gaiji_loaded,
         "gaiji_map_entries": len(source.gaiji_map),
         "gaiji_uni_entries": source.gaiji_uni_entries,
         "gaiji_plist_entries": source.gaiji_plist_entries,
+        "image_resources_loaded": source.image_resources_loaded,
         "image_resource_entries": source.image_resource_entries,
         "image_gaiji_entries": len(source.image_gaiji_keys),
         "image_dirs": [str(path) for path in source.image_dirs],
@@ -755,7 +802,8 @@ def extract_dictionary_streaming(source: DictionarySource, out_dir: Path, args: 
             entries_path,
             honmon_storage=reader.storage,
             expanded_bytes=reader.expanded_size,
-            entry_markers=sample_markers,
+            entry_markers=None,
+            entry_markers_seen=sample_markers,
             entry_markers_complete=False,
             emitted=0,
             skipped_empty=0,
@@ -768,56 +816,81 @@ def extract_dictionary_streaming(source: DictionarySource, out_dir: Path, args: 
     emitted = 0
     skipped_empty = 0
     marker_offsets_seen = 0
-    with entries_path.open("w", encoding="utf-8") as out:
-        for entry_index, (start, end) in enumerate(iter_entry_slices_reader(reader), start=1):
-            marker_offsets_seen += 1
-            if args.limit and emitted >= args.limit:
-                break
-            segment = reader.read(start, end - start)
-            tokens, stats = decode_tokens(
-                segment,
-                gaiji=args.gaiji,
-                gaiji_map=source.gaiji_map,
-                image_gaiji_keys=source.image_gaiji_keys,
-                preserve_image_gaiji=args.image_gaiji,
-                preserve_media=args.media_placeholder,
-                preserve_sections=args.section_markers,
+    markers_complete = False
+
+    def emit_slice(out, entry_index: int, start: int, end: int) -> bool:
+        nonlocal emitted, skipped_empty
+        segment = reader.read(start, end - start)
+        tokens, stats = decode_tokens(
+            segment,
+            gaiji=args.gaiji,
+            gaiji_map=source.gaiji_map,
+            image_gaiji_keys=source.image_gaiji_keys,
+            preserve_image_gaiji=args.image_gaiji,
+            preserve_media=args.media_placeholder,
+            preserve_sections=args.section_markers,
+        )
+        body = tokens_to_text(tokens)
+        if is_useless_body(body) or len(body.strip()) < args.min_chars:
+            skipped_empty += 1
+            return False
+        for key, value in stats.items():
+            aggregate_stats[key] = aggregate_stats.get(key, 0) + value
+        block = source.honmon_start_block + start // BLOCK_SIZE
+        offset = start % BLOCK_SIZE
+        item = {
+            "dict_id": source.dict_id,
+            "dict_title": source.title,
+            "entry_index": entry_index,
+            "block": block,
+            "offset": offset,
+            "length": end - start,
+            "heading": extract_heading(tokens, body),
+            "body": body,
+        }
+        if args.html:
+            item["body_html"] = tokens_to_html(
+                tokens,
+                image_sources=source.image_sources,
+                section_image_sources=section_image_sources,
             )
-            body = tokens_to_text(tokens)
-            if is_useless_body(body) or len(body.strip()) < args.min_chars:
-                skipped_empty += 1
-                continue
-            for key, value in stats.items():
-                aggregate_stats[key] = aggregate_stats.get(key, 0) + value
-            block = source.honmon_start_block + start // BLOCK_SIZE
-            offset = start % BLOCK_SIZE
-            item = {
-                "dict_id": source.dict_id,
-                "dict_title": source.title,
-                "entry_index": entry_index,
-                "block": block,
-                "offset": offset,
-                "length": end - start,
-                "heading": extract_heading(tokens, body),
-                "body": body,
-            }
-            if args.html:
-                item["body_html"] = tokens_to_html(
-                    tokens,
-                    image_sources=source.image_sources,
-                    section_image_sources=section_image_sources,
-                )
-            out.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")))
-            out.write("\n")
-            emitted += 1
+        out.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")))
+        out.write("\n")
+        emitted += 1
+        return True
+
+    with entries_path.open("w", encoding="utf-8") as out:
+        marker_iter = iter(iter_entry_marker_offsets_reader(reader))
+        try:
+            previous = next(marker_iter)
+            marker_offsets_seen = 1
+        except StopIteration:
+            markers_complete = True
+            if reader.expanded_size:
+                emit_slice(out, 1, 0, reader.expanded_size)
+        else:
+            entry_index = 1
+            for current in marker_iter:
+                marker_offsets_seen += 1
+                if current > previous:
+                    emit_slice(out, entry_index, previous, current)
+                    entry_index += 1
+                    if args.limit and emitted >= args.limit:
+                        break
+                previous = current
+            else:
+                markers_complete = True
+                if previous < reader.expanded_size and (not args.limit or emitted < args.limit):
+                    emit_slice(out, entry_index, previous, reader.expanded_size)
 
     summary = _summary(
         source,
         entries_path,
         honmon_storage=reader.storage,
         expanded_bytes=reader.expanded_size,
-        entry_markers=marker_offsets_seen,
-        entry_markers_complete=False,
+        entry_markers=marker_offsets_seen if markers_complete else None,
+        entry_markers_seen=marker_offsets_seen,
+        entry_markers_complete=markers_complete,
         emitted=emitted,
         skipped_empty=skipped_empty,
         stats=aggregate_stats,
@@ -828,7 +901,8 @@ def extract_dictionary_streaming(source: DictionarySource, out_dir: Path, args: 
 
 
 def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
-    if not getattr(args, "debug", False) and not getattr(args, "index_boundaries", False):
+    full_scan = bool(getattr(args, "full_scan", False) or getattr(args, "debug", False))
+    if not full_scan and not getattr(args, "index_boundaries", False):
         return extract_dictionary_streaming(source, out_dir, args)
 
     dict_out = out_dir / source.dict_id
@@ -869,13 +943,18 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
             "honmon_storage": honmon_storage,
             "expanded_bytes": len(expanded),
             "entry_markers": marker_count,
+            "entry_markers_seen": marker_count,
+            "entry_markers_complete": True,
+            "index_entry_boundaries": 0,
             "entries_emitted": 0,
             "entries_skipped_empty": 0,
             "stats": aggregate_stats,
             "warnings": warnings,
+            "gaiji_loaded": source.gaiji_loaded,
             "gaiji_map_entries": len(source.gaiji_map),
             "gaiji_uni_entries": source.gaiji_uni_entries,
             "gaiji_plist_entries": source.gaiji_plist_entries,
+            "image_resources_loaded": source.image_resources_loaded,
             "image_resource_entries": source.image_resource_entries,
             "image_gaiji_entries": len(source.image_gaiji_keys),
             "image_dirs": [str(path) for path in source.image_dirs],
@@ -950,14 +1029,18 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
         "honmon_storage": honmon_storage,
         "expanded_bytes": len(expanded),
         "entry_markers": marker_count,
+        "entry_markers_seen": marker_count,
+        "entry_markers_complete": True,
         "index_entry_boundaries": len(index_boundary_offsets),
         "entries_emitted": emitted,
         "entries_skipped_empty": skipped_empty,
         "stats": aggregate_stats,
         "warnings": warnings,
+        "gaiji_loaded": source.gaiji_loaded,
         "gaiji_map_entries": len(source.gaiji_map),
         "gaiji_uni_entries": source.gaiji_uni_entries,
         "gaiji_plist_entries": source.gaiji_plist_entries,
+        "image_resources_loaded": source.image_resources_loaded,
         "image_resource_entries": source.image_resource_entries,
         "image_gaiji_entries": len(source.image_gaiji_keys),
         "image_dirs": [str(path) for path in source.image_dirs],
@@ -969,67 +1052,16 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--root",
-        type=Path,
-        action="append",
-        help="Dictionary collection directory or a direct .IDX path. Can repeat.",
-    )
-    parser.add_argument("--out-dir", type=Path, default=Path("logovista-raw-extract"))
-    parser.add_argument("--limit", type=int, help="Limit entries per dictionary, for testing.")
-    parser.add_argument("--min-chars", type=int, default=1)
-    parser.add_argument("--gaiji", choices=("drop", "h-placeholder", "placeholder"), default="h-placeholder")
-    parser.add_argument(
-        "--image-gaiji",
-        action="store_true",
-        help="Preserve unresolved gaiji that have PNG assets as <img:code> placeholders.",
-    )
-    parser.add_argument(
-        "--media-placeholder",
-        action="store_true",
-        help="Preserve 1f4d media controls as <media:payload-hex> placeholders.",
-    )
-    parser.add_argument(
-        "--section-markers",
-        action="store_true",
-        help="Preserve 1f09 section markers as <section:xxxx> placeholders.",
-    )
-    parser.add_argument(
-        "--html",
-        action="store_true",
-        help="Also emit body_html with conservative inline HTML and img tags for image gaiji.",
-    )
-    parser.add_argument(
-        "--section-image",
-        action="append",
-        help="For HTML output, insert an image at a section marker. Format: CODE=IMAGE_KEY, e.g. 0011=exam.",
-    )
-    parser.add_argument(
-        "--no-skip-dense-marker-honmon",
-        dest="skip_dense_marker_honmon",
-        action="store_false",
-        help="Attempt extraction even when HONMON looks like an anchor/id table.",
-    )
-    parser.add_argument(
-        "--index-boundaries",
-        dest="index_boundaries",
-        action="store_true",
-        help="Add raw index body pointers as extra entry boundaries. This is a slower forensic path.",
-    )
-    parser.add_argument(
-        "--no-index-boundaries",
-        dest="index_boundaries",
-        action="store_false",
-        help="Compatibility no-op: index boundaries are disabled by default in the fast path.",
-    )
-    parser.add_argument("--debug", action="store_true", help="Use full HONMON expansion and forensic boundary accounting.")
-    parser.set_defaults(skip_dense_marker_honmon=True)
-    parser.set_defaults(index_boundaries=False, debug=False)
-    parser.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
+    add_entries_args(parser)
     args = parser.parse_args()
 
     roots = args.root or [Path(".")]
-    sources = discover_dictionaries(roots)
+    sources = discover_dictionaries(
+        roots,
+        jobs=args.jobs,
+        dict_ids=args.dict,
+        include_images=bool(args.image_gaiji or args.html or args.section_image),
+    )
     if args.dict:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]
@@ -1044,7 +1076,7 @@ def main() -> int:
         summary = extract_dictionary(source, args.out_dir, args)
         summaries.append(summary)
         print(
-            f"  entries={summary['entries_emitted']} markers={summary['entry_markers']} "
+            f"  entries={summary['entries_emitted']} markers={entry_marker_status_text(summary)} "
             f"bytes={summary['expanded_bytes']}",
             file=sys.stderr,
         )

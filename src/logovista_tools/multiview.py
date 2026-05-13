@@ -19,7 +19,7 @@ from .lvcrypto import (
     decrypt_logofont_cipher_file_to_path,
     decrypt_logofont_cipher_prefix,
 )
-from .ssed import parse_ssedinfo_with_layout
+from .ssed import parse_ssedinfo_with_layout, read_file_prefix
 from .windows import file_magic_kind, quote_identifier
 
 
@@ -90,7 +90,7 @@ def discover_multiview_packages(roots: list[Path]) -> list[Path]:
 
 
 def decrypt_or_copy_to_sqlite(path: Path, out: Path) -> tuple[str, str]:
-    prefix = path.read_bytes()[:4096]
+    prefix = read_file_prefix(path, 4096)
     raw_kind = file_magic_kind(prefix)
     if raw_kind == "sqlite":
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -227,7 +227,7 @@ def classify_payload(path: Path, decrypted_root: Path) -> tuple[dict[str, Any], 
 
 
 def classify_resource(path: Path, out_dir: Path | None = None) -> dict[str, Any]:
-    prefix = path.read_bytes()[:4096]
+    prefix = read_file_prefix(path, 4096)
     raw_kind = file_magic_kind(prefix)
     storage = "plain"
     kind = raw_kind
@@ -445,7 +445,7 @@ def _file_listing(path: Path, *, with_kind: bool) -> list[dict[str, Any]]:
             continue
         row: dict[str, Any] = {"name": child.name, "path": str(child), "size": child.stat().st_size}
         if with_kind:
-            row["kind"] = file_magic_kind(child.read_bytes()[:64])
+            row["kind"] = file_magic_kind(read_file_prefix(child, 64))
         rows.append(row)
     return rows
 
@@ -491,7 +491,7 @@ def _viewer_file_listing(package_dir: Path) -> list[dict[str, Any]]:
                 "relative_path": str(path.relative_to(package_dir)),
                 "size": path.stat().st_size,
                 "sha256": sha256_file(path),
-                "kind": file_magic_kind(path.read_bytes()[:64]),
+                "kind": file_magic_kind(read_file_prefix(path, 64)),
             }
         )
     return rows

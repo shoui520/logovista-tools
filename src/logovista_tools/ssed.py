@@ -26,6 +26,11 @@ SSEDDATA_MAGIC = b"SSEDDATA"
 SSEDINFO_MAGIC = b"SSEDINFO"
 
 
+def read_file_prefix(path: Path, size: int) -> bytes:
+    with path.open("rb") as fh:
+        return fh.read(size)
+
+
 @dataclass(frozen=True)
 class SsedInfoElement:
     index: int
@@ -183,7 +188,7 @@ def sseddata_storage_for_bytes(data: bytes) -> str:
 
 
 def sseddata_storage_for_file(path: Path) -> str:
-    return sseddata_storage_for_bytes(path.read_bytes()[:BLOCK_SIZE])
+    return sseddata_storage_for_bytes(read_file_prefix(path, BLOCK_SIZE))
 
 
 def load_sseddata_bytes(data: bytes) -> tuple[bytes, str]:
@@ -208,7 +213,7 @@ def load_sseddata_file(path: Path) -> tuple[bytes, str]:
 
 
 def parse_sseddata_header(path: Path) -> dict[str, int | bytes | str]:
-    data = path.read_bytes()[:64]
+    data = read_file_prefix(path, 64)
     storage = "plain"
     if not is_sseddata_bytes(data):
         storage = sseddata_storage_for_bytes(data)
@@ -301,14 +306,26 @@ class SsedRandomReader:
 
     def __init__(self, path: Path):
         self.path = path
-        self.data, self.storage = load_sseddata_file(path)
+        prefix = read_file_prefix(path, 64)
+        self.data: bytes | None = None
+        self.file_size = path.stat().st_size
+        if is_sseddata_bytes(prefix):
+            self.storage = "plain"
+            n_chunk = be16(prefix, 0x16)
+            header_size = 64 + (4 * n_chunk)
+            header_bytes = read_file_prefix(path, header_size)
+        else:
+            # Encrypted components still need full-file decryption before chunk
+            # offsets can be used. Plain SSEDDATA stays file-backed.
+            self.data, self.storage = load_sseddata_file(path)
+            header_bytes = self.data
         self.header = {
-            "kind": self.data[0x0F],
-            "n_chunk": be16(self.data, 0x16),
-            "start_block": be32(self.data, 0x18),
-            "end_block": be32(self.data, 0x1C),
+            "kind": header_bytes[0x0F],
+            "n_chunk": be16(header_bytes, 0x16),
+            "start_block": be32(header_bytes, 0x18),
+            "end_block": be32(header_bytes, 0x1C),
         }
-        self.offsets = ssed_chunk_offsets(self.data)
+        self.offsets = ssed_chunk_offsets(header_bytes)
         self._chunk_cache: dict[int, bytes] = {}
 
     @property
@@ -327,7 +344,15 @@ class SsedRandomReader:
         if index < 0 or index >= len(self.offsets):
             return b""
         if index not in self._chunk_cache:
-            self._chunk_cache[index] = expand_sseddata_chunk(self.data, self.offsets[index])
+            chunk_offset = self.offsets[index]
+            if self.data is not None:
+                self._chunk_cache[index] = expand_sseddata_chunk(self.data, chunk_offset)
+            else:
+                next_offset = self.offsets[index + 1] if index + 1 < len(self.offsets) else self.file_size
+                with self.path.open("rb") as fh:
+                    fh.seek(chunk_offset)
+                    chunk_data = fh.read(max(0, next_offset - chunk_offset))
+                self._chunk_cache[index] = expand_sseddata_chunk(chunk_data, 0)
         return self._chunk_cache[index]
 
     def read(self, offset: int, size: int) -> bytes:
@@ -349,7 +374,7 @@ class SsedRandomReader:
 
 def command_info(args: argparse.Namespace) -> None:
     path = args.path
-    data = path.read_bytes()[:8]
+    data = read_file_prefix(path, 8)
     if data == b"SSEDINFO":
         title, elements = parse_ssedinfo(path)
         print(f"title: {title}")

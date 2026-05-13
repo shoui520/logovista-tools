@@ -25,6 +25,11 @@ MEDIA_NAMES = {"COLSCR.DIC", "PCMDATA.DIC"}
 TEXT_LIKE_INDEX_OUTLIER_TYPES = {0x27}
 
 
+def read_file_prefix(path: Path, size: int) -> bytes:
+    with path.open("rb") as fh:
+        return fh.read(size)
+
+
 def be16(data: bytes, offset: int) -> int:
     return int.from_bytes(data[offset : offset + 2], "big")
 
@@ -54,7 +59,7 @@ def component_role(name: str, typ: int) -> ComponentRole:
 
 def is_ssedinfo(path: Path) -> bool:
     try:
-        return path.is_file() and path.read_bytes()[:8] == SSEDINFO
+        return path.is_file() and read_file_prefix(path, 8) == SSEDINFO
     except OSError:
         return False
 

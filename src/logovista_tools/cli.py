@@ -14,6 +14,15 @@ from typing import Any
 from . import __version__
 from .audit import extract_audit_for_sources
 from .capability import extract_capability_matrix_for_args
+from .cli_args import (
+    add_colscr_args,
+    add_entries_args,
+    add_indexes_args,
+    add_info_args,
+    add_menus_args,
+    add_pcmdata_args,
+    add_titles_args,
+)
 from .cli_ux import command_name as command_label, extract_verbose, run_with_friendly_errors, status
 from .colscr import extract_colscr_for_sources
 from .component_forensics import extract_component_forensics_for_args
@@ -24,7 +33,7 @@ from .decoded_model import (
     write_package_model_chunked,
     write_package_model_chunked_to_dir,
 )
-from .entries import discover_dictionaries, extract_dictionary
+from .entries import discover_dictionaries, entry_marker_status_text, extract_dictionary
 from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
 from .gaiji import (
@@ -68,6 +77,7 @@ from .ssed import (
     parse_ssedinfo,
     parse_ssedinfo_with_layout,
     write_epwing_catalog_header,
+    read_file_prefix,
 )
 from .titles import extract_titles_for_idx
 from .windows import (
@@ -93,7 +103,7 @@ def write_json(path: Path, data: Any) -> None:
 
 def cmd_info(args: argparse.Namespace) -> int:
     status(args, f"info: reading {args.path}", verbose=True)
-    data = args.path.read_bytes()[:8]
+    data = read_file_prefix(args.path, 8)
     if data == b"SSEDINFO":
         title, elements, layout = parse_ssedinfo_with_layout(args.path)
         print(f"title: {title}")
@@ -309,8 +319,19 @@ def cmd_compose(args: argparse.Namespace) -> int:
 def select_sources(args: argparse.Namespace):
     roots = args.root or [Path(".")]
     jobs = getattr(args, "jobs", 1)
+    command = getattr(args, "command", "")
+    include_images = command not in {"titles", "indexes", "menus", "colscr", "pcmdata"}
+    if command == "entries":
+        include_images = bool(getattr(args, "image_gaiji", False) or getattr(args, "html", False) or getattr(args, "section_image", None))
+    include_gaiji = command != "colscr"
     status(args, f"{command_label(args)}: discovering dictionaries under {', '.join(str(root) for root in roots)}")
-    sources = discover_dictionaries(roots, jobs=jobs)
+    sources = discover_dictionaries(
+        roots,
+        jobs=jobs,
+        dict_ids=getattr(args, "dict", None),
+        include_gaiji=include_gaiji,
+        include_images=include_images,
+    )
     if args.dict:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]
@@ -356,7 +377,7 @@ def cmd_entries(args: argparse.Namespace) -> int:
     def log_summary(summary: dict[str, Any]) -> None:
         print(
             f"{summary['dict_id']:12s} entries={summary['entries_emitted']} "
-            f"markers={summary['entry_markers']} "
+            f"markers={entry_marker_status_text(summary)} "
             f"bytes={summary['expanded_bytes']}",
             file=sys.stderr,
         )
@@ -1693,13 +1714,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_info = sub.add_parser("info", help="Inspect an SSEDINFO .IDX or SSEDDATA .DIC file.")
-    p_info.add_argument("path", type=Path)
-    p_info.add_argument("--all", action="store_true", help="Show zero-start/resource components too.")
-    p_info.add_argument(
-        "--try-decrypt",
-        action="store_true",
-        help="For unknown raw files, attempt encrypted SSEDDATA detection. Slow forensic fallback.",
-    )
+    add_info_args(p_info)
     p_info.set_defaults(func=cmd_info)
 
     p_scan = sub.add_parser("scan", help="Find LogoVista dictionaries under roots.")
@@ -1749,58 +1764,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_compose.set_defaults(func=cmd_compose)
 
     p_entries = sub.add_parser("entries", help="Extract readable HONMON body entries as JSONL.")
-    p_entries.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
-    p_entries.add_argument("--out-dir", type=Path, default=Path("logovista-raw-extract"))
-    p_entries.add_argument("--limit", type=int, help="Limit entries per dictionary for smoke tests.")
-    p_entries.add_argument("--min-chars", type=int, default=1)
-    p_entries.add_argument("--gaiji", choices=("drop", "h-placeholder", "placeholder"), default="h-placeholder")
-    p_entries.add_argument(
-        "--image-gaiji",
-        action="store_true",
-        help="Preserve unresolved gaiji that have PNG assets as <img:code> placeholders.",
-    )
-    p_entries.add_argument(
-        "--media-placeholder",
-        action="store_true",
-        help="Preserve 1f4d media controls as <media:payload-hex> placeholders.",
-    )
-    p_entries.add_argument(
-        "--section-markers",
-        action="store_true",
-        help="Preserve 1f09 section markers as <section:xxxx> placeholders.",
-    )
-    p_entries.add_argument(
-        "--html",
-        action="store_true",
-        help="Also emit body_html with conservative inline HTML and img tags for image gaiji.",
-    )
-    p_entries.add_argument(
-        "--section-image",
-        action="append",
-        help="For HTML output, insert an image at a section marker. Format: CODE=IMAGE_KEY, e.g. 0011=exam.",
-    )
-    p_entries.add_argument(
-        "--no-skip-dense-marker-honmon",
-        dest="skip_dense_marker_honmon",
-        action="store_false",
-        help="Attempt extraction even when HONMON looks like a placeholder table.",
-    )
-    p_entries.add_argument(
-        "--index-boundaries",
-        dest="index_boundaries",
-        action="store_true",
-        help="Add raw index body pointers as extra entry boundaries. This is a slower forensic path.",
-    )
-    p_entries.add_argument(
-        "--no-index-boundaries",
-        dest="index_boundaries",
-        action="store_false",
-        help="Compatibility no-op: index boundaries are disabled by default in the fast path.",
-    )
-    p_entries.add_argument("--debug", action="store_true", help="Use full HONMON expansion and forensic boundary accounting.")
-    add_jobs_argument(p_entries)
-    p_entries.set_defaults(skip_dense_marker_honmon=True, index_boundaries=False, debug=False, func=cmd_entries)
-    p_entries.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
+    add_entries_args(p_entries)
+    p_entries.set_defaults(func=cmd_entries)
 
     p_resources = sub.add_parser("resources", help="List package image resources and image-backed gaiji.")
     p_resources.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
@@ -1810,40 +1775,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_resources.set_defaults(func=cmd_resources)
 
     p_colscr = sub.add_parser("colscr", help="Inspect or extract COLSCR.DIC media image records.")
-    p_colscr.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
-    p_colscr.add_argument("--out-dir", type=Path, default=Path("logovista-colscr"))
-    p_colscr.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
-    p_colscr.add_argument("--limit", type=int, help="Limit media references per dictionary.")
-    p_colscr.add_argument(
-        "--write-media",
-        "--write-bmp",
-        dest="write_media",
-        action="store_true",
-        help="Write referenced image files next to the manifest.",
-    )
-    p_colscr.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
-    add_jobs_argument(p_colscr)
+    add_colscr_args(p_colscr)
     p_colscr.set_defaults(func=cmd_colscr)
 
     p_pcmdata = sub.add_parser("pcmdata", help="Inspect or extract PCMDATA.DIC audio/media records.")
-    p_pcmdata.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
-    p_pcmdata.add_argument("--out-dir", type=Path, default=Path("logovista-pcmdata"))
-    p_pcmdata.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
-    p_pcmdata.add_argument("--limit", type=int, help="Limit HONMON audio references per dictionary.")
-    p_pcmdata.add_argument(
-        "--write-audio",
-        action="store_true",
-        help="Write portable audio files next to the manifest.",
-    )
-    p_pcmdata.add_argument(
-        "--no-include-unreferenced",
-        dest="include_unreferenced",
-        action="store_false",
-        help="Do not scan unreferenced records in PCMDATA gaps.",
-    )
-    p_pcmdata.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
-    add_jobs_argument(p_pcmdata)
-    p_pcmdata.set_defaults(include_unreferenced=True, func=cmd_pcmdata)
+    add_pcmdata_args(p_pcmdata)
+    p_pcmdata.set_defaults(func=cmd_pcmdata)
 
     p_extras = sub.add_parser("extras", help="Parse Windows EXINFO.INI auxiliary index/html metadata.")
     p_extras.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
@@ -2445,36 +2382,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_ga16.set_defaults(func=cmd_ga16)
 
     p_titles = sub.add_parser("titles", help="Extract raw *TITLE.DIC headword/title lines as JSONL.")
-    p_titles.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
-    p_titles.add_argument("--out-dir", type=Path, default=Path("logovista-raw-titles"))
-    p_titles.add_argument("--limit", type=int, help="Limit emitted title lines per component.")
-    p_titles.add_argument("--gaiji", choices=("drop", "h-placeholder", "placeholder"), default="h-placeholder")
-    p_titles.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
-    add_jobs_argument(p_titles)
+    add_titles_args(p_titles)
     p_titles.set_defaults(func=cmd_titles)
 
     p_indexes = sub.add_parser("indexes", help="Extract raw *INDEX.DIC search rows as JSONL.")
-    p_indexes.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
-    p_indexes.add_argument("--out-dir", type=Path, default=Path("logovista-raw-indexes"))
-    p_indexes.add_argument("--limit", type=int, help="Limit emitted index rows per run.")
-    p_indexes.add_argument("--gaiji", choices=("drop", "h-placeholder", "placeholder"), default="h-placeholder")
-    p_indexes.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
-    p_indexes.add_argument("--component", action="append", help="Only extract matching component filename(s).")
-    p_indexes.add_argument(
-        "--include-internal",
-        action="store_true",
-        help="Also emit binary-search tree internal rows, not only leaf search records.",
-    )
-    add_jobs_argument(p_indexes)
+    add_indexes_args(p_indexes)
     p_indexes.set_defaults(func=cmd_indexes)
 
     p_menus = sub.add_parser("menus", help="Extract MENU.DIC menu trees and destination pointers.")
-    p_menus.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
-    p_menus.add_argument("--out-dir", type=Path, default=Path("logovista-raw-menus"))
-    p_menus.add_argument("--limit", type=int, help="Limit emitted menu lines per component.")
-    p_menus.add_argument("--gaiji", choices=("drop", "h-placeholder", "placeholder"), default="h-placeholder")
-    p_menus.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
-    add_jobs_argument(p_menus)
+    add_menus_args(p_menus)
     p_menus.set_defaults(func=cmd_menus)
 
     p_fulldb = sub.add_parser(
