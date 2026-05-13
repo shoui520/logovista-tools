@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import re
 import subprocess
 import sys
@@ -63,6 +64,51 @@ def test_logovista_tools_entries_missing_root_reports_path(tmp_path: Path) -> No
     assert "logovista-tools: running entries" in result.stderr
     assert "file not found" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+def test_logovista_tools_scan_detects_ssed_lved_and_multiview(tmp_path: Path) -> None:
+    ssed_dir = tmp_path / "_DCT_SCANSS"
+    ssed_dir.mkdir()
+    package = build_plain_honmon_package(
+        dict_id="SCANSS",
+        title="Scan SSED",
+        entries=[WriterEntry("alpha", "first entry")],
+        include_tagged_indexes=False,
+    )
+    write_plain_package(package, ssed_dir)
+
+    lved_dir = tmp_path / "_DCT_LVEDT"
+    lved_dir.mkdir()
+    (lved_dir / "main.data").write_bytes(b"SQLite format 3\x00" + b"\0" * 64)
+
+    multiview_dir = tmp_path / "_DCT_MVIEW"
+    multiview_dir.mkdir()
+    (multiview_dir / "menuData.xml").write_text("<menuData />", encoding="utf-8")
+    (multiview_dir / "blvdat").write_bytes(b"fixture")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "logovista_tools", "scan", str(tmp_path), "--json"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env={"PYTHONPATH": "src"},
+    )
+
+    assert result.returncode == 0
+    rows = json.loads(result.stdout)
+    families = {row["family"] for row in rows}
+    assert {"ssed", "lved_sqlcipher", "multiview_sqlite"} <= families
+    assert any(row["family"] == "ssed" and row["dict_id"] == "SCANSS" for row in rows)
+    assert any(
+        row["family"] == "lved_sqlcipher"
+        and row["dict_id"] == "LVEDT"
+        and row["classification"] == "plaintext_sqlite"
+        for row in rows
+    )
+    assert any(
+        row["family"] == "multiview_sqlite" and row["dict_id"] == "MVIEW" and row["payload_count"] == 1
+        for row in rows
+    )
 
 
 def test_logovista_tools_colscr_direct_component_reports_expected_input(tmp_path: Path) -> None:

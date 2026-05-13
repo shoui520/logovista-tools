@@ -61,15 +61,19 @@ from .honmon_bytes import extract_honmon_byte_reports_for_args
 from .indexes import extract_indexes_for_idx
 from .ir import extract_ir_for_args
 from .lved import (
+    classify_lved_payload,
     decrypt_lved_sqlcipher4_to_path,
     derive_lved_sqlcipher_key,
+    infer_lved_dict_code,
     inspect_lved_roots,
 )
 from .lvcrypto import decrypt_logofont_cipher_file_to_path
+from .model_types import PackageFamily
 from .menus import extract_menus_for_idx
 from .multiview import (
     discover_multiview_packages,
     inspect_multiview_package,
+    is_multiview_payload_path,
     write_multiview_report,
 )
 from .opcode_atlas import extract_opcode_atlas_for_args
@@ -162,31 +166,109 @@ def cmd_info(args: argparse.Namespace) -> int:
 
 def cmd_scan(args: argparse.Namespace) -> int:
     roots = args.root or [Path(".")]
-    status(args, f"scan: discovering dictionaries under {', '.join(str(root) for root in roots)}")
-    sources = discover_dictionaries(args.root or [Path(".")], jobs=args.jobs)
-    if not sources:
-        print("no dictionaries found", file=sys.stderr)
+    status(args, f"scan: discovering LogoVista packages under {', '.join(str(root) for root in roots)}")
+    targets = discover_package_model_targets(roots)
+    if not targets:
+        print("no LogoVista packages or payloads found", file=sys.stderr)
         return 1
-    status(args, f"scan: found {len(sources)} dictionary package(s)")
+    status(args, f"scan: found {len(targets)} package/payload target(s)")
 
-    rows = []
-    for source in sources:
-        title, elements = parse_ssedinfo(source.idx)
+    ssed_paths = [target.path for target in targets if target.family_hint == PackageFamily.SSED.value]
+    ssed_sources = {source.idx.resolve(): source for source in discover_dictionaries(ssed_paths, jobs=args.jobs)}
+
+    rows: list[dict[str, Any]] = []
+    for target in targets:
+        if target.family_hint == PackageFamily.SSED.value:
+            source = ssed_sources.get(target.path.resolve())
+            title, elements = parse_ssedinfo(target.path)
+            if source is None:
+                rows.append(
+                    {
+                        "family": PackageFamily.SSED.value,
+                        "dict_id": target.dict_id,
+                        "title": title,
+                        "idx": str(target.path),
+                        "honmon": None,
+                        "honmon_start_block": None,
+                        "honmon_storage": "missing",
+                        "components": len(elements),
+                        "gaiji_map_entries": 0,
+                        "gaiji_uni_entries": 0,
+                        "gaiji_plist_entries": 0,
+                        "image_resource_entries": 0,
+                        "image_gaiji_entries": 0,
+                        "image_dirs": [],
+                        "scan_status": "catalog_only_missing_honmon",
+                    }
+                )
+                continue
+            rows.append(
+                {
+                    "family": PackageFamily.SSED.value,
+                    "dict_id": source.dict_id,
+                    "title": title,
+                    "idx": str(source.idx),
+                    "honmon": str(source.honmon),
+                    "honmon_start_block": source.honmon_start_block,
+                    "honmon_storage": source.honmon_storage,
+                    "components": len(elements),
+                    "gaiji_map_entries": len(source.gaiji_map),
+                    "gaiji_uni_entries": source.gaiji_uni_entries,
+                    "gaiji_plist_entries": source.gaiji_plist_entries,
+                    "image_resource_entries": source.image_resource_entries,
+                    "image_gaiji_entries": len(source.image_gaiji_keys),
+                    "image_dirs": [str(path) for path in source.image_dirs],
+                    "scan_status": "ready",
+                }
+            )
+            continue
+
+        if target.family_hint == PackageFamily.LVED_SQLCIPHER.value:
+            try:
+                classification = classify_lved_payload(target.path)
+                error = None
+            except OSError as exc:
+                classification = "error"
+                error = str(exc)
+            stat = target.path.stat()
+            rows.append(
+                {
+                    "family": PackageFamily.LVED_SQLCIPHER.value,
+                    "dict_id": infer_lved_dict_code(target.path) or target.dict_id,
+                    "path": str(target.path),
+                    "payload": str(target.path),
+                    "payload_kind": "dbc" if target.path.suffix.lower() == ".dbc" else "main.data",
+                    "classification": classification,
+                    "size": stat.st_size,
+                    "scan_status": "detected" if error is None else "error",
+                    **({"error": error} if error else {}),
+                }
+            )
+            continue
+
+        if target.family_hint == PackageFamily.MULTIVIEW_SQLITE.value:
+            payloads = sorted(
+                child.name for child in target.path.iterdir() if child.is_file() and is_multiview_payload_path(child)
+            )
+            rows.append(
+                {
+                    "family": PackageFamily.MULTIVIEW_SQLITE.value,
+                    "dict_id": target.dict_id,
+                    "path": str(target.path),
+                    "menu": str(target.path / "menuData.xml"),
+                    "payloads": payloads,
+                    "payload_count": len(payloads),
+                    "scan_status": "detected",
+                }
+            )
+            continue
+
         rows.append(
             {
-                "dict_id": source.dict_id,
-                "title": title,
-                "idx": str(source.idx),
-                "honmon": str(source.honmon),
-                "honmon_start_block": source.honmon_start_block,
-                "honmon_storage": source.honmon_storage,
-                "components": len(elements),
-                "gaiji_map_entries": len(source.gaiji_map),
-                "gaiji_uni_entries": source.gaiji_uni_entries,
-                "gaiji_plist_entries": source.gaiji_plist_entries,
-                "image_resource_entries": source.image_resource_entries,
-                "image_gaiji_entries": len(source.image_gaiji_keys),
-                "image_dirs": [str(path) for path in source.image_dirs],
+                "family": target.family_hint,
+                "dict_id": target.dict_id,
+                "path": str(target.path),
+                "scan_status": "detected",
             }
         )
 
@@ -195,15 +277,32 @@ def cmd_scan(args: argparse.Namespace) -> int:
         return 0
 
     for row in rows:
-        print(
-            f"{row['dict_id']:12s} components={row['components']:2d} "
-            f"honmon={row['honmon_storage']:15s} "
-            f"gaiji={row['gaiji_map_entries']:4d} "
-            f"uni={row['gaiji_uni_entries']:4d} plist={row['gaiji_plist_entries']:4d} "
-            f"img={row['image_resource_entries']:4d} img-gaiji={row['image_gaiji_entries']:4d} "
-            f"{row['title']}"
-        )
-        print(f"  idx: {row['idx']}")
+        if row["family"] == PackageFamily.SSED.value:
+            print(
+                f"{row['dict_id']:12s} family={row['family']:16s} components={row['components']:2d} "
+                f"honmon={row['honmon_storage']:15s} "
+                f"gaiji={row['gaiji_map_entries']:4d} "
+                f"uni={row['gaiji_uni_entries']:4d} plist={row['gaiji_plist_entries']:4d} "
+                f"img={row['image_resource_entries']:4d} img-gaiji={row['image_gaiji_entries']:4d} "
+                f"status={row['scan_status']} {row['title']}"
+            )
+            print(f"  idx: {row['idx']}")
+        elif row["family"] == PackageFamily.LVED_SQLCIPHER.value:
+            print(
+                f"{row['dict_id']:12s} family={row['family']:16s} "
+                f"kind={row['payload_kind']:9s} class={row['classification']} "
+                f"size={row['size']} status={row['scan_status']}"
+            )
+            print(f"  payload: {row['payload']}")
+        elif row["family"] == PackageFamily.MULTIVIEW_SQLITE.value:
+            print(
+                f"{row['dict_id']:12s} family={row['family']:16s} "
+                f"payloads={row['payload_count']:2d} status={row['scan_status']}"
+            )
+            print(f"  package: {row['path']}")
+        else:
+            print(f"{row['dict_id']:12s} family={row['family']} status={row['scan_status']}")
+            print(f"  path: {row['path']}")
     return 0
 
 
@@ -1733,8 +1832,13 @@ def build_parser() -> argparse.ArgumentParser:
     add_info_args(p_info)
     p_info.set_defaults(func=cmd_info)
 
-    p_scan = sub.add_parser("scan", help="Find LogoVista dictionaries under roots.")
-    p_scan.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_scan = sub.add_parser("scan", help="Find LogoVista package families under roots.")
+    p_scan.add_argument(
+        "root",
+        type=Path,
+        nargs="*",
+        help="Collection directory, package directory, direct .IDX path, or LVED payload.",
+    )
     p_scan.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     add_jobs_argument(p_scan)
     p_scan.set_defaults(func=cmd_scan)

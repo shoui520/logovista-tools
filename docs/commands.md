@@ -75,15 +75,22 @@ network-mounted disks.
 
 ### `scan`
 
-Find SSED dictionaries under one or more roots.
+Find LogoVista package families under one or more roots.
 
 ```bash
 logovista-tools scan /path/to/LogoVista
 logovista-tools scan /path/to/LogoVista --json
 ```
 
-The scanner looks for `.IDX` / `.idx`, validates the `SSEDINFO` magic, and
-keeps only dictionaries with a discoverable `HONMON.DIC`.
+The scanner uses the shared package-target discovery layer. It detects:
+
+- SSED packages by parseable `.IDX` / `.idx` files with `SSEDINFO` catalogs,
+- LVED-style payloads by `main.data` / `.dbc` files and lightweight payload
+  classification,
+- LVLMultiView packages by `menuData.xml` plus `*lvdat` / `*lvbat` payloads.
+
+SSED rows include `HONMON.DIC` readiness where available. LVED rows are
+classified structurally; encrypted payload detection does not imply decryption.
 Use `profile` when you need a redacted inventory that also records incomplete
 packages with missing `HONMON.DIC` or missing declared components.
 
