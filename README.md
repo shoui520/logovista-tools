@@ -89,6 +89,10 @@ details; expected input errors remain concise, while unexpected internal
 failures include tracebacks in verbose mode.
 For interactive body browsing, `entries --print` prints emitted entries to the
 terminal while still writing the JSONL output under `--out-dir`.
+For end-user extraction without knowing LogoVista internals, use
+`logovista-tools extract /path/to/_DCT_DICT`; it interactively offers entries,
+SQLite sidecars, media, titles/indexes/menus, gaiji maps/glyphs, and vlpljbl
+resources.
 
 ## Quick Start
 

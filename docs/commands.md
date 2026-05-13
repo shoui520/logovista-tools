@@ -58,7 +58,7 @@ Corpus-scale commands support `--jobs`:
 ```
 
 This applies to commands that operate across many dictionaries or resources:
-`scan`, `entries`, `resources`, `colscr`, `pcmdata`, `extras`, `rendererdb`,
+`scan`, `extract`, `entries`, `resources`, `colscr`, `pcmdata`, `extras`, `rendererdb`,
 `spindex`, `audit-honmon`, `gaiji-report`, `gaiji-readiness`, `ga16`,
 `titles`, `indexes`, `menus`, `fulldb`, `profile`, `honmon-bytes`,
 `opcode-atlas`, `component-forensics`, `dump-ir`, `dump-package-models`, LVED
@@ -302,6 +302,59 @@ logovista-tools compose DICT.IDX book.expanded --quiet
 This is useful for binary comparison and for understanding the book layout.
 It does not turn LogoVista into a fully standard EPWING book; it just writes
 the expanded components into the block positions specified by `SSEDINFO`.
+
+### `extract`
+
+Interactive end-user extraction for one dictionary package.
+
+```bash
+logovista-tools extract /path/to/_DCT_DICT
+```
+
+The command discovers the package `.IDX`, derives the output directory name
+from the dictionary id, asks what to extract, and writes a tree like:
+
+```text
+DICT_ID/
+  extract-summary.json
+  entries/
+    entries.json
+    entries.csv
+    entries.txt
+  titles/
+  indexes/
+  menus/
+  media/
+  audio/
+  gaiji/
+    gaiji-map.tsv
+    ga16-bmp/
+  sqlite/
+  vlpljbl/
+```
+
+`extract` is meant for people who want usable data without knowing SSED
+component names. It automatically chooses raw `HONMON.DIC` extraction for plain
+body dictionaries and renderer/DICT.db sidecar extraction for dense
+HONMON/body-database dictionaries when that structure is present. Gaiji Unicode
+maps are applied during entry/title/index/menu decoding. Optional categories
+include:
+
+```text
+entries   full entries as JSON, CSV, and/or newline-separated text
+sqlite    applicable plaintext/decrypted SQLite database copies
+media     COLSCR images and PCMDATA audio as readable files
+indexes   all title streams, index rows, and menus
+gaiji     gaiji-map.tsv plus GA16/GAI16 glyph BMP files
+vlpljbl   non-executable vlpljbl resources, decrypted when LogoFontCipher-backed
+```
+
+For automation, the same command can run non-interactively:
+
+```bash
+logovista-tools extract /path/to/_DCT_DICT --yes --all --out-dir extracted
+logovista-tools extract /path/to/_DCT_DICT --yes --entries --formats json,txt
+```
 
 ### `entries`
 

@@ -45,6 +45,7 @@ from .entries import (
     extract_dictionary,
     print_entries_to_terminal,
 )
+from .extract import add_extract_args, cmd_extract
 from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
 from .gaiji import (
@@ -1777,6 +1778,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_compose.add_argument("--strict", action="store_true", help="Fail if a listed component is missing.")
     p_compose.add_argument("--quiet", action="store_true", help="Do not print every component.")
     p_compose.set_defaults(func=cmd_compose)
+
+    p_extract = sub.add_parser("extract", help="Interactive end-user extraction wizard for one dictionary package.")
+    add_extract_args(p_extract)
+    p_extract.set_defaults(func=cmd_extract)
 
     p_entries = sub.add_parser("entries", help="Extract readable HONMON body entries as JSONL.")
     add_entries_args(p_entries)

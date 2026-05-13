@@ -118,3 +118,78 @@ def test_logovista_tools_entries_print_outputs_rows_to_terminal(tmp_path: Path) 
     assert "first entry" in result.stdout
     assert "second entry" not in result.stdout
     assert "entries: wrote summary" in result.stderr
+
+
+def test_logovista_tools_extract_writes_entry_formats(tmp_path: Path) -> None:
+    package_dir = tmp_path / "package"
+    package_dir.mkdir()
+    package = build_plain_honmon_package(
+        dict_id="EXTRACTME",
+        title="Extract Me",
+        entries=[WriterEntry("alpha", "first entry"), WriterEntry("beta", "second entry")],
+        include_tagged_indexes=False,
+    )
+    write_plain_package(package, package_dir)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "logovista_tools",
+            "extract",
+            str(package_dir),
+            "--yes",
+            "--entries",
+            "--formats",
+            "json,csv,txt",
+            "--out-dir",
+            str(tmp_path / "out"),
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env={"PYTHONPATH": "src"},
+    )
+
+    assert result.returncode == 0
+    entry_dir = tmp_path / "out" / "EXTRACTME" / "entries"
+    assert (entry_dir / "entries.json").is_file()
+    assert (entry_dir / "entries.csv").is_file()
+    assert (entry_dir / "entries.txt").is_file()
+    assert "alpha" in (entry_dir / "entries.txt").read_text(encoding="utf-8")
+    assert "first entry" in (entry_dir / "entries.json").read_text(encoding="utf-8")
+    assert "extract: EXTRACTME: entries" in result.stderr
+
+
+def test_logovista_tools_extract_interactive_selection(tmp_path: Path) -> None:
+    package_dir = tmp_path / "package"
+    package_dir.mkdir()
+    package = build_plain_honmon_package(
+        dict_id="WIZARD",
+        title="Wizard",
+        entries=[WriterEntry("alpha", "first entry")],
+        include_tagged_indexes=False,
+    )
+    write_plain_package(package, package_dir)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "logovista_tools",
+            "extract",
+            str(package_dir),
+            "--out-dir",
+            str(tmp_path / "interactive-out"),
+        ],
+        input="\n1\ntxt\n\n",
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env={"PYTHONPATH": "src"},
+    )
+
+    assert result.returncode == 0
+    assert "Choose data to extract" in result.stdout
+    assert (tmp_path / "interactive-out" / "WIZARD" / "entries" / "entries.txt").is_file()
+    assert not (tmp_path / "interactive-out" / "WIZARD" / "entries" / "entries.json").exists()
