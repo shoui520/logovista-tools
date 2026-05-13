@@ -22,6 +22,7 @@ from .fulldb import find_fulldb
 from .gaiji import (
     candidate_gaiji_paths,
     file_identity,
+    is_bitmap_gaiji_resource_name,
     iter_ga16_code_sources,
     load_plist_gaiji_map_from_paths,
     load_uni_gaiji_map,
@@ -37,7 +38,6 @@ from .windows import discover_renderer_sidecars, load_exinfo_for_idx
 
 SQLITE_MAGIC = b"SQLite format 3\x00"
 SQLITE_PATTERNS = ("*.db", "*.sql", "*.sqlite")
-GA16_NAMES = {"GA16HALF", "GA16FULL", "GAI16H", "GAI16F"}
 SKIPPED_SQLITE_TABLES = {"android_metadata", "indexinfo"}
 
 
@@ -86,8 +86,7 @@ def is_sqlite_file(path: Path) -> bool:
 
 
 def is_ga16_resource_name(path: Path) -> bool:
-    name = path.name.upper()
-    return name in GA16_NAMES or name.startswith("GAI16H") or name.startswith("GAI16F")
+    return is_bitmap_gaiji_resource_name(path)
 
 
 def is_text_column(name: str, declared_type: str) -> bool:

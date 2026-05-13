@@ -14,7 +14,12 @@ from typing import Any, Iterable
 from .cli_ux import dictionary_source_error, status
 from .colscr import extract_colscr_for_source
 from .entries import DictionarySource, discover_dictionaries, extract_dictionary, write_json
-from .gaiji import ga16_preferred_code_for_index, parse_ga16_resource, parse_uni_resource
+from .gaiji import (
+    ga16_preferred_code_for_index,
+    is_bitmap_gaiji_resource_name,
+    parse_ga16_resource,
+    parse_uni_resource,
+)
 from .indexes import extract_indexes_for_idx
 from .lvcrypto import (
     LogoVistaCryptoError,
@@ -25,6 +30,7 @@ from .menus import extract_menus_for_idx
 from .parallel import add_jobs_argument
 from .pcmdata import extract_pcmdata_for_source
 from .rendererdb import discover_android_body_databases, extract_rendererdb_dictionary
+from .resources import load_image_resource_profile, relative_image_source
 from .titles import extract_titles_for_idx
 from .windows import (
     classify_vlpljbl_file,
@@ -38,12 +44,6 @@ from .windows import (
 
 FORMAT_CHOICES = ("json", "csv", "txt")
 ALL_CATEGORIES = ("entries", "sqlite", "media", "indexes", "gaiji", "vlpljbl")
-GA16_RESOURCE_NAMES = {
-    "GA16HALF",
-    "GA16FULL",
-    "GAI16H",
-    "GAI16F",
-}
 
 
 @dataclass(frozen=True)
@@ -63,7 +63,11 @@ def add_extract_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--sqlite", action="store_true", help="Extract/copy applicable SQLite databases.")
     parser.add_argument("--media", action="store_true", help="Extract COLSCR/PCMDATA media.")
     parser.add_argument("--indexes", action="store_true", help="Extract titles, indexes, and menus.")
-    parser.add_argument("--gaiji", action="store_true", help="Extract gaiji Unicode maps and GA16 glyph BMPs.")
+    parser.add_argument(
+        "--gaiji",
+        action="store_true",
+        help="Extract gaiji Unicode maps, GA16/GAI16 glyph BMPs, and image-backed gaiji assets.",
+    )
     parser.add_argument("--vlpljbl", action="store_true", help="Extract non-executable vlpljbl resources.")
     parser.add_argument(
         "--formats",
@@ -151,7 +155,7 @@ def build_plan(args: argparse.Namespace, sources: list[DictionarySource]) -> Ext
     print("  2    SQLite: applicable database copies")
     print("  3    media: COLSCR images and PCMDATA audio")
     print("  4    indexes: all titles, indexes, and menus")
-    print("  5    gaiji: Unicode map TSV and GA16 glyph BMPs")
+    print("  5    gaiji: Unicode map TSV, GA16/GAI16 glyph BMPs, and image-backed gaiji assets")
     print("  6    vlpljbl: non-executable vlpljbl resources")
     categories = parse_category_answer(ask("Selection", "all"))
     formats = parse_formats(ask("Entry/index text formats", ",".join(formats)))
@@ -459,14 +463,25 @@ def extract_indexes_titles_menus(source: DictionarySource, plan: ExtractPlan, *,
 
 
 def is_ga16_resource_path(path: Path) -> bool:
-    name = path.name.upper()
-    return name in GA16_RESOURCE_NAMES or name.startswith("GAI16H") or name.startswith("GAI16F")
+    return is_bitmap_gaiji_resource_name(path)
 
 
 def discover_ga16_resources(path: Path) -> list[Path]:
     if path.is_file():
         return [path] if is_ga16_resource_path(path) else []
     return sorted(child for child in path.rglob("*") if child.is_file() and is_ga16_resource_path(child))
+
+
+def unique_output_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    for counter in range(2, 10_000):
+        candidate = path.with_name(f"{stem}-{counter}{suffix}")
+        if not candidate.exists():
+            return candidate
+    raise FileExistsError(f"could not choose a unique output path for {path}")
 
 
 def bmp_bytes_from_ga16_glyph(glyph: bytes, width: int, height: int) -> bytes:
@@ -527,16 +542,24 @@ def extract_gaiji(source: DictionarySource, plan: ExtractPlan) -> dict[str, Any]
         component_dir = glyph_dir / path.name
         component_dir.mkdir(parents=True, exist_ok=True)
         resource_written = 0
+        blank_glyphs = 0
+        unique_glyphs: set[bytes] = set()
+        code_source_counts: dict[str, int] = {}
         for index in range(resource.count):
             code, code_source = ga16_preferred_code_for_index(resource, index, uni_resource)
             glyph = resource.glyph_for_index(data, index)
             if glyph is None:
                 continue
+            unique_glyphs.add(glyph)
+            if not any(glyph):
+                blank_glyphs += 1
+            code_source_counts[code_source] = code_source_counts.get(code_source, 0) + 1
             (component_dir / f"{code.upper()}_{code_source}.bmp").write_bytes(
                 bmp_bytes_from_ga16_glyph(glyph, resource.width, resource.height)
             )
             resource_written += 1
             written += 1
+        uniform_glyphs = resource_written > 0 and len(unique_glyphs) == 1
         resources.append(
             {
                 "path": str(path),
@@ -544,9 +567,65 @@ def extract_gaiji(source: DictionarySource, plan: ExtractPlan) -> dict[str, Any]
                 "height": resource.height,
                 "count": resource.count,
                 "bmp_written": resource_written,
+                "blank_glyphs": blank_glyphs,
+                "unique_glyph_hashes": len(unique_glyphs),
+                "uniform_glyphs": uniform_glyphs,
+                "placeholder_candidate": uniform_glyphs and resource_written > 1 and blank_glyphs == 0,
+                "code_source_counts": dict(sorted(code_source_counts.items())),
             }
         )
-    summary = {"map": str(map_path), "unicode_mappings": len(source.gaiji_map), "ga16_resources": resources, "bmp_written": written}
+
+    image_dir = gaiji_dir / "image-backed"
+    image_profile = load_image_resource_profile(source.idx)
+    image_rows = []
+    image_files_written = 0
+    for key in sorted(image_profile.gaiji_image_keys):
+        image_resource = image_profile.resources.get(key)
+        if image_resource is None:
+            continue
+        key_dir = image_dir / key.upper()
+        key_dir.mkdir(parents=True, exist_ok=True)
+        file_rows = []
+        for file in image_resource.files:
+            out_path = unique_output_path(key_dir / file.name)
+            shutil.copy2(file, out_path)
+            image_files_written += 1
+            file_rows.append(
+                {
+                    "source": relative_image_source(file, source.idx),
+                    "output": str(out_path),
+                    "bytes": file.stat().st_size,
+                    "suffix": file.suffix.lower(),
+                }
+            )
+        image_rows.append(
+            {
+                "code": key.upper(),
+                "files": file_rows,
+                "listed_in_resources_copy": image_resource.listed_in_resources_copy,
+                "listed_in_gaijiicon": image_resource.listed_in_gaijiicon,
+            }
+        )
+
+    placeholder_candidates = sum(1 for row in resources if row.get("placeholder_candidate"))
+    if image_files_written or placeholder_candidates:
+        status(
+            None,
+            (
+                f"extract: {source.dict_id}: gaiji exported {image_files_written} image-backed file(s); "
+                f"{placeholder_candidates} bitmap resource(s) look like uniform placeholders"
+            ),
+        )
+
+    summary = {
+        "map": str(map_path),
+        "unicode_mappings": len(source.gaiji_map),
+        "ga16_resources": resources,
+        "bmp_written": written,
+        "image_backed_resources": image_rows,
+        "image_files_written": image_files_written,
+        "gaiji_codes_with_image_assets": len(image_rows),
+    }
     write_json(gaiji_dir / "gaiji_summary.json", summary)
     return summary
 
@@ -635,7 +714,7 @@ def extract_one_dictionary(source: DictionarySource, plan: ExtractPlan, *, jobs:
         status(None, f"extract: {source.dict_id}: titles/indexes/menus")
         summary["indexes_titles_menus"] = extract_indexes_titles_menus(source, plan, jobs=jobs)
     if "gaiji" in plan.categories:
-        status(None, f"extract: {source.dict_id}: gaiji map and GA16 BMPs")
+        status(None, f"extract: {source.dict_id}: gaiji map, bitmap resources, and image-backed gaiji")
         summary["gaiji"] = extract_gaiji(source, plan)
     if "vlpljbl" in plan.categories:
         status(None, f"extract: {source.dict_id}: vlpljbl resources")

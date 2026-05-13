@@ -52,6 +52,7 @@ from .gaiji import (
     UniRecord,
     file_identity,
     ga16_preferred_code_for_index,
+    is_bitmap_gaiji_resource_name,
     parse_ga16_resource,
     parse_uni_resource,
     write_ga16_glyph_png,
@@ -635,21 +636,8 @@ def cmd_uni(args: argparse.Namespace) -> int:
     return 0
 
 
-GA16_RESOURCE_NAMES = {
-    "GA16HALF",
-    "GA16FULL",
-    "GAI16H",
-    "GAI16F",
-}
-
-
 def is_ga16_resource_path(path: Path) -> bool:
-    name = path.name.upper()
-    return (
-        name in GA16_RESOURCE_NAMES
-        or name.startswith("GAI16H")
-        or name.startswith("GAI16F")
-    )
+    return is_bitmap_gaiji_resource_name(path)
 
 
 def discover_ga16_resources(path: Path) -> list[Path]:
@@ -2500,8 +2488,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_uni.add_argument("--limit", type=int, help="Limit records printed/emitted.")
     p_uni.set_defaults(func=cmd_uni)
 
-    p_ga16 = sub.add_parser("ga16", help="Render GA16HALF/GA16FULL bitmap gaiji to PNG assets.")
-    p_ga16.add_argument("path", type=Path, help="GA16 file, dictionary directory, or collection root.")
+    p_ga16 = sub.add_parser("ga16", help="Render GA16/GAI16 bitmap gaiji resources to PNG assets.")
+    p_ga16.add_argument("path", type=Path, help="GA16/GAI16 file, dictionary directory, or collection root.")
     p_ga16.add_argument("out_dir", type=Path, help="Directory to write PNG files.")
     p_ga16.add_argument("--limit", type=int, help="Limit glyphs rendered per resource.")
     p_ga16.add_argument(

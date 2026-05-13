@@ -31,6 +31,7 @@ from .gaiji import (
     UniRecord,
     candidate_gaiji_paths,
     file_identity,
+    is_bitmap_gaiji_resource_name,
     iter_ga16_code_sources,
     load_plist_gaiji_map_from_paths,
     parse_ga16_resource,
@@ -44,7 +45,6 @@ from .rendererdb import honbun_columns, html_to_plain, prepare_sidecar_database,
 from .windows import discover_renderer_sidecars, load_exinfo_for_idx
 
 
-GA16_RESOURCE_NAMES = {"GA16HALF", "GA16FULL", "GAI16H", "GAI16F"}
 TEXT_ROLES = {"honmon", "menu", "title", "text_index"}
 PLACEHOLDER_RE = re.compile(r"<h([A-F0-9]{4})>")
 
@@ -90,8 +90,7 @@ def observed_gaiji_space(
 
 
 def is_ga16_resource_name(path: Path) -> bool:
-    name = path.name.upper()
-    return name in GA16_RESOURCE_NAMES or name.startswith(("GAI16H", "GAI16F"))
+    return is_bitmap_gaiji_resource_name(path)
 
 
 def text_role_for_component(filename: str, component_type: int) -> str | None:

@@ -352,7 +352,7 @@ entries   full entries as JSON, CSV, and/or newline-separated text
 sqlite    applicable plaintext/decrypted SQLite database copies
 media     COLSCR images and PCMDATA audio as readable files
 indexes   all title streams, index rows, and menus
-gaiji     gaiji-map.tsv plus GA16/GAI16 glyph BMP files
+gaiji     gaiji-map.tsv plus GA16/GAI16 glyph BMP files and image-backed gaiji assets
 vlpljbl   non-executable vlpljbl resources, decrypted when LogoFontCipher-backed
 ```
 

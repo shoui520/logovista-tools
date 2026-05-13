@@ -22,6 +22,7 @@ from .gaiji import (
     ga16_row_size,
     ga16_section_for_path,
     gaiji_grid_code_for_index,
+    is_bitmap_gaiji_resource_name,
     iter_ga16_code_sources,
     parse_ga16_resource,
     parse_uni_resource,
@@ -290,7 +291,7 @@ def default_catalog_data(component_type: int, filename: str = "") -> bytes:
         return TAGGED_INDEX_CATALOG_DATA
     if component_type in {0x30, 0x60, 0x71, 0x72, 0x80, 0x81, 0x91, 0x92, 0xA1}:
         return SIMPLE_INDEX_CATALOG_DATA
-    if component_type in {0xF1, 0xF2} or upper.startswith(("GA16", "GAI16")):
+    if component_type in {0xF1, 0xF2} or is_bitmap_gaiji_resource_name(upper):
         return RESOURCE_CATALOG_DATA
     return RESOURCE_CATALOG_DATA
 
@@ -1610,12 +1611,12 @@ def _bitmap_font_candidate_files(path: Path) -> tuple[list[Path], list[Path]]:
     if path.is_dir():
         children = [child for child in path.iterdir() if child.is_file()]
         uni_paths = [child for child in children if child.suffix.lower() == ".uni"]
-        ga16_paths = [child for child in children if child.name.upper().startswith(("GA16", "GAI16"))]
+        ga16_paths = [child for child in children if is_bitmap_gaiji_resource_name(child)]
         return sorted(uni_paths), sorted(ga16_paths)
     if path.suffix.lower() == ".uni":
         siblings = [child for child in path.parent.iterdir() if child.is_file()]
-        return [path], sorted(child for child in siblings if child.name.upper().startswith(("GA16", "GAI16")))
-    if path.name.upper().startswith(("GA16", "GAI16")):
+        return [path], sorted(child for child in siblings if is_bitmap_gaiji_resource_name(child))
+    if is_bitmap_gaiji_resource_name(path):
         siblings = [child for child in path.parent.iterdir() if child.is_file()]
         return sorted(child for child in siblings if child.suffix.lower() == ".uni"), [path]
     return [], []

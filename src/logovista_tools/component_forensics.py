@@ -14,6 +14,7 @@ from .entries import CONTROL_ARG_LENGTHS, control_tag_for_end, control_tag_for_s
 from .gaiji import (
     candidate_gaiji_paths,
     file_identity,
+    is_bitmap_gaiji_resource_name,
     load_gaiji_profile,
     parse_ga16_resource,
     parse_uni_resource,
@@ -51,9 +52,6 @@ from .ssed import BLOCK_SIZE, SsedInfoElement, SsedRandomReader, expand_sseddata
 from .titles import TITLE_TYPES
 
 
-GA16_RESOURCE_NAMES = {"GA16HALF", "GA16FULL", "GAI16H", "GAI16F"}
-
-
 def component_role(filename: str, component_type: int) -> str | None:
     upper = filename.upper()
     if component_type == MENU_TYPE or upper == "MENU.DIC":
@@ -68,7 +66,7 @@ def component_role(filename: str, component_type: int) -> str | None:
         return "text"
     if upper.endswith("INDEX.DIC"):
         return "text_index"
-    if component_type in {0xF1, 0xF2} or upper in GA16_RESOURCE_NAMES or upper.startswith(("GAI16H", "GAI16F")):
+    if component_type in {0xF1, 0xF2} or is_bitmap_gaiji_resource_name(upper):
         return "ga16"
     if component_type == 0xD2 or upper == "COLSCR.DIC":
         return "colscr"

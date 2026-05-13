@@ -18,7 +18,13 @@ from typing import Any
 from .colscr import extract_colscr_for_source
 from .entries import DictionarySource, discover_dictionaries, iter_entry_slices_with_boundaries
 from .fulldb import find_fulldb
-from .gaiji import candidate_gaiji_paths, load_gaiji_profile, parse_ga16_resource, parse_uni_resource
+from .gaiji import (
+    candidate_gaiji_paths,
+    is_bitmap_gaiji_resource_name,
+    load_gaiji_profile,
+    parse_ga16_resource,
+    parse_uni_resource,
+)
 from .gaiji_readiness import extract_gaiji_readiness
 from .indexes import INDEX_TYPES, collect_index_body_offsets_for_idx, extract_indexes_for_idx
 from .lved import discover_lved_payloads, inspect_lved_roots
@@ -682,7 +688,7 @@ def gaiji_resources_for_idx(idx: Path, args: argparse.Namespace | None = None) -
     ga16_resources = []
     _title, elements, _layout = parse_ssedinfo_with_layout(idx)
     for element in elements:
-        if not (element.filename.upper().startswith("GA16") or element.filename.upper().startswith("GAI16")):
+        if not is_bitmap_gaiji_resource_name(element.filename):
             continue
         path = find_case_insensitive(idx.parent, element.filename)
         parsed = parse_ga16_resource(path) if path is not None else None

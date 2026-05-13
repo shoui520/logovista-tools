@@ -14,7 +14,7 @@ from typing import Any
 
 from .audit import dict_id_for_idx
 from .entries import ENTRY_MARKER, iter_entry_slices_with_boundaries
-from .gaiji import load_gaiji_profile
+from .gaiji import is_bitmap_gaiji_resource_name, load_gaiji_profile
 from .indexes import INDEX_TYPES, scan_index_component
 from .model_types import BodySource, ComponentRole
 from .parallel import parallel_map_ordered, worker_args
@@ -102,7 +102,7 @@ def component_role(element: SsedInfoElement) -> str:
         return ComponentRole.COLSCR.value
     if upper == "PCMDATA.DIC" or element.type == PCMDATA_TYPE:
         return ComponentRole.PCMDATA.value
-    if upper.startswith("GA16") or upper.startswith("GAI16"):
+    if is_bitmap_gaiji_resource_name(upper):
         return ComponentRole.GAIJI_BITMAP.value
     return ComponentRole.COMPONENT.value
 

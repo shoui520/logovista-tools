@@ -18,6 +18,7 @@ UNI_HEADER_SIZE = 10
 UNI_RECORD_SIZE = 16
 UNI_SIMPLE_HEADER_SIZE = 4
 UNI_SIMPLE_RECORD_SIZE = 12
+BITMAP_GAIJI_RESOURCE_NAMES = frozenset({"GA16HALF", "GA16FULL", "GAI16H", "GAI16F"})
 
 
 @dataclass(frozen=True)
@@ -104,6 +105,19 @@ def ga16_section_for_path(path: Path) -> str | None:
     if "FULL" in name or "16F" in name:
         return "full"
     return None
+
+
+def is_bitmap_gaiji_resource_name(path_or_name: str | Path) -> bool:
+    """Return whether *path_or_name* is a GA16/GAI16 bitmap-gaiji resource.
+
+    Windows packages commonly use ``GA16HALF`` / ``GA16FULL``. Other packages
+    use the shorter ``GAI16H`` / ``GAI16F`` family, sometimes with numeric
+    suffixes such as ``GAI16H00`` and ``GAI16F00``.
+    """
+
+    name = path_or_name.name if isinstance(path_or_name, Path) else str(path_or_name)
+    upper = Path(name).name.upper()
+    return upper in BITMAP_GAIJI_RESOURCE_NAMES or upper.startswith(("GAI16H", "GAI16F"))
 
 
 def ga16_preferred_code_for_index(
@@ -448,7 +462,7 @@ def load_gaiji_map(idx: Path) -> dict[str, str]:
 
 
 def parse_ga16_resource(path: Path) -> Ga16Resource | None:
-    """Parse a GA16HALF/GA16FULL bitmap-gaiji resource header."""
+    """Parse a GA16/GAI16 bitmap-gaiji resource header."""
 
     data = path.read_bytes()
     if len(data) < 16:
