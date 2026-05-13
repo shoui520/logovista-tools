@@ -2369,7 +2369,39 @@ def build_parser() -> argparse.ArgumentParser:
         default="compressed",
         help="SSEDDATA component compression. literal is a noncanonical, size-inflating diagnostic mode for private stress tests.",
     )
-    p_write_plain.add_argument("--gaiji-font", type=Path, help="User-supplied font for generated GA16 bitmap glyphs.")
+    p_write_plain.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="Parallel compression workers for writer output. Use 0 for os.cpu_count(); default is 1.",
+    )
+    p_write_plain.add_argument(
+        "--gaiji-font",
+        type=Path,
+        action="append",
+        help=(
+            "Backward-compatible alias for --gaiji-vector-font. May be passed multiple times; "
+            "the writer picks the first font face with glyph coverage."
+        ),
+    )
+    p_write_plain.add_argument(
+        "--gaiji-vector-font",
+        type=Path,
+        action="append",
+        help=(
+            "Vector/outline font used for generated GA16/COLSCR gaiji glyphs. May be passed multiple times; "
+            "TTC/OTC collections are scanned face-by-face in fallback mode."
+        ),
+    )
+    p_write_plain.add_argument(
+        "--gaiji-bitmap-font",
+        type=Path,
+        action="append",
+        help=(
+            "LogoVista-style bitmap gaiji font source, such as a directory or .uni file with GA16/GAI16 resources. "
+            "May be passed multiple times and is kept separate from vector rasterization."
+        ),
+    )
     p_write_plain.add_argument(
         "--gaiji-layout",
         choices=("split", "full-a121"),
@@ -2379,7 +2411,7 @@ def build_parser() -> argparse.ArgumentParser:
             "full-a121 forces all generated gaiji into GA16FULL from A121 for large CJK stress dictionaries."
         ),
     )
-    p_write_plain.add_argument("--font-face-index", type=int, default=0)
+    p_write_plain.add_argument("--font-face-index", type=int, default=0, help="Vector font face index for single-font mode.")
     p_write_plain.add_argument("--font-threshold", type=int, default=220)
     p_write_plain.add_argument("--include-yomitan-forms", action="store_true", help="Import Yomitan rows tagged as forms instead of skipping them.")
     p_write_plain.add_argument("--no-merge-duplicates", action="store_true", help="Keep duplicate headword rows as separate body entries.")

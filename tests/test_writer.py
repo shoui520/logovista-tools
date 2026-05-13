@@ -34,6 +34,9 @@ from logovista_tools.ssed import (
 from logovista_tools.writer import (
     FULL_GAIJI_START,
     HALF_GAIJI_START,
+    BitmapGaijiFontRenderer,
+    FontFallbackFace,
+    FontFallbackGlyphRenderer,
     WriterEntry,
     IndexTarget,
     build_plain_honmon_package,
@@ -55,7 +58,13 @@ from logovista_tools.writer import (
     GaijiAllocator,
     write_plain_package,
 )
-from logovista_tools.writer_import import html_to_body_markup, import_entries, normalize_lookup_key, structured_content_to_body_markup
+from logovista_tools.writer_import import (
+    default_writer_dict_id,
+    html_to_body_markup,
+    import_entries,
+    normalize_lookup_key,
+    structured_content_to_body_markup,
+)
 
 
 def page_words(data: bytes) -> list[int]:
@@ -276,6 +285,52 @@ def test_writer_import_reads_koujien_csv_and_yomitan_zip(tmp_path) -> None:
     assert entries[0].headword == "run"
 
 
+def test_yomitan_image_nodes_are_written_to_colscr(tmp_path) -> None:
+    image_payload = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+        "0000000d49444154789c63606060000000040001f61738550000000049454e44ae426082"
+    )
+    zip_path = tmp_path / "images.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("index.json", json.dumps({"title": "Images", "format": 3}, ensure_ascii=False))
+        archive.writestr("images/ref/pixel.png", image_payload)
+        archive.writestr(
+            "term_bank_1.json",
+            json.dumps(
+                [
+                    [
+                        "image-entry",
+                        "",
+                        "",
+                        "",
+                        0,
+                        [
+                            "body",
+                            {"type": "image", "path": "images/ref/pixel.png", "description": "pixel"},
+                        ],
+                        1,
+                        "",
+                    ]
+                ],
+                ensure_ascii=False,
+            ),
+        )
+
+    entries, report = import_entries(zip_path, input_format="yomitan", limit=None, merge_duplicates=True, skip_forms=True, progress_every=0)
+    package = build_plain_honmon_package(dict_id="IMGTEST", title="Images", entries=entries, compression="literal")
+
+    assert report["markup"]["embedded_images"] == 1
+    assert report["markup"]["flattened_images"] == 0
+    assert "COLSCR.DIC" in package.files
+    assert len(package.media_allocator.assignments) == 1
+    colscr = expand_sseddata_bytes(package.files["COLSCR.DIC"])
+    assert colscr[:4] == b"data"
+    assert int.from_bytes(colscr[4:8], "little") == len(image_payload)
+    assert colscr[8 : 8 + len(image_payload)] == image_payload
+    honmon = expand_sseddata_bytes(package.files["HONMON.DIC"])
+    assert b"\x1f\x4d" in honmon
+
+
 def test_koujien_csv_import_cleans_headword_html_before_indexing(tmp_path) -> None:
     csv_path = tmp_path / "sample.csv"
     csv_path.write_text(
@@ -330,6 +385,65 @@ def test_yomitan_import_also_emits_normalized_search_aliases(tmp_path) -> None:
     assert report["search_keys_emitted"] == 2
 
 
+def test_yomitan_import_reads_metadata_only_banks(tmp_path) -> None:
+    zip_path = tmp_path / "metadata.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("index.json", json.dumps({"title": "Metadata", "format": 3}, ensure_ascii=False))
+        archive.writestr(
+            "term_meta_bank_1.json",
+            json.dumps(
+                [
+                    ["freq-word", "freq", {"value": 12, "displayValue": "rank 12"}],
+                    ["nested-freq", "freq", {"reading": "nested-read", "frequency": {"value": 34, "displayValue": "rank 34"}}],
+                    ["pitch-word", "pitch", {"reading": "pitch-read", "pitches": [{"position": 2}]}],
+                ],
+                ensure_ascii=False,
+            ),
+        )
+
+    entries, report = import_entries(zip_path, input_format="yomitan", limit=None, merge_duplicates=True, skip_forms=True, progress_every=0)
+
+    assert report["bank_rows"] == {"term_meta": 3}
+    assert [entry.headword for entry in entries] == ["freq-word", "nested-freq", "pitch-word"]
+    assert entries[0].body.parts == ("［freq］\nFrequency: rank 12",)
+    assert entries[1].body.parts == ("［freq］\nReading: nested-read\nFrequency: rank 34",)
+    assert entries[2].keys[:2] == ("pitch-word", "pitchword")
+    assert "pitch-read" in entries[2].keys
+    assert "Pitch: position=2" in "".join(str(part) for part in entries[2].body.parts)
+
+
+def test_yomitan_import_reads_kanji_banks(tmp_path) -> None:
+    zip_path = tmp_path / "kanji.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("index.json", json.dumps({"title": "Kanji", "format": 3}, ensure_ascii=False))
+        archive.writestr(
+            "kanji_bank_1.json",
+            json.dumps(
+                [
+                    ["字", "ジ", "あざ", "tag", ["letter"], {"grade": 1}],
+                ],
+                ensure_ascii=False,
+            ),
+        )
+
+    entries, report = import_entries(zip_path, input_format="yomitan", limit=None, merge_duplicates=True, skip_forms=True, progress_every=0)
+
+    assert report["bank_rows"] == {"kanji": 1}
+    assert entries[0].headword == "字"
+    assert entries[0].keys == ("字", "ジ", "じ", "あざ")
+    body = "".join(str(part) for part in entries[0].body.parts)
+    assert "［kanji］" in body
+    assert "Meanings: letter" in body
+
+
+def test_default_writer_dict_id_uses_hash_suffix_for_non_ascii_names(tmp_path) -> None:
+    first = tmp_path / "[Monolingual] 辞書.zip"
+    second = tmp_path / "[Monolingual] 辞典.zip"
+
+    assert default_writer_dict_id(first) != default_writer_dict_id(second)
+    assert default_writer_dict_id(first).startswith("MONOLINGUA_")
+
+
 def test_lookup_key_normalization_drops_lookup_blocking_punctuation_and_spacing() -> None:
     assert normalize_lookup_key(" かな‐れい 【仮例】 ") == "かなれい仮例"
     assert normalize_lookup_key("カナカナ・テスト") == "かなかなてすと"
@@ -377,6 +491,76 @@ def test_gaiji_allocator_rejects_codes_outside_gaiji_rows() -> None:
     assert gaiji.allocate("𰻞", prefer_half=False).code == 0xFE7E
     with pytest.raises(ValueError, match="code space exhausted"):
         gaiji.allocate("𰻟", prefer_half=False)
+
+
+def test_font_fallback_renderer_skips_unsupported_and_missing_glyph_faces(tmp_path) -> None:
+    class FakeRenderer:
+        def __init__(self, fill: int, *, missing_fill: int | None = None) -> None:
+            self.fill = fill
+            self.missing_fill = missing_fill
+
+        def __call__(self, _text: str, width: int, height: int, _space: str) -> bytes:
+            return bytes([self.fill]) * (((width + 7) // 8) * height)
+
+        def missing_glyph(self, width: int, height: int, _space: str) -> bytes | None:
+            if self.missing_fill is None:
+                return None
+            return bytes([self.missing_fill]) * (((width + 7) // 8) * height)
+
+    renderer = FontFallbackGlyphRenderer(
+        [
+            FontFallbackFace(tmp_path / "jp.ttf", 0, frozenset({ord("漢")}), FakeRenderer(0x00)),
+            FontFallbackFace(tmp_path / "sc.ttf", 0, frozenset({ord("漢")}), FakeRenderer(0x44, missing_fill=0x44)),
+            FontFallbackFace(tmp_path / "tc.ttf", 0, frozenset({ord("漢")}), FakeRenderer(0x88)),
+        ]
+    )
+
+    assert renderer("漢", 16, 16, "full") == bytes([0x88]) * 32
+    assert renderer.font_use_counts == {f"vector:{tmp_path / 'tc.ttf'}#0": 1}
+
+
+def test_bitmap_gaiji_font_renderer_loads_uni_ga16_source(tmp_path) -> None:
+    def glyph_renderer(_text: str, width: int, height: int, _space: str) -> bytes:
+        rows = ["#" * width if y % 2 == 0 else "." * width for y in range(height)]
+        return rows_to_ga16_glyph(rows, width=width, height=height)
+
+    gaiji = GaijiAllocator(glyph_renderer=glyph_renderer)
+    assignment = gaiji.allocate("𰻞", prefer_half=False)
+    (tmp_path / "TEST.uni").write_bytes(encode_uni_resource(gaiji))
+    (tmp_path / "GA16FULL").write_bytes(encode_ga16_resource([assignment], width=16, start_code=FULL_GAIJI_START))
+
+    bitmap = BitmapGaijiFontRenderer.from_paths([tmp_path])
+
+    assert bitmap("𰻞", 16, 16, "full") == assignment.glyph
+
+
+def test_writer_spills_gaiji_overflow_to_colscr_media() -> None:
+    def renderer(text: str, width: int, height: int, space: str) -> bytes:
+        return rows_to_ga16_glyph(["#" * width] * height, width=width, height=height)
+
+    package = build_plain_honmon_package(
+        dict_id="OVFLOW",
+        title="Overflow",
+        entries=[WriterEntry(headword="overflow", body="𰻞𰻟")],
+        glyph_renderer=renderer,
+        gaiji_full_start=0xFE7E,
+        force_full_gaiji=True,
+        compression="literal",
+    )
+
+    assert "COLSCR.DIC" in package.files
+    assert len(package.gaiji_allocator.full_assignments) == 1
+    assert len(package.gaiji_allocator.external_assignments) == 1
+    colscr = expand_sseddata_bytes(package.files["COLSCR.DIC"])
+    assert colscr.startswith(b"data")
+    payload_size = int.from_bytes(colscr[4:8], "little")
+    assert colscr[8:10] == b"BM"
+    assert payload_size == int.from_bytes(colscr[10:14], "little")
+    honmon = expand_sseddata_bytes(package.files["HONMON.DIC"])
+    media_pos = honmon.find(b"\x1f\x4d")
+    assert media_pos >= 0
+    payload = honmon[media_pos + 2 : media_pos + 20]
+    assert payload[16:18] == b"\x00\x00"
 
 
 def test_simple_index_writer_splits_pages_and_parses_as_branch_plus_leaves() -> None:

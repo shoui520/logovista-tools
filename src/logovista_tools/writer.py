@@ -17,7 +17,15 @@ import math
 import unicodedata
 from typing import Callable, Iterable, Literal
 
-from .gaiji import ga16_glyph_size, ga16_row_size, gaiji_grid_code_for_index
+from .gaiji import (
+    ga16_glyph_size,
+    ga16_row_size,
+    ga16_section_for_path,
+    gaiji_grid_code_for_index,
+    iter_ga16_code_sources,
+    parse_ga16_resource,
+    parse_uni_resource,
+)
 from .indexes import IndexPointer
 from .ssed import BLOCK_SIZE, CHUNK_SIZE, SSEDDATA_MAGIC, SSEDINFO_MAGIC, WINDOW_SIZE
 
@@ -74,6 +82,22 @@ def _expanded_chunks(expanded: bytes) -> list[bytes]:
     return [expanded[pos : pos + CHUNK_SIZE] for pos in range(0, len(expanded), CHUNK_SIZE)] or [bytes(BLOCK_SIZE)]
 
 
+def _encode_sseddata_literal_chunk(chunk: bytes) -> bytes:
+    if len(chunk) > CHUNK_SIZE:
+        raise ValueError(f"SSEDDATA chunk exceeds {CHUNK_SIZE} bytes")
+    if len(chunk) > 0xFFFF:
+        # CHUNK_SIZE is 0x8000, so this is defensive only.
+        raise ValueError("literal chunk command count does not fit in uint16")
+    init = Counter(chunk).most_common(1)[0][0] if chunk else 0
+    payload = bytearray()
+    payload.extend(b"\x00\x00")
+    payload.extend(be16(len(chunk)))
+    payload.append(init)
+    for value in chunk:
+        payload.extend((0, 0, value))
+    return bytes(payload)
+
+
 def encode_sseddata_literal(expanded: bytes, *, start_block: int, kind: int = 0) -> bytes:
     """Encode expanded component bytes as a valid literal-only ``SSEDDATA``.
 
@@ -89,37 +113,8 @@ def encode_sseddata_literal(expanded: bytes, *, start_block: int, kind: int = 0)
     n_blocks = logical_block_count(expanded)
     chunks = _expanded_chunks(expanded)
 
-    header_len = 64 + 4 * len(chunks)
-    offsets: list[int] = []
-    chunk_payloads: list[bytes] = []
-    cursor = header_len
-    for chunk in chunks:
-        if len(chunk) > 0xFFFF:
-            # CHUNK_SIZE is 0x8000, so this is defensive only.
-            raise ValueError("literal chunk command count does not fit in uint16")
-        payload = bytearray()
-        payload.extend(b"\x00\x00")
-        payload.extend(be16(len(chunk)))
-        payload.append(0)
-        for value in chunk:
-            payload.extend((0, 0, value))
-        offsets.append(cursor)
-        chunk_payloads.append(bytes(payload))
-        cursor += len(payload)
-
-    header = bytearray(64)
-    header[:8] = SSEDDATA_MAGIC
-    header[0x0F] = kind
-    header[0x16:0x18] = be16(len(chunks))
-    header[0x18:0x1C] = be32(start_block)
-    header[0x1C:0x20] = be32(start_block + n_blocks - 1)
-
-    out = bytearray(header)
-    for offset in offsets:
-        out.extend(be32(offset))
-    for payload in chunk_payloads:
-        out.extend(payload)
-    return bytes(out)
+    chunk_payloads = [_encode_sseddata_literal_chunk(chunk) for chunk in chunks]
+    return _make_sseddata(chunks=chunks, chunk_payloads=chunk_payloads, start_block=start_block, n_blocks=n_blocks, kind=kind)
 
 
 def _make_sseddata(
@@ -239,6 +234,16 @@ def _encode_sseddata_chunk(chunk: bytes) -> bytes:
     return b"\x00\x00" + be16(n_commands) + bytes([init]) + bytes(commands)
 
 
+def _resolve_compression_jobs(jobs: int | None) -> int:
+    if jobs is None:
+        return 1
+    if jobs == 0:
+        return os.cpu_count() or 1
+    if jobs < 0:
+        raise ValueError("compression jobs must be 0 or a positive integer")
+    return max(1, jobs)
+
+
 def encode_sseddata(expanded: bytes, *, start_block: int, kind: int = 0, jobs: int | None = None) -> bytes:
     """Encode expanded component bytes as compressed ``SSEDDATA``.
 
@@ -253,8 +258,7 @@ def encode_sseddata(expanded: bytes, *, start_block: int, kind: int = 0, jobs: i
     expanded = pad_to_block(expanded)
     n_blocks = logical_block_count(expanded)
     chunks = _expanded_chunks(expanded)
-    if jobs is None:
-        jobs = os.cpu_count() or 1
+    jobs = _resolve_compression_jobs(jobs)
     if jobs > 1 and len(chunks) >= PARALLEL_COMPRESS_MIN_CHUNKS:
         chunksize = max(1, len(chunks) // (jobs * 4))
         with ProcessPoolExecutor(max_workers=jobs) as executor:
@@ -400,6 +404,55 @@ def code_hex(code: int) -> str:
     return f"{code:04x}"
 
 
+def encode_bcd_decimal(value: int, digits: int) -> bytes:
+    if value < 0:
+        raise ValueError("BCD value must be non-negative")
+    text = f"{value:0{digits}d}"
+    if len(text) > digits:
+        raise ValueError(f"BCD value {value} does not fit in {digits} digits")
+    out = bytearray()
+    for pos in range(0, digits, 2):
+        out.append((int(text[pos]) << 4) | int(text[pos + 1]))
+    return bytes(out)
+
+
+def encode_gaiji_bmp(glyph: bytes, *, width: int, height: int = 16) -> bytes:
+    row_size = ga16_row_size(width)
+    if len(glyph) != row_size * height:
+        raise ValueError(f"gaiji glyph has {len(glyph)} bytes; expected {row_size * height}")
+    bmp_stride = ((width + 31) // 32) * 4
+    pixel_rows = bytearray()
+    for y in range(height - 1, -1, -1):
+        src = glyph[y * row_size : (y + 1) * row_size]
+        row = bytearray(bmp_stride)
+        for x in range(width):
+            if src[x // 8] & (0x80 >> (x % 8)):
+                row[x // 8] |= 0x80 >> (x % 8)
+        pixel_rows.extend(row)
+    pixel_offset = 14 + 40 + 8
+    file_size = pixel_offset + len(pixel_rows)
+    header = bytearray()
+    header.extend(b"BM")
+    header.extend(file_size.to_bytes(4, "little"))
+    header.extend(b"\x00\x00\x00\x00")
+    header.extend(pixel_offset.to_bytes(4, "little"))
+    header.extend((40).to_bytes(4, "little"))
+    header.extend(width.to_bytes(4, "little", signed=True))
+    header.extend(height.to_bytes(4, "little", signed=True))
+    header.extend((1).to_bytes(2, "little"))
+    header.extend((1).to_bytes(2, "little"))
+    header.extend((0).to_bytes(4, "little"))
+    header.extend(len(pixel_rows).to_bytes(4, "little"))
+    header.extend((0).to_bytes(4, "little", signed=True))
+    header.extend((0).to_bytes(4, "little", signed=True))
+    header.extend((2).to_bytes(4, "little"))
+    header.extend((2).to_bytes(4, "little"))
+    # Palette entry 0 is white background; 1 is black foreground.
+    header.extend(b"\xff\xff\xff\x00")
+    header.extend(b"\x00\x00\x00\x00")
+    return bytes(header) + bytes(pixel_rows)
+
+
 def utf16_units(text: str) -> tuple[int, int]:
     encoded = text.encode("utf-16-be")
     units = [int.from_bytes(encoded[pos : pos + 2], "big") for pos in range(0, len(encoded), 2)]
@@ -424,9 +477,143 @@ class GaijiAssignment:
         return code_hex(self.code)
 
 
+@dataclass(frozen=True)
+class ExternalGaijiAssignment:
+    text: str
+    index: int
+    width: int
+    height: int
+    glyph: bytes
+    bmp: bytes
+    record_offset: int = 0
+    record_length: int = 0
+    payload_offset: int = 0
+    payload_length: int = 0
+
+    @property
+    def resource_id(self) -> str:
+        return f"XGAIJI{self.index:05d}"
+
+
 GlyphRenderer = Callable[[str, int, int, str], bytes]
 ProgressCallback = Callable[[str], None]
 CompressionMode = Literal["compressed", "literal"]
+
+
+def _text_codepoints(text: str) -> frozenset[int]:
+    return frozenset(ord(ch) for ch in text if not unicodedata.combining(ch))
+
+
+@dataclass(frozen=True)
+class FontFallbackFace:
+    path: Path
+    face_index: int
+    coverage: frozenset[int]
+    renderer: GlyphRenderer
+    kind: str = "vector"
+
+    @property
+    def label(self) -> str:
+        return f"{self.kind}:{self.path}#{self.face_index}"
+
+
+@dataclass
+class FontFallbackGlyphRenderer:
+    """Choose the first configured font face that can render a gaiji string."""
+
+    faces: list[FontFallbackFace]
+    fallback_misses: Counter[str] = field(default_factory=Counter)
+    font_use_counts: Counter[str] = field(default_factory=Counter)
+
+    def __post_init__(self) -> None:
+        if not self.faces:
+            raise ValueError("at least one font fallback face is required")
+
+    @classmethod
+    def from_paths(
+        cls,
+        font_paths: Iterable[Path],
+        *,
+        threshold: int = 220,
+        face_index: int | None = None,
+    ) -> "FontFallbackGlyphRenderer":
+        faces: list[FontFallbackFace] = []
+        for font_path in font_paths:
+            faces.extend(_fallback_faces_for_font(Path(font_path), threshold=threshold, face_index=face_index))
+        return cls(faces)
+
+    @classmethod
+    def from_sources(
+        cls,
+        *,
+        bitmap_paths: Iterable[Path] = (),
+        vector_paths: Iterable[Path] = (),
+        threshold: int = 220,
+        vector_face_index: int | None = None,
+    ) -> "FontFallbackGlyphRenderer":
+        faces: list[FontFallbackFace] = []
+        bitmap_path_list = [Path(path) for path in bitmap_paths]
+        if bitmap_path_list:
+            bitmap_renderer = BitmapGaijiFontRenderer.from_paths(bitmap_path_list)
+            coverage: set[int] = set()
+            for text, _width, _height in bitmap_renderer.glyphs:
+                coverage.update(_text_codepoints(text))
+            faces.append(
+                FontFallbackFace(
+                    path=bitmap_path_list[0],
+                    face_index=0,
+                    coverage=frozenset(coverage),
+                    renderer=bitmap_renderer,
+                    kind="bitmap",
+                )
+            )
+        for font_path in vector_paths:
+            faces.extend(_fallback_faces_for_font(Path(font_path), threshold=threshold, face_index=vector_face_index))
+        return cls(faces)
+
+    def _select_face(self, text: str) -> FontFallbackFace:
+        selected, _glyph = self._render_with_face(text, 16, 16, "full")
+        return selected
+
+    def _render_with_face(self, text: str, width: int, height: int, space: str) -> tuple[FontFallbackFace, bytes]:
+        codepoints = _text_codepoints(text)
+        if not codepoints:
+            face = self.faces[0]
+            return face, face.renderer(text, width, height, space)
+        for face in self.faces:
+            if not face.coverage or not codepoints.issubset(face.coverage):
+                continue
+            try:
+                glyph = face.renderer(text, width, height, space)
+            except Exception:
+                continue
+            if _rendered_glyph_is_usable(face.renderer, glyph, width, height, space):
+                return face, glyph
+        self.fallback_misses[text] += 1
+        face = self.faces[0]
+        return face, face.renderer(text, width, height, space)
+
+    def __call__(self, text: str, width: int, height: int, space: str) -> bytes:
+        face, glyph = self._render_with_face(text, width, height, space)
+        self.font_use_counts[face.label] += 1
+        return glyph
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "faces": [
+                {
+                    "path": str(face.path),
+                    "face_index": face.face_index,
+                    "kind": face.kind,
+                    "coverage_size": len(face.coverage),
+                    "sources": list(getattr(face.renderer, "sources", ())),
+                }
+                for face in self.faces
+            ],
+            "font_use_counts": dict(sorted(self.font_use_counts.items())),
+            "fallback_misses": sum(self.fallback_misses.values()),
+            "fallback_miss_samples": list(self.fallback_misses.keys())[:20],
+        }
 
 
 @dataclass
@@ -438,6 +625,9 @@ class GaijiAllocator:
     glyph_renderer: GlyphRenderer | None = None
     force_full: bool = False
     assignments: dict[str, GaijiAssignment] = field(default_factory=dict)
+    external_assignments: dict[str, ExternalGaijiAssignment] = field(default_factory=dict)
+    media_start_block: int | None = None
+    index_key_drops: int = 0
     _half_count: int = 0
     _full_count: int = 0
 
@@ -457,19 +647,56 @@ class GaijiAllocator:
             prefer_half = False
         if prefer_half:
             code = gaiji_grid_code_for_index(self.half_start, self._half_count)
-            self._half_count += 1
             space = "half"
             width = 8
+            self._validate_code(code, text, space)
+            self._half_count += 1
         else:
             code = gaiji_grid_code_for_index(self.full_start, self._full_count)
-            self._full_count += 1
             space = "full"
             width = 16
-        self._validate_code(code, text, space)
+            self._validate_code(code, text, space)
+            self._full_count += 1
         glyph = self.glyph_renderer(text, width, 16, space) if self.glyph_renderer else None
         assignment = GaijiAssignment(text=text, code=code, space=space, glyph=glyph)
         self.assignments[text] = assignment
         return assignment
+
+    def allocate_external(self, text: str, *, prefer_half: bool | None = None) -> ExternalGaijiAssignment:
+        if text in self.external_assignments:
+            return self.external_assignments[text]
+        if self.glyph_renderer is None:
+            raise ValueError(f"gaiji code space exhausted and no glyph renderer is available for {text!r}")
+        if prefer_half is None:
+            prefer_half = len(text) == 1 and is_halfwidth_gaiji_char(text)
+        if self.force_full:
+            prefer_half = False
+        width = 8 if prefer_half else 16
+        space = "half" if prefer_half else "full"
+        glyph = self.glyph_renderer(text, width, 16, space)
+        assignment = ExternalGaijiAssignment(
+            text=text,
+            index=len(self.external_assignments) + 1,
+            width=width,
+            height=16,
+            glyph=glyph,
+            bmp=encode_gaiji_bmp(glyph, width=width, height=16),
+        )
+        self.external_assignments[text] = assignment
+        return assignment
+
+    def set_external_media_layout(self, *, start_block: int, assignments: dict[str, ExternalGaijiAssignment]) -> None:
+        self.media_start_block = start_block
+        self.external_assignments = assignments
+
+    def external_media_control(self, text: str, *, prefer_half: bool | None = None) -> bytes:
+        assignment = self.allocate_external(text, prefer_half=prefer_half)
+        block = (self.media_start_block or 0) + (assignment.record_offset // BLOCK_SIZE)
+        offset = assignment.record_offset % BLOCK_SIZE
+        payload = bytearray(18)
+        payload[12:16] = encode_bcd_decimal(block, 8)
+        payload[16:18] = encode_bcd_decimal(offset, 4)
+        return b"\x1f\x4d" + bytes(payload) + b"\x1f\x6d"
 
     @property
     def half_assignments(self) -> list[GaijiAssignment]:
@@ -484,8 +711,72 @@ class GaijiAllocator:
 
 
 @dataclass(frozen=True)
+class ColscrMediaAssignment:
+    resource_key: str
+    index: int
+    payload: bytes
+    mime_type: str
+    label: str = ""
+    source_path: str = ""
+    converted_from: str | None = None
+    record_offset: int = 0
+    record_length: int = 0
+    payload_offset: int = 0
+    payload_length: int = 0
+
+    @property
+    def resource_id(self) -> str:
+        return f"MEDIA{self.index:05d}"
+
+
+@dataclass
+class ColscrMediaAllocator:
+    assignments: dict[str, ColscrMediaAssignment] = field(default_factory=dict)
+    media_start_block: int | None = None
+
+    def allocate(self, media: "BodyMedia") -> ColscrMediaAssignment:
+        assignment = self.assignments.get(media.resource_key)
+        if assignment is not None:
+            return assignment
+        assignment = ColscrMediaAssignment(
+            resource_key=media.resource_key,
+            index=len(self.assignments) + 1,
+            payload=media.payload,
+            mime_type=media.mime_type,
+            label=media.label,
+            source_path=media.source_path,
+            converted_from=media.converted_from,
+        )
+        self.assignments[media.resource_key] = assignment
+        return assignment
+
+    def set_layout(self, *, start_block: int, assignments: dict[str, ColscrMediaAssignment]) -> None:
+        self.media_start_block = start_block
+        self.assignments = assignments
+
+    def media_control(self, media: "BodyMedia") -> bytes:
+        assignment = self.allocate(media)
+        block = (self.media_start_block or 0) + (assignment.record_offset // BLOCK_SIZE)
+        offset = assignment.record_offset % BLOCK_SIZE
+        payload = bytearray(18)
+        payload[12:16] = encode_bcd_decimal(block, 8)
+        payload[16:18] = encode_bcd_decimal(offset, 4)
+        return b"\x1f\x4d" + bytes(payload) + b"\x1f\x6d"
+
+
+@dataclass(frozen=True)
 class BodyControl:
     raw: bytes
+
+
+@dataclass(frozen=True)
+class BodyMedia:
+    resource_key: str
+    payload: bytes
+    mime_type: str
+    label: str = ""
+    source_path: str = ""
+    converted_from: str | None = None
 
 
 @dataclass(frozen=True)
@@ -496,7 +787,7 @@ class BodyMarkup:
     text plus already-chosen SSED controls needed by the author-core writer.
     """
 
-    parts: tuple[str | BodyControl, ...]
+    parts: tuple[str | BodyControl | BodyMedia, ...]
 
     @staticmethod
     def text(value: str) -> "BodyMarkup":
@@ -536,17 +827,32 @@ def encode_body_text(text: str, gaiji: GaijiAllocator | None = None) -> bytes:
             continue
         if gaiji is None:
             raise UnicodeEncodeError("logovista-jis", ch, 0, 1, "character requires gaiji")
-        out.extend(be16(gaiji.allocate(ch).code))
+        try:
+            out.extend(be16(gaiji.allocate(ch).code))
+        except ValueError as exc:
+            if "code space exhausted" not in str(exc):
+                raise
+            out.extend(gaiji.external_media_control(ch))
     close_halfwidth()
     return bytes(out)
 
 
-def encode_writer_body(body: WriterBody, gaiji: GaijiAllocator | None = None) -> bytes:
+def encode_writer_body(
+    body: WriterBody,
+    gaiji: GaijiAllocator | None = None,
+    media: ColscrMediaAllocator | None = None,
+) -> bytes:
     if isinstance(body, BodyMarkup):
         out = bytearray()
         for part in body.parts:
             if isinstance(part, BodyControl):
                 out.extend(part.raw)
+            elif isinstance(part, BodyMedia):
+                if media is None:
+                    if part.label:
+                        out.extend(encode_body_text(f"［{part.label}］", gaiji))
+                    continue
+                out.extend(media.media_control(part))
             else:
                 out.extend(encode_body_text(part, gaiji))
         return bytes(out)
@@ -584,6 +890,15 @@ def encode_search_key(text: str, gaiji: GaijiAllocator | None = None, *, reverse
     return bytes(out)
 
 
+def _try_encode_search_key(text: str, gaiji: GaijiAllocator | None, *, reverse: bool = False) -> bytes | None:
+    try:
+        return encode_search_key(text, gaiji, reverse=reverse)
+    except (UnicodeEncodeError, ValueError):
+        if gaiji is not None:
+            gaiji.index_key_drops += 1
+        return None
+
+
 def encode_title_stream(titles: Iterable[str], gaiji: GaijiAllocator | None = None) -> tuple[bytes, list[int]]:
     out = bytearray()
     offsets: list[int] = []
@@ -615,24 +930,32 @@ class EncodedEntry:
     keys: tuple[str, ...]
 
 
-def encode_honmon_entry(entry: WriterEntry, gaiji: GaijiAllocator | None = None) -> bytes:
+def encode_honmon_entry(
+    entry: WriterEntry,
+    gaiji: GaijiAllocator | None = None,
+    media: ColscrMediaAllocator | None = None,
+) -> bytes:
     out = bytearray()
     out.extend(b"\x1f\x09\x00\x01")
     out.extend(b"\x1f\x41\x00\x00")
     out.extend(encode_body_text(entry.headword, gaiji))
     out.extend(b"\x1f\x61")
     out.extend(b"\x1f\x0a")
-    out.extend(encode_writer_body(entry.body, gaiji))
+    out.extend(encode_writer_body(entry.body, gaiji, media))
     out.extend(b"\x1f\x0a")
     return bytes(out)
 
 
-def encode_honmon_stream(entries: Iterable[WriterEntry], gaiji: GaijiAllocator | None = None) -> tuple[bytes, list[int]]:
+def encode_honmon_stream(
+    entries: Iterable[WriterEntry],
+    gaiji: GaijiAllocator | None = None,
+    media: ColscrMediaAllocator | None = None,
+) -> tuple[bytes, list[int]]:
     out = bytearray()
     offsets: list[int] = []
     for entry in entries:
         offsets.append(len(out))
-        out.extend(encode_honmon_entry(entry, gaiji))
+        out.extend(encode_honmon_entry(entry, gaiji, media))
     return bytes(out), offsets
 
 
@@ -911,10 +1234,15 @@ def encode_simple_index_pages(
     gaiji: GaijiAllocator | None = None,
     reverse_keys: bool = False,
 ) -> bytes:
-    sorted_targets = sorted(targets, key=lambda row: encode_search_key(row.key, gaiji, reverse=reverse_keys))
+    encoded_targets: list[tuple[bytes, IndexTarget]] = []
+    for target in targets:
+        key_bytes = _try_encode_search_key(target.key, gaiji, reverse=reverse_keys)
+        if key_bytes is None:
+            continue
+        encoded_targets.append((key_bytes, target))
+    sorted_targets = sorted(encoded_targets, key=lambda row: row[0])
     records: list[tuple[bytes, bytes]] = []
-    for target in sorted_targets:
-        key_bytes = encode_search_key(target.key, gaiji, reverse=reverse_keys)
+    for key_bytes, target in sorted_targets:
         records.append((bytes([len(key_bytes)]) + key_bytes + pointer_pair(target.body, target.title), key_bytes))
     return _encode_index_tree(records, start_block=start_block)
 
@@ -926,18 +1254,20 @@ def encode_tagged_index_pages(
     gaiji: GaijiAllocator | None = None,
     reverse_keys: bool = False,
 ) -> bytes:
-    groups: dict[str, list[IndexTarget]] = {}
+    groups: dict[bytes, list[tuple[bytes, IndexTarget]]] = {}
     for target in targets:
-        groups.setdefault(target.key, []).append(target)
+        key_bytes = _try_encode_search_key(target.key, gaiji, reverse=reverse_keys)
+        target_key = target.target_key or target.key
+        target_bytes = _try_encode_search_key(target_key, gaiji, reverse=reverse_keys)
+        if key_bytes is None or target_bytes is None:
+            continue
+        groups.setdefault(key_bytes, []).append((target_bytes, target))
     grouped_records: list[tuple[bytes, bytes, list[bytes]]] = []
-    for key in sorted(groups, key=lambda value: encode_search_key(value, gaiji, reverse=reverse_keys)):
-        key_bytes = encode_search_key(key, gaiji, reverse=reverse_keys)
-        rows = groups[key]
+    for key_bytes in sorted(groups):
+        rows = groups[key_bytes]
         header = b"\x80" + bytes([len(key_bytes)]) + be16(len(rows)) + key_bytes
         target_records: list[bytes] = []
-        for row in rows:
-            target_key = row.target_key or row.key
-            target_bytes = encode_search_key(target_key, gaiji, reverse=reverse_keys)
+        for target_bytes, row in rows:
             target_records.append(b"\xc0" + bytes([len(target_bytes)]) + target_bytes + pointer_pair(row.body, row.title))
         grouped_records.append((key_bytes, header, target_records))
     pages = _split_tagged_record_pages(grouped_records)
@@ -1086,6 +1416,75 @@ def encode_ga16_resource(
     return bytes(header) + bytes(payload)
 
 
+def build_external_gaiji_colscr(
+    assignments: dict[str, ExternalGaijiAssignment],
+) -> tuple[bytes, dict[str, ExternalGaijiAssignment]]:
+    out = bytearray()
+    updated: dict[str, ExternalGaijiAssignment] = {}
+    for text, assignment in sorted(assignments.items(), key=lambda item: item[1].index):
+        record_offset = len(out)
+        record = b"data" + len(assignment.bmp).to_bytes(4, "little") + assignment.bmp
+        out.extend(record)
+        updated[text] = ExternalGaijiAssignment(
+            text=assignment.text,
+            index=assignment.index,
+            width=assignment.width,
+            height=assignment.height,
+            glyph=assignment.glyph,
+            bmp=assignment.bmp,
+            record_offset=record_offset,
+            record_length=len(record),
+            payload_offset=record_offset + 8,
+            payload_length=len(assignment.bmp),
+        )
+    return bytes(out), updated
+
+
+def build_colscr_records(
+    media_assignments: dict[str, ColscrMediaAssignment],
+    external_gaiji_assignments: dict[str, ExternalGaijiAssignment],
+) -> tuple[bytes, dict[str, ColscrMediaAssignment], dict[str, ExternalGaijiAssignment]]:
+    out = bytearray()
+    updated_media: dict[str, ColscrMediaAssignment] = {}
+    updated_gaiji: dict[str, ExternalGaijiAssignment] = {}
+
+    for key, assignment in sorted(media_assignments.items(), key=lambda item: item[1].index):
+        record_offset = len(out)
+        record = b"data" + len(assignment.payload).to_bytes(4, "little") + assignment.payload
+        out.extend(record)
+        updated_media[key] = ColscrMediaAssignment(
+            resource_key=assignment.resource_key,
+            index=assignment.index,
+            payload=assignment.payload,
+            mime_type=assignment.mime_type,
+            label=assignment.label,
+            source_path=assignment.source_path,
+            converted_from=assignment.converted_from,
+            record_offset=record_offset,
+            record_length=len(record),
+            payload_offset=record_offset + 8,
+            payload_length=len(assignment.payload),
+        )
+
+    for text, assignment in sorted(external_gaiji_assignments.items(), key=lambda item: item[1].index):
+        record_offset = len(out)
+        record = b"data" + len(assignment.bmp).to_bytes(4, "little") + assignment.bmp
+        out.extend(record)
+        updated_gaiji[text] = ExternalGaijiAssignment(
+            text=assignment.text,
+            index=assignment.index,
+            width=assignment.width,
+            height=assignment.height,
+            glyph=assignment.glyph,
+            bmp=assignment.bmp,
+            record_offset=record_offset,
+            record_length=len(record),
+            payload_offset=record_offset + 8,
+            payload_length=len(assignment.bmp),
+        )
+    return bytes(out), updated_media, updated_gaiji
+
+
 class VectorGlyphRenderer:
     """Render a user-supplied vector font glyph into GA16 1bpp bytes.
 
@@ -1105,6 +1504,7 @@ class VectorGlyphRenderer:
         self.ImageDraw = ImageDraw
         self.ImageFont = ImageFont
         self._font_cache: dict[int, ImageFont.FreeTypeFont] = {}
+        self._missing_cache: dict[tuple[int, int, str], bytes] = {}
 
     def _font(self, size: int):
         cached = self._font_cache.get(size)
@@ -1117,7 +1517,7 @@ class VectorGlyphRenderer:
         probe = self.Image.new("L", (256, 256), 255)
         return self.ImageDraw.Draw(probe).textbbox((0, 0), text, font=font)
 
-    def __call__(self, text: str, width: int, height: int, _space: str) -> bytes:
+    def _render_text(self, text: str, width: int, height: int, _space: str) -> bytes:
         chosen = None
         for size in range(64, 3, -1):
             font = self._font(size)
@@ -1148,6 +1548,182 @@ class VectorGlyphRenderer:
             out.extend(row)
         return bytes(out)
 
+    def __call__(self, text: str, width: int, height: int, space: str) -> bytes:
+        return self._render_text(text, width, height, space)
+
+    def missing_glyph(self, width: int, height: int, space: str) -> bytes | None:
+        key = (width, height, space)
+        cached = self._missing_cache.get(key)
+        if cached is None:
+            try:
+                cached = self._render_text("\U0010ffff", width, height, space)
+            except Exception:
+                return None
+            self._missing_cache[key] = cached
+        return cached
+
+
+@dataclass
+class BitmapGaijiFontRenderer:
+    """Use existing GA16/GAI16 bitmap glyph resources as writer glyph input."""
+
+    glyphs: dict[tuple[str, int, int], bytes]
+    sources: tuple[str, ...] = ()
+
+    @classmethod
+    def from_paths(cls, paths: Iterable[Path]) -> "BitmapGaijiFontRenderer":
+        glyphs: dict[tuple[str, int, int], bytes] = {}
+        sources: list[str] = []
+        for path in paths:
+            found, path_sources = _load_bitmap_gaiji_font(Path(path))
+            glyphs.update(found)
+            sources.extend(path_sources)
+        if not glyphs:
+            raise ValueError("no mapped GA16/GAI16 bitmap glyphs found in supplied bitmap font paths")
+        return cls(glyphs=glyphs, sources=tuple(sources))
+
+    def __call__(self, text: str, width: int, height: int, _space: str) -> bytes:
+        glyph = self.glyphs.get((text, width, height))
+        if glyph is None:
+            raise ValueError(f"bitmap gaiji font has no {width}x{height} glyph for {text!r}")
+        return glyph
+
+
+def _rendered_glyph_is_usable(
+    renderer: GlyphRenderer,
+    glyph: bytes,
+    width: int,
+    height: int,
+    space: str,
+) -> bool:
+    if not any(glyph):
+        return False
+    missing_glyph = getattr(renderer, "missing_glyph", None)
+    if missing_glyph is not None:
+        marker = missing_glyph(width, height, space)
+        if marker is not None and marker == glyph:
+            return False
+    return True
+
+
+def _bitmap_font_candidate_files(path: Path) -> tuple[list[Path], list[Path]]:
+    if path.is_dir():
+        children = [child for child in path.iterdir() if child.is_file()]
+        uni_paths = [child for child in children if child.suffix.lower() == ".uni"]
+        ga16_paths = [child for child in children if child.name.upper().startswith(("GA16", "GAI16"))]
+        return sorted(uni_paths), sorted(ga16_paths)
+    if path.suffix.lower() == ".uni":
+        siblings = [child for child in path.parent.iterdir() if child.is_file()]
+        return [path], sorted(child for child in siblings if child.name.upper().startswith(("GA16", "GAI16")))
+    if path.name.upper().startswith(("GA16", "GAI16")):
+        siblings = [child for child in path.parent.iterdir() if child.is_file()]
+        return sorted(child for child in siblings if child.suffix.lower() == ".uni"), [path]
+    return [], []
+
+
+def _load_bitmap_gaiji_font(path: Path) -> tuple[dict[tuple[str, int, int], bytes], list[str]]:
+    uni_paths, ga16_paths = _bitmap_font_candidate_files(path)
+    glyphs: dict[tuple[str, int, int], bytes] = {}
+    sources: list[str] = []
+    uni_resources = [resource for resource in (parse_uni_resource(uni_path) for uni_path in uni_paths) if resource is not None]
+    if not uni_resources or not ga16_paths:
+        return glyphs, sources
+
+    for ga16_path in ga16_paths:
+        resource = parse_ga16_resource(ga16_path)
+        if resource is None:
+            continue
+        section = ga16_section_for_path(ga16_path)
+        if section is None:
+            continue
+        data = ga16_path.read_bytes()
+        before = len(glyphs)
+        for uni_resource in uni_resources:
+            records_by_code = {record.code.lower(): record for record in uni_resource.records if record.section == section}
+            if not records_by_code:
+                continue
+            for code, index, _source in iter_ga16_code_sources(resource, uni_resource):
+                record = records_by_code.get(code.lower())
+                if record is None:
+                    continue
+                text = record.display or record.fallback or record.legacy
+                if not text:
+                    continue
+                glyph = resource.glyph_for_index(data, index)
+                if glyph is None or not any(glyph):
+                    continue
+                glyphs.setdefault((text, resource.width, resource.height), glyph)
+        if len(glyphs) > before:
+            sources.append(str(ga16_path))
+    return glyphs, sources
+
+
+def _font_coverage(font) -> frozenset[int]:
+    cmap = font.get("cmap")
+    if cmap is None:
+        return frozenset()
+    codepoints: set[int] = set()
+    for table in cmap.tables:
+        if table.isUnicode():
+            for codepoint, glyph_name in table.cmap.items():
+                if str(glyph_name).lower() in {".notdef", "glyph0", "glyph00000"}:
+                    continue
+                codepoints.add(int(codepoint))
+    return frozenset(codepoints)
+
+
+def _fallback_faces_for_font(
+    font_path: Path,
+    *,
+    threshold: int,
+    face_index: int | None,
+) -> list[FontFallbackFace]:
+    try:
+        from fontTools.ttLib import TTCollection, TTFont
+    except ImportError as exc:  # pragma: no cover - depends on optional local tooling
+        raise RuntimeError("fontTools is required for multi-font gaiji fallback") from exc
+
+    path = Path(font_path)
+    faces: list[FontFallbackFace] = []
+    suffix = path.suffix.lower()
+    if suffix in {".ttc", ".otc"} and face_index is None:
+        collection = TTCollection(str(path), lazy=True)
+        try:
+            for index, font in enumerate(collection.fonts):
+                faces.append(
+                    FontFallbackFace(
+                        path=path,
+                        face_index=index,
+                        coverage=_font_coverage(font),
+                        renderer=VectorGlyphRenderer(path, face_index=index, threshold=threshold),
+                        kind="vector",
+                    )
+                )
+        finally:
+            for font in collection.fonts:
+                close = getattr(font, "close", None)
+                if close is not None:
+                    close()
+        return faces
+
+    index = 0 if face_index is None else face_index
+    font = TTFont(str(path), fontNumber=index, lazy=True)
+    try:
+        coverage = _font_coverage(font)
+    finally:
+        close = getattr(font, "close", None)
+        if close is not None:
+            close()
+    return [
+        FontFallbackFace(
+            path=path,
+            face_index=index,
+            coverage=coverage,
+            renderer=VectorGlyphRenderer(path, face_index=index, threshold=threshold),
+            kind="vector",
+        )
+    ]
+
 
 def render_vector_gaiji_glyph(
     text: str,
@@ -1170,6 +1746,7 @@ class PlainPackage:
     files: dict[str, bytes]
     encoded_entries: tuple[EncodedEntry, ...]
     gaiji_allocator: GaijiAllocator
+    media_allocator: ColscrMediaAllocator
 
 
 def build_plain_honmon_package(
@@ -1184,6 +1761,7 @@ def build_plain_honmon_package(
     gaiji_half_start: int = HALF_GAIJI_START,
     gaiji_full_start: int = FULL_GAIJI_START,
     force_full_gaiji: bool = False,
+    compression_jobs: int | None = 1,
 ) -> PlainPackage:
     """Build an in-memory plain body-stream SSED package."""
 
@@ -1196,8 +1774,9 @@ def build_plain_honmon_package(
         glyph_renderer=glyph_renderer,
         force_full=force_full_gaiji,
     )
+    media = ColscrMediaAllocator()
 
-    honmon_expanded, body_offsets = encode_honmon_stream(entry_list, gaiji)
+    honmon_expanded, body_offsets = encode_honmon_stream(entry_list, gaiji, media)
     if progress:
         progress(f"HONMON expanded: {len(honmon_expanded)} bytes; gaiji={len(gaiji.assignments)}")
     title_expanded, title_offsets = encode_title_stream([entry.headword for entry in entry_list], gaiji)
@@ -1324,8 +1903,35 @@ def build_plain_honmon_package(
     bhindex_start = cursor
     bhindex_expanded = encode_simple_index_pages(backward_targets, start_block=bhindex_start, gaiji=gaiji, reverse_keys=True)
     bhindex_blocks = logical_block_count(bhindex_expanded)
+    cursor += bhindex_blocks
     if progress:
         progress(f"BHINDEX expanded: {len(bhindex_expanded)} bytes")
+
+    colscr_expanded: bytes | None = None
+    colscr_start: int | None = None
+    colscr_blocks = 0
+    colscr_media_assignment_count = 0
+    if media.assignments or gaiji.external_assignments:
+        colscr_start = cursor
+        colscr_expanded, media_assignments, external_assignments = build_colscr_records(media.assignments, gaiji.external_assignments)
+        colscr_media_assignment_count = len(media_assignments)
+        colscr_blocks = logical_block_count(colscr_expanded)
+        media.set_layout(start_block=colscr_start, assignments=media_assignments)
+        gaiji.set_external_media_layout(start_block=colscr_start, assignments=external_assignments)
+        updated_honmon, updated_body_offsets = encode_honmon_stream(entry_list, gaiji, media)
+        updated_title, updated_title_offsets = encode_title_stream([entry.headword for entry in entry_list], gaiji)
+        if updated_body_offsets != body_offsets or len(updated_honmon) != len(honmon_expanded):
+            raise ValueError("external gaiji media rewrite changed HONMON entry offsets")
+        if updated_title_offsets != title_offsets or len(updated_title) != len(title_expanded):
+            raise ValueError("external gaiji media rewrite changed TITLE row offsets")
+        honmon_expanded = updated_honmon
+        title_expanded = updated_title
+        cursor += colscr_blocks
+        if progress:
+            progress(
+                f"COLSCR expanded: {len(colscr_expanded)} bytes; "
+                f"media={len(media.assignments)} external_gaiji={len(gaiji.external_assignments)}"
+            )
 
     half = gaiji.half_assignments
     full = gaiji.full_assignments
@@ -1368,6 +1974,16 @@ def build_plain_honmon_package(
                 SsedInfoComponent("GA16HALF", 0xF2, 0, 0, b"\x00\x00\x00\x00"),
             ]
         )
+    if colscr_expanded is not None and colscr_start is not None:
+        components.append(
+            SsedInfoComponent(
+                "COLSCR.DIC",
+                0xD2,
+                colscr_start,
+                colscr_start + colscr_blocks - 1,
+                default_catalog_data(0xD2, "COLSCR.DIC"),
+            )
+        )
     if compression == "compressed":
         component_encoder = encode_sseddata
     elif compression == "literal":
@@ -1378,10 +1994,21 @@ def build_plain_honmon_package(
     if progress:
         progress(f"encoding SSEDDATA components with {compression} compression")
 
+    media_literal_components: set[str] = set()
+    if colscr_media_assignment_count:
+        media_literal_components.add("COLSCR.DIC")
+
     def encode_component(name: str, expanded: bytes, start_block: int, kind: int) -> bytes:
         if progress:
             progress(f"encoding {name}: expanded={len(expanded)} bytes")
-        encoded = component_encoder(expanded, start_block=start_block, kind=kind)
+        if compression == "compressed" and name in media_literal_components:
+            if progress:
+                progress(f"encoding {name}: media payloads use fast literal SSEDDATA chunks")
+            encoded = encode_sseddata_literal(expanded, start_block=start_block, kind=kind)
+        elif compression == "compressed":
+            encoded = component_encoder(expanded, start_block=start_block, kind=kind, jobs=compression_jobs)
+        else:
+            encoded = component_encoder(expanded, start_block=start_block, kind=kind)
         if progress:
             progress(f"encoded {name}: file={len(encoded)} bytes")
         return encoded
@@ -1407,6 +2034,8 @@ def build_plain_honmon_package(
                 "BKINDEX.DIC": encode_component("BKINDEX.DIC", bkindex_expanded, bkindex_start, 0x70),
             }
         )
+    if colscr_expanded is not None and colscr_start is not None:
+        files["COLSCR.DIC"] = encode_component("COLSCR.DIC", colscr_expanded, colscr_start, 0xD2)
 
     if gaiji_required:
         files[f"{dict_id}.uni"] = encode_uni_resource(gaiji)
@@ -1421,6 +2050,7 @@ def build_plain_honmon_package(
         files=files,
         encoded_entries=tuple(encoded_entries),
         gaiji_allocator=gaiji,
+        media_allocator=media,
     )
 
 

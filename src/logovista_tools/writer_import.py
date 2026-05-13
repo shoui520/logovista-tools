@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import html
 import json
 import re
 import sys
 import unicodedata
 import zipfile
+from io import BytesIO
 from collections import Counter
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
@@ -18,8 +20,10 @@ from typing import Any, Iterable
 from .writer import (
     BodyControl,
     BodyMarkup,
+    BodyMedia,
     CompressionMode,
     FULL_GAIJI_START,
+    FontFallbackGlyphRenderer,
     GaijiAllocator,
     HALF_GAIJI_START,
     VectorGlyphRenderer,
@@ -116,6 +120,9 @@ class MarkupStats:
     structured_tags: Counter[str] = field(default_factory=Counter)
     unsupported_tags: Counter[str] = field(default_factory=Counter)
     flattened_images: int = 0
+    embedded_images: int = 0
+    missing_images: int = 0
+    converted_images: int = 0
     flattened_links: int = 0
     controls: Counter[str] = field(default_factory=Counter)
 
@@ -124,6 +131,9 @@ class MarkupStats:
         self.structured_tags.update(other.structured_tags)
         self.unsupported_tags.update(other.unsupported_tags)
         self.flattened_images += other.flattened_images
+        self.embedded_images += other.embedded_images
+        self.missing_images += other.missing_images
+        self.converted_images += other.converted_images
         self.flattened_links += other.flattened_links
         self.controls.update(other.controls)
 
@@ -133,6 +143,9 @@ class MarkupStats:
             "structured_tags": dict(sorted(self.structured_tags.items())),
             "unsupported_tags": dict(sorted(self.unsupported_tags.items())),
             "flattened_images": self.flattened_images,
+            "embedded_images": self.embedded_images,
+            "missing_images": self.missing_images,
+            "converted_images": self.converted_images,
             "flattened_links": self.flattened_links,
             "controls": dict(sorted(self.controls.items())),
         }
@@ -167,6 +180,10 @@ class BodyBuilder:
     def control(self, control: BodyControl, label: str) -> None:
         self.parts.append(control)
         self.stats.controls[label] += 1
+
+    def media(self, media: BodyMedia) -> None:
+        self.parts.append(media)
+        self.stats.embedded_images += 1
 
     def markup(self) -> BodyMarkup:
         collapsed: list[str | BodyControl] = []
@@ -213,10 +230,109 @@ def _style_controls(tag: str, attrs: dict[str, str], stats: MarkupStats) -> list
     return controls
 
 
+def _mime_from_bytes(path: str, data: bytes) -> str:
+    lower = path.lower()
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8"):
+        return "image/jpeg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if data.startswith(b"BM"):
+        return "image/bmp"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    if lower.endswith(".png"):
+        return "image/png"
+    if lower.endswith((".jpg", ".jpeg")):
+        return "image/jpeg"
+    if lower.endswith(".gif"):
+        return "image/gif"
+    if lower.endswith(".bmp"):
+        return "image/bmp"
+    if lower.endswith(".webp"):
+        return "image/webp"
+    return "application/octet-stream"
+
+
+def _image_has_alpha(image: Any) -> bool:
+    if image.mode in {"RGBA", "LA"}:
+        return True
+    if image.mode == "P" and "transparency" in image.info:
+        return True
+    return False
+
+
+def _convert_webp_image_bytes(data: bytes) -> tuple[bytes, str]:
+    try:
+        from PIL import Image
+    except ImportError as exc:  # pragma: no cover - optional local writer tooling
+        raise RuntimeError("Pillow is required to convert non-SSED image payloads") from exc
+    with Image.open(BytesIO(data)) as image:
+        out = BytesIO()
+        if _image_has_alpha(image):
+            if image.mode not in {"RGBA", "LA"}:
+                image = image.convert("RGBA")
+            image.save(out, format="PNG")
+            return out.getvalue(), "image/png"
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        image.save(out, format="JPEG", quality=92, optimize=True)
+        return out.getvalue(), "image/jpeg"
+
+
+class YomitanMediaResolver:
+    def __init__(self, archive: zipfile.ZipFile, stats: MarkupStats) -> None:
+        self.archive = archive
+        self.stats = stats
+        self._names = set(archive.namelist())
+        self._cache: dict[str, BodyMedia | None] = {}
+
+    def _resolve_name(self, path: str) -> str | None:
+        normalized = path.strip().replace("\\", "/").lstrip("./")
+        if normalized in self._names:
+            return normalized
+        lowered = normalized.lower()
+        for name in self._names:
+            if name.lower() == lowered:
+                return name
+        return None
+
+    def __call__(self, path: str, label: str = "") -> BodyMedia | None:
+        if not path:
+            return None
+        name = self._resolve_name(path)
+        if name is None:
+            self.stats.missing_images += 1
+            return None
+        cached = self._cache.get(name)
+        if cached is not None or name in self._cache:
+            return cached
+        data = self.archive.read(name)
+        mime = _mime_from_bytes(name, data)
+        converted_from: str | None = None
+        if mime == "image/webp":
+            data, mime = _convert_webp_image_bytes(data)
+            converted_from = "image/webp"
+            self.stats.converted_images += 1
+        digest = hashlib.sha1(data).hexdigest()[:16]
+        media = BodyMedia(
+            resource_key=f"{name}:{digest}",
+            payload=data,
+            mime_type=mime,
+            label=clean_headword(label) or Path(name).name,
+            source_path=name,
+            converted_from=converted_from,
+        )
+        self._cache[name] = media
+        return media
+
+
 class SsedHtmlParser(HTMLParser):
-    def __init__(self, stats: MarkupStats) -> None:
+    def __init__(self, stats: MarkupStats, media_resolver: Any | None = None) -> None:
         super().__init__(convert_charrefs=True)
         self.stats = stats
+        self.media_resolver = media_resolver
         self.builder = BodyBuilder(stats)
         self.close_stack: list[list[tuple[BodyControl, str]]] = []
 
@@ -238,10 +354,15 @@ class SsedHtmlParser(HTMLParser):
             self.close_stack.append([])
             return
         if tag in {"img", "object"}:
-            alt = attrs.get("alt") or attrs.get("title") or attrs.get("data") or attrs.get("src") or ""
-            if alt:
-                self.builder.text(f"［{alt}］")
-            self.stats.flattened_images += 1
+            src = attrs.get("src") or attrs.get("data") or ""
+            alt = attrs.get("alt") or attrs.get("title") or src
+            media = self.media_resolver(src, alt) if self.media_resolver and src else None
+            if media is not None:
+                self.builder.media(media)
+            else:
+                if alt:
+                    self.builder.text(f"［{alt}］")
+                self.stats.flattened_images += 1
             self.close_stack.append([])
             return
         if tag == "a" and attrs.get("href"):
@@ -297,15 +418,15 @@ class HeadwordHtmlParser(HTMLParser):
         return clean_headword("".join(self.parts))
 
 
-def html_to_body_markup(source: str, stats: MarkupStats | None = None) -> BodyMarkup:
+def html_to_body_markup(source: str, stats: MarkupStats | None = None, media_resolver: Any | None = None) -> BodyMarkup:
     stats = stats or MarkupStats()
-    parser = SsedHtmlParser(stats)
+    parser = SsedHtmlParser(stats, media_resolver=media_resolver)
     parser.feed(source)
     parser.close()
     return parser.builder.markup()
 
 
-def structured_content_to_body_markup(value: Any, stats: MarkupStats | None = None) -> BodyMarkup:
+def structured_content_to_body_markup(value: Any, stats: MarkupStats | None = None, media_resolver: Any | None = None) -> BodyMarkup:
     stats = stats or MarkupStats()
     builder = BodyBuilder(stats)
 
@@ -314,10 +435,12 @@ def structured_content_to_body_markup(value: Any, stats: MarkupStats | None = No
             return
         if isinstance(node, str):
             if "<" in node and ">" in node:
-                nested = html_to_body_markup(node, stats)
+                nested = html_to_body_markup(node, stats, media_resolver=media_resolver)
                 for part in nested.parts:
                     if isinstance(part, BodyControl):
                         builder.control(part, "raw_control")
+                    elif isinstance(part, BodyMedia):
+                        builder.media(part)
                     else:
                         builder.text(part)
             else:
@@ -338,10 +461,15 @@ def structured_content_to_body_markup(value: Any, stats: MarkupStats | None = No
             visit(node.get("content"))
             return
         if node.get("type") == "image":
-            alt = node.get("title") or node.get("description") or node.get("path") or ""
-            if alt:
-                builder.text(f"［{alt}］")
-            stats.flattened_images += 1
+            path = str(node.get("path") or node.get("src") or "")
+            alt = str(node.get("title") or node.get("description") or path or "")
+            media = media_resolver(path, alt) if media_resolver and path else None
+            if media is not None:
+                builder.media(media)
+            else:
+                if alt:
+                    builder.text(f"［{alt}］")
+                stats.flattened_images += 1
             return
 
         tag = str(node.get("tag") or "").lower()
@@ -369,10 +497,21 @@ def structured_content_to_body_markup(value: Any, stats: MarkupStats | None = No
             builder.newline()
             return
         if tag in {"img", "object"}:
-            alt = node.get("alt") or node.get("title") or node.get("data") or node.get("path") or ""
-            if alt:
-                builder.text(f"［{alt}］")
-            stats.flattened_images += 1
+            data = node.get("data")
+            path = ""
+            if isinstance(data, dict):
+                path = str(data.get("path") or data.get("src") or data.get("name") or "")
+            elif isinstance(data, str):
+                path = data
+            path = str(node.get("src") or node.get("path") or path or "")
+            alt = str(node.get("alt") or node.get("title") or path or "")
+            media = media_resolver(path, alt) if media_resolver and path else None
+            if media is not None:
+                builder.media(media)
+            else:
+                if alt:
+                    builder.text(f"［{alt}］")
+                stats.flattened_images += 1
             return
         if tag == "a":
             stats.flattened_links += 1
@@ -403,6 +542,7 @@ class ImportAccumulator:
     headword_html_tags: Counter[str] = field(default_factory=Counter)
     headword_images_dropped: int = 0
     markup_stats: MarkupStats = field(default_factory=MarkupStats)
+    bank_rows: Counter[str] = field(default_factory=Counter)
     _entries: dict[str, WriterEntry] = field(default_factory=dict)
     _order: list[str] = field(default_factory=list)
 
@@ -624,16 +764,121 @@ def iter_koujien_csv(path: Path, accumulator: ImportAccumulator, *, limit: int |
                 break
 
 
-def sorted_term_banks(names: Iterable[str]) -> list[str]:
+YOMITAN_ENTRY_BANK_RE = re.compile(r"(^|/)(term|term_meta|kanji|kanji_meta)_bank_(\d+)\.json$")
+
+
+def sorted_yomitan_entry_banks(names: Iterable[str], *, kinds: set[str] | None = None) -> list[tuple[str, str]]:
     def key(name: str) -> tuple[int, str]:
-        match = re.search(r"term_bank_(\d+)\.json$", name)
-        return (int(match.group(1)) if match else 10**9, name)
+        match = YOMITAN_ENTRY_BANK_RE.search(name)
+        return (int(match.group(3)) if match else 10**9, name)
 
-    return sorted((name for name in names if re.search(r"(^|/)term_bank_\d+\.json$", name)), key=key)
+    banks: list[tuple[str, str]] = []
+    for name in names:
+        match = YOMITAN_ENTRY_BANK_RE.search(name)
+        if not match:
+            continue
+        kind = match.group(2)
+        if kinds is not None and kind not in kinds:
+            continue
+        banks.append((kind, name))
+    return sorted(banks, key=lambda item: key(item[1]))
 
 
-def glossary_to_body(glossary: Any, stats: MarkupStats, *, prefix_lines: list[str] | None = None) -> BodyMarkup:
-    parts: list[str | BodyControl] = []
+def sorted_term_banks(names: Iterable[str]) -> list[str]:
+    return [name for _kind, name in sorted_yomitan_entry_banks(names, kinds={"term"})]
+
+
+def metadata_value_to_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return clean_headword(value)
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, list):
+        return ", ".join(part for part in (metadata_value_to_text(item) for item in value) if part)
+    if isinstance(value, dict):
+        if "displayValue" in value:
+            display = metadata_value_to_text(value.get("displayValue"))
+            if display:
+                return display
+        if "value" in value:
+            display = metadata_value_to_text(value.get("value"))
+            if display:
+                return display
+        compact = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return clean_headword(compact)
+    return clean_headword(str(value))
+
+
+def metadata_lines(mode: str, data: Any) -> list[str]:
+    mode = clean_headword(mode)
+    lines = [f"［{mode}］"] if mode else []
+    if isinstance(data, dict):
+        if mode == "freq":
+            reading = metadata_value_to_text(data.get("reading"))
+            if reading:
+                lines.append(f"Reading: {reading}")
+            frequency = data.get("frequency", data)
+            value = metadata_value_to_text(frequency)
+            if value:
+                lines.append(f"Frequency: {value}")
+            return lines
+        if mode == "pitch":
+            reading = metadata_value_to_text(data.get("reading"))
+            if reading:
+                lines.append(f"Reading: {reading}")
+            pitches = data.get("pitches")
+            if isinstance(pitches, list):
+                parts: list[str] = []
+                for pitch in pitches:
+                    if isinstance(pitch, dict):
+                        position = pitch.get("position")
+                        tags = metadata_value_to_text(pitch.get("tags") or pitch.get("nasal") or pitch.get("devoice"))
+                        part = f"position={position}" if position is not None else metadata_value_to_text(pitch)
+                        if tags:
+                            part = f"{part} {tags}"
+                        parts.append(part)
+                    else:
+                        parts.append(metadata_value_to_text(pitch))
+                if parts:
+                    lines.append("Pitch: " + "; ".join(part for part in parts if part))
+            else:
+                value = metadata_value_to_text(data)
+                if value:
+                    lines.append(value)
+            return lines
+        for key in sorted(data):
+            value = metadata_value_to_text(data[key])
+            if value:
+                lines.append(f"{key}: {value}")
+        return lines
+    value = metadata_value_to_text(data)
+    if value:
+        lines.append(value)
+    return lines
+
+
+def split_lookup_values(value: Any) -> tuple[str, ...]:
+    text = metadata_value_to_text(value)
+    if not text:
+        return ()
+    parts = re.split(r"[\s,;、，・/／]+", text)
+    return tuple(dict.fromkeys(clean_headword(part) for part in parts if clean_headword(part)))
+
+
+def simple_lines_to_body(lines: list[str], stats: MarkupStats) -> BodyMarkup:
+    return glossary_to_body("\n".join(line for line in lines if line), stats)
+
+
+def glossary_to_body(
+    glossary: Any,
+    stats: MarkupStats,
+    *,
+    prefix_lines: list[str] | None = None,
+    media_resolver: Any | None = None,
+) -> BodyMarkup:
+    parts: list[str | BodyControl | BodyMedia] = []
     if prefix_lines:
         parts.append("\n".join(line for line in prefix_lines if line))
         parts.append("\n")
@@ -641,7 +886,7 @@ def glossary_to_body(glossary: Any, stats: MarkupStats, *, prefix_lines: list[st
     for index, item in enumerate(items):
         if index:
             parts.append("\n")
-        body = structured_content_to_body_markup(item, stats)
+        body = structured_content_to_body_markup(item, stats, media_resolver=media_resolver)
         parts.extend(body.parts)
     return BodyMarkup(tuple(parts))
 
@@ -656,34 +901,94 @@ def iter_yomitan_zip(
 ) -> dict[str, Any]:
     with zipfile.ZipFile(path) as archive:
         index = json.loads(archive.read("index.json")) if "index.json" in archive.namelist() else {}
-        for bank_name in sorted_term_banks(archive.namelist()):
+        archive_media_stats = accumulator.markup_stats
+        media_resolver = YomitanMediaResolver(archive, archive_media_stats)
+        for bank_kind, bank_name in sorted_yomitan_entry_banks(archive.namelist()):
             rows = json.loads(archive.read(bank_name))
             for row in rows:
                 accumulator.rows_read += 1
-                if not isinstance(row, list) or len(row) < 6:
+                accumulator.bank_rows[bank_kind] += 1
+                if not isinstance(row, list):
                     accumulator.rows_skipped += 1
                     continue
-                expression = str(row[0] or "")
-                reading = str(row[1] or "")
-                definition_tags = str(row[2] or "")
-                rules = str(row[3] or "")
-                glossary = row[5]
-                if skip_forms and definition_tags == "forms":
-                    accumulator.rows_skipped += 1
-                    continue
-                prefix: list[str] = []
-                if reading and reading != expression:
-                    prefix.append(f"［{reading}］")
-                tags = " ".join(part for part in (definition_tags, rules, str(row[7] if len(row) > 7 else "")) if part)
-                if tags:
-                    prefix.append(f"［{tags}］")
-                stats = MarkupStats()
-                body = glossary_to_body(glossary, stats, prefix_lines=prefix)
-                accumulator.markup_stats.merge(stats)
-                keys = [expression]
-                if reading and reading != expression:
-                    keys.append(reading)
-                accumulator.add(expression, body, keys)
+                if bank_kind == "term":
+                    if len(row) < 6:
+                        accumulator.rows_skipped += 1
+                        continue
+                    expression = str(row[0] or "")
+                    reading = str(row[1] or "")
+                    definition_tags = str(row[2] or "")
+                    rules = str(row[3] or "")
+                    glossary = row[5]
+                    if skip_forms and definition_tags == "forms":
+                        accumulator.rows_skipped += 1
+                        continue
+                    prefix: list[str] = []
+                    if reading and reading != expression:
+                        prefix.append(f"［{reading}］")
+                    tags = " ".join(part for part in (definition_tags, rules, str(row[7] if len(row) > 7 else "")) if part)
+                    if tags:
+                        prefix.append(f"［{tags}］")
+                    stats = MarkupStats()
+                    body = glossary_to_body(glossary, stats, prefix_lines=prefix, media_resolver=media_resolver)
+                    accumulator.markup_stats.merge(stats)
+                    keys = [expression]
+                    if reading and reading != expression:
+                        keys.append(reading)
+                    accumulator.add(expression, body, keys)
+                elif bank_kind == "term_meta":
+                    if len(row) < 3:
+                        accumulator.rows_skipped += 1
+                        continue
+                    expression = str(row[0] or "")
+                    mode = str(row[1] or "")
+                    data = row[2]
+                    lines = metadata_lines(mode, data)
+                    stats = MarkupStats()
+                    body = simple_lines_to_body(lines, stats)
+                    accumulator.markup_stats.merge(stats)
+                    keys = [expression]
+                    if isinstance(data, dict) and data.get("reading"):
+                        keys.append(str(data["reading"]))
+                    accumulator.add(expression, body, keys)
+                elif bank_kind == "kanji":
+                    if len(row) < 5:
+                        accumulator.rows_skipped += 1
+                        continue
+                    character = str(row[0] or "")
+                    onyomi = row[1] if len(row) > 1 else ""
+                    kunyomi = row[2] if len(row) > 2 else ""
+                    tags = row[3] if len(row) > 3 else ""
+                    meanings = row[4] if len(row) > 4 else ""
+                    stats_value = row[5] if len(row) > 5 else None
+                    lines = ["［kanji］"]
+                    for label, value in (
+                        ("On", onyomi),
+                        ("Kun", kunyomi),
+                        ("Tags", tags),
+                        ("Meanings", meanings),
+                        ("Stats", stats_value),
+                    ):
+                        text = metadata_value_to_text(value)
+                        if text:
+                            lines.append(f"{label}: {text}")
+                    stats = MarkupStats()
+                    body = simple_lines_to_body(lines, stats)
+                    accumulator.markup_stats.merge(stats)
+                    keys = [character, *split_lookup_values(onyomi), *split_lookup_values(kunyomi)]
+                    accumulator.add(character, body, keys)
+                elif bank_kind == "kanji_meta":
+                    if len(row) < 3:
+                        accumulator.rows_skipped += 1
+                        continue
+                    character = str(row[0] or "")
+                    mode = str(row[1] or "")
+                    data = row[2]
+                    lines = metadata_lines(mode, data)
+                    stats = MarkupStats()
+                    body = simple_lines_to_body(lines, stats)
+                    accumulator.markup_stats.merge(stats)
+                    accumulator.add(character, body, [character])
                 if progress_every and accumulator.rows_read % progress_every == 0:
                     print(f"import yomitan rows={accumulator.rows_read} entries={len(accumulator._entries)} bank={bank_name}", file=sys.stderr)
                 if limit and accumulator.rows_read >= limit:
@@ -718,6 +1023,7 @@ def import_entries(path: Path, *, input_format: str, limit: int | None, merge_du
         "source_metadata": metadata,
         "rows_read": accumulator.rows_read,
         "rows_skipped": accumulator.rows_skipped,
+        "bank_rows": dict(sorted(accumulator.bank_rows.items())),
         "duplicate_rows_merged": accumulator.duplicate_rows_merged,
         "long_key_drops": accumulator.long_key_drops,
         "search_keys_emitted": accumulator.search_keys_emitted,
@@ -728,6 +1034,24 @@ def import_entries(path: Path, *, input_format: str, limit: int | None, merge_du
         "markup": accumulator.markup_stats.as_dict(),
     }
     return entries, report
+
+
+def default_writer_dict_id(path: Path) -> str:
+    base = re.sub(r"[^A-Za-z0-9_]+", "", path.stem.upper())
+    digest = hashlib.sha1(path.stem.encode("utf-8", "surrogatepass")).hexdigest()[:5].upper()
+    if not base:
+        return f"YOMI_{digest}"
+    if len(base) <= 10:
+        return f"{base}_{digest}"[:16]
+    return f"{base[:10]}_{digest}"[:16]
+
+
+def _path_list_arg(value: Any) -> list[Path]:
+    if value is None:
+        return []
+    if isinstance(value, (str, Path)):
+        return [Path(value)]
+    return [Path(item) for item in value]
 
 
 def build_writer_import_package(args: Any) -> dict[str, Any]:
@@ -743,11 +1067,23 @@ def build_writer_import_package(args: Any) -> dict[str, Any]:
     if not entries:
         raise ValueError("no writer entries were imported")
 
-    dict_id = args.dict_id or re.sub(r"[^A-Za-z0-9_]+", "", args.input.stem.upper())[:16] or "WRITERTEST"
+    dict_id = args.dict_id or default_writer_dict_id(args.input)
     title = args.title or report["source_metadata"].get("title") or args.input.stem
     glyph_renderer = None
-    if args.gaiji_font:
-        glyph_renderer = VectorGlyphRenderer(args.gaiji_font, face_index=args.font_face_index, threshold=args.font_threshold)
+    bitmap_fonts = _path_list_arg(getattr(args, "gaiji_bitmap_font", None))
+    vector_fonts = _path_list_arg(getattr(args, "gaiji_vector_font", None))
+    legacy_fonts = _path_list_arg(getattr(args, "gaiji_font", None))
+    vector_fonts.extend(legacy_fonts)
+    if bitmap_fonts or vector_fonts:
+        if bitmap_fonts or len(vector_fonts) > 1:
+            glyph_renderer = FontFallbackGlyphRenderer.from_sources(
+                bitmap_paths=bitmap_fonts,
+                vector_paths=vector_fonts,
+                vector_face_index=None if len(vector_fonts) > 1 else args.font_face_index,
+                threshold=args.font_threshold,
+            )
+        else:
+            glyph_renderer = VectorGlyphRenderer(vector_fonts[0], face_index=args.font_face_index, threshold=args.font_threshold)
     if args.gaiji_layout == "split":
         gaiji_half_start = HALF_GAIJI_START
         gaiji_full_start = FULL_GAIJI_START
@@ -780,6 +1116,7 @@ def build_writer_import_package(args: Any) -> dict[str, Any]:
         gaiji_half_start=gaiji_half_start,
         gaiji_full_start=gaiji_full_start,
         force_full_gaiji=force_full_gaiji,
+        compression_jobs=getattr(args, "jobs", 1),
     )
     write_plain_package(package, package_dir)
 
@@ -790,15 +1127,31 @@ def build_writer_import_package(args: Any) -> dict[str, Any]:
             "title": title,
             "output": str(package_dir),
             "compression": args.compression,
+            "compression_jobs": getattr(args, "jobs", 1),
             "include_tagged_indexes": not args.simple_only,
             "gaiji": {
                 "half": len(package.gaiji_allocator.half_assignments),
                 "full": len(package.gaiji_allocator.full_assignments),
                 "total": len(package.gaiji_allocator.assignments),
-                "font": str(args.gaiji_font) if args.gaiji_font else None,
+                "external_media": len(package.gaiji_allocator.external_assignments),
+                "index_key_drops": package.gaiji_allocator.index_key_drops,
+                "font": str(vector_fonts[0]) if len(vector_fonts) == 1 and not bitmap_fonts else None,
+                "bitmap_fonts": [str(path) for path in bitmap_fonts],
+                "vector_fonts": [str(path) for path in vector_fonts],
+                "font_fallback": glyph_renderer.as_dict() if hasattr(glyph_renderer, "as_dict") else None,
                 "layout": args.gaiji_layout,
                 "half_start": f"{gaiji_half_start:04x}",
                 "full_start": f"{gaiji_full_start:04x}",
+            },
+            "media": {
+                "colscr_records": len(package.media_allocator.assignments),
+                "colscr_bytes": sum(row.payload_length or len(row.payload) for row in package.media_allocator.assignments.values()),
+                "mime_types": dict(
+                    sorted(Counter(row.mime_type for row in package.media_allocator.assignments.values()).items())
+                ),
+                "converted_from": dict(
+                    sorted(Counter(row.converted_from for row in package.media_allocator.assignments.values() if row.converted_from).items())
+                ),
             },
             "files": file_sizes,
         }
