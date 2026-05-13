@@ -85,7 +85,10 @@ hyphens.
 
 CLI status and progress messages are written to stderr; JSON/JSONL data stays
 on stdout. Use `--verbose` before or after a subcommand for extra progress
-details and Python tracebacks when debugging unexpected failures.
+details; expected input errors remain concise, while unexpected internal
+failures include tracebacks in verbose mode.
+For interactive body browsing, `entries --print` prints emitted entries to the
+terminal while still writing the JSONL output under `--out-dir`.
 
 ## Quick Start
 

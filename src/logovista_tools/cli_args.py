@@ -45,6 +45,18 @@ def add_entries_args(parser: argparse.ArgumentParser) -> None:
         help="Also emit body_html with conservative inline HTML and img tags for image gaiji.",
     )
     parser.add_argument(
+        "--print",
+        dest="print_entries",
+        action="store_true",
+        help="Print emitted entries to the terminal after writing JSONL output.",
+    )
+    parser.add_argument(
+        "--print-format",
+        choices=("text", "html", "jsonl"),
+        default="text",
+        help="Terminal format used with --print.",
+    )
+    parser.add_argument(
         "--section-image",
         action="append",
         help="For HTML output, insert an image at a section marker. Format: CODE=IMAGE_KEY, e.g. 0011=exam.",

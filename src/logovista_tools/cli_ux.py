@@ -61,6 +61,92 @@ def path_display(path: object) -> str:
         return str(path)
 
 
+COMMAND_INPUT_HINTS: dict[str, dict[str, str]] = {
+    "entries": {
+        "component": "HONMON.DIC",
+        "why": "entries needs the dictionary .IDX or package directory so it can locate HONMON start blocks, gaiji maps, and related resources",
+        "example": "logovista-tools entries /path/to/DICT/DICT.IDX --limit 100 --print",
+    },
+    "titles": {
+        "component": "TITLE.DIC",
+        "why": "titles needs the dictionary .IDX or package directory so it can find every title component and its component metadata",
+        "example": "logovista-tools titles /path/to/DICT/DICT.IDX --limit 100",
+    },
+    "indexes": {
+        "component": "INDEX.DIC",
+        "why": "indexes needs the dictionary .IDX or package directory so it can read component types, start blocks, and companion title/body pointers",
+        "example": "logovista-tools indexes /path/to/DICT/DICT.IDX --limit 100",
+    },
+    "menus": {
+        "component": "MENU.DIC",
+        "why": "menus needs the dictionary .IDX or package directory so it can resolve MENU.DIC component metadata and destinations",
+        "example": "logovista-tools menus /path/to/DICT/DICT.IDX --limit 100",
+    },
+    "colscr": {
+        "component": "COLSCR.DIC",
+        "why": "colscr needs the dictionary .IDX or package directory so it can scan HONMON media controls before resolving COLSCR records",
+        "example": "logovista-tools colscr /path/to/DICT/DICT.IDX --write-media --out-dir colscr",
+    },
+    "pcmdata": {
+        "component": "PCMDATA.DIC",
+        "why": "pcmdata needs the dictionary .IDX or package directory so it can scan HONMON audio controls before resolving PCMDATA ranges",
+        "example": "logovista-tools pcmdata /path/to/DICT/DICT.IDX --write-audio --out-dir pcmdata",
+    },
+    "resources": {
+        "component": "resource component",
+        "why": "resources needs the dictionary .IDX or package directory so it can associate resource files with dictionary metadata",
+        "example": "logovista-tools resources /path/to/DICT/DICT.IDX",
+    },
+}
+
+
+def _find_idx_hint(directory: Path) -> Path | None:
+    if not directory.is_dir():
+        return None
+    for pattern in ("*.IDX", "*.idx"):
+        matches = sorted(directory.glob(pattern))
+        if matches:
+            return matches[0]
+    return None
+
+
+def dictionary_source_error(command: str, roots: object, *, dict_ids: object = None) -> str:
+    """Return a specific user-facing error for commands that need dictionary packages."""
+
+    raw_roots = roots if isinstance(roots, list) else [roots]
+    paths = [root for root in raw_roots if isinstance(root, Path)]
+    hint = COMMAND_INPUT_HINTS.get(command, {})
+    examples: list[str] = []
+
+    for path in paths:
+        if path.is_file() and path.suffix.upper() != ".IDX":
+            idx_hint = _find_idx_hint(path.parent)
+            suggestion = str(idx_hint) if idx_hint is not None else "/path/to/DICT/DICT.IDX"
+            example = hint.get("example", f"logovista-tools {command} {suggestion}").replace(
+                "/path/to/DICT/DICT.IDX", suggestion
+            )
+            return (
+                f"{command}: {path.name} was provided directly, but {hint.get('why', 'this command needs a dictionary .IDX or package directory')}. "
+                f"Use the package directory or .IDX instead. Example: {example}"
+            )
+        if path.is_dir():
+            idx_hint = _find_idx_hint(path)
+            if idx_hint is not None:
+                examples.append(str(idx_hint))
+
+    if dict_ids:
+        wanted = ", ".join(str(value) for value in dict_ids)
+        return f"{command}: no dictionary packages matched --dict {wanted}. Check the dictionary id or pass the direct .IDX path."
+    if paths:
+        joined = ", ".join(str(path) for path in paths)
+        example_path = examples[0] if examples else "/path/to/DICT/DICT.IDX"
+        return (
+            f"{command}: no SSED .IDX dictionary packages were found under {joined}. "
+            f"Pass a collection root, a dictionary package directory, or a direct .IDX path. Example: logovista-tools {command} {example_path}"
+        )
+    return f"{command}: no dictionary input was provided. Pass a collection root, dictionary package directory, or direct .IDX path."
+
+
 def friendly_exception_message(exc: BaseException) -> str:
     if isinstance(exc, FileNotFoundError):
         return f"file not found: {path_display(getattr(exc, 'filename', None) or exc)}"
@@ -109,8 +195,6 @@ def run_with_friendly_errors(
         return 130
     except (FileNotFoundError, IsADirectoryError, NotADirectoryError, PermissionError, ValueError) as exc:
         status(args, f"{program}: error: {friendly_exception_message(exc)}")
-        if is_verbose(args):
-            traceback.print_exc()
         return 2
     except Exception as exc:
         status(args, f"{program}: error: {friendly_exception_message(exc)}")
@@ -144,8 +228,6 @@ def run_callback_with_friendly_errors(
         return 130
     except (FileNotFoundError, IsADirectoryError, NotADirectoryError, PermissionError, ValueError) as exc:
         status(args, f"{program}: error: {friendly_exception_message(exc)}")
-        if verbose:
-            traceback.print_exc()
         return 2
     except Exception as exc:
         status(args, f"{program}: error: {friendly_exception_message(exc)}")

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import __version__
-from .cli_ux import extract_verbose, run_callback_with_friendly_errors, status
+from .cli_ux import dictionary_source_error, extract_verbose, run_callback_with_friendly_errors, status
 
 
 def _entries_task(payload):
@@ -102,7 +102,7 @@ def _cmd_info(argv: list[str]) -> int:
 
 def _cmd_entries(argv: list[str]) -> int:
     from .cli_args import add_entries_args
-    from .entries import discover_dictionaries, entry_marker_status_text, write_json
+    from .entries import discover_dictionaries, entry_marker_status_text, print_entries_to_terminal, write_json
     from .parallel import parallel_map_ordered, worker_args
 
     parser = argparse.ArgumentParser(prog="logovista-tools entries", description="Extract readable HONMON body entries as JSONL.")
@@ -116,6 +116,11 @@ def _cmd_entries(argv: list[str]) -> int:
             raise FileNotFoundError(root)
     status(args, f"entries: discovering dictionaries under {', '.join(str(root) for root in roots)}")
     include_images = bool(args.image_gaiji or args.html or args.section_image)
+    status(
+        args,
+        f"entries: metadata load options gaiji=yes images={'yes' if include_images else 'no'} jobs={args.jobs}",
+        verbose=True,
+    )
     sources = discover_dictionaries(
         args.root or [Path(".")],
         jobs=args.jobs,
@@ -126,12 +131,11 @@ def _cmd_entries(argv: list[str]) -> int:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]
     if not sources:
-        print("no dictionaries found", file=sys.stderr)
-        return 1
+        raise ValueError(dictionary_source_error("entries", roots, dict_ids=args.dict))
     status(args, f"entries: found {len(sources)} dictionary package(s)")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    status(args, f"entries: writing output under {args.out_dir}", verbose=True)
+    status(args, f"entries: writing output under {args.out_dir}")
 
     def log_summary(summary: dict[str, object]) -> None:
         print(
@@ -149,6 +153,10 @@ def _cmd_entries(argv: list[str]) -> int:
         on_result=log_summary,
     )
     write_json(args.out_dir / "summary.json", summaries)
+    if args.print_entries:
+        for summary in summaries:
+            print_entries_to_terminal(summary, args.print_format)
+    status(args, f"entries: wrote summary {args.out_dir / 'summary.json'}")
     return 0
 
 
@@ -177,6 +185,11 @@ def _cmd_extract(
         if not root.exists():
             raise FileNotFoundError(root)
     status(args, f"{command}: discovering dictionaries under {', '.join(str(root) for root in roots)}")
+    status(
+        args,
+        f"{command}: metadata load options gaiji={'yes' if include_gaiji else 'no'} images={'yes' if include_images else 'no'} jobs={args.jobs}",
+        verbose=True,
+    )
     sources = discover_dictionaries(
         roots,
         jobs=args.jobs,
@@ -188,14 +201,27 @@ def _cmd_extract(
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]
     if not sources:
-        print("no dictionaries found", file=sys.stderr)
-        return 1
+        raise ValueError(dictionary_source_error(command, roots, dict_ids=args.dict))
     status(args, f"{command}: found {len(sources)} dictionary package(s)")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    status(args, f"{command}: writing output under {args.out_dir}")
 
     def log_summary(summary: dict[str, Any]) -> None:
-        print(f"{summary['dict_id']:12s} {label}={summary[count_field]}", file=sys.stderr)
+        extras = []
+        for key, text in (
+            ("valid_records", "valid"),
+            ("invalid_records", "invalid"),
+            ("valid_referenced_records", "valid"),
+            ("invalid_referenced_records", "invalid"),
+            ("unreferenced_records", "unreferenced"),
+            ("media_files_written", "written"),
+            ("audio_files_written", "written"),
+        ):
+            if key in summary:
+                extras.append(f"{text}={summary[key]}")
+        suffix = f" {' '.join(extras)}" if extras else ""
+        print(f"{summary['dict_id']:12s} {label}={summary[count_field]}{suffix}", file=sys.stderr)
 
     task_args = worker_args(args)
     summaries = parallel_map_ordered(
@@ -205,6 +231,7 @@ def _cmd_extract(
         on_result=log_summary,
     )
     write_json(args.out_dir / "summary.json", summaries)
+    status(args, f"{command}: wrote summary {args.out_dir / 'summary.json'}")
     if getattr(args, "json", False):
         print(json.dumps(summaries, ensure_ascii=False, indent=2))
     return 0

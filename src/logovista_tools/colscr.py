@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from .cli_ux import dictionary_source_error, status
 from .entries import discover_dictionaries
 from .parallel import parallel_map_ordered, worker_args
 from .ssed import BLOCK_SIZE, CHUNK_SIZE, SsedRandomReader, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
@@ -270,6 +271,7 @@ def extract_colscr_for_source(source: Any, out_dir: Path, args: argparse.Namespa
     dict_out = out_dir / source.dict_id
     dict_out.mkdir(parents=True, exist_ok=True)
     manifest_path = dict_out / "colscr_manifest.jsonl"
+    status(args, f"colscr: {source.dict_id}: scanning HONMON refs and COLSCR records", verbose=True)
 
     if colscr_path is None:
         manifest_path.write_text("", encoding="utf-8")
@@ -380,8 +382,10 @@ def _colscr_source_task(payload: tuple[Any, Path, argparse.Namespace]) -> dict[s
 
 
 def extract_colscr_for_sources(args: argparse.Namespace) -> list[dict[str, Any]]:
+    roots = args.root or [Path(".")]
+    status(args, f"colscr: discovering dictionaries under {', '.join(str(root) for root in roots)}", verbose=True)
     sources = discover_dictionaries(
-        args.root or [Path(".")],
+        roots,
         jobs=getattr(args, "jobs", 1),
         dict_ids=args.dict,
         include_gaiji=False,
@@ -390,7 +394,10 @@ def extract_colscr_for_sources(args: argparse.Namespace) -> list[dict[str, Any]]
     if args.dict:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]
+    if not sources:
+        raise ValueError(dictionary_source_error("colscr", roots, dict_ids=args.dict))
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    status(args, f"colscr: found {len(sources)} dictionary package(s); writing output under {args.out_dir}")
     task_args = worker_args(args)
 
     def log_summary(summary: dict[str, Any]) -> None:
@@ -407,6 +414,7 @@ def extract_colscr_for_sources(args: argparse.Namespace) -> list[dict[str, Any]]
         on_result=log_summary,
     )
     write_json(args.out_dir / "summary.json", summaries)
+    status(args, f"colscr: wrote summary {args.out_dir / 'summary.json'}")
     return summaries
 
 

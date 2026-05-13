@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .cli_args import add_entries_args
+from .cli_ux import status
 from .gaiji import load_gaiji_map, load_gaiji_profile
 from .parallel import parallel_map_ordered
 from .resources import load_image_resource_profile, relative_image_source
@@ -712,6 +713,49 @@ def write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _entry_row_display(row: dict[str, Any], fmt: str) -> str:
+    if fmt == "jsonl":
+        return json.dumps(row, ensure_ascii=False, separators=(",", ":"))
+    heading = str(row.get("heading") or "").strip()
+    label = f"{row.get('dict_id', '')} #{row.get('entry_index', '')}".strip()
+    if heading:
+        label = f"{label} {heading}".strip()
+    if fmt == "html":
+        body = str(row.get("body_html") or row.get("body") or "")
+        return f"<!-- {label} -->\n{body}".rstrip()
+    body = str(row.get("body") or row.get("body_html") or "")
+    return f"## {label}\n{body}".rstrip()
+
+
+def print_entries_to_terminal(summary: dict[str, Any], fmt: str = "text") -> int:
+    """Print emitted entry rows from a summary JSONL path to stdout."""
+
+    entries_path = Path(str(summary.get("entries_path") or ""))
+    if not entries_path.is_file():
+        print(f"entries: no entry JSONL file found for {summary.get('dict_id', '<unknown>')}: {entries_path}", file=sys.stderr)
+        return 0
+    emitted = 0
+    with entries_path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            if fmt == "jsonl":
+                print(line)
+            else:
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    print(line)
+                else:
+                    if emitted:
+                        print()
+                    print(_entry_row_display(row, fmt))
+            emitted += 1
+    sys.stdout.flush()
+    return emitted
+
+
 def entry_marker_status_text(summary: dict[str, Any]) -> str:
     if summary.get("entry_markers_complete"):
         return str(summary.get("entry_markers") or 0)
@@ -785,6 +829,11 @@ def extract_dictionary_streaming(source: DictionarySource, out_dir: Path, args: 
     section_image_sources = resolve_section_image_sources(getattr(args, "section_image", None), source.image_sources)
 
     reader = SsedRandomReader(source.honmon)
+    status(
+        args,
+        f"entries: {source.dict_id}: streaming HONMON storage={reader.storage} expanded_bytes={reader.expanded_size}",
+        verbose=True,
+    )
     warnings: list[str] = []
     aggregate_stats = _empty_stats()
     sample_size = min(reader.expanded_size, 256 * 1024)
@@ -792,6 +841,7 @@ def extract_dictionary_streaming(source: DictionarySource, out_dir: Path, args: 
     sample_markers = sample.count(ENTRY_MARKER)
     dense_marker_honmon = sample_markers > 0 and sample_markers * 64 > max(sample_size, 1)
     if dense_marker_honmon and args.skip_dense_marker_honmon:
+        status(args, f"entries: {source.dict_id}: skipped dense marker-like HONMON sample", verbose=True)
         warnings.append(
             "HONMON sample has a dense 32-byte-ish entry-marker pattern; it appears to "
             "be an anchor/id table rather than body text. Skipped HONMON body extraction."
@@ -811,6 +861,11 @@ def extract_dictionary_streaming(source: DictionarySource, out_dir: Path, args: 
             warnings=warnings,
         )
         write_json(dict_out / "summary.json", summary)
+        status(
+            args,
+            f"entries: {source.dict_id}: emitted=0 markers={entry_marker_status_text(summary)} entries_path={entries_path}",
+            verbose=True,
+        )
         return summary
 
     emitted = 0
@@ -897,6 +952,11 @@ def extract_dictionary_streaming(source: DictionarySource, out_dir: Path, args: 
         warnings=warnings,
     )
     write_json(dict_out / "summary.json", summary)
+    status(
+        args,
+        f"entries: {source.dict_id}: emitted={emitted} markers={entry_marker_status_text(summary)} entries_path={entries_path}",
+        verbose=True,
+    )
     return summary
 
 
@@ -904,6 +964,7 @@ def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.N
     full_scan = bool(getattr(args, "full_scan", False) or getattr(args, "debug", False))
     if not full_scan and not getattr(args, "index_boundaries", False):
         return extract_dictionary_streaming(source, out_dir, args)
+    status(args, f"entries: {source.dict_id}: using full forensic HONMON scan", verbose=True)
 
     dict_out = out_dir / source.dict_id
     dict_out.mkdir(parents=True, exist_ok=True)

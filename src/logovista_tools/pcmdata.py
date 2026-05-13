@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .colscr import decode_bcd_decimal
+from .cli_ux import dictionary_source_error, status
 from .entries import decode_tokens, discover_dictionaries, tokens_to_text
 from .parallel import parallel_map_ordered, worker_args
 from .ssed import BLOCK_SIZE, CHUNK_SIZE, SsedRandomReader, find_case_insensitive, parse_ssedinfo
@@ -667,6 +668,7 @@ def extract_pcmdata_for_source(source: Any, out_dir: Path, args: argparse.Namesp
     dict_out = out_dir / source.dict_id
     dict_out.mkdir(parents=True, exist_ok=True)
     manifest_path = dict_out / "pcmdata_manifest.jsonl"
+    status(args, f"pcmdata: {source.dict_id}: scanning HONMON refs and PCMDATA ranges", verbose=True)
 
     if pcmdata_path is None:
         manifest_path.write_text("", encoding="utf-8")
@@ -860,8 +862,10 @@ def _pcmdata_source_task(payload: tuple[Any, Path, argparse.Namespace]) -> dict[
 
 
 def extract_pcmdata_for_sources(args: argparse.Namespace) -> list[dict[str, Any]]:
+    roots = args.root or [Path(".")]
+    status(args, f"pcmdata: discovering dictionaries under {', '.join(str(root) for root in roots)}", verbose=True)
     sources = discover_dictionaries(
-        args.root or [Path(".")],
+        roots,
         jobs=getattr(args, "jobs", 1),
         dict_ids=args.dict,
         include_images=False,
@@ -869,7 +873,10 @@ def extract_pcmdata_for_sources(args: argparse.Namespace) -> list[dict[str, Any]
     if args.dict:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]
+    if not sources:
+        raise ValueError(dictionary_source_error("pcmdata", roots, dict_ids=args.dict))
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    status(args, f"pcmdata: found {len(sources)} dictionary package(s); writing output under {args.out_dir}")
     task_args = worker_args(args)
 
     def log_summary(summary: dict[str, Any]) -> None:
@@ -887,6 +894,7 @@ def extract_pcmdata_for_sources(args: argparse.Namespace) -> list[dict[str, Any]
         on_result=log_summary,
     )
     write_json(args.out_dir / "summary.json", summaries)
+    status(args, f"pcmdata: wrote summary {args.out_dir / 'summary.json'}")
     return summaries
 
 

@@ -28,8 +28,9 @@ that work has started, which package discovery is happening, and whether the
 command finished cleanly. Machine-readable payloads such as JSON and JSONL stay
 on stdout, so shell pipelines can still parse them safely.
 
-Use `--verbose` before or after the subcommand for extra progress details and a
-Python traceback when an unexpected exception occurs:
+Use `--verbose` before or after the subcommand for extra progress details.
+Unexpected internal exceptions still include a traceback in verbose mode, while
+common input/usage errors stay as concise CLI errors:
 
 ```bash
 logovista-tools --verbose entries /path/to/LogoVista --limit 100
@@ -39,6 +40,12 @@ logovista-tools entries --verbose /path/to/LogoVista --limit 100
 By default, common operator errors such as missing paths, directories supplied
 where a file is required, and permission failures are reported as familiar
 single-line CLI errors rather than raw Python tracebacks.
+
+Commands that need package context, such as `entries`, `colscr`, and
+`pcmdata`, expect a collection root, dictionary package directory, or direct
+`.IDX` path. Supplying a component file such as `HONMON.DIC`, `COLSCR.DIC`, or
+`PCMDATA.DIC` now fails with an explanation and an example command instead of
+silently producing an empty result.
 
 ### Parallel Jobs
 
@@ -302,6 +309,8 @@ Extract readable body entries from expanded `HONMON.DIC`.
 
 ```bash
 logovista-tools entries /path/to/LogoVista --out-dir bodies
+logovista-tools entries /path/to/DICT/DICT.IDX --limit 20 --print
+logovista-tools entries /path/to/DICT/DICT.IDX --limit 20 --html --print --print-format html
 ```
 
 Output layout:
@@ -339,6 +348,8 @@ Useful options:
 --gaiji placeholder                 keep half-width and full-width placeholders
 --image-gaiji                       preserve unresolved PNG-backed gaiji as <img:code>
 --html                              also emit body_html with inline HTML img tags
+--print                             print emitted entries to the terminal after writing JSONL
+--print-format text|html|jsonl      terminal format used with --print
 --media-placeholder                 preserve 1f4d media payloads as placeholders
 --section-markers                   preserve 1f09 section markers as placeholders
 --section-image CODE=IMAGE_KEY      insert a named image at a section marker in HTML output
@@ -355,6 +366,8 @@ complete. `--index-boundaries`/`--full-scan` keep the older forensic behavior
 for dictionaries whose entries need index-derived boundaries.
 
 When `--html` is used, rows include `body_html` in addition to `body`.
+Use `--print` for interactive browsing in the terminal; without it, extracted
+entries are written to `raw_entries.jsonl` under `--out-dir`.
 PNG-backed gaiji are rendered as package-relative image tags such as:
 
 ```html
@@ -928,6 +941,10 @@ logovista-tools colscr /path/to/LogoVista --dict OUKOKU11 --out-dir colscr
 logovista-tools colscr /path/to/DICT/DICT.IDX --write-media --out-dir colscr
 ```
 
+Do not pass `COLSCR.DIC` directly. The command needs the package `.IDX` or
+directory so it can scan `HONMON.DIC` media controls and then resolve the
+target records in `COLSCR.DIC`.
+
 Output layout:
 
 ```text
@@ -966,6 +983,10 @@ by raw `HONMON.DIC` controls.
 logovista-tools pcmdata /path/to/LogoVista --dict HAESPJPN --out-dir pcmdata
 logovista-tools pcmdata /path/to/DICT/DICT.IDX --write-audio --out-dir pcmdata
 ```
+
+Do not pass `PCMDATA.DIC` directly. The command needs the package `.IDX` or
+directory so it can scan `HONMON.DIC` audio controls and then resolve the
+target ranges in `PCMDATA.DIC`.
 
 Output layout:
 

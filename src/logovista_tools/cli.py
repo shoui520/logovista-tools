@@ -23,7 +23,13 @@ from .cli_args import (
     add_pcmdata_args,
     add_titles_args,
 )
-from .cli_ux import command_name as command_label, extract_verbose, run_with_friendly_errors, status
+from .cli_ux import (
+    command_name as command_label,
+    dictionary_source_error,
+    extract_verbose,
+    run_with_friendly_errors,
+    status,
+)
 from .colscr import extract_colscr_for_sources
 from .component_forensics import extract_component_forensics_for_args
 from .decoded_model import (
@@ -33,7 +39,12 @@ from .decoded_model import (
     write_package_model_chunked,
     write_package_model_chunked_to_dir,
 )
-from .entries import discover_dictionaries, entry_marker_status_text, extract_dictionary
+from .entries import (
+    discover_dictionaries,
+    entry_marker_status_text,
+    extract_dictionary,
+    print_entries_to_terminal,
+)
 from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
 from .gaiji import (
@@ -338,6 +349,8 @@ def select_sources(args: argparse.Namespace):
         status(args, f"{command_label(args)}: selected {len(sources)} dictionary package(s) after --dict filter")
     else:
         status(args, f"{command_label(args)}: found {len(sources)} dictionary package(s)")
+    if not sources:
+        raise ValueError(dictionary_source_error(command_label(args), roots, dict_ids=getattr(args, "dict", None)))
     return sources
 
 
@@ -368,11 +381,9 @@ def _fulldb_task(payload: tuple[Any, Path, argparse.Namespace]) -> dict[str, Any
 
 def cmd_entries(args: argparse.Namespace) -> int:
     sources = select_sources(args)
-    if not sources:
-        print("no dictionaries found", file=sys.stderr)
-        return 1
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    status(args, f"entries: writing output under {args.out_dir}")
 
     def log_summary(summary: dict[str, Any]) -> None:
         print(
@@ -390,6 +401,10 @@ def cmd_entries(args: argparse.Namespace) -> int:
         on_result=log_summary,
     )
     write_json(args.out_dir / "summary.json", summaries)
+    if args.print_entries:
+        for summary in summaries:
+            print_entries_to_terminal(summary, args.print_format)
+    status(args, f"entries: wrote summary {args.out_dir / 'summary.json'}")
     return 0
 
 
