@@ -56,7 +56,7 @@ def cmd_info(args: argparse.Namespace) -> int:
         emit(info.to_dict())
         return 0
     package = open_package(args.path)
-    emit(package.summary())
+    emit(package.summary(debug=args.debug))
     return 0
 
 
@@ -66,7 +66,7 @@ def cmd_body_source(args: argparse.Namespace) -> int:
         emit({"package": info.to_dict(), "body_source": {"package_family": info.family.value, "support": "deferred"}})
         return 0
     package = open_package(args.path)
-    report = {"package": package.info.to_dict(), "body_source": package.body_source().to_dict(debug=args.debug)}
+    report = {"package": package.info.to_dict(), "body_source": package.body_source(debug=args.debug).to_dict(debug=args.debug)}
     emit(report)
     return 0
 
@@ -117,7 +117,7 @@ def cmd_search(args: argparse.Namespace) -> int:
         entries = []
         for hit in results.hits:
             try:
-                entry = package.entry_for_hit(hit)
+                entry = package.entry_for_hit(hit, include_supplements=args.debug)
             except Exception as exc:
                 entries.append({"hit": hit.to_dict(debug=args.debug), "error": str(exc)})
                 continue
@@ -142,7 +142,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         rendered = []
         for hit in results.hits:
             try:
-                entry = package.entry_for_hit(hit)
+                entry = package.entry_for_hit(hit, include_supplements=args.debug or args.include_supplements)
                 record = {
                     "hit": hit.to_dict(debug=args.debug),
                     "headword": entry.headword,
@@ -171,11 +171,18 @@ def cmd_render(args: argparse.Namespace) -> int:
         for index, hit in enumerate(results.hits):
             if index:
                 print()
-            print(package.render_hit_text(hit))
+            print(package.render_hit_text(hit, include_supplements=args.debug or args.include_supplements))
         return 0
 
     for hit in results.hits:
-        print(package.render_hit_html(hit, profile=profile, include_diagnostics=args.diagnostics))
+        print(
+            package.render_hit_html(
+                hit,
+                profile=profile,
+                include_diagnostics=args.diagnostics,
+                include_supplements=args.debug or args.include_supplements,
+            )
+        )
     return 0
 
 
@@ -192,7 +199,7 @@ def _resources_for_query(
     results = package.search(term, limit=limit, profile=profile, debug=debug)
     rows: list[dict[str, Any]] = []
     for hit_index, hit in enumerate(results.hits):
-        entry = package.entry_for_hit(hit)
+        entry = package.entry_for_hit(hit, include_supplements=debug)
         document = entry.document()
         for resource in document.resources:
             row = {
@@ -261,7 +268,7 @@ def cmd_gaiji(args: argparse.Namespace) -> int:
     emit(
         {
             "package": package.info.to_dict(),
-            "gaiji": package.summary().get("gaiji"),
+            "gaiji": package.summary(debug=True).get("gaiji"),
             "resources": rows if args.debug else resources,
         }
     )
@@ -856,6 +863,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_info = sub.add_parser("info", help="Show parsed package summary")
     p_info.add_argument("path", type=Path)
     p_info.add_argument("--json", action="store_true", help="Emit JSON output (default)")
+    p_info.add_argument("--debug", action="store_true", help="Include body-source, gaiji, and resource evidence")
     p_info.set_defaults(func=cmd_info)
 
     p_body = sub.add_parser("body-source", help="Classify the package body source")
@@ -900,6 +908,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_render.add_argument("--profile", choices=[*(profile.value for profile in HtmlProfile), "logovista-like"], default=HtmlProfile.FRIENDLY.value)
     p_render.add_argument("--format", choices=["html", "text", "json"], default="html")
     p_render.add_argument("--diagnostics", action="store_true", help="Include diagnostics in rendered output")
+    p_render.add_argument("--include-supplements", action="store_true", help="Attach supplemental sidecar rows while rendering")
     p_render.add_argument("--debug", action="store_true", help="Include debug hit details in JSON output")
     p_render.set_defaults(func=cmd_render)
 

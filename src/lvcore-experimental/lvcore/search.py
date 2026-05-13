@@ -92,6 +92,12 @@ class SearchHit:
         return self.to_dict(debug=True)
 
     def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+        body_source = self.body_source
+        if debug and body_source is None and self._package is not None:
+            try:
+                body_source = self._package.body_source(debug=True).to_dict(debug=False)
+            except Exception:
+                body_source = None
         data: dict[str, Any] = {
             "id": self.id,
             "package_id": self.package_id,
@@ -117,7 +123,7 @@ class SearchHit:
                     "page": self.page,
                     "row": self.row,
                     "raw_row": self.raw_row.to_dict() if self.raw_row else None,
-                    "body_source": self.body_source,
+                    "body_source": body_source,
                     "title_reason": self.title_reason,
                     "title_resolution": self.title_resolution,
                 }

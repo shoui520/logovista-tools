@@ -12,6 +12,7 @@ from logovista_tools.colscr import (
 )
 from logovista_tools.entries import (
     decode_tokens,
+    iter_entry_slices_reader,
     iter_entry_slices_with_boundaries,
     is_useless_body,
     normalize_fullwidth_ascii,
@@ -638,6 +639,23 @@ def test_index_boundaries_are_sorted_before_entry_slicing() -> None:
     slices = list(iter_entry_slices_with_boundaries(data, [2, 10]))
 
     assert slices == [(2, 10), (10, 16), (16, len(data))]
+
+
+def test_streaming_entry_slices_handle_chunk_boundary_marker() -> None:
+    class Reader:
+        def __init__(self, data: bytes):
+            self.data = data
+            self.expanded_size = len(data)
+
+        def read(self, offset: int, size: int) -> bytes:
+            return self.data[offset : offset + size]
+
+    marker = bytes.fromhex("1f090001")
+    data = b"A" * (0x8000 - 2) + marker + b"first" + marker + b"second"
+
+    slices = list(iter_entry_slices_reader(Reader(data)))  # type: ignore[arg-type]
+
+    assert slices == [(0x8000 - 2, 0x8000 + 7), (0x8000 + 7, len(data))]
 
 
 def uni_record(

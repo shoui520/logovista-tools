@@ -27,7 +27,8 @@ and non-SSED reader status are tracked separately in
 - CP932 / Shift_JIS-2004 extension cell fallback for observed JIS-row symbols
   such as circled numbers, unit glyphs, and dingbat-like markers.
 - Body-stream `HONMON.DIC` extraction for supported dictionaries.
-- Index-derived body boundaries for entries whose first section is not `0001`.
+- Streaming body-entry extraction by default, with index-derived body
+  boundaries available for forensic/debug extraction.
 - Common `*TITLE.DIC` extraction.
 - Observed `*INDEX.DIC` branch-page and leaf-row parsing for forward,
   backward, keyword, cross-reference, body-only, alternate, and text-like

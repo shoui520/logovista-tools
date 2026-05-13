@@ -43,8 +43,23 @@ from .gaiji import (
     load_image_gaiji_resources,
     parse_ga16,
 )
-from .index import IndexRow
-from .index import IndexParse, parse_index
+from .index import (
+    BODY_ONLY_SIMPLE_TYPES,
+    BODY_ONLY_TAGGED_TYPES,
+    CROSS_REFERENCE_TYPES,
+    IndexRow,
+    IndexParse,
+    KEYWORD_TYPES,
+    MULTI_SELECTOR_TYPES,
+    SIMPLE_TYPES,
+    TAGGED_TYPES,
+    GroupContext,
+    is_leaf,
+    parse_index,
+    parse_internal_page,
+    parse_simple_leaf,
+    parse_tagged_leaf,
+)
 from .model import Address, Component, ComponentRole, Entry, PackageFamily, PackageInfo, SearchProfile, Span
 from .render import HtmlProfile, render_html, render_text
 from .search import SearchHit, SearchResults, natural_backward_key, normalize_query, query_candidates
@@ -97,14 +112,14 @@ class LogoVistaPackage:
             dict_id=idx_path.stem,
             title=self.catalog.title,
         )
-        self.gaiji: GaijiMap = load_gaiji_map(idx_path.parent, idx_path.stem)
         self.components: tuple[Component, ...] = tuple(
             replace(component, path=find_file_case_insensitive(idx_path.parent, component.name))
             for component in self.catalog.components
         )
-        self.ga16: tuple[Ga16Resource, ...] = self._load_ga16_resources(idx_path.parent, self.components)
-        self.gaiji_images: tuple[ImageGaijiResource, ...] = load_image_gaiji_resources(idx_path.parent)
-        self._gaiji_image_by_code = {resource.code: resource for resource in self.gaiji_images}
+        self._gaiji: GaijiMap | None = None
+        self._ga16: tuple[Ga16Resource, ...] | None = None
+        self._gaiji_images: tuple[ImageGaijiResource, ...] | None = None
+        self._gaiji_image_by_code_cache: dict[str, ImageGaijiResource] | None = None
         self._component_by_name = {component.name.lower(): component for component in self.components}
         self._data_cache: dict[str, SsedData] = {}
         self._index_cache: dict[str, IndexParse] = {}
@@ -112,7 +127,7 @@ class LogoVistaPackage:
         self._exact_search_cache: dict[str, dict[str, tuple[tuple[IndexRow, str], ...]]] = {}
         self._marker_cache: dict[str, list[int]] = {}
         self._body_pointer_cache: dict[str, list[int]] = {}
-        self._body_source_cache: BodySourceInfo | None = None
+        self._body_source_cache: dict[bool, BodySourceInfo] = {}
         self._sqlite_sidecar_cache: dict[str, Path] = {}
         self._sqlite_schema_cache: dict[str, SidecarInfo | None] = {}
         self._tempdir: tempfile.TemporaryDirectory[str] | None = None
@@ -170,7 +185,7 @@ class LogoVistaPackage:
         self._exact_search_cache.clear()
         self._marker_cache.clear()
         self._body_pointer_cache.clear()
-        self._body_source_cache = None
+        self._body_source_cache.clear()
         self._sqlite_sidecar_cache.clear()
         self._sqlite_schema_cache.clear()
         tempdir = self._tempdir
@@ -190,6 +205,30 @@ class LogoVistaPackage:
     @property
     def dict_id(self) -> str:
         return self.catalog.dict_id
+
+    @property
+    def gaiji(self) -> GaijiMap:
+        if self._gaiji is None:
+            self._gaiji = load_gaiji_map(self.info.root, self.info.dict_id or self.catalog.dict_id)
+        return self._gaiji
+
+    @property
+    def ga16(self) -> tuple[Ga16Resource, ...]:
+        if self._ga16 is None:
+            self._ga16 = self._load_ga16_resources(self.info.root, self.components)
+        return self._ga16
+
+    @property
+    def gaiji_images(self) -> tuple[ImageGaijiResource, ...]:
+        if self._gaiji_images is None:
+            self._gaiji_images = load_image_gaiji_resources(self.info.root)
+        return self._gaiji_images
+
+    @property
+    def _gaiji_image_by_code(self) -> dict[str, ImageGaijiResource]:
+        if self._gaiji_image_by_code_cache is None:
+            self._gaiji_image_by_code_cache = {resource.code: resource for resource in self.gaiji_images}
+        return self._gaiji_image_by_code_cache
 
     def package_family(self) -> PackageFamily:
         return self.info.family
@@ -973,7 +1012,9 @@ class LogoVistaPackage:
                 con.close()
         return supplements
 
-    def _attach_sidecar_supplements(self, entry: Entry) -> Entry:
+    def _attach_sidecar_supplements(self, entry: Entry, *, include: bool = True) -> Entry:
+        if not include:
+            return entry
         supplements = tuple(self.sidecar_supplements(entry.address, debug=True))
         if not supplements:
             return entry
@@ -1306,8 +1347,8 @@ class LogoVistaPackage:
             return compact, len(data)
         return "", len(data)
 
-    def _dense_anchor_evidence(self, component: Component) -> dict[str, object]:
-        pointer_offsets = self._body_pointer_offsets(component)
+    def _dense_anchor_evidence(self, component: Component, *, use_index_pointers: bool = True) -> dict[str, object]:
+        pointer_offsets = self._body_pointer_offsets(component) if use_index_pointers else []
         sample_offsets = pointer_offsets[:64]
         if not sample_offsets:
             sample_offsets = self._markers_for_component(component, limit=64)[:64]
@@ -1320,7 +1361,7 @@ class LogoVistaPackage:
             lengths.append(size)
         numeric_ratio = len(ids) / len(sample_offsets) if sample_offsets else 0.0
         common_gap = None
-        unique_offsets = sorted(set(pointer_offsets[:4096]))
+        unique_offsets = sorted(set((pointer_offsets or sample_offsets)[:4096]))
         gaps = [b - a for a, b in zip(unique_offsets, unique_offsets[1:]) if b > a]
         if gaps:
             counts: dict[int, int] = {}
@@ -1350,24 +1391,25 @@ class LogoVistaPackage:
                 return sidecar
         return renderable[0]
 
-    def body_source(self) -> BodySourceInfo:
-        if self._body_source_cache is not None:
-            return self._body_source_cache
+    def body_source(self, *, debug: bool = False) -> BodySourceInfo:
+        if debug in self._body_source_cache:
+            return self._body_source_cache[debug]
         honmon = self.honmon_component()
         if honmon is None or honmon.path is None:
-            self._body_source_cache = BodySourceInfo(
+            self._body_source_cache[debug] = BodySourceInfo(
                 package_family=self.info.family,
                 ssed_kind=SsedBodySourceKind.MISSING_BODY_COMPONENT,
                 support=BodySourceSupport.UNSUPPORTED,
                 confidence=Confidence.PROVEN,
                 notes=("missing HONMON component",),
             )
-            return self._body_source_cache
+            return self._body_source_cache[debug]
         reader = self.data(honmon)
-        marker_count = len(self._markers_for_component(honmon, limit=2000000))
+        marker_limit = 2000000 if debug else 4096
+        marker_count = len(self._markers_for_component(honmon, limit=marker_limit))
         marker_density = marker_count / max(reader.expanded_size, 1)
         sidecar_paths = tuple(self._sidecar_file_candidates())
-        evidence = self._dense_anchor_evidence(honmon)
+        evidence = self._dense_anchor_evidence(honmon, use_index_pointers=debug)
         numeric_ratio = float(evidence["numeric_ratio"])
         is_dense = numeric_ratio >= 0.6 and int(evidence["sample_count"]) >= 4
         sidecars = self._body_sidecars() if is_dense else ()
@@ -1404,7 +1446,10 @@ class LogoVistaPackage:
             sidecar_kind = None
             notes = ("HONMON body pointers resolve directly into readable body-stream data",)
 
-        self._body_source_cache = BodySourceInfo(
+        if not debug:
+            notes = (*notes, "fast body-source classification; run with --debug for index-pointer evidence")
+
+        self._body_source_cache[debug] = BodySourceInfo(
             package_family=self.info.family,
             ssed_kind=kind,
             support=support,
@@ -1421,10 +1466,10 @@ class LogoVistaPackage:
             notes=notes,
             sidecars=sidecars,
         )
-        return self._body_source_cache
+        return self._body_source_cache[debug]
 
     def validate_body_source(self) -> BodySourceInfo:
-        return self.body_source()
+        return self.body_source(debug=True)
 
     def supports_entry_rendering(self) -> bool:
         return self.body_source().support in {BodySourceSupport.RENDERABLE, BodySourceSupport.PARTIALLY_RENDERABLE}
@@ -1441,7 +1486,43 @@ class LogoVistaPackage:
                 hi = mid
         return sorted_offsets[lo] if lo < len(sorted_offsets) else None
 
-    def _entry_range_for_address(self, address: Address, *, max_bytes: int = 512 * 1024) -> tuple[Component, int, int, tuple[Diagnostic, ...]]:
+    def _next_marker_after(self, component: Component, start: int) -> int | None:
+        reader = self.data(component)
+        offset = max(start + 1, 0)
+        tail = b""
+        tail_base = offset
+        keep = len(ENTRY_MARKER) + 2 - 1
+        while offset < reader.expanded_size:
+            chunk = reader.read(offset, min(CHUNK_SIZE, reader.expanded_size - offset))
+            if not chunk:
+                break
+            data = tail + chunk
+            base = tail_base
+            found = data.find(b"\x1f\x09")
+            if found >= 0:
+                absolute = base + found
+                if absolute > start:
+                    if found >= 2 and data[found - 2 : found] == b"\x1f\x02":
+                        return absolute - 2
+                    if absolute >= 2 and reader.read(absolute - 2, 2) == b"\x1f\x02":
+                        return absolute - 2
+                    return absolute
+            if len(data) >= keep:
+                tail = data[-keep:]
+                tail_base = base + len(data) - keep
+            else:
+                tail = data
+                tail_base = base
+            offset += len(chunk)
+        return None
+
+    def _entry_range_for_address(
+        self,
+        address: Address,
+        *,
+        max_bytes: int = 512 * 1024,
+        use_index_boundaries: bool = False,
+    ) -> tuple[Component, int, int, tuple[Diagnostic, ...]]:
         honmon = self.component_for_address(address, role=ComponentRole.HONMON)
         if honmon is None:
             raise KeyError(f"no HONMON component contains address {address}")
@@ -1451,13 +1532,17 @@ class LogoVistaPackage:
             raise ValueError(f"entry address outside HONMON bounds: {address}")
 
         candidates: list[tuple[int, str]] = []
-        next_pointer = self._next_after(self._body_pointer_offsets(honmon), start)
-        if next_pointer is not None:
-            candidates.append((next_pointer, "next_body_pointer"))
-        if next_pointer is None:
-            next_marker = self._next_after(self._markers_for_component(honmon), start)
-            if next_marker is not None:
-                candidates.append((next_marker, "next_marker"))
+        if use_index_boundaries:
+            next_pointer = self._next_after(self._body_pointer_offsets(honmon), start)
+            if next_pointer is not None:
+                candidates.append((next_pointer, "next_body_pointer"))
+        next_marker = self._next_marker_after(honmon, start)
+        if next_marker is not None:
+            candidates.append((next_marker, "next_marker"))
+        elif reader.expanded_size <= 8 * 1024 * 1024:
+            next_pointer = self._next_after(self._body_pointer_offsets(honmon), start)
+            if next_pointer is not None:
+                candidates.append((next_pointer, "small_component_body_pointer_fallback"))
         candidates.append((reader.expanded_size, "component_end"))
 
         fallback_end = min(reader.expanded_size, start + max_bytes)
@@ -1479,7 +1564,7 @@ class LogoVistaPackage:
             )
         return honmon, start, end, tuple(diagnostics)
 
-    def entry_at(self, address: Address, *, max_bytes: int = 512 * 1024) -> Entry:
+    def entry_at(self, address: Address, *, max_bytes: int = 512 * 1024, include_supplements: bool = True) -> Entry:
         honmon, start, end_offset, diagnostics = self._entry_range_for_address(address, max_bytes=max_bytes)
         reader = self.data(honmon)
         decoded = self._decode_text_stream(reader.read(start, end_offset - start))
@@ -1495,7 +1580,7 @@ class LogoVistaPackage:
             decode_unknown_controls=decoded.unknown_controls,
             decode_unknown_bytes=decoded.unknown_bytes,
         )
-        return self._attach_sidecar_supplements(entry)
+        return self._attach_sidecar_supplements(entry, include=include_supplements)
 
     def inspect_body_pointer(self, address: Address) -> BodyPointerInspection:
         honmon = self.component_for_address(address, role=ComponentRole.HONMON)
@@ -1645,7 +1730,7 @@ class LogoVistaPackage:
             spans=(Span(kind="text", text=text),),
             entry_diagnostics=(note,),
         )
-        return self._attach_sidecar_supplements(entry)
+        return entry
 
     def titles(self, component: str | Component | None = None, *, limit: int | None = None) -> list[str]:
         comps = [component] if component is not None else list(self.components_by_role(ComponentRole.TITLE))
@@ -1856,13 +1941,126 @@ class LogoVistaPackage:
 
         return None
 
-    def _iter_matching_rows(
+    def _index_tree_query_key(self, query: str, *, backward: bool = False) -> str:
+        value = natural_backward_key(query) if backward else query
+        return normalize_query(value)
+
+    def _seek_index_leaf_page(self, component: Component, query: str, *, backward: bool = False) -> int:
+        reader = self.data(component)
+        query_key = self._index_tree_query_key(query, backward=backward)
+        page_index = 0
+        seen: set[int] = set()
+        while 0 <= page_index < max(1, (reader.expanded_size + BLOCK_SIZE - 1) // BLOCK_SIZE):
+            if page_index in seen:
+                return page_index
+            seen.add(page_index)
+            page = reader.read(page_index * BLOCK_SIZE, BLOCK_SIZE)
+            if len(page) < BLOCK_SIZE:
+                return page_index
+            word = int.from_bytes(page[:2], "big")
+            if is_leaf(word):
+                return page_index
+            rows = parse_internal_page(page, page_index, self.gaiji.mapping)
+            if not rows:
+                return page_index
+            chosen = rows[-1]
+            for row in rows:
+                if query_key <= normalize_query(row.key):
+                    chosen = row
+                    break
+            next_page = chosen.child_block - component.start_block
+            if next_page == page_index:
+                return page_index
+            page_index = next_page
+        return 0
+
+    def _iter_index_rows_fast(
+        self,
+        component: Component,
+        *,
+        query: str | None = None,
+        profile: SearchProfile | None = None,
+    ) -> Iterable[IndexRow]:
+        """Yield leaf rows page-by-page without materializing the whole index.
+
+        The full parser remains available through :meth:`indexes` for debug and
+        validation. Reader-facing search only needs matching leaf rows and can
+        stop as soon as enough hits are found.
+        """
+
+        reader = self.data(component)
+        context: GroupContext | None = None
+        component_type = component.type
+        total_pages = (reader.expanded_size + BLOCK_SIZE - 1) // BLOCK_SIZE
+        backward = self._is_backward_index(component.name)
+        start_page = self._seek_index_leaf_page(component, query, backward=backward) if query else 0
+        if query and component_type in TAGGED_TYPES | BODY_ONLY_TAGGED_TYPES | KEYWORD_TYPES | CROSS_REFERENCE_TYPES | MULTI_SELECTOR_TYPES and start_page > 0:
+            previous = reader.read((start_page - 1) * BLOCK_SIZE, BLOCK_SIZE)
+            if len(previous) == BLOCK_SIZE and is_leaf(int.from_bytes(previous[:2], "big")):
+                seeded = parse_tagged_leaf(previous, start_page - 1, self.gaiji.mapping, component_type=component_type, context=None)
+                context = seeded.context
+        max_pages = 4 if query and profile == SearchProfile.EXACT else total_pages
+        for page_index in range(start_page, min(total_pages, start_page + max_pages)):
+            pos = page_index * BLOCK_SIZE
+            page = reader.read(pos, BLOCK_SIZE)
+            if len(page) < BLOCK_SIZE or not is_leaf(int.from_bytes(page[:2], "big")):
+                if query:
+                    break
+                continue
+            if component_type in SIMPLE_TYPES:
+                parsed = parse_simple_leaf(page, page_index, self.gaiji.mapping)
+            elif component_type in BODY_ONLY_SIMPLE_TYPES:
+                parsed = parse_simple_leaf(page, page_index, self.gaiji.mapping, body_only=True)
+            elif component_type in TAGGED_TYPES | BODY_ONLY_TAGGED_TYPES | KEYWORD_TYPES | CROSS_REFERENCE_TYPES | MULTI_SELECTOR_TYPES:
+                parsed = parse_tagged_leaf(page, page_index, self.gaiji.mapping, component_type=component_type, context=context)
+                context = parsed.context
+            else:
+                continue
+            yield from parsed.rows
+
+    def _iter_matching_rows_fast(
         self,
         query: str,
         profile: SearchProfile,
         *,
         include_backward_exact: bool = True,
     ) -> Iterable[tuple[str, Component, IndexRow, str]]:
+        candidates = query_candidates(query)
+        for component in self.components_by_role(ComponentRole.INDEX):
+            if component.path is None or not self._index_component_matches_profile(component, profile):
+                continue
+            backward = self._is_backward_index(component.name)
+            if profile == SearchProfile.EXACT and backward and not include_backward_exact:
+                continue
+            for row in self._iter_index_rows_fast(component, query=query, profile=profile):
+                stored_values = self._row_key_values(row)
+                natural_values = tuple(dict.fromkeys(natural_backward_key(value) if backward else value for value in stored_values))
+                stored_normalized = tuple(dict.fromkeys(normalize_query(value) for value in stored_values if value))
+                natural_normalized = tuple(dict.fromkeys(normalize_query(value) for value in natural_values if value))
+                matched = self._row_matches(
+                    stored_values=stored_values,
+                    natural_values=natural_values,
+                    stored_normalized=stored_normalized,
+                    natural_normalized=natural_normalized,
+                    query=query,
+                    candidates=candidates,
+                    profile=profile,
+                    backward=backward,
+                )
+                if matched is not None:
+                    yield component.name, component, row, matched
+
+    def _iter_matching_rows(
+        self,
+        query: str,
+        profile: SearchProfile,
+        *,
+        include_backward_exact: bool = True,
+        fast: bool = False,
+    ) -> Iterable[tuple[str, Component, IndexRow, str]]:
+        if fast:
+            yield from self._iter_matching_rows_fast(query, profile, include_backward_exact=include_backward_exact)
+            return
         candidates = query_candidates(query)
         for name, parsed in self.indexes().items():
             component = self.component(name)
@@ -1908,6 +2106,7 @@ class LogoVistaPackage:
         component_name: str,
         row: IndexRow,
         matched_key: str,
+        debug: bool = False,
     ) -> SearchHit:
         backward = self._is_backward_index(component_name)
         display_key = self._row_display_key(row, backward=backward)
@@ -1982,7 +2181,7 @@ class LogoVistaPackage:
             page=row.page,
             row=row.row,
             raw_row=row,
-            body_source=self.body_source().to_dict(debug=False),
+            body_source=self.body_source(debug=True).to_dict(debug=False) if debug else None,
             title_resolution=title_resolution,
             _package=self,
         )
@@ -2007,10 +2206,24 @@ class LogoVistaPackage:
         for effective_profile in profiles:
             before_profile = len(hits)
             if effective_profile == SearchProfile.EXACT:
-                primary_matches = list(self._iter_matching_rows(query, effective_profile, include_backward_exact=False))
-                row_matches = primary_matches or list(self._iter_matching_rows(query, effective_profile, include_backward_exact=True))
+                primary_matches = list(
+                    self._iter_matching_rows(
+                        query,
+                        effective_profile,
+                        include_backward_exact=False,
+                        fast=not debug,
+                    )
+                )
+                row_matches = primary_matches or list(
+                    self._iter_matching_rows(
+                        query,
+                        effective_profile,
+                        include_backward_exact=True,
+                        fast=not debug,
+                    )
+                )
             else:
-                row_matches = self._iter_matching_rows(query, effective_profile)
+                row_matches = self._iter_matching_rows(query, effective_profile, fast=not debug)
             for name, _component, row, matched_key in row_matches:
                 dedupe_key = self._row_dedupe_key(row)
                 if not debug and dedupe_key in seen:
@@ -2025,6 +2238,7 @@ class LogoVistaPackage:
                         component_name=name,
                         row=row,
                         matched_key=matched_key,
+                        debug=debug,
                     )
                 )
                 if len(hits) >= limit:
@@ -2044,14 +2258,23 @@ class LogoVistaPackage:
             for hit in self.search(term, limit=limit, profile=profile).hits
         ]
 
-    def search_entries(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[Entry]:
-        return [self.entry_for_hit(hit) for hit in self.search(term, limit=limit, profile=profile).hits]
+    def search_entries(
+        self,
+        term: str,
+        *,
+        limit: int = 20,
+        profile: SearchProfile | str = SearchProfile.NATIVE,
+        include_supplements: bool = True,
+    ) -> list[Entry]:
+        if include_supplements:
+            return [self.entry_for_hit(hit) for hit in self.search(term, limit=limit, profile=profile).hits]
+        return [self.entry_for_hit(hit, include_supplements=False) for hit in self.search(term, limit=limit, profile=profile).hits]
 
-    def entry_for_hit(self, hit: SearchHit) -> Entry:
+    def entry_for_hit(self, hit: SearchHit, *, include_supplements: bool = True) -> Entry:
         source = self.body_source()
         if source.ssed_kind == SsedBodySourceKind.BODY_STREAM:
             try:
-                return self.entry_at(hit.body)
+                return self.entry_at(hit.body, include_supplements=include_supplements)
             except (FormatError, KeyError, ValueError, OSError) as exc:
                 return self._placeholder_entry(
                     hit.body,
@@ -2078,7 +2301,8 @@ class LogoVistaPackage:
             inspection = self.inspect_body_pointer(hit.body)
             sidecar = self._choose_body_sidecar(source.sidecars)
             if sidecar is not None:
-                return self._entry_from_sidecar(hit, sidecar, inspection)
+                entry = self._entry_from_sidecar(hit, sidecar, inspection)
+                return self._attach_sidecar_supplements(entry, include=include_supplements)
             return self._placeholder_entry(
                 hit.body,
                 headword=hit.heading,
@@ -2111,11 +2335,16 @@ class LogoVistaPackage:
         *,
         profile: HtmlProfile | str = HtmlProfile.FRIENDLY,
         include_diagnostics: bool = False,
+        include_supplements: bool = True,
     ) -> str:
-        return self.render_entry_html(self.entry_for_hit(hit), profile=profile, include_diagnostics=include_diagnostics)
+        return self.render_entry_html(
+            self.entry_for_hit(hit, include_supplements=include_supplements),
+            profile=profile,
+            include_diagnostics=include_diagnostics,
+        )
 
-    def render_hit_text(self, hit: SearchHit) -> str:
-        return self.render_entry_text(self.entry_for_hit(hit))
+    def render_hit_text(self, hit: SearchHit, *, include_supplements: bool = True) -> str:
+        return self.render_entry_text(self.entry_for_hit(hit, include_supplements=include_supplements))
 
     def entry_document(self, entry: Entry):
         return entry.document()
@@ -3023,12 +3252,17 @@ class LogoVistaPackage:
             "ok": diagnostics_by_severity.get("error", 0) == 0 and not entry_errors,
         }
 
-    def summary(self) -> dict[str, object]:
-        return {
+    def summary(self, *, debug: bool = False) -> dict[str, object]:
+        data: dict[str, object] = {
             "package": self.info.to_dict(),
-            "body_source": self.body_source().to_dict(debug=False),
             "components": [component.to_dict() for component in self.components],
-            "gaiji": {
+        }
+        if not debug:
+            data["notes"] = ["fast summary; use --debug for body-source, gaiji, and resource evidence"]
+            return data
+
+        data["body_source"] = self.body_source(debug=True).to_dict(debug=False)
+        data["gaiji"] = {
                 "records": len(self.gaiji.records),
                 "mapped": len(self.gaiji.mapping),
                 "paths": [str(path) for path in self.gaiji.paths],
@@ -3048,5 +3282,5 @@ class LogoVistaPackage:
                     }
                     for resource in self.ga16
                 ],
-            },
-        }
+            }
+        return data

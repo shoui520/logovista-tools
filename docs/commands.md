@@ -323,9 +323,14 @@ Useful options:
 --media-placeholder                 preserve 1f4d media payloads as placeholders
 --section-markers                   preserve 1f09 section markers as placeholders
 --section-image CODE=IMAGE_KEY      insert a named image at a section marker in HTML output
---no-index-boundaries               slice only on HONMON entry markers
+--index-boundaries                  also use parsed index body pointers as entry boundaries
+--debug                             use full HONMON expansion and forensic boundary accounting
 --no-skip-dense-marker-honmon       force extraction on placeholder HONMON
 ```
+
+By default, `entries` uses a streaming HONMON reader and stops as soon as the
+requested `--limit` is emitted. `--index-boundaries`/`--debug` keep the older
+forensic behavior for dictionaries whose entries need index-derived boundaries.
 
 When `--html` is used, rows include `body_html` in addition to `body`.
 PNG-backed gaiji are rendered as package-relative image tags such as:

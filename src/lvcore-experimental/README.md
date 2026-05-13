@@ -48,6 +48,7 @@ Run directly from the repo:
 
 ```bash
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore info /path/to/_DCT_DICT
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore info /path/to/_DCT_DICT --debug
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore body-source /path/to/_DCT_DICT --json
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore entries /path/to/_DCT_DICT --limit 5
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore search /path/to/_DCT_DICT term --search-profile forward --json
@@ -67,6 +68,13 @@ PYTHONPATH=src/lvcore-experimental python3 -m lvcore validate /path/to/_DCT_DICT
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate /path/to/corpus --json --full --jobs 0
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate /path/to/corpus --json --jobs 0 --progress --output-dir /private/reports/lvcore-corpus
 ```
+
+Reader-facing commands are lazy by default: `info`, `search`, `render`,
+`entries`, and resource listing avoid full index/body-source/sidecar/gaiji
+audits unless debug or explicit resource enumeration asks for them. Use
+`--debug` for forensic body-source evidence and raw structural details; use
+`render --include-supplements` when supplemental sidecar rows should be attached
+to normal rendered output.
 
 Small app-facing examples are available under `src/lvcore-experimental/examples`:
 

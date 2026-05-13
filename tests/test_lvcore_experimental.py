@@ -901,6 +901,25 @@ def test_lvcore_cli_outputs_json(tmp_path: Path) -> None:
     data = json.loads(result.stdout)
     assert data["package"]["family"] == "ssed"
     assert data["package"]["title"] == "Synthetic"
+    assert "body_source" not in data
+    assert "gaiji" not in data
+
+
+def test_lvcore_fast_search_and_entry_lookup_do_not_require_full_index_boundaries(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    first = b"\x1f\x09\x00\x01\x1f\x41\x00\x00" + body_text("alpha") + b"\x1f\x61\x1f\x0a" + body_text("first entry") + b"\x1f\x0a"
+    second = b"\x1f\x09\x00\x01\x1f\x41\x00\x00" + body_text("beta") + b"\x1f\x61\x1f\x0a" + body_text("second entry") + b"\x1f\x0a"
+    (tmp_path / "HONMON.DIC").write_bytes(literal_sseddata(first + second, start_block=2, kind=0))
+    package = open_package(tmp_path)
+
+    def fail_body_pointer_offsets(_component: Component) -> list[int]:
+        raise AssertionError("fast entry lookup should not parse every index for body-pointer boundaries")
+
+    package._body_pointer_offsets = fail_body_pointer_offsets  # type: ignore[method-assign]
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+
+    assert hit.body_source is None
+    assert package.entry_for_hit(hit).headword == "alpha"
 
 
 def test_lvcore_search_models_and_native_profiles(tmp_path: Path) -> None:
@@ -1175,6 +1194,11 @@ def test_lvcore_repeated_search_uses_cached_values_without_changing_results(tmp_
     assert [hit.to_dict(debug=True) for hit in second.hits] == [hit.to_dict(debug=True) for hit in first.hits]
     assert cache_keys_after_first == sorted(package._search_value_cache)
     assert exact_cache_keys_after_first == sorted(package._exact_search_cache)
+    assert package._search_value_cache == {}
+    assert package._exact_search_cache == {}
+
+    package.search("alpha", profile=SearchProfile.EXACT, debug=True)
+    package.search("alp", profile=SearchProfile.FORWARD, debug=True)
     assert "fhindex.dic" in package._search_value_cache
     assert "fhindex.dic" in package._exact_search_cache
 

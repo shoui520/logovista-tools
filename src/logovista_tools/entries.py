@@ -22,6 +22,8 @@ from .parallel import parallel_map_ordered
 from .resources import load_image_resource_profile, relative_image_source
 from .ssed import (
     BLOCK_SIZE,
+    CHUNK_SIZE,
+    SsedRandomReader,
     expand_sseddata_file_with_storage,
     find_case_insensitive,
     parse_ssedinfo,
@@ -531,6 +533,51 @@ def iter_entry_slices(data: bytes) -> Iterable[tuple[int, int]]:
     return iter_entry_slices_with_boundaries(data)
 
 
+def iter_entry_marker_offsets_reader(reader: SsedRandomReader) -> Iterable[int]:
+    """Yield HONMON entry marker offsets without expanding the whole component."""
+
+    carry = b""
+    carry_base = 0
+    emitted: set[int] = set()
+    tail_size = len(ENTRY_MARKER) + 2 - 1
+    for offset in range(0, reader.expanded_size, CHUNK_SIZE):
+        chunk = reader.read(offset, min(CHUNK_SIZE, reader.expanded_size - offset))
+        if not chunk:
+            break
+        buffer = carry + chunk
+        base = carry_base
+        pos = buffer.find(ENTRY_MARKER)
+        while pos != -1:
+            absolute = base + pos
+            start = absolute - 2 if pos >= 2 and buffer[pos - 2 : pos] == b"\x1f\x02" else absolute
+            if start not in emitted:
+                emitted.add(start)
+                yield start
+            pos = buffer.find(ENTRY_MARKER, pos + 1)
+        if len(buffer) >= tail_size:
+            carry = buffer[-tail_size:]
+            carry_base = base + len(buffer) - tail_size
+        else:
+            carry = buffer
+            carry_base = base
+
+
+def iter_entry_slices_reader(reader: SsedRandomReader) -> Iterable[tuple[int, int]]:
+    offsets = iter(iter_entry_marker_offsets_reader(reader))
+    try:
+        previous = next(offsets)
+    except StopIteration:
+        if reader.expanded_size:
+            yield 0, reader.expanded_size
+        return
+    for current in offsets:
+        if current > previous:
+            yield previous, current
+        previous = current
+    if previous < reader.expanded_size:
+        yield previous, reader.expanded_size
+
+
 def iter_entry_slices_with_boundaries(
     data: bytes,
     boundary_offsets: Iterable[int] | None = None,
@@ -631,7 +678,159 @@ def write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _empty_stats() -> dict[str, int]:
+    return {
+        "controls": 0,
+        "unknown_controls": 0,
+        "gaiji": 0,
+        "image_gaiji": 0,
+        "media": 0,
+        "sections": 0,
+        "links": 0,
+        "jis_pairs": 0,
+        "legacy_controls": 0,
+    }
+
+
+def _summary(
+    source: DictionarySource,
+    entries_path: Path,
+    *,
+    honmon_storage: str,
+    expanded_bytes: int,
+    entry_markers: int | None,
+    entry_markers_complete: bool,
+    emitted: int,
+    skipped_empty: int,
+    stats: dict[str, int],
+    warnings: list[str],
+    index_boundary_offsets: int = 0,
+) -> dict[str, Any]:
+    return {
+        "dict_id": source.dict_id,
+        "dict_title": source.title,
+        "idx": str(source.idx),
+        "honmon": str(source.honmon),
+        "honmon_start_block": source.honmon_start_block,
+        "honmon_storage": honmon_storage,
+        "expanded_bytes": expanded_bytes,
+        "entry_markers": entry_markers,
+        "entry_markers_complete": entry_markers_complete,
+        "index_entry_boundaries": index_boundary_offsets,
+        "entries_emitted": emitted,
+        "entries_skipped_empty": skipped_empty,
+        "stats": stats,
+        "warnings": warnings,
+        "gaiji_map_entries": len(source.gaiji_map),
+        "gaiji_uni_entries": source.gaiji_uni_entries,
+        "gaiji_plist_entries": source.gaiji_plist_entries,
+        "image_resource_entries": source.image_resource_entries,
+        "image_gaiji_entries": len(source.image_gaiji_keys),
+        "image_dirs": [str(path) for path in source.image_dirs],
+        "entries_path": str(entries_path),
+    }
+
+
+def extract_dictionary_streaming(source: DictionarySource, out_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
+    dict_out = out_dir / source.dict_id
+    dict_out.mkdir(parents=True, exist_ok=True)
+    entries_path = dict_out / "raw_entries.jsonl"
+    section_image_sources = resolve_section_image_sources(getattr(args, "section_image", None), source.image_sources)
+
+    reader = SsedRandomReader(source.honmon)
+    warnings: list[str] = []
+    aggregate_stats = _empty_stats()
+    sample_size = min(reader.expanded_size, 256 * 1024)
+    sample = reader.read(0, sample_size)
+    sample_markers = sample.count(ENTRY_MARKER)
+    dense_marker_honmon = sample_markers > 0 and sample_markers * 64 > max(sample_size, 1)
+    if dense_marker_honmon and args.skip_dense_marker_honmon:
+        warnings.append(
+            "HONMON sample has a dense 32-byte-ish entry-marker pattern; it appears to "
+            "be an anchor/id table rather than body text. Skipped HONMON body extraction."
+        )
+        entries_path.write_text("", encoding="utf-8")
+        summary = _summary(
+            source,
+            entries_path,
+            honmon_storage=reader.storage,
+            expanded_bytes=reader.expanded_size,
+            entry_markers=sample_markers,
+            entry_markers_complete=False,
+            emitted=0,
+            skipped_empty=0,
+            stats=aggregate_stats,
+            warnings=warnings,
+        )
+        write_json(dict_out / "summary.json", summary)
+        return summary
+
+    emitted = 0
+    skipped_empty = 0
+    marker_offsets_seen = 0
+    with entries_path.open("w", encoding="utf-8") as out:
+        for entry_index, (start, end) in enumerate(iter_entry_slices_reader(reader), start=1):
+            marker_offsets_seen += 1
+            if args.limit and emitted >= args.limit:
+                break
+            segment = reader.read(start, end - start)
+            tokens, stats = decode_tokens(
+                segment,
+                gaiji=args.gaiji,
+                gaiji_map=source.gaiji_map,
+                image_gaiji_keys=source.image_gaiji_keys,
+                preserve_image_gaiji=args.image_gaiji,
+                preserve_media=args.media_placeholder,
+                preserve_sections=args.section_markers,
+            )
+            body = tokens_to_text(tokens)
+            if is_useless_body(body) or len(body.strip()) < args.min_chars:
+                skipped_empty += 1
+                continue
+            for key, value in stats.items():
+                aggregate_stats[key] = aggregate_stats.get(key, 0) + value
+            block = source.honmon_start_block + start // BLOCK_SIZE
+            offset = start % BLOCK_SIZE
+            item = {
+                "dict_id": source.dict_id,
+                "dict_title": source.title,
+                "entry_index": entry_index,
+                "block": block,
+                "offset": offset,
+                "length": end - start,
+                "heading": extract_heading(tokens, body),
+                "body": body,
+            }
+            if args.html:
+                item["body_html"] = tokens_to_html(
+                    tokens,
+                    image_sources=source.image_sources,
+                    section_image_sources=section_image_sources,
+                )
+            out.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")))
+            out.write("\n")
+            emitted += 1
+
+    summary = _summary(
+        source,
+        entries_path,
+        honmon_storage=reader.storage,
+        expanded_bytes=reader.expanded_size,
+        entry_markers=marker_offsets_seen,
+        entry_markers_complete=False,
+        emitted=emitted,
+        skipped_empty=skipped_empty,
+        stats=aggregate_stats,
+        warnings=warnings,
+    )
+    write_json(dict_out / "summary.json", summary)
+    return summary
+
+
 def extract_dictionary(source: DictionarySource, out_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
+    if not getattr(args, "debug", False) and not getattr(args, "index_boundaries", False):
+        return extract_dictionary_streaming(source, out_dir, args)
+
     dict_out = out_dir / source.dict_id
     dict_out.mkdir(parents=True, exist_ok=True)
     entries_path = dict_out / "raw_entries.jsonl"
@@ -812,13 +1011,20 @@ def main() -> int:
         help="Attempt extraction even when HONMON looks like an anchor/id table.",
     )
     parser.add_argument(
+        "--index-boundaries",
+        dest="index_boundaries",
+        action="store_true",
+        help="Add raw index body pointers as extra entry boundaries. This is a slower forensic path.",
+    )
+    parser.add_argument(
         "--no-index-boundaries",
         dest="index_boundaries",
         action="store_false",
-        help="Do not add raw index body pointers as extra entry boundaries.",
+        help="Compatibility no-op: index boundaries are disabled by default in the fast path.",
     )
+    parser.add_argument("--debug", action="store_true", help="Use full HONMON expansion and forensic boundary accounting.")
     parser.set_defaults(skip_dense_marker_honmon=True)
-    parser.set_defaults(index_boundaries=True)
+    parser.set_defaults(index_boundaries=False, debug=False)
     parser.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
     args = parser.parse_args()
 

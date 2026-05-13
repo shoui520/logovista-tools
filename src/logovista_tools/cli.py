@@ -119,17 +119,18 @@ def cmd_info(args: argparse.Namespace) -> int:
         )
         return 0
 
-    try:
-        header = parse_sseddata_header(args.path)
-    except ValueError:
-        header = None
-    if header is not None:
-        print(
-            f"chunks={header['n_chunk']} start={header['start_block']:#x} "
-            f"end={header['end_block']:#x} kind={header['kind']:#x} "
-            f"storage={header['storage']}"
-        )
-        return 0
+    if args.try_decrypt:
+        try:
+            header = parse_sseddata_header(args.path)
+        except ValueError:
+            header = None
+        if header is not None:
+            print(
+                f"chunks={header['n_chunk']} start={header['start_block']:#x} "
+                f"end={header['end_block']:#x} kind={header['kind']:#x} "
+                f"storage={header['storage']}"
+            )
+            return 0
 
     print(f"unknown raw file type: {args.path}", file=sys.stderr)
     return 1
@@ -1664,6 +1665,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_info = sub.add_parser("info", help="Inspect an SSEDINFO .IDX or SSEDDATA .DIC file.")
     p_info.add_argument("path", type=Path)
     p_info.add_argument("--all", action="store_true", help="Show zero-start/resource components too.")
+    p_info.add_argument(
+        "--try-decrypt",
+        action="store_true",
+        help="For unknown raw files, attempt encrypted SSEDDATA detection. Slow forensic fallback.",
+    )
     p_info.set_defaults(func=cmd_info)
 
     p_scan = sub.add_parser("scan", help="Find LogoVista dictionaries under roots.")
@@ -1750,13 +1756,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Attempt extraction even when HONMON looks like a placeholder table.",
     )
     p_entries.add_argument(
+        "--index-boundaries",
+        dest="index_boundaries",
+        action="store_true",
+        help="Add raw index body pointers as extra entry boundaries. This is a slower forensic path.",
+    )
+    p_entries.add_argument(
         "--no-index-boundaries",
         dest="index_boundaries",
         action="store_false",
-        help="Do not add raw index body pointers as extra entry boundaries.",
+        help="Compatibility no-op: index boundaries are disabled by default in the fast path.",
     )
+    p_entries.add_argument("--debug", action="store_true", help="Use full HONMON expansion and forensic boundary accounting.")
     add_jobs_argument(p_entries)
-    p_entries.set_defaults(skip_dense_marker_honmon=True, index_boundaries=True, func=cmd_entries)
+    p_entries.set_defaults(skip_dense_marker_honmon=True, index_boundaries=False, debug=False, func=cmd_entries)
     p_entries.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
 
     p_resources = sub.add_parser("resources", help="List package image resources and image-backed gaiji.")
