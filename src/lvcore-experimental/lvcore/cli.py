@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import traceback
 from typing import Any
 
 from .detect import detect_family
@@ -22,6 +23,50 @@ CORPUS_VALIDATE_SCHEMA = "lvcore.corpus_validate.v1"
 
 def emit(data: Any) -> None:
     print(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def _extract_verbose(argv: list[str] | None) -> tuple[list[str] | None, bool]:
+    raw = list(sys.argv[1:] if argv is None else argv)
+    filtered: list[str] = []
+    verbose = False
+    literal_args = False
+    for item in raw:
+        if literal_args:
+            filtered.append(item)
+        elif item == "--":
+            literal_args = True
+            filtered.append(item)
+        elif item == "--verbose":
+            verbose = True
+        else:
+            filtered.append(item)
+    return filtered, verbose
+
+
+def _is_verbose(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "verbose", False) or getattr(args, "debug", False))
+
+
+def _status(args: argparse.Namespace, message: str, *, verbose: bool = False) -> None:
+    if verbose and not _is_verbose(args):
+        return
+    print(message, file=sys.stderr, flush=True)
+
+
+def _path_display(path: object) -> str:
+    return str(path) if path is not None else "<unknown path>"
+
+
+def _friendly_exception_message(exc: BaseException) -> str:
+    if isinstance(exc, FileNotFoundError):
+        return f"file not found: {_path_display(getattr(exc, 'filename', None) or exc)}"
+    if isinstance(exc, IsADirectoryError):
+        return f"expected a file but got a directory: {_path_display(getattr(exc, 'filename', None) or exc)}"
+    if isinstance(exc, NotADirectoryError):
+        return f"expected a directory in this path: {_path_display(getattr(exc, 'filename', None) or exc)}"
+    if isinstance(exc, PermissionError):
+        return f"permission denied: {_path_display(getattr(exc, 'filename', None) or exc)}"
+    return str(exc) or f"{type(exc).__name__}"
 
 
 def _json_dump_compact(data: Any) -> str:
@@ -111,6 +156,7 @@ def cmd_indexes(args: argparse.Namespace) -> int:
 
 
 def cmd_search(args: argparse.Namespace) -> int:
+    _status(args, f"lvcore: searching {args.path} term={args.term!r} profile={args.search_profile} limit={args.limit}", verbose=True)
     package = open_package(args.path)
     results = package.search(args.term, limit=args.limit, profile=args.search_profile, debug=args.debug)
     if args.entries:
@@ -134,6 +180,7 @@ def cmd_search(args: argparse.Namespace) -> int:
 
 
 def cmd_render(args: argparse.Namespace) -> int:
+    _status(args, f"lvcore: rendering {args.path} term={args.term!r} format={args.format} limit={args.limit}", verbose=True)
     package = open_package(args.path)
     results = package.search(args.term, limit=args.limit, profile=args.search_profile, debug=args.debug)
     profile = HtmlProfile(args.profile.replace("-", "_"))
@@ -241,6 +288,7 @@ def _find_resource_for_query(package, term: str, resource_id: str, *, profile: s
 
 
 def cmd_resources(args: argparse.Namespace) -> int:
+    _status(args, f"lvcore: resolving resources for {args.path} term={args.term!r}", verbose=True)
     package = open_package(args.path)
     rows = _resources_for_query(
         package,
@@ -302,6 +350,7 @@ def cmd_resource_info(args: argparse.Namespace) -> int:
 
 
 def cmd_resource_bytes(args: argparse.Namespace) -> int:
+    _status(args, f"lvcore: writing resource bytes to {args.output}", verbose=True)
     package = open_package(args.path)
     row = _find_resource_for_query(package, args.term, args.resource_id, profile=args.search_profile, limit=args.limit, debug=True)
     if row is None:
@@ -319,6 +368,7 @@ def cmd_resource_bytes(args: argparse.Namespace) -> int:
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
+    _status(args, f"lvcore: validating {args.path}", verbose=True)
     package = open_package(args.path)
     report = package.validate(sample_entries=args.sample_entries, sample_search_hits=args.sample_search_hits)
     if args.json:
@@ -466,6 +516,7 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
         if path.is_dir() and (output_dir is None or path.resolve() != output_dir)
     )
     jobs = (os.cpu_count() or 1) if args.jobs == 0 else max(1, args.jobs)
+    _status(args, f"lvcore: corpus-validate scanning {len(paths)} package directories with jobs={jobs}")
     sample_entries = args.sample_entries if args.sample_entries is not None else (3 if args.full else 1)
     sample_search_hits = args.sample_search_hits if args.sample_search_hits is not None else (8 if args.full else 2)
     rows: list[dict[str, Any]] = []
@@ -854,6 +905,11 @@ def cmd_corpus_validate(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="lvcore", description="Experimental LogoVista reader core")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show extra progress details and Python tracebacks for unexpected errors.",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_identify = sub.add_parser("identify", help="Detect package family")
@@ -982,11 +1038,44 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    filtered_argv, verbose = _extract_verbose(argv)
+    args = parser.parse_args(filtered_argv)
+    args.verbose = bool(getattr(args, "verbose", False) or verbose)
+    command = str(getattr(args, "command", "command"))
+    _status(args, f"lvcore: running {command}")
     try:
-        return int(args.func(args))
+        for attr in ("path", "root"):
+            maybe_path = getattr(args, attr, None)
+            if isinstance(maybe_path, Path) and not maybe_path.exists():
+                raise FileNotFoundError(maybe_path)
+        result = int(args.func(args))
     except UnsupportedPackageError as exc:
-        parser.error(str(exc))
+        print(f"lvcore: error: {exc}", file=sys.stderr)
+        if _is_verbose(args):
+            traceback.print_exc()
+        return 2
+    except BrokenPipeError:
+        return 1
+    except KeyboardInterrupt:
+        print("lvcore: interrupted", file=sys.stderr)
+        return 130
+    except (FileNotFoundError, IsADirectoryError, NotADirectoryError, PermissionError, ValueError) as exc:
+        print(f"lvcore: error: {_friendly_exception_message(exc)}", file=sys.stderr)
+        if _is_verbose(args):
+            traceback.print_exc()
+        return 2
+    except Exception as exc:
+        print(f"lvcore: error: {_friendly_exception_message(exc)}", file=sys.stderr)
+        if _is_verbose(args):
+            traceback.print_exc()
+        else:
+            print("lvcore: rerun with --verbose for a Python traceback", file=sys.stderr)
+        return 2
+    if result == 0:
+        _status(args, f"lvcore: completed {command}")
+    else:
+        _status(args, f"lvcore: {command} exited with status {result}")
+    return result
 
 
 if __name__ == "__main__":

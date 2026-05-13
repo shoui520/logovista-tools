@@ -905,6 +905,21 @@ def test_lvcore_cli_outputs_json(tmp_path: Path) -> None:
     assert "gaiji" not in data
 
 
+def test_lvcore_cli_missing_path_error_is_friendly(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "lvcore", "info", str(tmp_path / "missing-package")],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+
+    assert result.returncode != 0
+    assert "lvcore: running info" in result.stderr
+    assert "file not found" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
 def test_lvcore_fast_search_and_entry_lookup_do_not_require_full_index_boundaries(tmp_path: Path) -> None:
     make_synthetic_package(tmp_path)
     first = b"\x1f\x09\x00\x01\x1f\x41\x00\x00" + body_text("alpha") + b"\x1f\x61\x1f\x0a" + body_text("first entry") + b"\x1f\x0a"

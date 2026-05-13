@@ -69,6 +69,10 @@ PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate /path/to/co
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate /path/to/corpus --json --jobs 0 --progress --output-dir /private/reports/lvcore-corpus
 ```
 
+The lvcore CLI writes progress/status messages to stderr and keeps JSON/HTML/text
+payloads on stdout. Use `--verbose` before or after a subcommand for extra CLI
+progress detail and tracebacks while debugging unexpected errors.
+
 Reader-facing commands are lazy by default: `info`, `search`, `render`,
 `entries`, and resource listing avoid full index/body-source/sidecar/gaiji
 audits unless debug or explicit resource enumeration asks for them. Use

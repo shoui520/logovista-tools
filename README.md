@@ -83,6 +83,10 @@ The public command name is `logovista-tools`. `logovista_tools` is only the
 Python import/module name; Python import package directories cannot contain
 hyphens.
 
+CLI status and progress messages are written to stderr; JSON/JSONL data stays
+on stdout. Use `--verbose` before or after a subcommand for extra progress
+details and Python tracebacks when debugging unexpected failures.
+
 ## Quick Start
 
 Scan a LogoVista collection:

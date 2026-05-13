@@ -14,6 +14,7 @@ from typing import Any
 from . import __version__
 from .audit import extract_audit_for_sources
 from .capability import extract_capability_matrix_for_args
+from .cli_ux import command_name as command_label, extract_verbose, run_with_friendly_errors, status
 from .colscr import extract_colscr_for_sources
 from .component_forensics import extract_component_forensics_for_args
 from .decoded_model import (
@@ -91,6 +92,7 @@ def write_json(path: Path, data: Any) -> None:
 
 
 def cmd_info(args: argparse.Namespace) -> int:
+    status(args, f"info: reading {args.path}", verbose=True)
     data = args.path.read_bytes()[:8]
     if data == b"SSEDINFO":
         title, elements, layout = parse_ssedinfo_with_layout(args.path)
@@ -137,10 +139,13 @@ def cmd_info(args: argparse.Namespace) -> int:
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
+    roots = args.root or [Path(".")]
+    status(args, f"scan: discovering dictionaries under {', '.join(str(root) for root in roots)}")
     sources = discover_dictionaries(args.root or [Path(".")], jobs=args.jobs)
     if not sources:
         print("no dictionaries found", file=sys.stderr)
         return 1
+    status(args, f"scan: found {len(sources)} dictionary package(s)")
 
     rows = []
     for source in sources:
@@ -182,6 +187,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 def cmd_expand(args: argparse.Namespace) -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    status(args, f"expand: expanding {args.dic}")
     expanded, storage = expand_sseddata_file_with_storage(args.dic)
     args.out.write_bytes(expanded)
     print(f"expanded {args.dic} -> {args.out}")
@@ -192,6 +198,7 @@ def cmd_expand(args: argparse.Namespace) -> int:
 
 def cmd_decrypt(args: argparse.Namespace) -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    status(args, f"decrypt: decrypting {args.file}")
     written = decrypt_logofont_cipher_file_to_path(args.file, args.out)
     print(f"decrypted {args.file} -> {args.out}")
     print(f"bytes: {written}")
@@ -199,6 +206,7 @@ def cmd_decrypt(args: argparse.Namespace) -> int:
 
 
 def cmd_lved(args: argparse.Namespace) -> int:
+    status(args, f"lved: inspecting {len(args.root or [Path('.')])} root(s)")
     key = args.key_file.read_text(encoding="utf-8").strip() if args.key_file else None
     roots = args.root or [Path(".")]
     report = inspect_lved_roots(
@@ -270,6 +278,7 @@ def cmd_lved(args: argparse.Namespace) -> int:
 
 
 def cmd_compose(args: argparse.Namespace) -> int:
+    status(args, f"compose: reading catalog {args.idx}")
     title, elements = parse_ssedinfo(args.idx)
     source_dir = args.idx.parent
     args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -298,10 +307,16 @@ def cmd_compose(args: argparse.Namespace) -> int:
 
 
 def select_sources(args: argparse.Namespace):
-    sources = discover_dictionaries(args.root or [Path(".")], jobs=getattr(args, "jobs", 1))
+    roots = args.root or [Path(".")]
+    jobs = getattr(args, "jobs", 1)
+    status(args, f"{command_label(args)}: discovering dictionaries under {', '.join(str(root) for root in roots)}")
+    sources = discover_dictionaries(roots, jobs=jobs)
     if args.dict:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]
+        status(args, f"{command_label(args)}: selected {len(sources)} dictionary package(s) after --dict filter")
+    else:
+        status(args, f"{command_label(args)}: found {len(sources)} dictionary package(s)")
     return sources
 
 
@@ -803,6 +818,7 @@ def cmd_gaiji_readiness(args: argparse.Namespace) -> int:
 
 
 def cmd_colscr(args: argparse.Namespace) -> int:
+    status(args, "colscr: resolving COLSCR media records")
     summaries = extract_colscr_for_sources(args)
     if args.json:
         print(json.dumps(summaries, ensure_ascii=False, indent=2))
@@ -810,6 +826,7 @@ def cmd_colscr(args: argparse.Namespace) -> int:
 
 
 def cmd_pcmdata(args: argparse.Namespace) -> int:
+    status(args, "pcmdata: resolving PCMDATA media ranges")
     summaries = extract_pcmdata_for_sources(args)
     if args.json:
         print(json.dumps(summaries, ensure_ascii=False, indent=2))
@@ -967,6 +984,7 @@ def cmd_extras(args: argparse.Namespace) -> int:
 
 
 def cmd_rendererdb(args: argparse.Namespace) -> int:
+    status(args, "rendererdb: inspecting renderer sidecars")
     summaries = extract_rendererdb_for_sources(args)
     if args.json:
         print(json.dumps(summaries, ensure_ascii=False, indent=2))
@@ -1499,6 +1517,7 @@ def cmd_dump_package_models(args: argparse.Namespace) -> int:
 
 
 def cmd_audit(args: argparse.Namespace) -> int:
+    status(args, "audit-honmon: auditing HONMON readability")
     rows = extract_audit_for_sources(args)
     if args.json:
         print(json.dumps(rows, ensure_ascii=False, indent=2))
@@ -1506,6 +1525,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
 
 def cmd_profile(args: argparse.Namespace) -> int:
+    status(args, "profile: writing redacted package profiles")
     rows = extract_profiles_for_args(args)
     for row in rows:
         print(
@@ -1521,6 +1541,7 @@ def cmd_profile(args: argparse.Namespace) -> int:
 
 
 def cmd_honmon_bytes(args: argparse.Namespace) -> int:
+    status(args, "honmon-bytes: scanning HONMON byte structure")
     rows = extract_honmon_byte_reports_for_args(args)
     for row in rows:
         print(
@@ -1539,6 +1560,7 @@ def cmd_honmon_bytes(args: argparse.Namespace) -> int:
 
 
 def cmd_component_forensics(args: argparse.Namespace) -> int:
+    status(args, "component-forensics: scanning component structures")
     rows = extract_component_forensics_for_args(args)
     for row in rows:
         totals = row.get("totals", {})
@@ -1559,6 +1581,7 @@ def cmd_component_forensics(args: argparse.Namespace) -> int:
 
 
 def cmd_opcode_atlas(args: argparse.Namespace) -> int:
+    status(args, "opcode-atlas: scanning text controls")
     atlas = extract_opcode_atlas_for_args(args)
     print(
         f"packages={atlas.get('packages_scanned', 0)} "
@@ -1574,6 +1597,7 @@ def cmd_opcode_atlas(args: argparse.Namespace) -> int:
 
 
 def cmd_capability_matrix(args: argparse.Namespace) -> int:
+    status(args, "capability-matrix: building capability report")
     try:
         report = extract_capability_matrix_for_args(args)
     except ValueError as exc:
@@ -1594,6 +1618,7 @@ def cmd_capability_matrix(args: argparse.Namespace) -> int:
 
 
 def cmd_dump_ir(args: argparse.Namespace) -> int:
+    status(args, "dump-ir: decoding HONMON entries")
     rows = extract_ir_for_args(args)
     for row in rows:
         aggregate = row.get("aggregate", {})
@@ -1615,7 +1640,7 @@ def cmd_write_plain(args: argparse.Namespace) -> int:
         report = build_writer_import_package(args)
     except Exception as exc:
         print(f"write-plain: {exc}", file=sys.stderr)
-        if getattr(args, "debug", False):
+        if getattr(args, "debug", False) or getattr(args, "verbose", False):
             traceback.print_exc()
         return 2
     print(
@@ -1633,7 +1658,7 @@ def cmd_verify_written_package(args: argparse.Namespace) -> int:
         report = verify_written_package(args.path)
     except Exception as exc:
         print(f"verify-written-package: {exc}", file=sys.stderr)
-        if getattr(args, "debug", False):
+        if getattr(args, "debug", False) or getattr(args, "verbose", False):
             traceback.print_exc()
         return 2
     if args.json:
@@ -1660,6 +1685,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Raw-first tools for LogoVista/SystemSoft SSED dictionaries.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show extra progress details and Python tracebacks for unexpected errors.",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_info = sub.add_parser("info", help="Inspect an SSEDINFO .IDX or SSEDDATA .DIC file.")
@@ -2468,8 +2498,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
-    return args.func(args)
+    filtered_argv, verbose = extract_verbose(argv)
+    args = parser.parse_args(filtered_argv)
+    args.verbose = bool(getattr(args, "verbose", False) or verbose)
+    return run_with_friendly_errors(program="logovista-tools", args=args, func=args.func)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ import html
 import json
 import re
 import sqlite3
+import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -818,7 +819,8 @@ def extract_rendererdb_for_sources(args: argparse.Namespace) -> list[dict[str, A
     def log_summary(row: dict[str, Any]) -> None:
         print(
             f"{row['dict_id']:12s} status={row['status']} raw_ids={row.get('raw_honmon_id_records', 0)} "
-            f"emitted={row.get('entries_emitted', 0)} sidecars={len(row.get('sidecars', []))}"
+            f"emitted={row.get('entries_emitted', 0)} sidecars={len(row.get('sidecars', []))}",
+            file=sys.stderr,
         )
 
     rows = parallel_map_ordered(

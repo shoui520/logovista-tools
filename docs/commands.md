@@ -21,6 +21,25 @@ are not printed to the terminal by default.
 
 ## CLI Commands
 
+### Console Output And Errors
+
+Commands print lifecycle/progress status to stderr so a terminal user can see
+that work has started, which package discovery is happening, and whether the
+command finished cleanly. Machine-readable payloads such as JSON and JSONL stay
+on stdout, so shell pipelines can still parse them safely.
+
+Use `--verbose` before or after the subcommand for extra progress details and a
+Python traceback when an unexpected exception occurs:
+
+```bash
+logovista-tools --verbose entries /path/to/LogoVista --limit 100
+logovista-tools entries --verbose /path/to/LogoVista --limit 100
+```
+
+By default, common operator errors such as missing paths, directories supplied
+where a file is required, and permission failures are reported as familiar
+single-line CLI errors rather than raw Python tracebacks.
+
 ### Parallel Jobs
 
 Corpus-scale commands support `--jobs`:

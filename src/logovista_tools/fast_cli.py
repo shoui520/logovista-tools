@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .cli_ux import extract_verbose, run_callback_with_friendly_errors, status
 
 
 def _entries_task(payload):
@@ -21,6 +22,7 @@ def _cmd_info(argv: list[str]) -> int:
 
     parser = argparse.ArgumentParser(prog="logovista-tools info", description="Inspect an SSEDINFO .IDX or SSEDDATA .DIC file.")
     parser.add_argument("path", type=Path)
+    parser.add_argument("--verbose", action="store_true", help="Show extra progress details.")
     parser.add_argument("--all", action="store_true", help="Show zero-start/resource components too.")
     parser.add_argument(
         "--try-decrypt",
@@ -29,6 +31,7 @@ def _cmd_info(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
 
+    status(args, f"info: reading {args.path}", verbose=True)
     data = args.path.read_bytes()[:8]
     if data == b"SSEDINFO":
         title, elements, layout = parse_ssedinfo_with_layout(args.path)
@@ -84,11 +87,17 @@ def _cmd_entries(argv: list[str]) -> int:
     parser.add_argument("--index-boundaries", dest="index_boundaries", action="store_true")
     parser.add_argument("--no-index-boundaries", dest="index_boundaries", action="store_false")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--verbose", action="store_true", help="Show extra progress details.")
     parser.add_argument("--dict", action="append", help="Only extract matching dictionary id(s).")
     add_jobs_argument(parser)
     parser.set_defaults(skip_dense_marker_honmon=True, index_boundaries=False, debug=False)
     args = parser.parse_args(argv)
 
+    roots = args.root or [Path(".")]
+    for root in roots:
+        if not root.exists():
+            raise FileNotFoundError(root)
+    status(args, f"entries: discovering dictionaries under {', '.join(str(root) for root in roots)}")
     sources = discover_dictionaries(args.root or [Path(".")], jobs=args.jobs)
     if args.dict:
         selected = set(args.dict)
@@ -96,8 +105,10 @@ def _cmd_entries(argv: list[str]) -> int:
     if not sources:
         print("no dictionaries found", file=sys.stderr)
         return 1
+    status(args, f"entries: found {len(sources)} dictionary package(s)")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    status(args, f"entries: writing output under {args.out_dir}", verbose=True)
 
     def log_summary(summary: dict[str, object]) -> None:
         print(
@@ -119,23 +130,38 @@ def _cmd_entries(argv: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = list(sys.argv[1:] if argv is None else argv)
+    args, verbose = extract_verbose(argv)
+    args = list(args or [])
     if not args:
         from .cli import main as full_main
 
-        return full_main(args)
+        return full_main(["--verbose"] if verbose else [])
     if args[0] in {"-h", "--help"}:
         from .cli import main as full_main
 
-        return full_main(args)
+        return full_main((["--verbose"] if verbose else []) + args)
     if args[0] == "--version":
         print(f"logovista-tools {__version__}")
         return 0
     if args[0] == "info":
-        return _cmd_info(args[1:])
+        if any(item in {"-h", "--help"} for item in args[1:]):
+            return _cmd_info(args[1:])
+        return run_callback_with_friendly_errors(
+            program="logovista-tools",
+            command="info",
+            verbose=verbose,
+            func=lambda: _cmd_info((["--verbose"] if verbose else []) + args[1:]),
+        )
     if args[0] == "entries":
-        return _cmd_entries(args[1:])
+        if any(item in {"-h", "--help"} for item in args[1:]):
+            return _cmd_entries(args[1:])
+        return run_callback_with_friendly_errors(
+            program="logovista-tools",
+            command="entries",
+            verbose=verbose,
+            func=lambda: _cmd_entries((["--verbose"] if verbose else []) + args[1:]),
+        )
 
     from .cli import main as full_main
 
-    return full_main(args)
+    return full_main((["--verbose"] if verbose else []) + args)
