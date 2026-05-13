@@ -1920,19 +1920,43 @@ class LogoVistaPackage:
     ) -> str | None:
         normalized_query = normalize_query(query)
         normalized_candidates = {normalize_query(candidate) for candidate in candidates if candidate}
+        return self._row_matches_prepared(
+            stored_values=stored_values,
+            natural_values=natural_values,
+            stored_normalized=stored_normalized,
+            natural_normalized=natural_normalized,
+            normalized_query=normalized_query,
+            normalized_candidates=normalized_candidates,
+            raw_candidates=candidates,
+            profile=profile,
+            backward=backward,
+        )
 
+    def _row_matches_prepared(
+        self,
+        *,
+        stored_values: tuple[str, ...],
+        natural_values: tuple[str, ...],
+        stored_normalized: tuple[str, ...],
+        natural_normalized: tuple[str, ...],
+        normalized_query: str,
+        normalized_candidates: set[str],
+        raw_candidates: tuple[str, ...],
+        profile: SearchProfile,
+        backward: bool,
+    ) -> str | None:
         if profile == SearchProfile.EXACT:
-            for value in natural_values:
-                if value in candidates or normalize_query(value) in normalized_candidates:
+            for value, normalized_value in zip(natural_values, natural_normalized):
+                if value in raw_candidates or normalized_value in normalized_candidates:
                     return value
             for value, normalized_value in zip(stored_values, stored_normalized):
-                if value in candidates or normalized_value in normalized_candidates:
+                if value in raw_candidates or normalized_value in normalized_candidates:
                     return natural_backward_key(value) if backward else value
             return None
 
         if profile == SearchProfile.FORWARD:
             for value, normalized_value in zip(natural_values, natural_normalized):
-                if normalized_value.startswith(normalized_query) or any(value.startswith(candidate) for candidate in candidates):
+                if normalized_value.startswith(normalized_query) or any(value.startswith(candidate) for candidate in raw_candidates):
                     return value
             return None
 
@@ -1949,6 +1973,31 @@ class LogoVistaPackage:
             return None
 
         return None
+
+    @staticmethod
+    def _search_range_passed(
+        *,
+        stored_normalized: tuple[str, ...],
+        natural_normalized: tuple[str, ...],
+        normalized_query: str,
+        profile: SearchProfile,
+        backward: bool,
+        multi_page_index: bool = False,
+    ) -> bool:
+        if not normalized_query:
+            return False
+        if profile == SearchProfile.FORWARD:
+            values = tuple(value for value in natural_normalized if value)
+            return bool(values) and all(not value.startswith(normalized_query) for value in values) and any(
+                value > normalized_query for value in values
+            )
+        if profile == SearchProfile.BACKWARD and backward and multi_page_index:
+            reversed_query = normalized_query[::-1]
+            values = tuple(value for value in stored_normalized if value)
+            return bool(values) and all(not value.startswith(reversed_query) for value in values) and any(
+                value > reversed_query for value in values
+            )
+        return False
 
     def _index_tree_query_key(self, query: str, *, backward: bool = False) -> str:
         value = natural_backward_key(query) if backward else query
@@ -2035,10 +2084,14 @@ class LogoVistaPackage:
         include_backward_exact: bool = True,
     ) -> Iterable[tuple[str, Component, IndexRow, str]]:
         candidates = query_candidates(query)
+        normalized_query = normalize_query(query)
+        normalized_candidates = {normalize_query(candidate) for candidate in candidates if candidate}
         for component in self.components_by_role(ComponentRole.INDEX):
             if component.path is None or not self._index_component_matches_profile(component, profile):
                 continue
             backward = self._is_backward_index(component.name)
+            reader = self.data(component)
+            multi_page_index = reader.expanded_size > BLOCK_SIZE
             if profile == SearchProfile.EXACT and backward and not include_backward_exact:
                 continue
             for row in self._iter_index_rows_fast(component, query=query, profile=profile):
@@ -2046,18 +2099,28 @@ class LogoVistaPackage:
                 natural_values = tuple(dict.fromkeys(natural_backward_key(value) if backward else value for value in stored_values))
                 stored_normalized = tuple(dict.fromkeys(normalize_query(value) for value in stored_values if value))
                 natural_normalized = tuple(dict.fromkeys(normalize_query(value) for value in natural_values if value))
-                matched = self._row_matches(
+                matched = self._row_matches_prepared(
                     stored_values=stored_values,
                     natural_values=natural_values,
                     stored_normalized=stored_normalized,
                     natural_normalized=natural_normalized,
-                    query=query,
-                    candidates=candidates,
+                    normalized_query=normalized_query,
+                    normalized_candidates=normalized_candidates,
+                    raw_candidates=candidates,
                     profile=profile,
                     backward=backward,
                 )
                 if matched is not None:
                     yield component.name, component, row, matched
+                elif self._search_range_passed(
+                    stored_normalized=stored_normalized,
+                    natural_normalized=natural_normalized,
+                    normalized_query=normalized_query,
+                    profile=profile,
+                    backward=backward,
+                    multi_page_index=multi_page_index,
+                ):
+                    break
 
     def _iter_matching_rows(
         self,

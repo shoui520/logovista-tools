@@ -1182,7 +1182,7 @@ def extract_indexes_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) 
 
 
 def extract_indexes_for_sources(args: argparse.Namespace) -> list[dict[str, Any]]:
-    sources = discover_dictionaries(args.root or [Path(".")], dict_ids=args.dict, include_images=False)
+    sources = discover_dictionaries(args.root or [Path(".")], dict_ids=args.dict, include_gaiji=False, include_images=False)
     if args.dict:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]

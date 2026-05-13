@@ -248,6 +248,7 @@ def _cmd_titles(argv: list[str]) -> int:
         task=_titles_task,
         count_field="lines_emitted",
         label="title_lines",
+        include_gaiji=False,
         include_images=False,
     )
 
@@ -263,6 +264,7 @@ def _cmd_indexes(argv: list[str]) -> int:
         task=_indexes_task,
         count_field="rows_emitted",
         label="index_rows",
+        include_gaiji=False,
         include_images=False,
     )
 
@@ -278,6 +280,7 @@ def _cmd_menus(argv: list[str]) -> int:
         task=_menus_task,
         count_field="lines_emitted",
         label="menu_lines",
+        include_gaiji=False,
         include_images=False,
     )
 
@@ -309,6 +312,7 @@ def _cmd_pcmdata(argv: list[str]) -> int:
         task=_pcmdata_task,
         count_field="audio_references",
         label="refs",
+        include_gaiji=False,
         include_images=False,
     )
 

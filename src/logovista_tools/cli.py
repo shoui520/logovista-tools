@@ -434,7 +434,7 @@ def select_sources(args: argparse.Namespace):
     include_images = command not in {"titles", "indexes", "menus", "colscr", "pcmdata"}
     if command == "entries":
         include_images = bool(getattr(args, "image_gaiji", False) or getattr(args, "html", False) or getattr(args, "section_image", None))
-    include_gaiji = command != "colscr"
+    include_gaiji = command not in {"titles", "indexes", "menus", "colscr", "pcmdata"}
     status(args, f"{command_label(args)}: discovering dictionaries under {', '.join(str(root) for root in roots)}")
     sources = discover_dictionaries(
         roots,

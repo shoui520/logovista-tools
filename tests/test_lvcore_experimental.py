@@ -24,7 +24,7 @@ from lvcore.index import parse_index  # noqa: E402
 from lvcore.model import Component, ComponentRole, Entry  # noqa: E402
 from lvcore.opcodes import OpcodeCategory, behavior_for  # noqa: E402
 from lvcore.render import GaijiPolicy, HtmlProfile, render_html, render_text  # noqa: E402
-from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE, expand_sseddata, parse_catalog  # noqa: E402
+from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE, SsedData, expand_sseddata, parse_catalog  # noqa: E402
 from lvcore.text import decode_text_stream  # noqa: E402
 
 
@@ -935,6 +935,18 @@ def test_lvcore_fast_search_and_entry_lookup_do_not_require_full_index_boundarie
 
     assert hit.body_source is None
     assert package.entry_for_hit(hit).headword == "alpha"
+
+
+def test_lvcore_plain_sseddata_uses_file_backed_random_reads(tmp_path: Path) -> None:
+    payload = b"alpha" + b"\0" * (CHUNK_SIZE + 32) + b"omega"
+    path = tmp_path / "HONMON.DIC"
+    path.write_bytes(literal_sseddata(payload, start_block=2, kind=0))
+
+    reader = SsedData(path)
+
+    assert reader.data is None
+    assert reader.read(0, 5) == b"alpha"
+    assert reader.read(CHUNK_SIZE + 37, 5) == b"omega"
 
 
 def test_lvcore_search_models_and_native_profiles(tmp_path: Path) -> None:

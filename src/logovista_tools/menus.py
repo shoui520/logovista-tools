@@ -634,7 +634,7 @@ def main() -> int:
     args = parser.parse_args()
 
     roots = args.root or [Path(".")]
-    sources = discover_dictionaries(roots, jobs=args.jobs, dict_ids=args.dict, include_images=False)
+    sources = discover_dictionaries(roots, jobs=args.jobs, dict_ids=args.dict, include_gaiji=False, include_images=False)
     if args.dict:
         selected = set(args.dict)
         sources = [source for source in sources if source.dict_id in selected or source.idx.stem in selected]

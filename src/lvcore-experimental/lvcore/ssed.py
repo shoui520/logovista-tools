@@ -275,9 +275,19 @@ class SsedData:
 
     def __init__(self, path: Path):
         self.path = path
-        self.data, storage = load_sseddata_bytes(path.read_bytes())
-        self.header = parse_data_header(self.data, storage)
-        self.offsets = chunk_offsets(self.data)
+        prefix = read_file_prefix(path, 64)
+        self.file_size = path.stat().st_size
+        self.data: bytes | None
+        if prefix[:8] == SSEDDATA:
+            storage = "plain"
+            chunk_count = be16(prefix, 0x16)
+            header_bytes = read_file_prefix(path, 64 + chunk_count * 4)
+            self.data = None
+        else:
+            self.data, storage = load_sseddata_bytes(path.read_bytes())
+            header_bytes = self.data
+        self.header = parse_data_header(header_bytes, storage)
+        self.offsets = chunk_offsets(header_bytes)
         self._cache: dict[int, bytes] = {}
 
     @property
@@ -288,7 +298,16 @@ class SsedData:
         if index < 0 or index >= len(self.offsets):
             return b""
         if index not in self._cache:
-            self._cache[index] = expand_chunk(self.data, self.offsets[index])
+            offset = self.offsets[index]
+            if self.data is None:
+                next_offset = self.offsets[index + 1] if index + 1 < len(self.offsets) else self.file_size
+                if next_offset <= offset:
+                    next_offset = self.file_size
+                with self.path.open("rb") as fh:
+                    fh.seek(offset)
+                    self._cache[index] = expand_chunk(fh.read(max(0, next_offset - offset)), 0)
+            else:
+                self._cache[index] = expand_chunk(self.data, offset)
         return self._cache[index]
 
     def read(self, offset: int, size: int) -> bytes:
