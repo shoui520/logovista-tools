@@ -282,7 +282,14 @@ class _PackageValidationAdapter:
                 counters["unresolved_link"] = int(counters.get("unresolved_link", 0)) + 1
                 self._increment_reason(link_by_reason, target.get("reason") or status)
 
-    def validate(self, *, sample_entries: int = 3, sample_search_hits: int = 5, debug: bool = False) -> dict[str, object]:
+    def validate(
+        self,
+        *,
+        sample_entries: int = 3,
+        sample_search_hits: int = 5,
+        debug: bool = False,
+        max_bytes_per_scan: int | None = None,
+    ) -> dict[str, object]:
         body_source = self.body_source(debug=debug)
         sidecar_roles = self._sidecar_role_summary()
         sidecar_supplement_counters = self._sidecar_supplement_summary()
@@ -401,7 +408,7 @@ class _PackageValidationAdapter:
             decode_counters["unknown_bytes"] += entry.decode_unknown_bytes
 
         if body_source.ssed_kind == SsedBodySourceKind.BODY_STREAM:
-            for entry in self.iter_entries(limit=sample_entries):
+            for entry in self.iter_entries(limit=sample_entries, max_bytes=max_bytes_per_scan):
                 entries_checked += 1
                 try:
                     document = entry.document()
@@ -435,7 +442,7 @@ class _PackageValidationAdapter:
             for component in self.components_by_role(ComponentRole.INDEX):
                 if component.path is None:
                     continue
-                for row in self.iter_index_rows(component):
+                for row in self.iter_index_rows(component, max_bytes=max_bytes_per_scan):
                     sampled_rows.append((component.name, row))
                     if len(sampled_rows) >= sample_search_hits:
                         break
@@ -450,7 +457,7 @@ class _PackageValidationAdapter:
                 diagnostics_by_code["sample_search_skipped_empty_query"] = diagnostics_by_code.get("sample_search_skipped_empty_query", 0) + 1
                 continue
             try:
-                results = self.search(query, profile=SearchProfile.EXACT, limit=1)
+                results = self.search(query, profile=SearchProfile.EXACT, limit=1, max_bytes=max_bytes_per_scan)
                 self._count_diagnostics(results.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
                 if not results.hits:
                     search_errors.append(f"no hit for sampled index key on page {row.page} row {row.row}")
@@ -661,13 +668,21 @@ class _PackageValidationAdapter:
             "ok": diagnostics_by_severity.get("error", 0) == 0 and not entry_errors,
         }
 
-def validate_package(package, *, sample_entries: int = 3, sample_search_hits: int = 5, debug: bool = False) -> dict[str, object]:
+def validate_package(
+    package,
+    *,
+    sample_entries: int = 3,
+    sample_search_hits: int = 5,
+    debug: bool = False,
+    max_bytes_per_scan: int | None = None,
+) -> dict[str, object]:
     """Validate a package using audit-side scorecard logic."""
 
     return _PackageValidationAdapter(package).validate(
         sample_entries=sample_entries,
         sample_search_hits=sample_search_hits,
         debug=debug,
+        max_bytes_per_scan=max_bytes_per_scan,
     )
 
 

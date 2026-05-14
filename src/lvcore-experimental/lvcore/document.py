@@ -554,20 +554,6 @@ def build_entry_document(entry: Entry) -> EntryDocument:
             _add_text(inlines, span.text, active_styles)
             continue
 
-        if span.kind == "sidecar_html":
-            _flush_paragraph(blocks, inlines)
-            blocks.append(
-                BlockNode(
-                    BlockKind.PARAGRAPH,
-                    (),
-                    attrs={
-                        "sidecar_html": span.text or "",
-                        "sidecar_text": span.attrs.get("plain_text") or "",
-                    },
-                )
-            )
-            continue
-
         if span.kind == "break":
             _flush_paragraph(blocks, inlines)
             continue

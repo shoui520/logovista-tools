@@ -1342,27 +1342,23 @@ def test_lvcore_search_hit_dicts_are_friendly_unless_debug(tmp_path: Path) -> No
     assert debug["raw_row"]["key"] == "alpha"
 
 
-def test_lvcore_repeated_search_uses_cached_values_without_changing_results(tmp_path: Path) -> None:
+def test_lvcore_repeated_lazy_searches_do_not_change_results(tmp_path: Path) -> None:
     make_reader_workflow_package(tmp_path)
     package = open_package(tmp_path)
 
     exact = package.search("alpha", profile=SearchProfile.EXACT)
     first = package.search("alp", profile=SearchProfile.FORWARD)
-    cache_keys_after_first = sorted(package._search_value_cache)
-    exact_cache_keys_after_first = sorted(package._exact_search_cache)
     second = package.search("alp", profile=SearchProfile.FORWARD)
+    debug_exact = package.search("alpha", profile=SearchProfile.EXACT, debug=True)
+    debug_forward = package.search("alp", profile=SearchProfile.FORWARD, debug=True)
+    debug_forward_repeat = package.search("alp", profile=SearchProfile.FORWARD, debug=True)
 
     assert [hit.display_key for hit in exact.hits] == ["alpha"]
     assert [hit.to_dict(debug=True) for hit in second.hits] == [hit.to_dict(debug=True) for hit in first.hits]
-    assert cache_keys_after_first == sorted(package._search_value_cache)
-    assert exact_cache_keys_after_first == sorted(package._exact_search_cache)
-    assert package._search_value_cache == {}
-    assert package._exact_search_cache == {}
-
-    package.search("alpha", profile=SearchProfile.EXACT, debug=True)
-    package.search("alp", profile=SearchProfile.FORWARD, debug=True)
-    assert "fhindex.dic" in package._search_value_cache
-    assert "fhindex.dic" in package._exact_search_cache
+    assert [hit.to_dict() for hit in debug_exact.hits] == [hit.to_dict() for hit in exact.hits]
+    assert [hit.to_dict(debug=True) for hit in debug_forward_repeat.hits] == [
+        hit.to_dict(debug=True) for hit in debug_forward.hits
+    ]
 
 
 def test_lvcore_search_entries_does_not_swallow_unexpected_exceptions(tmp_path: Path) -> None:
@@ -1523,8 +1519,9 @@ def test_lvcore_dense_anchor_with_sqlite_sidecar_renders_body(tmp_path: Path) ->
     assert entry.headword == "beta"
     assert "beta sidecar body" in package.render_entry_text(entry)
     html = package.render_entry_html(entry, profile=HtmlProfile.LOGOVISTA_LIKE)
-    assert "lv-lvlike-sidecar-html" in html
-    assert "<div>beta sidecar html</div>" in html
+    assert "beta sidecar body" in html
+    assert "lv-lvlike-sidecar-html" not in html
+    assert "<div>beta sidecar html</div>" not in html
     assert any(diagnostic.code == "sidecar_body_resolved" for diagnostic in entry.diagnostics())
 
 
@@ -1810,8 +1807,8 @@ def test_lvcore_dense_anchor_sidecar_html_only_body_is_readable(tmp_path: Path) 
     assert "beta html body" in package.render_hit_text(hit)
     assert "<b>" not in package.render_hit_text(hit)
     html = package.render_hit_html(hit, profile=HtmlProfile.LOGOVISTA_LIKE)
-    assert "<b>html</b>" in html
-    assert "lv-lvlike-sidecar-html" in html
+    assert '<strong class="lv-lvlike-bold">html</strong>' in html
+    assert "lv-lvlike-sidecar-html" not in html
 
 
 def test_lvcore_dense_anchor_sidecar_plain_text_body_is_preferred(tmp_path: Path) -> None:

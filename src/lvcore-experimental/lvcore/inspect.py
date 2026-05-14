@@ -13,7 +13,6 @@ from .render import (
     _gaiji_text,
     _inline_text,
     _resource_url,
-    _sanitize_sidecar_html,
 )
 
 
@@ -32,10 +31,6 @@ class InspectorRenderer:
         return "".join(parts)
 
     def _render_block(self, block: BlockNode) -> str:
-        sidecar_html = block.attrs.get("sidecar_html")
-        if isinstance(sidecar_html, str) and sidecar_html:
-            body = _sanitize_sidecar_html(sidecar_html)
-            return f'<div class="lv-sidecar-html lv-sidecar-html-debug">{body}</div>'
         body = "".join(self._render_inline(node) for node in block.inlines)
         if block.kind == BlockKind.HEADING:
             return f'<h3 class="lv-heading lv-heading-debug">{body}</h3>'

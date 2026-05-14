@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Iterable
+from typing import Callable, Iterable
 
 from .body_source import (
     SsedBodySourceKind,
@@ -31,19 +31,127 @@ from .json_types import JsonObject
 from .model import Address, Component, ComponentRole, Entry, SearchProfile, Span
 from .package_utils import (
     EXACT_INDEX_PROBE_PAGES,
-    SearchValueRow,
     _fold_small_kana_for_index_seek,
     _index_ascii_passthrough_query_bytes,
     _jis_symbol_index_query_bytes,
     _title_surface_query_bytes,
 )
 from .render import HtmlProfile
+from .scan import ScanBudget
 from .search import SearchHit, SearchHitDebug, SearchResults, TitleResolution, natural_backward_key, normalize_query, query_candidates
 from .ssed import BLOCK_SIZE, CHUNK_SIZE
 
 
+class BodyProvider:
+    """Ordered entry body resolver used by the pre-Rust provider registry."""
+
+    def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
+        raise NotImplementedError
+
+
+class DenseSidecarBodyProvider(BodyProvider):
+    def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
+        return package._try_entry_from_dense_sidecar(hit, inspection)
+
+
+class BodyStreamProvider(BodyProvider):
+    def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
+        honmon = package.honmon_component()
+        if not inspection.anchor_id and honmon is not None and honmon.path is not None:
+            return package._entry_from_body_stream_pointer(hit)
+        source = source_getter()
+        if source.ssed_kind == SsedBodySourceKind.BODY_STREAM:
+            return package._entry_from_body_stream_pointer(hit)
+        return None
+
+
+class SupportedSidecarBodyProvider(BodyProvider):
+    SUPPORTED = {
+        SsedBodySourceKind.DENSE_ANCHOR_TABLE,
+        SsedBodySourceKind.DENSE_MARKER_TABLE,
+        SsedBodySourceKind.DENSE_ANCHOR_WITH_SIDECAR,
+        SsedBodySourceKind.RENDERER_SQLITE_SIDECAR,
+        SsedBodySourceKind.DICTFULLDB_SIDECAR,
+        SsedBodySourceKind.HONBUN_SIDECAR,
+        SsedBodySourceKind.VLPLJBL_SIDECAR,
+        SsedBodySourceKind.SIDECAR_UNKNOWN,
+    }
+
+    def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
+        source = source_getter()
+        if source.ssed_kind not in self.SUPPORTED:
+            return None
+        sidecar = package._choose_body_sidecar(source.sidecars)
+        if sidecar is not None:
+            return package._entry_from_sidecar(hit, sidecar, inspection)
+        return package._placeholder_entry(
+            hit.body,
+            headword=hit.heading,
+            code="unsupported_body_source",
+            message="SSED dense HONMON body source is not renderable without a supported sidecar",
+            severity=Severity.ERROR,
+            details={"body_source": source.ssed_kind.value},
+        )
+
+
+class MissingBodyComponentProvider(BodyProvider):
+    def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
+        source = source_getter()
+        if source.ssed_kind != SsedBodySourceKind.MISSING_BODY_COMPONENT:
+            return None
+        return package._placeholder_entry(
+            hit.body,
+            headword=hit.heading,
+            code="missing_body_component",
+            message="local SSED package declares no readable HONMON component for entry bodies",
+            severity=Severity.WARNING,
+            details={"body_source": source.ssed_kind.value, "missing_component": "HONMON.DIC"},
+        )
+
+
+class UnsupportedBodyProvider(BodyProvider):
+    def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
+        source = source_getter()
+        return package._placeholder_entry(
+            hit.body,
+            headword=hit.heading,
+            code="unsupported_body_source",
+            message="entry body source is not supported by lvcore",
+            severity=Severity.ERROR,
+            details={"body_source": source.ssed_kind.value},
+        )
+
+
+BODY_PROVIDERS: tuple[BodyProvider, ...] = (
+    DenseSidecarBodyProvider(),
+    BodyStreamProvider(),
+    SupportedSidecarBodyProvider(),
+    MissingBodyComponentProvider(),
+    UnsupportedBodyProvider(),
+)
+
+
 class PackageSearchMixin:
     """Title/index/search methods for LogoVistaPackage."""
+
+    @staticmethod
+    def _scan_budget_diagnostics(budget: ScanBudget) -> tuple[Diagnostic, ...]:
+        if not budget.truncated:
+            return ()
+        reason = "cancelled" if budget.cancelled else "max_bytes"
+        return (
+            Diagnostic(
+                severity=Severity.WARNING,
+                area=DiagnosticArea.INDEX,
+                code="scan_truncated",
+                message="index scan stopped before exhausting all candidate rows",
+                details={
+                    "reason": reason,
+                    "bytes_scanned": budget.bytes_scanned,
+                    "max_bytes": budget.max_bytes,
+                },
+            ),
+        )
 
     def titles(self, component: str | Component | None = None, *, limit: int | None = None) -> list[str]:
         comps = [component] if component is not None else list(self.components_by_role(ComponentRole.TITLE))
@@ -249,74 +357,6 @@ class PackageSearchMixin:
             return row.key, "row_key"
         return matched_key, "fallback"
 
-    def _cached_search_values(
-        self,
-        component_name: str,
-        parsed: IndexParse,
-    ) -> tuple[SearchValueRow, ...]:
-        key = component_name.lower()
-        if key in self._search_value_cache:
-            return self._search_value_cache[key]
-        backward = self._is_backward_index(component_name)
-        cached = []
-        for row in parsed.rows:
-            stored_values = self._row_key_values(row)
-            natural_values = tuple(dict.fromkeys(natural_backward_key(value) if backward else value for value in stored_values))
-            stored_normalized = tuple(dict.fromkeys(normalize_query(value) for value in stored_values if value))
-            natural_normalized = tuple(dict.fromkeys(normalize_query(value) for value in natural_values if value))
-            cached.append((row, stored_values, natural_values, stored_normalized, natural_normalized))
-        self._search_value_cache[key] = tuple(cached)
-        return self._search_value_cache[key]
-
-    def _cached_exact_values(self, component_name: str, parsed: IndexParse) -> dict[str, tuple[tuple[IndexRow, str], ...]]:
-        key = component_name.lower()
-        if key in self._exact_search_cache:
-            return self._exact_search_cache[key]
-        backward = self._is_backward_index(component_name)
-        rows_by_key: dict[str, list[tuple[IndexRow, str]]] = {}
-        for row, stored_values, natural_values, stored_normalized, natural_normalized in self._cached_search_values(component_name, parsed):
-            values: list[tuple[str, str]] = []
-            values.extend(zip(natural_values, natural_normalized))
-            if backward:
-                values.extend((natural_backward_key(value), normalized) for value, normalized in zip(stored_values, stored_normalized))
-            seen: set[tuple[int, int, int, int, str]] = set()
-            for display_value, normalized_value in values:
-                if not normalized_value:
-                    continue
-                dedupe_key = (*self._row_dedupe_key(row), display_value)
-                if dedupe_key in seen:
-                    continue
-                seen.add(dedupe_key)
-                rows_by_key.setdefault(normalized_value, []).append((row, display_value))
-        self._exact_search_cache[key] = {normalized: tuple(rows) for normalized, rows in rows_by_key.items()}
-        return self._exact_search_cache[key]
-
-    def _row_matches(
-        self,
-        *,
-        stored_values: tuple[str, ...],
-        natural_values: tuple[str, ...],
-        stored_normalized: tuple[str, ...],
-        natural_normalized: tuple[str, ...],
-        query: str,
-        candidates: tuple[str, ...],
-        profile: SearchProfile,
-        backward: bool,
-    ) -> str | None:
-        normalized_query = normalize_query(query)
-        normalized_candidates = {normalize_query(candidate) for candidate in candidates if candidate}
-        return self._row_matches_prepared(
-            stored_values=stored_values,
-            natural_values=natural_values,
-            stored_normalized=stored_normalized,
-            natural_normalized=natural_normalized,
-            normalized_query=normalized_query,
-            normalized_candidates=normalized_candidates,
-            raw_candidates=candidates,
-            profile=profile,
-            backward=backward,
-        )
-
     def _row_matches_prepared(
         self,
         *,
@@ -521,6 +561,9 @@ class PackageSearchMixin:
         *,
         query: str | None = None,
         profile: SearchProfile | None = None,
+        budget: ScanBudget | None = None,
+        max_bytes: int | None = None,
+        cancel: Callable[[], bool] | None = None,
     ) -> Iterable[IndexRow]:
         """Yield leaf rows page-by-page without materializing the whole index.
 
@@ -530,6 +573,7 @@ class PackageSearchMixin:
         """
 
         reader = self.data(component)
+        budget = budget or ScanBudget(max_bytes=max_bytes, cancel=cancel)
         component_type = component.type
         total_pages = (reader.expanded_size + BLOCK_SIZE - 1) // BLOCK_SIZE
         backward = self._is_backward_index(component.name)
@@ -560,12 +604,16 @@ class PackageSearchMixin:
         for start_page in start_pages:
             context: GroupContext | None = None
             if query and tagged_component and start_page > 0:
+                if not budget.allow(BLOCK_SIZE):
+                    return
                 previous = reader.read((start_page - 1) * BLOCK_SIZE, BLOCK_SIZE)
                 if len(previous) == BLOCK_SIZE and is_leaf(int.from_bytes(previous[:2], "big")):
                     seeded = parse_tagged_leaf(previous, start_page - 1, self.gaiji.mapping, component_type=component_type, context=None)
                     context = seeded.context
             for page_index in range(start_page, min(total_pages, start_page + max_pages)):
                 pos = page_index * BLOCK_SIZE
+                if not budget.allow(BLOCK_SIZE):
+                    return
                 page = reader.read(pos, BLOCK_SIZE)
                 if len(page) < BLOCK_SIZE or not is_leaf(int.from_bytes(page[:2], "big")):
                     if query and not exact_requires_full_scan:
@@ -602,7 +650,11 @@ class PackageSearchMixin:
         profile: SearchProfile,
         *,
         include_backward_exact: bool = True,
+        budget: ScanBudget | None = None,
+        max_bytes: int | None = None,
+        cancel: Callable[[], bool] | None = None,
     ) -> Iterable[tuple[str, Component, IndexRow, str]]:
+        budget = budget or ScanBudget(max_bytes=max_bytes, cancel=cancel)
         candidates = query_candidates(query)
         normalized_query = normalize_query(query)
         normalized_candidates = {normalize_query(candidate) for candidate in candidates if candidate}
@@ -614,7 +666,7 @@ class PackageSearchMixin:
             multi_page_index = reader.expanded_size > BLOCK_SIZE
             if profile == SearchProfile.EXACT and backward and not include_backward_exact:
                 continue
-            for row in self._iter_index_rows_fast(component, query=query, profile=profile):
+            for row in self._iter_index_rows_fast(component, query=query, profile=profile, budget=budget):
                 stored_values = self._row_key_values(row)
                 natural_values = tuple(dict.fromkeys(natural_backward_key(value) if backward else value for value in stored_values))
                 stored_normalized = tuple(dict.fromkeys(normalize_query(value) for value in stored_values if value))
@@ -649,45 +701,18 @@ class PackageSearchMixin:
         profile: SearchProfile,
         *,
         include_backward_exact: bool = True,
-        fast: bool = False,
+        budget: ScanBudget | None = None,
+        max_bytes: int | None = None,
+        cancel: Callable[[], bool] | None = None,
     ) -> Iterable[tuple[str, Component, IndexRow, str]]:
-        if fast:
-            yield from self._iter_matching_rows_fast(query, profile, include_backward_exact=include_backward_exact)
-            return
-        candidates = query_candidates(query)
-        for name, parsed in self.indexes().items():
-            component = self.component(name)
-            if component is None or not self._index_component_matches_profile(component, profile):
-                continue
-            backward = self._is_backward_index(name)
-            if profile == SearchProfile.EXACT and backward and not include_backward_exact:
-                continue
-            if profile == SearchProfile.EXACT:
-                yielded: set[tuple[int, int, int, int, str]] = set()
-                for candidate in candidates:
-                    normalized_candidate = normalize_query(candidate)
-                    if not normalized_candidate:
-                        continue
-                    for row, matched in self._cached_exact_values(name, parsed).get(normalized_candidate, ()):
-                        dedupe_key = (*self._row_dedupe_key(row), matched)
-                        if dedupe_key in yielded:
-                            continue
-                        yielded.add(dedupe_key)
-                        yield name, component, row, matched
-                continue
-            for row, stored_values, natural_values, stored_normalized, natural_normalized in self._cached_search_values(name, parsed):
-                matched = self._row_matches(
-                    stored_values=stored_values,
-                    natural_values=natural_values,
-                    stored_normalized=stored_normalized,
-                    natural_normalized=natural_normalized,
-                    query=query,
-                    candidates=candidates,
-                    profile=profile,
-                    backward=backward,
-                )
-                if matched is not None:
-                    yield name, component, row, matched
+        yield from self._iter_matching_rows_fast(
+            query,
+            profile,
+            include_backward_exact=include_backward_exact,
+            budget=budget,
+            max_bytes=max_bytes,
+            cancel=cancel,
+        )
 
     def _make_hit(
         self,
@@ -796,6 +821,8 @@ class PackageSearchMixin:
         limit: int = 20,
         profile: SearchProfile | str = SearchProfile.NATIVE,
         debug: bool = False,
+        max_bytes: int | None = None,
+        cancel: Callable[[], bool] | None = None,
     ) -> SearchResults:
         if isinstance(profile, str):
             profile = SearchProfile(profile)
@@ -806,6 +833,8 @@ class PackageSearchMixin:
         profiles = (SearchProfile.EXACT, SearchProfile.FORWARD, SearchProfile.BACKWARD) if profile == SearchProfile.NATIVE else (profile,)
         hits: list[SearchHit] = []
         seen: set[tuple[int, int, int, int]] = set()
+        budget = ScanBudget(max_bytes=max_bytes, cancel=cancel)
+
         def add_row_matches(row_matches: Iterable[tuple[str, Component, IndexRow, str]], effective_profile: SearchProfile) -> bool:
             added = False
             for name, _component, row, matched_key in row_matches:
@@ -838,29 +867,35 @@ class PackageSearchMixin:
                         query,
                         effective_profile,
                         include_backward_exact=False,
-                        fast=not debug,
+                        budget=budget,
                     ),
                     effective_profile,
                 )
                 if len(hits) >= limit:
-                    return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits))
+                    return SearchResults(
+                        query=query,
+                        normalized_query=normalized_query,
+                        profile=profile,
+                        hits=tuple(hits),
+                        diagnostics=self._scan_budget_diagnostics(budget),
+                    )
                 if not found_primary:
                     add_row_matches(
                         self._iter_matching_rows(
                             query,
                             effective_profile,
                             include_backward_exact=True,
-                            fast=not debug,
+                            budget=budget,
                         ),
                         effective_profile,
                     )
             else:
-                add_row_matches(self._iter_matching_rows(query, effective_profile, fast=not debug), effective_profile)
+                add_row_matches(self._iter_matching_rows(query, effective_profile, budget=budget), effective_profile)
             if len(hits) >= limit:
-                return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits))
+                return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits), diagnostics=self._scan_budget_diagnostics(budget))
             if profile == SearchProfile.NATIVE and len(hits) > before_profile:
-                return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits))
-        return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits))
+                return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits), diagnostics=self._scan_budget_diagnostics(budget))
+        return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits), diagnostics=self._scan_budget_diagnostics(budget))
 
     def search_index(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[JsonObject]:
         return [
@@ -882,89 +917,41 @@ class PackageSearchMixin:
     ) -> list[Entry]:
         return [self.entry_for_hit(hit) for hit in self.search(term, limit=limit, profile=profile).hits]
 
+    def _entry_from_body_stream_pointer(self, hit: SearchHit) -> Entry:
+        try:
+            return self._entry_or_empty_body_placeholder(
+                self._entry_with_hit_headword(self.entry_at(hit.body), hit),
+                hit,
+            )
+        except (FormatError, KeyError, ValueError, OSError) as exc:
+            return self._placeholder_entry(
+                hit.body,
+                headword=hit.heading,
+                code="body_pointer_unresolved",
+                message="body pointer could not be resolved to a readable HONMON entry",
+                severity=Severity.ERROR,
+                details={
+                    "body": hit.body.to_dict(),
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
+
     def entry_for_hit(self, hit: SearchHit) -> Entry:
         inspection = self.inspect_body_pointer(hit.body)
-        sidecar_entry = self._try_entry_from_dense_sidecar(hit, inspection)
-        if sidecar_entry is not None:
-            return sidecar_entry
-        honmon = self.honmon_component()
-        if not inspection.anchor_id and honmon is not None and honmon.path is not None:
-            try:
-                return self._entry_or_empty_body_placeholder(
-                    self._entry_with_hit_headword(self.entry_at(hit.body), hit),
-                    hit,
-                )
-            except (FormatError, KeyError, ValueError, OSError) as exc:
-                return self._placeholder_entry(
-                    hit.body,
-                    headword=hit.heading,
-                    code="body_pointer_unresolved",
-                    message="body pointer could not be resolved to a readable HONMON entry",
-                    severity=Severity.ERROR,
-                    details={
-                        "body": hit.body.to_dict(),
-                        "error_type": type(exc).__name__,
-                        "error": str(exc),
-                    },
-                )
-        source = self.body_source()
-        if source.ssed_kind == SsedBodySourceKind.BODY_STREAM:
-            try:
-                return self._entry_or_empty_body_placeholder(
-                    self._entry_with_hit_headword(self.entry_at(hit.body), hit),
-                    hit,
-                )
-            except (FormatError, KeyError, ValueError, OSError) as exc:
-                return self._placeholder_entry(
-                    hit.body,
-                    headword=hit.heading,
-                    code="body_pointer_unresolved",
-                    message="body pointer could not be resolved to a readable HONMON entry",
-                    severity=Severity.ERROR,
-                    details={
-                        "body": hit.body.to_dict(),
-                        "error_type": type(exc).__name__,
-                        "error": str(exc),
-                    },
-                )
-        if source.ssed_kind in {
-            SsedBodySourceKind.DENSE_ANCHOR_TABLE,
-            SsedBodySourceKind.DENSE_MARKER_TABLE,
-            SsedBodySourceKind.DENSE_ANCHOR_WITH_SIDECAR,
-            SsedBodySourceKind.RENDERER_SQLITE_SIDECAR,
-            SsedBodySourceKind.DICTFULLDB_SIDECAR,
-            SsedBodySourceKind.HONBUN_SIDECAR,
-            SsedBodySourceKind.VLPLJBL_SIDECAR,
-            SsedBodySourceKind.SIDECAR_UNKNOWN,
-        }:
-            sidecar = self._choose_body_sidecar(source.sidecars)
-            if sidecar is not None:
-                return self._entry_from_sidecar(hit, sidecar, inspection)
-            return self._placeholder_entry(
-                hit.body,
-                headword=hit.heading,
-                code="unsupported_body_source",
-                message="SSED dense HONMON body source is not renderable without a supported sidecar",
-                severity=Severity.ERROR,
-                details={"body_source": source.ssed_kind.value},
-            )
-        if source.ssed_kind == SsedBodySourceKind.MISSING_BODY_COMPONENT:
-            return self._placeholder_entry(
-                hit.body,
-                headword=hit.heading,
-                code="missing_body_component",
-                message="local SSED package declares no readable HONMON component for entry bodies",
-                severity=Severity.WARNING,
-                details={"body_source": source.ssed_kind.value, "missing_component": "HONMON.DIC"},
-            )
-        return self._placeholder_entry(
-            hit.body,
-            headword=hit.heading,
-            code="unsupported_body_source",
-            message="entry body source is not supported by lvcore",
-            severity=Severity.ERROR,
-            details={"body_source": source.ssed_kind.value},
-        )
+        source_cache = None
+
+        def source_getter():
+            nonlocal source_cache
+            if source_cache is None:
+                source_cache = self.body_source()
+            return source_cache
+
+        for provider in BODY_PROVIDERS:
+            entry = provider.resolve(self, hit, inspection, source_getter)
+            if entry is not None:
+                return entry
+        raise AssertionError("body provider registry did not return an entry")
 
     def render_hit_html(
         self,

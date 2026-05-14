@@ -11,10 +11,12 @@ from .gaiji import (
     GaijiDisplayStatus,
     GaijiMap,
     GaijiResolutionReason,
+    GaijiSources,
     ImageGaijiResource,
     load_gaiji_map,
     load_image_gaiji_resources,
     parse_ga16,
+    resolve_gaiji_sources,
 )
 from .gaiji_resolution import (
     BitmapGaijiBacking,
@@ -35,23 +37,10 @@ class PackageGaijiMixin:
     """Gaiji mapping and resource methods for LogoVistaPackage."""
 
     @staticmethod
-    def _load_ga16_resources(root: Path, components: tuple[Component, ...]) -> tuple[Ga16Resource, ...]:
-        paths: list[Path] = []
-        for component in components:
-            if component.role == ComponentRole.GAIJI and component.path is not None:
-                paths.append(component.path)
-        try:
-            for path in root.rglob("*"):
-                if not path.is_file():
-                    continue
-                upper = path.name.upper()
-                if upper.startswith(("GA16", "GAI16")):
-                    paths.append(path)
-        except OSError:
-            pass
+    def _load_ga16_resources(sources: GaijiSources) -> tuple[Ga16Resource, ...]:
         resources: list[Ga16Resource] = []
         seen: set[Path] = set()
-        for path in paths:
+        for path in sources.ga16_files:
             try:
                 resolved = path.resolve()
             except OSError:
@@ -65,21 +54,40 @@ class PackageGaijiMixin:
         return tuple(resources)
 
     @property
+    def gaiji_sources(self) -> GaijiSources:
+        if self._gaiji_sources is None:
+            component_paths = tuple(
+                component.path
+                for component in self.components
+                if component.role == ComponentRole.GAIJI and component.path is not None
+            )
+            self._gaiji_sources = resolve_gaiji_sources(
+                self.info.root,
+                self.info.dict_id or self.catalog.dict_id,
+                component_paths=component_paths,
+            )
+        return self._gaiji_sources
+
+    @property
     def gaiji(self) -> GaijiMap:
         if self._gaiji is None:
-            self._gaiji = load_gaiji_map(self.info.root, self.info.dict_id or self.catalog.dict_id)
+            self._gaiji = load_gaiji_map(
+                self.info.root,
+                self.info.dict_id or self.catalog.dict_id,
+                self.gaiji_sources,
+            )
         return self._gaiji
 
     @property
     def ga16(self) -> tuple[Ga16Resource, ...]:
         if self._ga16 is None:
-            self._ga16 = self._load_ga16_resources(self.info.root, self.components)
+            self._ga16 = self._load_ga16_resources(self.gaiji_sources)
         return self._ga16
 
     @property
     def gaiji_images(self) -> tuple[ImageGaijiResource, ...]:
         if self._gaiji_images is None:
-            self._gaiji_images = load_image_gaiji_resources(self.info.root)
+            self._gaiji_images = load_image_gaiji_resources(self.info.root, self.gaiji_sources)
         return self._gaiji_images
 
     @property

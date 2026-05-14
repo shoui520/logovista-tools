@@ -84,9 +84,10 @@ progress detail and tracebacks while debugging unexpected errors.
 Reader-facing commands are lazy by default: `info`, `search`, `render`,
 `entries`, and resource listing avoid full index/body-source/sidecar/gaiji
 audits unless debug or explicit resource enumeration asks for them. Use
-`--debug` for forensic body-source evidence and raw structural details; use
-`render --include-supplements` when supplemental sidecar rows should be attached
-to normal rendered output.
+`--debug` for forensic body-source evidence and raw structural details.
+Package-level search/render/entry helpers are convenience delegates; the
+Rust-shaped API surface is `package.dictionaries()[0].search(...)` followed by
+`dictionary.entry_for_hit(...)`.
 
 Small app-facing examples are available under `src/lvcore-experimental/examples`:
 
@@ -273,6 +274,8 @@ Useful audit options:
   JSON stdout;
 - `--sample-entries N` and `--sample-search-hits N`: make sample limits
   explicit in the summary;
+- `--max-bytes-per-scan N`: exercise deterministic partial-scan behavior and
+  report `scan_truncated` diagnostics when a sampled operation hits the budget;
 - `--output-dir DIR`: write `summary.json`, `targets.jsonl`,
   `failures.jsonl`, and `diagnostics.jsonl`;
 - `--failures-jsonl PATH` and `--diagnostics-jsonl PATH`: write those streams

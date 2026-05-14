@@ -44,6 +44,7 @@ class DiagnosticCode(str, Enum):
     PRIVATE_RENDERER_DIRECTIVE = "private_renderer_directive"
     SAMPLE_SEARCH_MISS = "sample_search_miss"
     SAMPLE_SEARCH_SKIPPED_EMPTY_QUERY = "sample_search_skipped_empty_query"
+    SCAN_TRUNCATED = "scan_truncated"
     SIDECAR_BODY_NOT_FOUND = "sidecar_body_not_found"
     SIDECAR_BODY_RESOLVED = "sidecar_body_resolved"
     TAB_COLUMN_CONTROL = "tab_column_control"

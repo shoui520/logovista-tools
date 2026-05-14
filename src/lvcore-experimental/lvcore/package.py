@@ -5,22 +5,25 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 import tempfile
+from typing import Callable
 
 from .body_source import BodySourceInfo, SidecarInfo
 from .detect import detect_family
 from .diagnostics import Location
+from .dictionary import Dictionary
 from .errors import UnsupportedPackageError
-from .gaiji import Ga16Resource, GaijiMap, ImageGaijiResource
+from .gaiji import Ga16Resource, GaijiMap, GaijiSources, ImageGaijiResource
 from .index import IndexParse, IndexRow
 from .json_types import JsonObject
-from .model import Address, Component, ComponentRole, PackageFamily, PackageInfo
+from .model import Address, Component, ComponentRole, Entry, PackageFamily, PackageInfo, SearchProfile
+from .render import HtmlProfile
+from .search import SearchHit, SearchResults
 from .ssed import BLOCK_SIZE, Catalog, SsedData, find_file_case_insensitive, parse_catalog
 from .package_entries import PackageEntryMixin
 from .package_gaiji import PackageGaijiMixin
 from .package_resources import PackageResourceMixin
 from .package_search import PackageSearchMixin
 from .package_sidecars import PackageSidecarMixin
-from .package_utils import SearchValueRow
 
 
 def open_package(path: str | Path) -> "LogoVistaPackage":
@@ -32,13 +35,52 @@ def open_package(path: str | Path) -> "LogoVistaPackage":
     return LogoVistaPackage(info.idx_path)
 
 
-class LogoVistaPackage(
-    PackageGaijiMixin,
-    PackageSidecarMixin,
-    PackageEntryMixin,
-    PackageSearchMixin,
-    PackageResourceMixin,
-):
+class _PackageService:
+    """Shared-state service wrapper used during the pre-Rust composition step."""
+
+    def __init__(self, package: "LogoVistaPackage") -> None:
+        object.__setattr__(self, "_package", package)
+
+    def __getattribute__(self, name: str):
+        if name in {"_package", "__class__", "__dict__", "__setattr__", "__getattr__", "__getattribute__"}:
+            return object.__getattribute__(self, name)
+        package = object.__getattribute__(self, "_package")
+        package_dict = object.__getattribute__(package, "__dict__")
+        if name in package_dict:
+            return package_dict[name]
+        return object.__getattribute__(self, name)
+
+    def __getattr__(self, name: str):
+        return getattr(object.__getattribute__(self, "_package"), name)
+
+    def __setattr__(self, name: str, value) -> None:
+        if name == "_package":
+            object.__setattr__(self, name, value)
+            return
+        setattr(object.__getattribute__(self, "_package"), name, value)
+
+
+class GaijiRegistry(PackageGaijiMixin, _PackageService):
+    """Gaiji mapping and resource discovery service."""
+
+
+class SidecarRegistry(PackageSidecarMixin, _PackageService):
+    """SQLite sidecar discovery/classification service."""
+
+
+class EntryStore(PackageEntryMixin, _PackageService):
+    """Entry slicing, dense-HONMON inspection, and body resolution service."""
+
+
+class IndexStore(PackageSearchMixin, _PackageService):
+    """Title/index/search service."""
+
+
+class ResourceResolver(PackageResourceMixin, _PackageService):
+    """Document rendering and explicit resource resolution service."""
+
+
+class LogoVistaPackage:
     """Reader/parser API for one SSED package."""
 
     def __init__(self, idx_path: Path):
@@ -55,6 +97,7 @@ class LogoVistaPackage(
             for component in self.catalog.components
         )
         self._gaiji: GaijiMap | None = None
+        self._gaiji_sources: GaijiSources | None = None
         self._ga16: tuple[Ga16Resource, ...] | None = None
         self._gaiji_images: tuple[ImageGaijiResource, ...] | None = None
         self._gaiji_image_by_code_cache: dict[str, ImageGaijiResource] | None = None
@@ -63,8 +106,6 @@ class LogoVistaPackage(
         self._component_by_name = {component.name.lower(): component for component in self.components}
         self._data_cache: dict[str, SsedData] = {}
         self._index_cache: dict[str, IndexParse] = {}
-        self._search_value_cache: dict[str, tuple[SearchValueRow, ...]] = {}
-        self._exact_search_cache: dict[str, dict[str, tuple[tuple[IndexRow, str], ...]]] = {}
         self._marker_cache: dict[str, list[int]] = {}
         self._body_pointer_cache: dict[str, list[int]] = {}
         self._body_source_cache: dict[bool, BodySourceInfo] = {}
@@ -75,6 +116,25 @@ class LogoVistaPackage(
         self._body_sidecars_cache: dict[tuple[bool, bool], tuple[SidecarInfo, ...]] = {}
         self._tempdir: tempfile.TemporaryDirectory[str] | None = None
         self._closed = False
+        self._gaiji_registry = GaijiRegistry(self)
+        self._sidecar_registry = SidecarRegistry(self)
+        self._entry_store = EntryStore(self)
+        self._index_store = IndexStore(self)
+        self._resource_resolver = ResourceResolver(self)
+        self._services: tuple[_PackageService, ...] = (
+            self._gaiji_registry,
+            self._sidecar_registry,
+            self._entry_store,
+            self._index_store,
+            self._resource_resolver,
+        )
+        self._dictionaries: tuple[Dictionary, ...] | None = None
+
+    def __getattr__(self, name: str):
+        for service in self._services:
+            if getattr(type(service), name, None) is not None:
+                return getattr(service, name)
+        raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
 
     def __enter__(self) -> "LogoVistaPackage":
         self._ensure_open()
@@ -88,8 +148,6 @@ class LogoVistaPackage(
             return
         self._data_cache.clear()
         self._index_cache.clear()
-        self._search_value_cache.clear()
-        self._exact_search_cache.clear()
         self._marker_cache.clear()
         self._body_pointer_cache.clear()
         self._body_source_cache.clear()
@@ -189,10 +247,79 @@ class LogoVistaPackage(
         candidates = self.components_by_role(ComponentRole.HONMON)
         return candidates[0] if candidates else None
 
-    def iter_index_rows(self, component: Component):
+    def dictionaries(self) -> tuple[Dictionary, ...]:
+        """Return logical dictionaries contained in this package."""
+
+        if self._dictionaries is None:
+            self._dictionaries = (
+                Dictionary(
+                    package=self,
+                    dictionary_id=self.info.dict_id or self.catalog.dict_id,
+                    title=self.info.title or self.catalog.title,
+                ),
+            )
+        return self._dictionaries
+
+    def dictionary(self) -> Dictionary:
+        """Return the primary dictionary for current SSED packages."""
+
+        return self.dictionaries()[0]
+
+    def iter_entries(self, *, limit: int | None = None, max_bytes: int | None = None, cancel: Callable[[], bool] | None = None):
+        return self.dictionary().iter_entries(limit=limit, max_bytes=max_bytes, cancel=cancel)
+
+    def entry_at(self, address: Address, *, max_bytes: int = 64 * 1024) -> Entry:
+        return self.dictionary().entry_at(address, max_bytes=max_bytes)
+
+    def titles(self, component: str | Component | None = None, *, limit: int | None = None) -> list[str]:
+        return self.dictionary().titles(component=component, limit=limit)
+
+    def indexes(self, component: str | Component | None = None) -> dict[str, IndexParse]:
+        return self.dictionary().indexes(component=component)
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        profile: SearchProfile | str = SearchProfile.NATIVE,
+        debug: bool = False,
+        max_bytes: int | None = None,
+        cancel: Callable[[], bool] | None = None,
+    ) -> SearchResults:
+        return self.dictionary().search(query, limit=limit, profile=profile, debug=debug, max_bytes=max_bytes, cancel=cancel)
+
+    def search_index(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[JsonObject]:
+        return self.dictionary().search_index(term, limit=limit, profile=profile)
+
+    def search_entries(
+        self,
+        term: str,
+        *,
+        limit: int = 20,
+        profile: SearchProfile | str = SearchProfile.NATIVE,
+    ) -> list[Entry]:
+        return self.dictionary().search_entries(term, limit=limit, profile=profile)
+
+    def entry_for_hit(self, hit: SearchHit) -> Entry:
+        return self.dictionary().entry_for_hit(hit)
+
+    def render_hit_html(
+        self,
+        hit: SearchHit,
+        *,
+        profile: HtmlProfile | str = HtmlProfile.FRIENDLY,
+        include_diagnostics: bool = False,
+    ) -> str:
+        return self.dictionary().render_hit_html(hit, profile=profile, include_diagnostics=include_diagnostics)
+
+    def render_hit_text(self, hit: SearchHit) -> str:
+        return self.dictionary().render_hit_text(hit)
+
+    def iter_index_rows(self, component: Component, *, max_bytes: int | None = None, cancel: Callable[[], bool] | None = None):
         """Iterate parsed native index rows from one component."""
 
-        yield from self._iter_index_rows_fast(component)
+        yield from self._iter_index_rows_fast(component, max_bytes=max_bytes, cancel=cancel)
 
     def sidecars(
         self,

@@ -8,6 +8,7 @@ model, starting with SSED.
 from .detect import detect_family
 from .body_source import BodySourceInfo, BodySourceSupport, Confidence, SidecarAddressMatch, SidecarRole, SsedBodySourceKind
 from .diagnostics import Diagnostic, DiagnosticArea, DiagnosticCode, Location, Severity
+from .dictionary import Dictionary
 from .document import (
     BlockKind,
     BlockNode,
@@ -46,6 +47,7 @@ __all__ = [
     "Diagnostic",
     "DiagnosticArea",
     "DiagnosticCode",
+    "Dictionary",
     "Entry",
     "EntryDocument",
     "GaijiDisplayStatus",

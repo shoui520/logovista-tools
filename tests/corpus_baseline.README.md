@@ -10,7 +10,7 @@ This baseline is the Phase 0 audit-extraction baseline for
 - Corpus shape: 170 package directories, 161 detected SSED packages, 9 unknown
   resource/helper directories
 
-Latest intentional update:
+Intentional update history:
 
 - Phase: Phase 1 reader-path cuts
 - Native title/body-heading heuristic: body bytes are no longer promoted to
@@ -25,6 +25,16 @@ Latest intentional update:
   audit harness rather than reader telemetry, so `non_sqlite_or_unknown`
   appears under unsupported role counts as a non-compatibility-significant
   category.
+
+Latest intentional update:
+
+- Phase: Phase 3 composition/lazy/deterministic discovery
+- Gaiji source discovery: package-matched sibling `*_GAIJI` image directories
+  are now part of deterministic gaiji source resolution. This changes
+  `_DCT_KANJIGN5` image-resource inventory from 14 to 506 because its sibling
+  gaiji image directory is now visible to the reader. Sampled resolved gaiji,
+  unresolved gaiji, media, link, body-source, and search counters are unchanged;
+  this is an inventory expansion, not a compatibility regression.
 
 Capture command:
 

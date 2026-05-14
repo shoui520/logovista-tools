@@ -54,6 +54,13 @@ def _audit_path(path: Path) -> str:
     return f"<{_package_id(path)}>"
 
 
+def _sample_limits(sample_entries: int, sample_search_hits: int, max_bytes_per_scan: int | None) -> dict[str, Any]:
+    data: dict[str, Any] = {"sample_entries": sample_entries, "sample_search_hits": sample_search_hits}
+    if max_bytes_per_scan is not None:
+        data["max_bytes_per_scan"] = max_bytes_per_scan
+    return data
+
+
 def _sanitize(value: Any, *, package_id: str | None = None, package_root: Path | None = None, corpus_root: Path | None = None) -> Any:
     if isinstance(value, dict):
         return {
@@ -120,6 +127,7 @@ def cmd_package(args: argparse.Namespace) -> int:
             sample_entries=args.sample_entries,
             sample_search_hits=args.sample_search_hits,
             debug=args.debug,
+            max_bytes_per_scan=args.max_bytes_per_scan,
         )
         report = {
             "schema": PACKAGE_AUDIT_SCHEMA,
@@ -131,7 +139,7 @@ def cmd_package(args: argparse.Namespace) -> int:
     return 0 if report.get("ok", True) else 1
 
 
-def _corpus_one(path_str: str, sample_entries: int, sample_search_hits: int, debug: bool) -> dict[str, Any]:
+def _corpus_one(path_str: str, sample_entries: int, sample_search_hits: int, debug: bool, max_bytes_per_scan: int | None) -> dict[str, Any]:
     path = Path(path_str)
     package_id = _package_id(path)
     try:
@@ -146,11 +154,17 @@ def _corpus_one(path_str: str, sample_entries: int, sample_search_hits: int, deb
                 "ok": True,
                 "deferred_family": family_deferred,
                 "unsupported_family": info.family == PackageFamily.UNKNOWN,
-                "sample_limits": {"sample_entries": sample_entries, "sample_search_hits": sample_search_hits},
+                "sample_limits": _sample_limits(sample_entries, sample_search_hits, max_bytes_per_scan),
                 "package": _sanitize(info.to_dict(), package_id=package_id, package_root=path),
             }
         package = open_package(path)
-        report = validate_package(package, sample_entries=sample_entries, sample_search_hits=sample_search_hits, debug=debug)
+        report = validate_package(
+            package,
+            sample_entries=sample_entries,
+            sample_search_hits=sample_search_hits,
+            debug=debug,
+            max_bytes_per_scan=max_bytes_per_scan,
+        )
         report = _sanitize(report, package_id=package_id, package_root=path)
         return {
             "package_id": package_id,
@@ -160,7 +174,7 @@ def _corpus_one(path_str: str, sample_entries: int, sample_search_hits: int, deb
             "ok": bool(report.get("ok")),
             "deferred_family": False,
             "unsupported_family": False,
-            "sample_limits": {"sample_entries": sample_entries, "sample_search_hits": sample_search_hits},
+            "sample_limits": _sample_limits(sample_entries, sample_search_hits, max_bytes_per_scan),
             "package": report.get("package"),
             "body_source": report.get("body_source"),
             "sidecar_resolution": report.get("sidecar_resolution"),
@@ -192,7 +206,7 @@ def _corpus_one(path_str: str, sample_entries: int, sample_search_hits: int, deb
             "ok": False,
             "deferred_family": False,
             "unsupported_family": False,
-            "sample_limits": {"sample_entries": sample_entries, "sample_search_hits": sample_search_hits},
+            "sample_limits": _sample_limits(sample_entries, sample_search_hits, max_bytes_per_scan),
             "error": f"{type(exc).__name__}: {exc}",
         }
 
@@ -290,7 +304,7 @@ def build_corpus_summary(args: argparse.Namespace) -> tuple[dict[str, Any], list
     rows: list[dict[str, Any]] = []
     with ProcessPoolExecutor(max_workers=jobs) as executor:
         futures = {
-            executor.submit(_corpus_one, str(path), sample_entries, sample_search_hits, args.debug): path
+            executor.submit(_corpus_one, str(path), sample_entries, sample_search_hits, args.debug, args.max_bytes_per_scan): path
             for path in paths
         }
         done = 0
@@ -515,11 +529,20 @@ def build_corpus_summary(args: argparse.Namespace) -> tuple[dict[str, Any], list
         "top_blockers": top_blockers,
     }
 
+    summary_sample_limits: dict[str, Any] = {
+        "full": bool(args.full),
+        "sample_entries": sample_entries,
+        "sample_search_hits": sample_search_hits,
+        "jobs": args.jobs,
+    }
+    if args.max_bytes_per_scan is not None:
+        summary_sample_limits["max_bytes_per_scan"] = args.max_bytes_per_scan
+
     summary = {
         "schema": CORPUS_AUDIT_SCHEMA,
         "model_version": 1,
         "root": "<corpus>",
-        "sample_limits": {"full": bool(args.full), "sample_entries": sample_entries, "sample_search_hits": sample_search_hits, "jobs": args.jobs},
+        "sample_limits": summary_sample_limits,
         "total_packages": len(rows),
         "family_counts": family_counts,
         "family_deferred_counts": family_deferred_counts,
@@ -656,6 +679,7 @@ def build_parser() -> argparse.ArgumentParser:
     package.add_argument("path", type=Path)
     package.add_argument("--sample-entries", type=int, default=3)
     package.add_argument("--sample-search-hits", type=int, default=5)
+    package.add_argument("--max-bytes-per-scan", type=int)
     package.add_argument("--json", action="store_true", help="Compatibility no-op; JSON is always emitted")
     package.add_argument("--debug", action="store_true")
     package.add_argument("--output", type=Path)
@@ -672,6 +696,7 @@ def build_parser() -> argparse.ArgumentParser:
     corpus.add_argument("--diagnostics-jsonl", type=Path)
     corpus.add_argument("--sample-entries", type=int)
     corpus.add_argument("--sample-search-hits", type=int)
+    corpus.add_argument("--max-bytes-per-scan", type=int)
     corpus.add_argument("--jobs", type=int, default=0)
     corpus.add_argument("--progress", action="store_true")
     corpus.add_argument("--shape-only", action="store_true")
