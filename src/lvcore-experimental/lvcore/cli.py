@@ -13,7 +13,7 @@ from typing import Any
 
 from .detect import detect_family
 from .errors import UnsupportedPackageError
-from .model import PackageFamily, SearchProfile
+from .model import ComponentRole, PackageFamily, SearchProfile
 from .package import open_package
 from .render import HtmlProfile
 
@@ -137,6 +137,35 @@ def cmd_titles(args: argparse.Namespace) -> int:
 
 def cmd_indexes(args: argparse.Namespace) -> int:
     package = open_package(args.path)
+    if args.limit and not args.debug:
+        components = (
+            [component]
+            if args.component and (component := package.component(args.component)) is not None
+            else list(package.components_by_role(ComponentRole.INDEX))
+        )
+        for component in components:
+            rows = []
+            for row in package._iter_index_rows_fast(component):
+                rows.append(row)
+                if len(rows) >= args.limit:
+                    break
+            emit(
+                {
+                    "component": component.name,
+                    "component_type": f"{component.type:02x}",
+                    "rows": [row.to_dict() for row in rows],
+                    "row_count": None,
+                    "rows_seen": len(rows),
+                    "rows_complete": False,
+                    "leaf_pages": None,
+                    "internal_pages": None,
+                    "unknown_leaf_bytes": None,
+                    "physical_tail_bytes": None,
+                    "physical_tail_nonzero_bytes": None,
+                    "notes": ["fast limited index stream; use --debug or --limit 0 for complete index diagnostics"],
+                }
+            )
+        return 0
     parsed = package.indexes(component=args.component)
     for name, result in parsed.items():
         rows = result.rows[: args.limit] if args.limit else result.rows
@@ -305,19 +334,44 @@ def cmd_resources(args: argparse.Namespace) -> int:
 
 def cmd_gaiji(args: argparse.Namespace) -> int:
     package = open_package(args.path)
-    resources = [resource.to_dict(debug=args.debug) for resource in package.gaiji_resources(limit=args.limit)]
+    gaiji_summary = {
+        "records": len(package.gaiji.records),
+        "mapped": len(package.gaiji.mapping),
+        "image_resources": len(package.gaiji_images),
+        "plist_unicode_mappings": package.gaiji.plist_unicode_mappings,
+        "plist_mapping_ambiguous": package.gaiji.plist_mapping_ambiguous,
+        "plist_parse_failures": package.gaiji.plist_parse_failures,
+    }
+    if args.debug:
+        gaiji_summary["paths"] = [str(path) for path in package.gaiji.paths]
+        gaiji_summary["ga16"] = [
+            {
+                "path": str(resource.path),
+                "width": resource.width,
+                "height": resource.height,
+                "start_code": f"{resource.start_code:04x}",
+                "count": resource.count,
+                "glyph_bytes": resource.glyph_bytes,
+                "section": resource.section,
+            }
+            for resource in package.ga16
+        ]
+    else:
+        gaiji_summary["ga16_resources"] = len(package.ga16)
+    resources = tuple(package.gaiji_resources(limit=args.limit))
+    resource_rows = [resource.to_dict(debug=args.debug) for resource in resources]
     rows = [
         {
             "resource": resource.to_dict(debug=args.debug),
             "info": package.resource_info(resource),
         }
-        for resource in package.gaiji_resources(limit=args.limit)
+        for resource in resources
     ]
     emit(
         {
             "package": package.info.to_dict(),
-            "gaiji": package.summary(debug=True).get("gaiji"),
-            "resources": rows if args.debug else resources,
+            "gaiji": gaiji_summary,
+            "resources": rows if args.debug else resource_rows,
         }
     )
     return 0
@@ -370,7 +424,7 @@ def cmd_resource_bytes(args: argparse.Namespace) -> int:
 def cmd_validate(args: argparse.Namespace) -> int:
     _status(args, f"lvcore: validating {args.path}", verbose=True)
     package = open_package(args.path)
-    report = package.validate(sample_entries=args.sample_entries, sample_search_hits=args.sample_search_hits)
+    report = package.validate(sample_entries=args.sample_entries, sample_search_hits=args.sample_search_hits, debug=args.debug)
     if args.json:
         emit(report)
     else:
@@ -399,7 +453,7 @@ def _corpus_validate_one(path_str: str, sample_entries: int, sample_search_hits:
                 "package": info.to_dict(),
             }
         package = open_package(path)
-        report = package.validate(sample_entries=sample_entries, sample_search_hits=sample_search_hits)
+        report = package.validate(sample_entries=sample_entries, sample_search_hits=sample_search_hits, debug=debug)
         return {
             "path": str(path),
             "name": path.name,
@@ -944,6 +998,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_indexes.add_argument("path", type=Path)
     p_indexes.add_argument("--component")
     p_indexes.add_argument("--limit", type=int, default=20)
+    p_indexes.add_argument("--debug", action="store_true", help="Parse complete indexes and include complete diagnostics")
     p_indexes.set_defaults(func=cmd_indexes)
 
     p_search = sub.add_parser("search", help="Native exact/forward/backward search through parsed index rows")

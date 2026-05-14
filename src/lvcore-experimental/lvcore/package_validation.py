@@ -159,8 +159,8 @@ class PackageValidationMixin:
                 counters["unresolved_link"] = int(counters.get("unresolved_link", 0)) + 1
                 self._increment_reason(link_by_reason, target.get("reason") or status)
 
-    def validate(self, *, sample_entries: int = 3, sample_search_hits: int = 5) -> dict[str, object]:
-        body_source = self.body_source()
+    def validate(self, *, sample_entries: int = 3, sample_search_hits: int = 5, debug: bool = False) -> dict[str, object]:
+        body_source = self.body_source(debug=debug)
         sidecar_roles = self.sidecar_role_summary()
         sidecar_supplement_counters = self.sidecar_supplement_summary()
         diagnostics_by_severity = {"info": 0, "warning": 0, "error": 0}
@@ -307,13 +307,24 @@ class PackageValidationMixin:
         search_hits_rendered_text = 0
         search_errors: list[str] = []
         sampled_rows: list[tuple[str, IndexRow]] = []
-        for component_name, parsed in self.indexes().items():
-            for row in parsed.rows:
-                sampled_rows.append((component_name, row))
+        if debug:
+            for component_name, parsed in self.indexes().items():
+                for row in parsed.rows:
+                    sampled_rows.append((component_name, row))
+                    if len(sampled_rows) >= sample_search_hits:
+                        break
                 if len(sampled_rows) >= sample_search_hits:
                     break
-            if len(sampled_rows) >= sample_search_hits:
-                break
+        else:
+            for component in self.components_by_role(ComponentRole.INDEX):
+                if component.path is None:
+                    continue
+                for row in self._iter_index_rows_fast(component):
+                    sampled_rows.append((component.name, row))
+                    if len(sampled_rows) >= sample_search_hits:
+                        break
+                if len(sampled_rows) >= sample_search_hits:
+                    break
         for component_name, row in sampled_rows:
             index_rows_sampled += 1
             query = self._row_display_key(row, backward=self._is_backward_index(component_name))
@@ -358,37 +369,59 @@ class PackageValidationMixin:
                 diagnostics_by_severity["error"] = diagnostics_by_severity.get("error", 0) + 1
                 search_errors.append(f"{row.page}:{row.row}: {exc}")
 
-        index_stats = {
-            name: {
-                "rows": len(parsed.rows),
-                "internal_rows": len(parsed.internal_rows),
-                "leaf_pages": parsed.leaf_pages,
-                "internal_pages": parsed.internal_pages,
-                "unknown_leaf_bytes": parsed.unknown_leaf_bytes,
-                "component_type": f"{self.component(name).type:02x}" if self.component(name) is not None else None,
-                "unsupported_component_type": f"{parsed.unsupported_component_type:02x}" if parsed.unsupported_component_type is not None else None,
-                "unsupported_leaf_pages": parsed.unsupported_leaf_pages,
-                "malformed_leaf_rows": parsed.malformed_leaf_rows,
-                "physical_tail_bytes": parsed.physical_tail_bytes,
-                "physical_tail_nonzero_bytes": parsed.physical_tail_nonzero_bytes,
-                "row_type_counts": dict(parsed.row_type_counts),
-                "continuation_groups": parsed.continuation_groups,
-                "dangling_continuation_rows": parsed.dangling_continuation_rows,
-                "diagnostics": [diagnostic.to_dict() for diagnostic in parsed.diagnostics],
-            }
-            for name, parsed in self.indexes().items()
-        }
         index_component_type_counts: dict[str, int] = {}
         index_rows_by_component_type: dict[str, int] = {}
-        for name, parsed in self.indexes().items():
-            component = self.component(name)
-            component_type = f"{component.type:02x}" if component is not None else "unknown"
-            index_component_type_counts[component_type] = index_component_type_counts.get(component_type, 0) + 1
-            index_rows_by_component_type[component_type] = index_rows_by_component_type.get(component_type, 0) + len(parsed.rows)
-            for diagnostic in parsed.diagnostics:
-                diagnostics_by_severity["warning"] = diagnostics_by_severity.get("warning", 0) + 1
-                diagnostics_by_area[DiagnosticArea.INDEX.value] = diagnostics_by_area.get(DiagnosticArea.INDEX.value, 0) + 1
-                diagnostics_by_code[diagnostic.code] = diagnostics_by_code.get(diagnostic.code, 0) + 1
+        if debug:
+            index_stats = {
+                name: {
+                    "rows": len(parsed.rows),
+                    "internal_rows": len(parsed.internal_rows),
+                    "leaf_pages": parsed.leaf_pages,
+                    "internal_pages": parsed.internal_pages,
+                    "unknown_leaf_bytes": parsed.unknown_leaf_bytes,
+                    "component_type": f"{self.component(name).type:02x}" if self.component(name) is not None else None,
+                    "unsupported_component_type": f"{parsed.unsupported_component_type:02x}" if parsed.unsupported_component_type is not None else None,
+                    "unsupported_leaf_pages": parsed.unsupported_leaf_pages,
+                    "malformed_leaf_rows": parsed.malformed_leaf_rows,
+                    "physical_tail_bytes": parsed.physical_tail_bytes,
+                    "physical_tail_nonzero_bytes": parsed.physical_tail_nonzero_bytes,
+                    "row_type_counts": dict(parsed.row_type_counts),
+                    "continuation_groups": parsed.continuation_groups,
+                    "dangling_continuation_rows": parsed.dangling_continuation_rows,
+                    "diagnostics": [diagnostic.to_dict() for diagnostic in parsed.diagnostics],
+                }
+                for name, parsed in self.indexes().items()
+            }
+            unsupported_component_types = {
+                name: f"{parsed.unsupported_component_type:02x}"
+                for name, parsed in self.indexes().items()
+                if parsed.unsupported_component_type is not None
+            }
+            malformed_leaf_rows = sum(parsed.malformed_leaf_rows for parsed in self.indexes().values())
+            physical_tail_bytes = sum(parsed.physical_tail_bytes for parsed in self.indexes().values())
+            physical_tail_nonzero_bytes = sum(parsed.physical_tail_nonzero_bytes for parsed in self.indexes().values())
+            continuation_groups = sum(parsed.continuation_groups for parsed in self.indexes().values())
+            dangling_continuation_rows = sum(parsed.dangling_continuation_rows for parsed in self.indexes().values())
+            for name, parsed in self.indexes().items():
+                component = self.component(name)
+                component_type = f"{component.type:02x}" if component is not None else "unknown"
+                index_component_type_counts[component_type] = index_component_type_counts.get(component_type, 0) + 1
+                index_rows_by_component_type[component_type] = index_rows_by_component_type.get(component_type, 0) + len(parsed.rows)
+                for diagnostic in parsed.diagnostics:
+                    diagnostics_by_severity["warning"] = diagnostics_by_severity.get("warning", 0) + 1
+                    diagnostics_by_area[DiagnosticArea.INDEX.value] = diagnostics_by_area.get(DiagnosticArea.INDEX.value, 0) + 1
+                    diagnostics_by_code[diagnostic.code] = diagnostics_by_code.get(diagnostic.code, 0) + 1
+        else:
+            index_stats = {}
+            unsupported_component_types = {}
+            malformed_leaf_rows = 0
+            physical_tail_bytes = 0
+            physical_tail_nonzero_bytes = 0
+            continuation_groups = 0
+            dangling_continuation_rows = 0
+            for component in self.components_by_role(ComponentRole.INDEX):
+                component_type = f"{component.type:02x}"
+                index_component_type_counts[component_type] = index_component_type_counts.get(component_type, 0) + 1
         sidecar_resolution = {
             "resolved": diagnostics_by_code.get("sidecar_body_resolved", 0),
             "missing_anchor_id": diagnostics_by_code.get("dense_anchor_missing_id", 0),
@@ -433,7 +466,7 @@ class PackageValidationMixin:
         }
         return {
             "package": self.info.to_dict(),
-            "body_source": body_source.to_dict(debug=True),
+            "body_source": body_source.to_dict(debug=debug),
             "sidecar_resolution": sidecar_resolution,
             "sidecar_roles": sidecar_roles,
             "resource_resolution": resource_resolution,
@@ -473,21 +506,18 @@ class PackageValidationMixin:
             "index_summary": {
                 "component_type_counts": index_component_type_counts,
                 "rows_by_component_type": index_rows_by_component_type,
-                "unsupported_component_types": {
-                    name: f"{parsed.unsupported_component_type:02x}"
-                    for name, parsed in self.indexes().items()
-                    if parsed.unsupported_component_type is not None
-                },
-                "malformed_leaf_rows": sum(parsed.malformed_leaf_rows for parsed in self.indexes().values()),
-                "physical_tail_bytes": sum(parsed.physical_tail_bytes for parsed in self.indexes().values()),
-                "physical_tail_nonzero_bytes": sum(parsed.physical_tail_nonzero_bytes for parsed in self.indexes().values()),
+                "unsupported_component_types": unsupported_component_types,
+                "malformed_leaf_rows": malformed_leaf_rows,
+                "physical_tail_bytes": physical_tail_bytes,
+                "physical_tail_nonzero_bytes": physical_tail_nonzero_bytes,
                 "text_like_index_outliers": {
                     component.name: f"{component.type:02x}"
                     for component in self.components
                     if component.name.upper() == "INDEX.DIC" and component.type in TEXT_LIKE_INDEX_OUTLIER_TYPES
                 },
-                "continuation_groups": sum(parsed.continuation_groups for parsed in self.indexes().values()),
-                "dangling_continuation_rows": sum(parsed.dangling_continuation_rows for parsed in self.indexes().values()),
+                "continuation_groups": continuation_groups,
+                "dangling_continuation_rows": dangling_continuation_rows,
+                "debug_deep_index_parse": debug,
             },
             "title_components": len(self.components_by_role(ComponentRole.TITLE)),
             "sample_entries_checked": entries_checked,

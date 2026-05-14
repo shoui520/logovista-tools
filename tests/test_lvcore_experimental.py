@@ -3172,6 +3172,19 @@ def test_lvcore_cli_search_debug_and_render_profiles(tmp_path: Path) -> None:
     )
     assert "third entry" in render_result.stdout
 
+    indexes_result = subprocess.run(
+        [sys.executable, "-m", "lvcore", "indexes", str(tmp_path), "--component", "FHINDEX.DIC", "--limit", "1"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        env={"PYTHONPATH": str(LVCORE_SRC)},
+    )
+    index_row = json.loads(indexes_result.stdout)
+    assert index_row["rows_seen"] == 1
+    assert index_row["rows_complete"] is False
+    assert index_row["row_count"] is None
+    assert index_row["rows"][0]["key"] == "alpha"
+
 
 def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> None:
     dense = tmp_path / "_DCT_DENSE"
