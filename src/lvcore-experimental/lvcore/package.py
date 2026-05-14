@@ -2088,6 +2088,30 @@ class LogoVistaPackage:
             return row.key, "row_key"
         return matched_key, "fallback"
 
+    def _heading_from_body_pointer(self, address: Address, *, max_bytes: int = 8192) -> str:
+        honmon = self.component_for_address(address, role=ComponentRole.HONMON)
+        if honmon is None or honmon.path is None:
+            return ""
+        try:
+            reader = self.data(honmon)
+            start = self._relative_offset(honmon, address)
+        except (KeyError, ValueError, OSError, FormatError):
+            return ""
+        if start < 0 or start >= reader.expanded_size:
+            return ""
+        data = reader.read(start, min(max_bytes, reader.expanded_size - start))
+        if not data:
+            return ""
+        cut_points = [pos for marker in (b"\x1f\x0a", b"\n") if (pos := data.find(marker, 1)) > 0]
+        next_entry = data.find(ENTRY_MARKER, 1)
+        if next_entry > 0:
+            cut_points.append(next_entry)
+        if cut_points:
+            data = data[: min(cut_points)]
+        decoded = self._decode_text_stream(data)
+        lines = [line.strip() for line in decoded.text.splitlines() if line.strip()]
+        return lines[0] if lines else ""
+
     def _cached_search_values(
         self,
         component_name: str,
@@ -2434,8 +2458,18 @@ class LogoVistaPackage:
             }
         if row.title == row.body and raw_title_component is not None and raw_title_component.role == ComponentRole.HONMON:
             title_reason = "title_pointer_is_body_pointer"
+            body_heading = self._heading_from_body_pointer(body)
+            if body_heading:
+                heading = body_heading
+                heading_source = "body_heading"
+                title_status = "resolved"
         elif not title_components and raw_title_component is not None and raw_title_component.role == ComponentRole.HONMON:
             title_reason = "title_pointer_hits_honmon_without_title_components"
+            body_heading = self._heading_from_body_pointer(body)
+            if body_heading:
+                heading = body_heading
+                heading_source = "body_heading"
+                title_status = "resolved"
         else:
             title_text, diagnostics = self.resolve_title(title)
             if title_text:
@@ -2481,6 +2515,92 @@ class LogoVistaPackage:
             title_resolution=title_resolution,
             _package=self,
         )
+
+    def _iter_main_wordlist_sidecar_hits(
+        self,
+        query: str,
+        *,
+        limit: int,
+        profile: SearchProfile,
+        start_id: int = 1,
+    ) -> Iterable[SearchHit]:
+        if profile not in {SearchProfile.NATIVE, SearchProfile.EXACT, SearchProfile.FORWARD}:
+            return
+        normalized_query = normalize_query(query)
+        raw_query = str(query or "").strip()
+        if not raw_query:
+            return
+        for sidecar in self._body_sidecars(stop_after_body_resolver=True):
+            if sidecar.kind != "main_wordlist" or not sidecar.table or not sidecar.id_column:
+                continue
+            sqlite_path = self._sqlite_path_for_sidecar(sidecar.path, sidecar.storage)
+            con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+            try:
+                columns = sqlite_columns(con, sidecar.table)
+                text_columns = [
+                    column
+                    for column in ("C_text", "J_text", "K_text")
+                    if find_column(columns, column)
+                ]
+                if not text_columns:
+                    continue
+                select_columns = [sidecar.id_column]
+                for column in ("Class", "C_text", "J_text", "K_text", "Pinyin"):
+                    found = find_column(columns, column)
+                    if found and found not in select_columns:
+                        select_columns.append(found)
+                if profile == SearchProfile.FORWARD:
+                    predicates = " or ".join(f"{quote_sql_identifier(column)} like ?" for column in text_columns)
+                    params = tuple(raw_query + "%" for _ in text_columns)
+                else:
+                    predicates = " or ".join(f"{quote_sql_identifier(column)}=?" for column in text_columns)
+                    params = tuple(raw_query for _ in text_columns)
+                sql = (
+                    f"select {', '.join(quote_sql_identifier(column) for column in select_columns)} "
+                    f"from {quote_sql_identifier(sidecar.table)} where {predicates} limit ?"
+                )
+                rows = con.execute(sql, (*params, limit)).fetchall()
+                for offset, row in enumerate(rows, start=start_id):
+                    data = dict(zip(select_columns, row))
+                    id_value = str(data.get(sidecar.id_column) or "")
+                    c_text = str(data.get("C_text") or "")
+                    j_text = str(data.get("J_text") or "")
+                    k_text = str(data.get("K_text") or "")
+                    heading = c_text or j_text or k_text or id_value
+                    matched = next((value for value in (c_text, j_text, k_text) if value == raw_query), heading)
+                    try:
+                        pseudo_offset = int(id_value)
+                    except ValueError:
+                        pseudo_offset = offset
+                    address = Address(0, pseudo_offset, sidecar.path.name)
+                    yield SearchHit(
+                        id=offset,
+                        query=query,
+                        normalized_query=normalized_query,
+                        search_profile=profile,
+                        package_id=self.info.dict_id,
+                        index_component=f"sidecar:{sidecar.path.name}:{sidecar.table}",
+                        display_key=heading,
+                        matched_key=matched,
+                        target_key=id_value,
+                        heading=heading,
+                        heading_source="sidecar_wordlist",
+                        title_status="resolved",
+                        body=address,
+                        title=address,
+                        tagged=False,
+                        title_reason="sidecar_wordlist_row",
+                        sidecar_row={
+                            "sidecar": sidecar.path.name,
+                            "table": sidecar.table,
+                            "id_column": sidecar.id_column,
+                            "id": id_value,
+                            "columns": data,
+                        },
+                        _package=self,
+                    )
+            finally:
+                con.close()
 
     def search(
         self,
@@ -2541,6 +2661,11 @@ class LogoVistaPackage:
                     return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits))
             if profile == SearchProfile.NATIVE and len(hits) > before_profile:
                 return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits))
+        if not hits:
+            for hit in self._iter_main_wordlist_sidecar_hits(query, limit=limit, profile=profile):
+                hits.append(hit)
+                if len(hits) >= limit:
+                    break
         return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits))
 
     def search_index(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[dict[str, object]]:
@@ -2566,7 +2691,45 @@ class LogoVistaPackage:
             return [self.entry_for_hit(hit) for hit in self.search(term, limit=limit, profile=profile).hits]
         return [self.entry_for_hit(hit, include_supplements=False) for hit in self.search(term, limit=limit, profile=profile).hits]
 
+    def _entry_from_sidecar_wordlist_hit(self, hit: SearchHit) -> Entry:
+        row = hit.sidecar_row or {}
+        columns = row.get("columns")
+        data = columns if isinstance(columns, dict) else {}
+        lines = [
+            str(value)
+            for key in ("C_text", "J_text", "K_text", "Pinyin", "Class")
+            if (value := data.get(key))
+        ]
+        if not lines:
+            lines = [hit.heading]
+        spans: list[Span] = []
+        for index, line in enumerate(lines):
+            if index:
+                spans.append(Span(kind="break"))
+            spans.append(Span(kind="text", text=line))
+        note = Diagnostic(
+            severity=Severity.INFO,
+            area=DiagnosticArea.BODY,
+            code="sidecar_wordlist_entry_resolved",
+            message="entry resolved from body-critical sidecar wordlist row",
+            details={
+                "sidecar": row.get("sidecar"),
+                "table": row.get("table"),
+                "id": row.get("id"),
+            },
+        )
+        return Entry(
+            address=hit.body,
+            end_address=hit.body,
+            headword=hit.heading,
+            text="\n".join(lines),
+            spans=tuple(spans),
+            entry_diagnostics=(note,),
+        )
+
     def entry_for_hit(self, hit: SearchHit, *, include_supplements: bool = True) -> Entry:
+        if hit.sidecar_row is not None:
+            return self._entry_from_sidecar_wordlist_hit(hit)
         inspection = self.inspect_body_pointer(hit.body)
         sidecar_entry = self._try_entry_from_dense_sidecar(hit, inspection, include_supplements=include_supplements)
         if sidecar_entry is not None:

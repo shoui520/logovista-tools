@@ -1812,22 +1812,23 @@ def test_lvcore_body_pointer_title_slot_is_heading_fallback_not_failure(tmp_path
     report = package.validate(sample_entries=0, sample_search_hits=1)
 
     assert hit.heading == "fallback"
-    assert hit.heading_source == "display_key"
-    assert hit.title_status == "fallback"
+    assert hit.heading_source == "body_heading"
+    assert hit.title_status == "resolved"
     assert hit.title_reason == "title_pointer_is_body_pointer"
     assert hit.diagnostics == ()
     friendly = hit.to_dict()
     debug = hit.to_dict(debug=True)
-    assert friendly["title_status"] == "fallback"
+    assert friendly["title_status"] == "resolved"
     assert "title" not in friendly
     assert "title_resolution" not in friendly
     assert debug["title"]["block"] == 2
     assert debug["title_resolution"]["row_title_equals_body"] is True
     assert debug["title_resolution"]["reason"] == "title_pointer_is_body_pointer"
     assert report["title_dereference"]["failed"] == 0
-    assert report["title_dereference"]["fallback"] == 1
-    assert report["title_dereference"]["by_reason"] == {"title_pointer_is_body_pointer": 1}
-    assert report["title_dereference"]["heading_source_counts"] == {"display_key": 1}
+    assert report["title_dereference"]["fallback"] == 0
+    assert report["title_dereference"]["resolved"] == 1
+    assert report["title_dereference"]["by_reason"] == {}
+    assert report["title_dereference"]["heading_source_counts"] == {"body_heading": 1}
 
 
 def test_lvcore_body_pointer_title_slot_with_other_titles_still_falls_back(tmp_path: Path) -> None:
@@ -1837,9 +1838,59 @@ def test_lvcore_body_pointer_title_slot_with_other_titles_still_falls_back(tmp_p
     hit = package.search("fallback", profile=SearchProfile.EXACT).hits[0]
 
     assert hit.heading == "fallback"
-    assert hit.title_status == "fallback"
+    assert hit.heading_source == "body_heading"
+    assert hit.title_status == "resolved"
     assert hit.title_reason == "title_pointer_is_body_pointer"
     assert hit.diagnostics == ()
+
+
+def test_lvcore_exact_search_flattens_query_and_displays_body_heading(tmp_path: Path) -> None:
+    honmon_start = 2
+    index_start = 3
+    body = body_text("departure time") + b"\x1f\x0a" + body_text("body") + b"\x1f\x0a"
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start, b"\x02\x01\x55\x40"),
+    ]
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "BODYTITLE.IDX").write_bytes(ssedinfo("Body Title Pointer", components))
+    (tmp_path / "HONMON.DIC").write_bytes(literal_sseddata(body, start_block=honmon_start, kind=0))
+    (tmp_path / "FHINDEX.DIC").write_bytes(
+        literal_sseddata(simple_index([("DEPARTURETIME", honmon_start, 0, honmon_start, 0)]), start_block=index_start, kind=0x91)
+    )
+
+    package = open_package(tmp_path)
+    hit = package.search("Departure time", profile=SearchProfile.EXACT).hits[0]
+
+    assert hit.display_key == "DEPARTURETIME"
+    assert hit.heading == "departure time"
+    assert hit.heading_source == "body_heading"
+    assert hit.title_status == "resolved"
+
+
+def test_lvcore_search_falls_back_to_main_wordlist_sidecar(tmp_path: Path) -> None:
+    honmon_start = 2
+    components = [("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00")]
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "MAINWL.IDX").write_bytes(ssedinfo("Main Wordlist", components))
+    (tmp_path / "HONMON.DIC").write_bytes(literal_sseddata(b"", start_block=honmon_start, kind=0))
+    con = sqlite3.connect(tmp_path / "MAINWL")
+    try:
+        con.execute("create table main (ID text primary key, Class text, C_text text, J_text text, Pinyin text)")
+        con.execute("insert into main values (?, ?, ?, ?, ?)", ("00000001", "field", "機械式走査装置", "mechanical scanner", ""))
+        con.commit()
+    finally:
+        con.close()
+
+    package = open_package(tmp_path)
+    hit = package.search("機械式走査装置", profile=SearchProfile.EXACT).hits[0]
+    entry = package.entry_for_hit(hit)
+
+    assert hit.index_component == "sidecar:MAINWL:main"
+    assert hit.heading == "機械式走査装置"
+    assert hit.heading_source == "sidecar_wordlist"
+    assert "mechanical scanner" in package.render_entry_text(entry)
+    assert any(diagnostic.code == "sidecar_wordlist_entry_resolved" for diagnostic in entry.diagnostics())
 
 
 def test_lvcore_entry_document_and_friendly_rendering_from_spans() -> None:

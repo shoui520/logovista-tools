@@ -81,6 +81,7 @@ class SearchHit:
     raw_row: IndexRow | None = field(default=None, repr=False, compare=False)
     body_source: dict[str, Any] | None = field(default=None, repr=False, compare=False)
     title_resolution: dict[str, Any] | None = field(default=None, repr=False, compare=False)
+    sidecar_row: dict[str, Any] | None = field(default=None, repr=False, compare=False)
     _package: Any = field(default=None, repr=False, compare=False)
 
     def entry(self):
@@ -126,6 +127,7 @@ class SearchHit:
                     "body_source": body_source,
                     "title_reason": self.title_reason,
                     "title_resolution": self.title_resolution,
+                    "sidecar_row": self.sidecar_row,
                 }
             )
         return data
