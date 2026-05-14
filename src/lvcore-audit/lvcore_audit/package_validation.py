@@ -2,22 +2,38 @@
 
 from __future__ import annotations
 
-from .body_source import (
+from lvcore import (
+    Address,
+    BlockNode,
+    ComponentRole,
+    Diagnostic,
+    DiagnosticArea,
+    Entry,
+    GaijiDisplayStatus,
+    IndexRow,
+    InlineKind,
+    InlineNode,
+    ResourceKind,
+    ResourceRef,
+    SearchProfile,
     SidecarRole,
     SsedBodySourceKind,
+    Severity,
+    TEXT_LIKE_INDEX_OUTLIER_TYPES,
+    normalize_query,
+    render_html,
+    render_text,
 )
-from .diagnostics import Diagnostic, DiagnosticArea, Severity
-from .document import BlockNode, InlineKind, InlineNode, ResourceKind, ResourceRef
-from .gaiji import GaijiDisplayStatus
-from .index import IndexRow
-from .model import Address, ComponentRole, Entry, SearchProfile
-from .render import render_html, render_text
-from .search import normalize_query
-from .ssed import TEXT_LIKE_INDEX_OUTLIER_TYPES
 
 
-class PackageValidationMixin:
-    """Validation and summary methods for LogoVistaPackage."""
+class _PackageValidationAdapter:
+    """Audit-side validation adapter around a public lvcore package."""
+
+    def __init__(self, package) -> None:
+        self._package = package
+
+    def __getattr__(self, name: str):
+        return getattr(self._package, name)
 
     @staticmethod
     def _count_diagnostics(target: tuple[Diagnostic, ...], by_severity: dict[str, int], by_area: dict[str, int], by_code: dict[str, int]) -> None:
@@ -319,7 +335,7 @@ class PackageValidationMixin:
             for component in self.components_by_role(ComponentRole.INDEX):
                 if component.path is None:
                     continue
-                for row in self._iter_index_rows_fast(component):
+                for row in self.iter_index_rows(component):
                     sampled_rows.append((component.name, row))
                     if len(sampled_rows) >= sample_search_hits:
                         break
@@ -536,35 +552,11 @@ class PackageValidationMixin:
             "ok": diagnostics_by_severity.get("error", 0) == 0 and not entry_errors,
         }
 
-    def summary(self, *, debug: bool = False) -> dict[str, object]:
-        data: dict[str, object] = {
-            "package": self.info.to_dict(),
-            "components": [component.to_dict() for component in self.components],
-        }
-        if not debug:
-            data["notes"] = ["fast summary; use --debug for body-source, gaiji, and resource evidence"]
-            return data
+def validate_package(package, *, sample_entries: int = 3, sample_search_hits: int = 5, debug: bool = False) -> dict[str, object]:
+    """Validate a package using audit-side scorecard logic."""
 
-        data["body_source"] = self.body_source(debug=True).to_dict(debug=False)
-        data["gaiji"] = {
-                "records": len(self.gaiji.records),
-                "mapped": len(self.gaiji.mapping),
-                "paths": [str(path) for path in self.gaiji.paths],
-                "image_resources": len(self.gaiji_images),
-                "plist_unicode_mappings": self.gaiji.plist_unicode_mappings,
-                "plist_mapping_ambiguous": self.gaiji.plist_mapping_ambiguous,
-                "plist_parse_failures": self.gaiji.plist_parse_failures,
-                "ga16": [
-                    {
-                        "path": str(resource.path),
-                        "width": resource.width,
-                        "height": resource.height,
-                        "start_code": f"{resource.start_code:04x}",
-                        "count": resource.count,
-                        "glyph_bytes": resource.glyph_bytes,
-                        "section": resource.section,
-                    }
-                    for resource in self.ga16
-                ],
-            }
-        return data
+    return _PackageValidationAdapter(package).validate(
+        sample_entries=sample_entries,
+        sample_search_hits=sample_search_hits,
+        debug=debug,
+    )

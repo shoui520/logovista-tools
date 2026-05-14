@@ -20,7 +20,6 @@ from .package_resources import PackageResourceMixin
 from .package_search import PackageSearchMixin
 from .package_sidecars import PackageSidecarMixin
 from .package_utils import SearchValueRow
-from .package_validation import PackageValidationMixin
 
 
 def open_package(path: str | Path) -> "LogoVistaPackage":
@@ -38,7 +37,6 @@ class LogoVistaPackage(
     PackageEntryMixin,
     PackageSearchMixin,
     PackageResourceMixin,
-    PackageValidationMixin,
 ):
     """Reader/parser API for one SSED package."""
 
@@ -195,3 +193,56 @@ class LogoVistaPackage(
     def honmon_component(self) -> Component | None:
         candidates = self.components_by_role(ComponentRole.HONMON)
         return candidates[0] if candidates else None
+
+    def iter_index_rows(self, component: Component):
+        """Iterate parsed native index rows from one component."""
+
+        yield from self._iter_index_rows_fast(component)
+
+    def sidecars(
+        self,
+        *,
+        stop_after_body_resolver: bool = False,
+        allow_expensive: bool = True,
+    ) -> tuple[SidecarInfo, ...]:
+        """Return classified package sidecars for inspection/audit callers."""
+
+        return self._body_sidecars(
+            stop_after_body_resolver=stop_after_body_resolver,
+            allow_expensive=allow_expensive,
+        )
+
+    def summary(self, *, debug: bool = False) -> dict[str, object]:
+        """Return a package summary for the reader CLI."""
+
+        data: dict[str, object] = {
+            "package": self.info.to_dict(),
+            "components": [component.to_dict() for component in self.components],
+        }
+        if not debug:
+            data["notes"] = ["fast summary; use --debug for body-source, gaiji, and resource evidence"]
+            return data
+
+        data["body_source"] = self.body_source(debug=True).to_dict(debug=False)
+        data["gaiji"] = {
+            "records": len(self.gaiji.records),
+            "mapped": len(self.gaiji.mapping),
+            "paths": [str(path) for path in self.gaiji.paths],
+            "image_resources": len(self.gaiji_images),
+            "plist_unicode_mappings": self.gaiji.plist_unicode_mappings,
+            "plist_mapping_ambiguous": self.gaiji.plist_mapping_ambiguous,
+            "plist_parse_failures": self.gaiji.plist_parse_failures,
+            "ga16": [
+                {
+                    "path": str(resource.path),
+                    "width": resource.width,
+                    "height": resource.height,
+                    "start_code": f"{resource.start_code:04x}",
+                    "count": resource.count,
+                    "glyph_bytes": resource.glyph_bytes,
+                    "section": resource.section,
+                }
+                for resource in self.ga16
+            ],
+        }
+        return data

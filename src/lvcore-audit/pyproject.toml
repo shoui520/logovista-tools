@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lvcore-audit"
+version = "0.0.1"
+description = "Deterministic corpus audit tools for experimental lvcore."
+requires-python = ">=3.10"
+dependencies = ["lvcore-experimental"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+lvcore-audit = "lvcore_audit.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]

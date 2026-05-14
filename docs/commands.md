@@ -8,8 +8,10 @@ sidecars, writing, and validation.
 reader-only, does not import `logovista_tools`, and targets real LogoVista
 package compatibility rather than authoring. See
 [`src/lvcore-experimental/README.md`](../src/lvcore-experimental/README.md)
-for `python3 -m lvcore` commands such as `search`, `render`, `validate`, and
-`corpus-validate`. The lvcore CLI also exposes explicit resource inspection:
+for `python3 -m lvcore` commands such as `search`, `render`, and resource
+inspection. Audit and corpus scorecard commands live in the sibling
+`lvcore-audit` package as `python3 -m lvcore_audit package` and
+`python3 -m lvcore_audit corpus`. The lvcore CLI also exposes explicit resource inspection:
 `resources`, `resource-info`, and `resource-bytes`, plus `sidecars` for
 role/support inspection of SSED supplemental sidecars and `gaiji` for
 dictionary-local gaiji display/resource readiness. `resources --include-gaiji`

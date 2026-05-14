@@ -64,9 +64,17 @@ PYTHONPATH=src/lvcore-experimental python3 -m lvcore gaiji /path/to/_DCT_DICT --
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore sidecars /path/to/_DCT_DICT --json --debug
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore resource-info /path/to/_DCT_DICT term media-1 --json --debug
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore resource-bytes /path/to/_DCT_DICT term media-1 --output /private/output/media.bin
-PYTHONPATH=src/lvcore-experimental python3 -m lvcore validate /path/to/_DCT_DICT --sample-search-hits 5 --json
-PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate /path/to/corpus --json --full --jobs 0
-PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate /path/to/corpus --json --jobs 0 --progress --output-dir /private/reports/lvcore-corpus
+```
+
+Audit and scorecard commands live in the sibling `lvcore-audit` package:
+
+```bash
+PYTHONPATH=src/lvcore-experimental:src/lvcore-audit \
+  python3 -m lvcore_audit package /path/to/_DCT_DICT --sample-search-hits 5
+
+PYTHONPATH=src/lvcore-experimental:src/lvcore-audit \
+  python3 -m lvcore_audit corpus /path/to/corpus --full --jobs 0 --progress \
+  --output-dir /private/reports/lvcore-corpus
 ```
 
 The lvcore CLI writes progress/status messages to stderr and keeps JSON/HTML/text
@@ -249,8 +257,8 @@ media tables are exposed as package-level `ResourceRef` records with explicit
 `resource_bytes()` access to the untouched BLOB payload. Remaining ambiguous
 schemas stay diagnosed and counted.
 
-`corpus-validate` is the private full-corpus audit entry point. Its JSON summary
-uses the `lvcore.corpus_validate.v1` schema and reports package-family counts,
+`lvcore_audit corpus` is the private full-corpus audit entry point. Its JSON summary
+uses the `lvcore.audit.corpus.v1` schema and reports package-family counts,
 SSED body-source counts, SSED render-support counts, diagnostic counts by
 severity/area/code, top blockers, sample limits, and search-hit
 dereference/render totals. LVED and LVLMultiView are counted as deferred package

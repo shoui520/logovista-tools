@@ -323,12 +323,14 @@ sidecar row. Observed `t_contents` key columns include `f_DataId`,
 Unmapped, encrypted, or schema-unknown sidecars are classified and reported as
 deferred; the reader does not fake a body by decoding anchor records.
 
-`body-source`, `validate`, and `corpus-validate` expose body-source information
-in JSON. Debug output may include anchor IDs, raw pointers, sidecar names, and
-mapping status, including attempted query values and selected table/column
-names. Friendly output must not. Validation also reports sampled sidecar
-resolution counters so corpus runs can distinguish resolved rows, missing rows,
-missing anchor IDs, and unsupported body-source placeholders.
+`body-source` exposes reader body-source information in JSON. The sibling
+`lvcore-audit` package owns validation and corpus scorecards, using public
+reader APIs rather than reader-private helpers. Debug output may include anchor
+IDs, raw pointers, sidecar names, and mapping status, including attempted query
+values and selected table/column names. Friendly output must not. Audit reports
+sampled sidecar resolution counters so corpus runs can distinguish resolved
+rows, missing rows, missing anchor IDs, and unsupported body-source
+placeholders.
 
 Sidecar files are also classified by role when the structure is visible. The
 current role vocabulary separates body-critical stores from media/resource

@@ -13,7 +13,9 @@ import pytest
 
 
 LVCORE_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-experimental"
+LVCORE_AUDIT_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-audit"
 sys.path.insert(0, str(LVCORE_SRC))
+sys.path.insert(0, str(LVCORE_AUDIT_SRC))
 
 from lvcore import Address, Diagnostic, DiagnosticArea, Location, PackageFamily, SearchHit, SearchProfile, SearchResults, Severity, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
 from lvcore.body_source import SidecarRole, classify_sqlite_sidecar_role, quote_sql_identifier, sqlite_columns  # noqa: E402
@@ -27,6 +29,7 @@ from lvcore.opcodes import OpcodeCategory, behavior_for  # noqa: E402
 from lvcore.render import GaijiPolicy, HtmlProfile, render_html, render_text  # noqa: E402
 from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE, SsedData, expand_sseddata, parse_catalog  # noqa: E402
 from lvcore.text import decode_text_stream  # noqa: E402
+from lvcore_audit import validate_package  # noqa: E402
 
 
 def test_lvcore_source_stays_independent_from_toolkit() -> None:
@@ -834,7 +837,7 @@ def test_lvcore_missing_honmon_is_named_component_integrity_issue(tmp_path: Path
     package = open_package(tmp_path)
 
     source = package.body_source()
-    report = package.validate(sample_entries=0, sample_search_hits=1)
+    report = validate_package(package, sample_entries=0, sample_search_hits=1)
 
     assert source.ssed_kind == SsedBodySourceKind.MISSING_BODY_COMPONENT
     assert source.support.value == "unsupported"
@@ -849,7 +852,7 @@ def test_lvcore_bad_component_size_reports_cleanly_during_validation(tmp_path: P
     make_bad_body_pointer_package(tmp_path, component_end_block=3, body_block=3)
     package = open_package(tmp_path)
 
-    report = package.validate(sample_entries=0, sample_search_hits=1)
+    report = validate_package(package, sample_entries=0, sample_search_hits=1)
 
     assert report["sample_search_hits_dereferenced"] == 1
     assert report["sample_search_hits_rendered_html"] == 1
@@ -941,7 +944,7 @@ def test_lvcore_decode_telemetry_is_reported_once_by_validation(tmp_path: Path) 
     (tmp_path / "FHINDEX.DIC").write_bytes(literal_sseddata(index, start_block=index_start, kind=0x91))
 
     package = open_package(tmp_path)
-    report = package.validate(sample_entries=1, sample_search_hits=1)
+    report = validate_package(package, sample_entries=1, sample_search_hits=1)
     entry = package.search_entries("bad", profile=SearchProfile.EXACT)[0]
 
     assert report["decode_telemetry"] == {"unknown_controls": 1, "unknown_bytes": 2}
@@ -1020,7 +1023,7 @@ def test_lvcore_cli_outputs_json(tmp_path: Path) -> None:
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     data = json.loads(result.stdout)
     assert data["package"]["family"] == "ssed"
@@ -1035,7 +1038,7 @@ def test_lvcore_cli_missing_path_error_is_friendly(tmp_path: Path) -> None:
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
 
     assert result.returncode != 0
@@ -1113,7 +1116,7 @@ def test_lvcore_backward_only_index_supports_exact_and_suffix_search(tmp_path: P
     assert [hit.display_key for hit in backward.hits] == ["alpha"]
     assert [hit.display_key for hit in native.hits] == ["alpha"]
 
-    report = package.validate(sample_entries=0, sample_search_hits=1)
+    report = validate_package(package, sample_entries=0, sample_search_hits=1)
     assert report["diagnostics"]["by_code"].get("sample_search_miss", 0) == 0
     assert report["sample_search_hits_dereferenced"] == 1
 
@@ -1128,7 +1131,7 @@ def test_lvcore_sample_search_skips_empty_normalized_index_keys(tmp_path: Path) 
     )
     package = open_package(tmp_path)
 
-    report = package.validate(sample_entries=0, sample_search_hits=1)
+    report = validate_package(package, sample_entries=0, sample_search_hits=1)
 
     assert report["diagnostics"]["by_code"]["sample_search_skipped_empty_query"] == 1
     assert report["diagnostics"]["by_code"].get("sample_search_miss", 0) == 0
@@ -1254,7 +1257,7 @@ def test_lvcore_classifies_text_like_index_outlier_as_resource(tmp_path: Path) -
     catalog = parse_catalog(tmp_path / "OUTLIER.IDX")
     outlier = next(component for component in catalog.components if component.name == "INDEX.DIC")
     package = open_package(tmp_path)
-    report = package.validate(sample_entries=1, sample_search_hits=1)
+    report = validate_package(package, sample_entries=1, sample_search_hits=1)
 
     assert outlier.type == 0x27
     assert outlier.role == ComponentRole.RESOURCE
@@ -1263,11 +1266,11 @@ def test_lvcore_classifies_text_like_index_outlier_as_resource(tmp_path: Path) -
     assert report["index_summary"]["unsupported_component_types"] == {}
 
     result = subprocess.run(
-        [sys.executable, "-m", "lvcore", "validate", str(tmp_path), "--json", "--sample-entries", "1", "--sample-search-hits", "1"],
+        [sys.executable, "-m", "lvcore_audit", "package", str(tmp_path), "--json", "--sample-entries", "1", "--sample-search-hits", "1"],
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     data = json.loads(result.stdout)
     assert data["index_summary"]["text_like_index_outliers"] == {"INDEX.DIC": "27"}
@@ -1574,7 +1577,7 @@ def test_lvcore_dense_anchor_sidecar_missing_row_is_safe_and_debuggable(tmp_path
     assert missing["details"]["id_column"] == "f_DataId"
     assert "2" in missing["details"]["query_values"]
 
-    report = package.validate(sample_entries=1, sample_search_hits=2)
+    report = validate_package(package, sample_entries=1, sample_search_hits=2)
     assert report["sidecar_resolution"]["resolved"] == 1
     assert report["sidecar_resolution"]["missing_row"] == 1
 
@@ -1637,7 +1640,7 @@ def test_lvcore_example_idiom_sidecar_is_classified_and_address_mapped(tmp_path:
     assert "row_id" not in html
     assert debug_document["debug_metadata"]["sidecar_supplements"][0]["sidecar"] == "examples.db"
 
-    report = package.validate(sample_entries=1, sample_search_hits=1)
+    report = validate_package(package, sample_entries=1, sample_search_hits=1)
     assert report["sidecar_references"]["matched"] == 2
     assert report["sidecar_references"]["by_role"]["examples_idioms"] == 2
     assert report["sidecar_supplements"]["examples_idioms_rows_seen"] == 2
@@ -1667,7 +1670,7 @@ def test_lvcore_media_sidecar_schema_is_compatibility_significant(tmp_path: Path
     assert info["byte_length"] == len(b"original bytes")
     assert package.resource_bytes(resources[0]) == b"original bytes"
 
-    report = package.validate(sample_entries=1, sample_search_hits=1)
+    report = validate_package(package, sample_entries=1, sample_search_hits=1)
     assert report["resource_resolution"]["sidecar_media_resolved"] == 1
     assert report["sidecar_supplements"]["sidecar_media_rows_resolved"] == 1
     assert "unsupported_media_resource_sidecar" not in report["diagnostics"]["by_code"]
@@ -1753,7 +1756,7 @@ def test_lvcore_search_metadata_sidecar_is_supported_but_not_native_search(tmp_p
     package = open_package(tmp_path)
 
     summary = package.sidecar_role_summary()
-    report = package.validate(sample_entries=0, sample_search_hits=1)
+    report = validate_package(package, sample_entries=0, sample_search_hits=1)
 
     assert summary["role_counts"]["search"] == 1
     assert summary["supported_role_counts"]["search"] == 1
@@ -1941,7 +1944,7 @@ def test_lvcore_body_pointer_title_slot_is_heading_fallback_not_failure(tmp_path
     package = open_package(tmp_path)
 
     hit = package.search("fallback", profile=SearchProfile.EXACT).hits[0]
-    report = package.validate(sample_entries=0, sample_search_hits=1)
+    report = validate_package(package, sample_entries=0, sample_search_hits=1)
 
     assert hit.heading == "fallback"
     assert hit.heading_source == "body_heading"
@@ -2516,7 +2519,7 @@ def test_lvcore_blank_ga16_glyph_is_formatting_helper(tmp_path: Path) -> None:
     assert resource.details["reason"] == "blank_bitmap_formatting_helper"
     assert "lv-gaiji-helper" in render_html(document)
     assert "□" not in render_text(document)
-    report = package.validate(sample_entries=1, sample_search_hits=1)
+    report = validate_package(package, sample_entries=1, sample_search_hits=1)
     assert report["resource_resolution"]["gaiji_formatting_helper"] >= 1
     assert report["resource_resolution"]["unresolved_gaiji"] == 0
 
@@ -2538,7 +2541,7 @@ def test_lvcore_blank_fullwidth_uni_record_is_formatting_helper_candidate(tmp_pa
     info = package.resource_info(resource)
     html = render_html(document)
     debug = render_html(document, profile=HtmlProfile.DEBUG)
-    report = package.validate(sample_entries=1, sample_search_hits=1)
+    report = validate_package(package, sample_entries=1, sample_search_hits=1)
 
     assert resource.details["display_status"] == "formatting_helper"
     assert resource.details["reason"] == "fullwidth_formatting_helper_candidate"
@@ -2562,7 +2565,7 @@ def test_lvcore_raw_fullwidth_gaiji_without_mapping_is_formatting_helper_candida
 
     resource = next(item for item in package.search("gaiji", limit=1).hits[0].entry().document().resources if item.kind == ResourceKind.GAIJI)
     info = package.resource_info(resource)
-    report = package.validate(sample_entries=1, sample_search_hits=1)
+    report = validate_package(package, sample_entries=1, sample_search_hits=1)
 
     assert resource.details["display_status"] == "formatting_helper"
     assert resource.details["source"] == "raw_fullwidth"
@@ -2628,7 +2631,7 @@ def test_lvcore_gaiji_cli_lists_display_readiness(tmp_path: Path) -> None:
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     data = json.loads(result.stdout)
 
@@ -2708,7 +2711,7 @@ def test_lvcore_pcmdata_audio_range_resolves_original_bytes(tmp_path: Path) -> N
 def test_lvcore_validate_counts_resolved_media_stores(tmp_path: Path) -> None:
     make_media_resource_package(tmp_path)
     package = open_package(tmp_path)
-    report = package.validate(sample_entries=1, sample_search_hits=1)
+    report = validate_package(package, sample_entries=1, sample_search_hits=1)
 
     media = report["resource_resolution"]
     assert media["resolved_media"] >= 1
@@ -2742,7 +2745,7 @@ def test_lvcore_resource_cli_lists_info_and_writes_bytes(tmp_path: Path) -> None
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     resources = json.loads(resources_result.stdout)
     assert resources["resources"][0]["resource"]["id"] == "media-1"
@@ -2754,7 +2757,7 @@ def test_lvcore_resource_cli_lists_info_and_writes_bytes(tmp_path: Path) -> None
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     info = json.loads(info_result.stdout)
     assert info["ok"] is True
@@ -2765,7 +2768,7 @@ def test_lvcore_resource_cli_lists_info_and_writes_bytes(tmp_path: Path) -> None
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     data = json.loads(bytes_result.stdout)
     assert data["ok"] is True
@@ -2953,7 +2956,7 @@ def test_lvcore_cli_render_and_validate_commands(tmp_path: Path) -> None:
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     assert "first entry" in render_result.stdout
     assert "offset" not in render_result.stdout
@@ -2976,7 +2979,7 @@ def test_lvcore_cli_render_and_validate_commands(tmp_path: Path) -> None:
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     assert "lv-entry-semantic" in semantic_result.stdout
 
@@ -2998,7 +3001,7 @@ def test_lvcore_cli_render_and_validate_commands(tmp_path: Path) -> None:
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     assert "lv-entry-logovista-like" in logovista_like_result.stdout
 
@@ -3020,16 +3023,16 @@ def test_lvcore_cli_render_and_validate_commands(tmp_path: Path) -> None:
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     assert "lv-entry-debug" in debug_result.stdout
 
     validate_result = subprocess.run(
-        [sys.executable, "-m", "lvcore", "validate", str(tmp_path), "--json"],
+        [sys.executable, "-m", "lvcore_audit", "package", str(tmp_path), "--json"],
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     data = json.loads(validate_result.stdout)
     assert data["ok"] is True
@@ -3055,7 +3058,7 @@ def test_lvcore_friendly_reader_example_runs_without_raw_internals(tmp_path: Pat
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     data = json.loads(result.stdout)
     dumped = json.dumps(data, ensure_ascii=False)
@@ -3080,7 +3083,7 @@ def test_lvcore_debug_inspection_example_is_explicit_raw_path(tmp_path: Path) ->
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     data = json.loads(result.stdout)
     dumped = json.dumps(data, ensure_ascii=False)
@@ -3100,7 +3103,7 @@ def test_lvcore_cli_search_debug_and_render_profiles(tmp_path: Path) -> None:
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     friendly_search_data = json.loads(friendly_search.stdout)
     assert "body" not in friendly_search_data["hits"][0]
@@ -3113,7 +3116,7 @@ def test_lvcore_cli_search_debug_and_render_profiles(tmp_path: Path) -> None:
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     search_data = json.loads(search_result.stdout)
     assert search_data["profile"] == "forward"
@@ -3127,7 +3130,7 @@ def test_lvcore_cli_search_debug_and_render_profiles(tmp_path: Path) -> None:
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     render_json_data = json.loads(render_json.stdout)
     rendered_dump = json.dumps(render_json_data, ensure_ascii=False)
@@ -3156,7 +3159,7 @@ def test_lvcore_cli_search_debug_and_render_profiles(tmp_path: Path) -> None:
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     render_debug_data = json.loads(render_debug_json.stdout)
     assert render_debug_data["entries"][0]["address"]["component"] == "HONMON.DIC"
@@ -3168,7 +3171,7 @@ def test_lvcore_cli_search_debug_and_render_profiles(tmp_path: Path) -> None:
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     assert "third entry" in render_result.stdout
 
@@ -3177,7 +3180,7 @@ def test_lvcore_cli_search_debug_and_render_profiles(tmp_path: Path) -> None:
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     index_row = json.loads(indexes_result.stdout)
     assert index_row["rows_seen"] == 1
@@ -3205,7 +3208,7 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     body_data = json.loads(body_result.stdout)
     assert body_data["body_source"]["ssed_kind"] == "dense_anchor_with_sidecar"
@@ -3217,18 +3220,18 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     body_debug_data = json.loads(body_debug_result.stdout)
     assert body_debug_data["body_source"]["sidecar_paths"][0].endswith("_DCT_DENSE/body.db")
     assert body_debug_data["body_source"]["sidecars"][0]["path"].endswith("_DCT_DENSE/body.db")
 
     validate_result = subprocess.run(
-        [sys.executable, "-m", "lvcore", "validate", str(dense), "--json", "--debug"],
+        [sys.executable, "-m", "lvcore_audit", "package", str(dense), "--json", "--debug"],
         check=True,
         text=True,
         stdout=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     validate_data = json.loads(validate_result.stdout)
     assert validate_data["body_source"]["ssed_kind"] == "dense_anchor_with_sidecar"
@@ -3238,8 +3241,8 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
         [
             sys.executable,
             "-m",
-            "lvcore",
-            "corpus-validate",
+            "lvcore_audit",
+            "corpus",
             str(tmp_path),
             "--json",
             "--jobs",
@@ -3256,12 +3259,12 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env={"PYTHONPATH": str(LVCORE_SRC)},
+        env={"PYTHONPATH": f"{LVCORE_SRC}:{LVCORE_AUDIT_SRC}"},
     )
     assert corpus_result.returncode == 0
     assert "progress" in corpus_result.stderr
     corpus_data = json.loads(corpus_result.stdout)
-    assert corpus_data["schema"] == "lvcore.corpus_validate.v1"
+    assert corpus_data["schema"] == "lvcore.audit.corpus.v1"
     assert corpus_data["sample_limits"]["sample_entries"] == 1
     assert corpus_data["sample_limits"]["sample_search_hits"] == 1
     assert corpus_data["family_counts"]["ssed"] == 2
@@ -3293,13 +3296,14 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
     assert not any(blocker["code"] == "validation_failed" for blocker in corpus_data["top_blockers"])
     assert corpus_data["failure_count"] == 0
     output_files = corpus_data["output_files"]
-    assert Path(output_files["summary_json"]).is_file()
-    assert Path(output_files["targets_jsonl"]).is_file()
-    assert Path(output_files["failures_jsonl"]).is_file()
-    assert Path(output_files["diagnostics_jsonl"]).is_file()
-    failure_lines = Path(output_files["failures_jsonl"]).read_text(encoding="utf-8").splitlines()
+    report_dir = tmp_path / "reports"
+    assert (report_dir / output_files["summary_json"]).is_file()
+    assert (report_dir / output_files["targets_jsonl"]).is_file()
+    assert (report_dir / output_files["failures_jsonl"]).is_file()
+    assert (report_dir / output_files["diagnostics_jsonl"]).is_file()
+    failure_lines = (report_dir / output_files["failures_jsonl"]).read_text(encoding="utf-8").splitlines()
     assert failure_lines == []
-    diagnostics_lines = Path(output_files["diagnostics_jsonl"]).read_text(encoding="utf-8").splitlines()
+    diagnostics_lines = (report_dir / output_files["diagnostics_jsonl"]).read_text(encoding="utf-8").splitlines()
     assert any(json.loads(line)["name"] == "_DCT_BAD" for line in diagnostics_lines)
     ssed_target = next(target for target in corpus_data["targets"] if target["package_family"] == "ssed")
     assert ssed_target["gaiji"]["uni_records"] == 0

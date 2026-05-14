@@ -586,7 +586,8 @@ class PackageSidecarMixin:
                 summary["sidecar_media_rows_resolved"] = int(summary["sidecar_media_rows_resolved"]) + 1
                 summary["sidecar_media_bytes_available"] = int(summary["sidecar_media_bytes_available"]) + 1
                 if isinstance(media_mime_counts, dict):
-                    self._increment_reason(media_mime_counts, info.get("mime_type"))
+                    mime = str(info.get("mime_type") or "unknown")
+                    media_mime_counts[mime] = media_mime_counts.get(mime, 0) + 1
         return summary
 
     def sidecar_references(self, address: Address, *, limit: int = 32, debug: bool = False) -> list[dict[str, object]]:

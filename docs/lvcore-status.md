@@ -71,18 +71,20 @@ component names, sidecar table/row mappings, diagnostics, offsets, lengths, and
 bounded structural details. Raw media/gaiji bytes are only exposed through
 explicit resource-byte APIs or CLI output paths.
 
-## Validation Command
+## Audit Command
 
 ```bash
-PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate \
+PYTHONPATH=src/lvcore-experimental:src/lvcore-audit python3 -m lvcore_audit corpus \
   /path/to/corpus \
-  --json --full --jobs 0 --progress --output-dir out/lvcore-corpus
+  --full --jobs 0 --progress --output-dir out/lvcore-corpus
 ```
 
-The validator reports package-family counts, SSED body-source/render-support
+The audit package reports package-family counts, SSED body-source/render-support
 counts, native search sampling, title status, media/link/gaiji resource
 counters, sidecar-role counters, index parser diagnostics, body decode
-telemetry, and top blockers.
+telemetry, and top blockers. Audit and scorecard concepts are intentionally
+outside the reader package so `lvcore` stays focused on app-facing open, search,
+entry, render, and resource APIs.
 
 ## Boundary With Toolkit Status
 
