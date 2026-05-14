@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 from .errors import CryptoError
 
@@ -49,3 +50,38 @@ def decrypt_logofont(data: bytes) -> bytes:
         return unpadder.update(plaintext) + unpadder.finalize()
     except ValueError:
         return plaintext
+
+
+def decrypt_logofont_file_to_path(path: Path, out: Path, *, chunk_size: int = 1024 * 1024) -> int:
+    if chunk_size < AES_BLOCK:
+        chunk_size = AES_BLOCK
+    chunk_size -= chunk_size % AES_BLOCK
+    if chunk_size <= 0:
+        chunk_size = AES_BLOCK
+    if path.stat().st_size % AES_BLOCK:
+        raise CryptoError("encrypted payload length is not a multiple of 16 bytes")
+    Cipher, algorithms, modes, padding = _cipher_modules()
+    key, iv = logofont_key_iv()
+    decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
+    pending = b""
+    written = 0
+    with path.open("rb") as infile, out.open("wb") as outfile:
+        for chunk in iter(lambda: infile.read(chunk_size), b""):
+            decrypted = decryptor.update(chunk)
+            data = pending + decrypted
+            if len(data) > AES_BLOCK:
+                body = data[:-AES_BLOCK]
+                outfile.write(body)
+                written += len(body)
+                pending = data[-AES_BLOCK:]
+            else:
+                pending = data
+        final = pending + decryptor.finalize()
+        unpadder = padding.PKCS7(AES_BLOCK * 8).unpadder()
+        try:
+            final = unpadder.update(final) + unpadder.finalize()
+        except ValueError:
+            pass
+        outfile.write(final)
+        written += len(final)
+    return written

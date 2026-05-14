@@ -17,6 +17,7 @@ sys.path.insert(0, str(LVCORE_SRC))
 
 from lvcore import Address, Diagnostic, DiagnosticArea, Location, PackageFamily, SearchHit, SearchProfile, SearchResults, Severity, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
 from lvcore.body_source import SidecarRole, classify_sqlite_sidecar_role, quote_sql_identifier, sqlite_columns  # noqa: E402
+from lvcore.crypto import decrypt_logofont, decrypt_logofont_file_to_path, logofont_key_iv  # noqa: E402
 from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, LinkTargetKind, ResourceKind, ResourceRef, ResourceStatus, build_entry_document  # noqa: E402
 from lvcore.errors import FormatError  # noqa: E402
 from lvcore.gaiji import ga16_glyph_size, gaiji_grid_code_for_index, parse_ga16  # noqa: E402
@@ -67,6 +68,28 @@ def test_lvcore_sidecar_role_classification_is_structural() -> None:
     assert classify_sqlite_sidecar_role("sqlite_unmapped", ("D_InternationalChronology",)) == SidecarRole.ANCILLARY
     assert classify_sqlite_sidecar_role("sqlite_unmapped", ("t_data",), {"t_data": ["index", "data"]}) == SidecarRole.ANCILLARY
     assert classify_sqlite_sidecar_role("sqlite_unmapped", ("opaque",)) == SidecarRole.UNKNOWN
+
+
+def test_lvcore_logofont_stream_decrypt_matches_memory_decrypt(tmp_path: Path) -> None:
+    pytest.importorskip("cryptography")
+    from cryptography.hazmat.primitives import padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    plaintext = (b"SQLite format 3\x00" + b"body-sidecar") * 257
+    key, iv = logofont_key_iv()
+    padder = padding.PKCS7(128).padder()
+    padded = padder.update(plaintext) + padder.finalize()
+    encryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).encryptor()
+    encrypted = encryptor.update(padded) + encryptor.finalize()
+    source = tmp_path / "vlpljblF"
+    out = tmp_path / "vlpljblF.sqlite"
+    source.write_bytes(encrypted)
+
+    written = decrypt_logofont_file_to_path(source, out, chunk_size=31)
+
+    assert written == len(plaintext)
+    assert out.read_bytes() == plaintext
+    assert out.read_bytes() == decrypt_logofont(encrypted)
 
 
 def be16(value: int) -> bytes:
@@ -889,6 +912,47 @@ def test_lvcore_detects_and_reads_synthetic_ssed(tmp_path: Path) -> None:
     assert package.entry_at(package.search_entries("alpha")[0].address).headword == "alpha"
 
 
+def test_lvcore_titles_limit_streams_without_full_component_decode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+
+    def fail_full_decode(*_args, **_kwargs):
+        raise AssertionError("limited title listing should not expand/decode the full title component")
+
+    monkeypatch.setattr(package, "decode_component", fail_full_decode)
+
+    assert package.titles(limit=2) == ["alpha", "alpine"]
+
+
+def test_lvcore_entries_limit_uses_index_boundaries_when_markers_are_absent(tmp_path: Path) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+
+    entries = list(package.iter_entries(limit=2, include_supplements=False))
+
+    assert [entry.headword for entry in entries] == ["alpha", "alpine"]
+    assert "third entry" not in "\n".join(entry.text for entry in entries)
+
+
+def test_lvcore_direct_body_hit_dereference_does_not_require_body_source_scan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+
+    def fail_body_source(*_args, **_kwargs):
+        raise AssertionError("direct body hit dereference should not scan body-source classification")
+
+    monkeypatch.setattr(package, "body_source", fail_body_source)
+
+    entry = package.entry_for_hit(hit, include_supplements=False)
+
+    assert entry.headword == "alpha"
+    assert "first entry" in entry.text
+
+
 def test_lvcore_cli_outputs_json(tmp_path: Path) -> None:
     make_synthetic_package(tmp_path)
     result = subprocess.run(
@@ -1343,6 +1407,25 @@ def test_lvcore_dense_anchor_with_sqlite_sidecar_renders_body(tmp_path: Path) ->
     assert entry.headword == "beta"
     assert "beta sidecar body" in package.render_entry_text(entry)
     assert any(diagnostic.code == "sidecar_body_resolved" for diagnostic in entry.diagnostics())
+
+
+def test_lvcore_dense_anchor_hit_dereference_does_not_depend_on_body_source_classification(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    make_dense_anchor_package(tmp_path, with_sidecar=True)
+    package = open_package(tmp_path)
+    hit = package.search("beta", profile=SearchProfile.EXACT).hits[0]
+
+    def fail_body_source(*_args, **_kwargs):
+        raise AssertionError("numeric-anchor hit dereference should try body sidecars before body-source classification")
+
+    monkeypatch.setattr(package, "body_source", fail_body_source)
+
+    entry = package.entry_for_hit(hit, include_supplements=False)
+
+    assert entry.headword == "beta"
+    assert "beta sidecar body" in entry.text
 
 
 def test_lvcore_dense_anchor_sidecar_missing_row_is_safe_and_debuggable(tmp_path: Path) -> None:

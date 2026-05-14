@@ -28,7 +28,7 @@ from .body_source import (
     sqlite_columns,
     strip_html,
 )
-from .crypto import decrypt_logofont, decrypt_logofont_prefix
+from .crypto import decrypt_logofont, decrypt_logofont_file_to_path, decrypt_logofont_prefix
 from .detect import detect_family
 from .diagnostics import Diagnostic, DiagnosticArea, Location, Severity
 from .document import BlockNode, InlineKind, InlineNode, ResourceKind, ResourceRef, ResourceStatus
@@ -600,6 +600,26 @@ class LogoVistaPackage:
                 candidates.append(child)
         return candidates
 
+    def _body_sidecar_file_candidates(self) -> list[Path]:
+        candidates = self._sidecar_file_candidates()
+
+        def priority(path: Path) -> tuple[int, str]:
+            lower = path.name.lower()
+            if self.info.dict_id and lower == self.info.dict_id.lower():
+                return 0, lower
+            if lower.startswith("vlpljbl"):
+                suffix = lower.removeprefix("vlpljbl")
+                if suffix in {"f", "b", "h"}:
+                    return 1, lower
+                if suffix in {"m", "n", "s"}:
+                    return 4, lower
+                return 2, lower
+            if lower.endswith((".db", ".sqlite", ".sqlite3", ".sql")):
+                return 3, lower
+            return 5, lower
+
+        return sorted(candidates, key=priority)
+
     @staticmethod
     def _sqlite_storage(path: Path) -> str | None:
         try:
@@ -625,7 +645,7 @@ class LogoVistaPackage:
         if self._tempdir is None:
             self._tempdir = tempfile.TemporaryDirectory(prefix="lvcore-sidecar-")
         decrypted = Path(self._tempdir.name) / f"{path.name}.sqlite"
-        decrypted.write_bytes(decrypt_logofont(path.read_bytes()))
+        decrypt_logofont_file_to_path(path, decrypted)
         self._sqlite_sidecar_cache[key] = decrypted
         return decrypted
 
@@ -636,7 +656,7 @@ class LogoVistaPackage:
         except sqlite3.DatabaseError:
             return None
 
-    def _sidecar_table_info(self, con: sqlite3.Connection, table: str) -> SidecarTableInfo:
+    def _sidecar_table_info(self, con: sqlite3.Connection, table: str, *, include_row_count: bool = True) -> SidecarTableInfo:
         columns = sqlite_columns(con, table)
         lower = {column.lower(): column for column in columns}
 
@@ -653,7 +673,7 @@ class LogoVistaPackage:
         return SidecarTableInfo(
             table=table,
             columns=tuple(columns),
-            row_count=self._row_count(con, table),
+            row_count=self._row_count(con, table) if include_row_count else None,
             role=role,
             id_column=first("ID", "No", "ItemID", "f_DataId", "f_data_id", "f_array_no", "f_contents_id", "f_order_id", "id", "index"),
             title_column=first(
@@ -706,8 +726,8 @@ class LogoVistaPackage:
             return SidecarSupportStatus.SCHEMA_CLASSIFIED
         return SidecarSupportStatus.UNSUPPORTED_SCHEMA
 
-    def _inspect_sqlite_sidecar(self, path: Path) -> SidecarInfo | None:
-        key = str(path)
+    def _inspect_sqlite_sidecar(self, path: Path, *, include_row_counts: bool = True) -> SidecarInfo | None:
+        key = f"{path}\0rows={int(include_row_counts)}"
         if key in self._sqlite_schema_cache:
             return self._sqlite_schema_cache[key]
         storage = self._sqlite_storage(path)
@@ -722,7 +742,7 @@ class LogoVistaPackage:
             return None
         try:
             tables = [row[0] for row in con.execute("select name from sqlite_master where type='table' order by name")]
-            table_infos = tuple(self._sidecar_table_info(con, table) for table in tables)
+            table_infos = tuple(self._sidecar_table_info(con, table, include_row_count=include_row_counts) for table in tables)
             columns_by_table = {info.table: list(info.columns) for info in table_infos}
             for table in ("t_contents", "HONBUN", "main"):
                 if table not in tables:
@@ -748,7 +768,7 @@ class LogoVistaPackage:
                             title_column=title_col,
                             html_column=html_col,
                             plain_column=plain_col,
-                            row_count=self._row_count(con, table),
+                            row_count=self._row_count(con, table) if include_row_counts else None,
                             tables=(table_info,) if table_info is not None else (),
                         )
                         self._sqlite_schema_cache[key] = info
@@ -769,7 +789,7 @@ class LogoVistaPackage:
                             title_column=title_col,
                             html_column=None,
                             plain_column=plain_col,
-                            row_count=self._row_count(con, table),
+                            row_count=self._row_count(con, table) if include_row_counts else None,
                             tables=(table_info,) if table_info is not None else (),
                         )
                         self._sqlite_schema_cache[key] = info
@@ -791,7 +811,7 @@ class LogoVistaPackage:
                             title_column=title_col,
                             html_column=html_col,
                             plain_column=plain_col,
-                            row_count=self._row_count(con, table),
+                            row_count=self._row_count(con, table) if include_row_counts else None,
                             tables=(table_info,) if table_info is not None else (),
                         )
                         self._sqlite_schema_cache[key] = info
@@ -811,12 +831,15 @@ class LogoVistaPackage:
         finally:
             con.close()
 
-    def _body_sidecars(self) -> tuple[SidecarInfo, ...]:
+    def _body_sidecars(self, *, stop_after_body_resolver: bool = False) -> tuple[SidecarInfo, ...]:
         rows: list[SidecarInfo] = []
-        for path in self._sidecar_file_candidates():
-            sidecar = self._inspect_sqlite_sidecar(path)
+        candidates = self._body_sidecar_file_candidates() if stop_after_body_resolver else self._sidecar_file_candidates()
+        for path in candidates:
+            sidecar = self._inspect_sqlite_sidecar(path, include_row_counts=not stop_after_body_resolver)
             if sidecar is not None:
                 rows.append(sidecar)
+                if stop_after_body_resolver and sidecar.support_status == SidecarSupportStatus.BODY_RESOLVER:
+                    break
         return tuple(rows)
 
     def sidecar_role_summary(self) -> dict[str, object]:
@@ -1296,11 +1319,34 @@ class LogoVistaPackage:
             end = starts[index + 1] if index + 1 < len(starts) else reader.expanded_size
             yield start, end
 
-    def iter_entries(self, *, limit: int | None = None) -> Iterable[Entry]:
+    def iter_entries(self, *, limit: int | None = None, include_supplements: bool = True) -> Iterable[Entry]:
         honmon = self.honmon_component()
         if honmon is None:
             return
         reader = self.data(honmon)
+        if limit is not None:
+            source = self.body_source()
+            if source.ssed_kind in {
+                SsedBodySourceKind.DENSE_ANCHOR_TABLE,
+                SsedBodySourceKind.DENSE_MARKER_TABLE,
+                SsedBodySourceKind.DENSE_ANCHOR_WITH_SIDECAR,
+                SsedBodySourceKind.RENDERER_SQLITE_SIDECAR,
+                SsedBodySourceKind.DICTFULLDB_SIDECAR,
+                SsedBodySourceKind.HONBUN_SIDECAR,
+                SsedBodySourceKind.VLPLJBL_SIDECAR,
+                SsedBodySourceKind.SIDECAR_UNKNOWN,
+            }:
+                for hit in self._iter_entry_hits_fast(limit=limit):
+                    yield self.entry_for_hit(hit, include_supplements=include_supplements)
+                return
+            sample = reader.read(0, min(reader.expanded_size, BLOCK_SIZE))
+            if ENTRY_MARKER not in sample:
+                pointer_offsets = self._body_pointer_offsets_fast(honmon, limit=limit, preserve_order=True)
+                if pointer_offsets:
+                    for start in pointer_offsets[:limit]:
+                        address = Address(honmon.start_block + start // BLOCK_SIZE, start % BLOCK_SIZE, honmon.name)
+                        yield self.entry_at(address, max_bytes=64 * 1024, include_supplements=include_supplements)
+                    return
         count = 0
         for start, end in self.iter_entry_slices(limit=limit):
             decoded = self._decode_text_stream(reader.read(start, end - start))
@@ -1318,10 +1364,68 @@ class LogoVistaPackage:
                 decode_unknown_controls=decoded.unknown_controls,
                 decode_unknown_bytes=decoded.unknown_bytes,
             )
-            yield self._attach_sidecar_supplements(entry)
+            yield self._attach_sidecar_supplements(entry) if include_supplements else entry
             count += 1
             if limit is not None and count >= limit:
                 break
+
+    def _index_components_for_entry_boundaries(self) -> list[Component]:
+        components = [component for component in self.components_by_role(ComponentRole.INDEX) if component.path is not None]
+
+        def priority(component: Component) -> tuple[int, str]:
+            name = component.name.upper()
+            if name.startswith(("FK", "FH", "KW")) or name == "INDEX.DIC":
+                return 0, name
+            if name.startswith(("BK", "BH")):
+                return 2, name
+            return 1, name
+
+        return sorted(components, key=priority)
+
+    def _body_pointer_offsets_fast(self, component: Component, *, limit: int, preserve_order: bool = False) -> list[int]:
+        if limit <= 0:
+            return []
+        reader = self.data(component)
+        offsets: list[int] = []
+        seen: set[int] = set()
+        for index_component in self._index_components_for_entry_boundaries():
+            for row in self._iter_index_rows_fast(index_component):
+                target = self.component_for_address(row.body, role=ComponentRole.HONMON)
+                if target is None or target.name.lower() != component.name.lower():
+                    continue
+                offset = self._relative_offset(target, row.body)
+                if offset < 0 or offset >= reader.expanded_size or offset in seen:
+                    continue
+                seen.add(offset)
+                offsets.append(offset)
+                if len(offsets) >= limit:
+                    return offsets if preserve_order else sorted(offsets)
+        return offsets if preserve_order else sorted(offsets)
+
+    def _iter_entry_hits_fast(self, *, limit: int) -> Iterable[SearchHit]:
+        seen: set[tuple[int, int, int, int]] = set()
+        count = 0
+        for component in self._index_components_for_entry_boundaries():
+            backward = self._is_backward_index(component.name)
+            for row in self._iter_index_rows_fast(component):
+                dedupe_key = self._row_dedupe_key(row)
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                display = self._row_display_key(row, backward=backward)
+                yield self._make_hit(
+                    hit_id=count + 1,
+                    query="",
+                    normalized_query="",
+                    profile=SearchProfile.NATIVE,
+                    component_name=component.name,
+                    row=row,
+                    matched_key=display or row.target_key or row.key,
+                    debug=False,
+                )
+                count += 1
+                if count >= limit:
+                    return
 
     def _body_pointer_offsets(self, component: Component) -> list[int]:
         key = component.name.lower()
@@ -1357,10 +1461,14 @@ class LogoVistaPackage:
         return "", len(data)
 
     def _dense_anchor_evidence(self, component: Component, *, use_index_pointers: bool = True) -> dict[str, object]:
-        pointer_offsets = self._body_pointer_offsets(component) if use_index_pointers else []
+        if use_index_pointers:
+            pointer_offsets = self._body_pointer_offsets(component)
+        else:
+            pointer_offsets = self._body_pointer_offsets_fast(component, limit=4, preserve_order=True)
         sample_offsets = pointer_offsets[:64]
         if not sample_offsets:
-            sample_offsets = self._markers_for_component(component, limit=64)[:64]
+            marker_offsets = self._markers_for_component(component, limit=256)[:256]
+            sample_offsets = self._dense_anchor_marker_sample(component, marker_offsets)
         ids: list[str] = []
         lengths: list[int] = []
         for offset in sample_offsets:
@@ -1390,6 +1498,30 @@ class LogoVistaPackage:
             "dense_record_size": dense_record_size,
         }
 
+    def _dense_anchor_marker_sample(self, component: Component, marker_offsets: list[int]) -> list[int]:
+        if not marker_offsets:
+            return []
+        best_offsets = marker_offsets[:64]
+        best_ratio = -1.0
+        best_count = 0
+        max_stride = min(8, len(marker_offsets))
+        for stride in range(1, max_stride + 1):
+            for phase in range(stride):
+                candidates = marker_offsets[phase::stride][:64]
+                if len(candidates) < 4:
+                    continue
+                numeric = 0
+                for offset in candidates:
+                    anchor_id, _size = self._decode_anchor_at(component, offset)
+                    if anchor_id:
+                        numeric += 1
+                ratio = numeric / len(candidates)
+                if (ratio, numeric) > (best_ratio, best_count):
+                    best_ratio = ratio
+                    best_count = numeric
+                    best_offsets = candidates
+        return best_offsets
+
     def _choose_body_sidecar(self, sidecars: tuple[SidecarInfo, ...]) -> SidecarInfo | None:
         renderable = [sidecar for sidecar in sidecars if sidecar.table and sidecar.id_column and (sidecar.html_column or sidecar.plain_column)]
         if not renderable:
@@ -1414,14 +1546,14 @@ class LogoVistaPackage:
             )
             return self._body_source_cache[debug]
         reader = self.data(honmon)
-        marker_limit = 2000000 if debug else 4096
+        marker_limit = 2000000 if debug else 16
         marker_count = len(self._markers_for_component(honmon, limit=marker_limit))
         marker_density = marker_count / max(reader.expanded_size, 1)
         sidecar_paths = tuple(self._sidecar_file_candidates())
         evidence = self._dense_anchor_evidence(honmon, use_index_pointers=debug)
         numeric_ratio = float(evidence["numeric_ratio"])
         is_dense = numeric_ratio >= 0.6 and int(evidence["sample_count"]) >= 4
-        sidecars = self._body_sidecars() if is_dense else ()
+        sidecars = self._body_sidecars(stop_after_body_resolver=not debug) if is_dense else ()
         chosen_sidecar = self._choose_body_sidecar(sidecars)
 
         if is_dense:
@@ -1495,14 +1627,15 @@ class LogoVistaPackage:
                 hi = mid
         return sorted_offsets[lo] if lo < len(sorted_offsets) else None
 
-    def _next_marker_after(self, component: Component, start: int) -> int | None:
+    def _next_marker_after(self, component: Component, start: int, *, max_scan_bytes: int | None = None) -> int | None:
         reader = self.data(component)
         offset = max(start + 1, 0)
+        scan_end = reader.expanded_size if max_scan_bytes is None else min(reader.expanded_size, start + max_scan_bytes)
         tail = b""
         tail_base = offset
         keep = len(ENTRY_MARKER) + 2 - 1
-        while offset < reader.expanded_size:
-            chunk = reader.read(offset, min(CHUNK_SIZE, reader.expanded_size - offset))
+        while offset < scan_end:
+            chunk = reader.read(offset, min(CHUNK_SIZE, scan_end - offset))
             if not chunk:
                 break
             data = tail + chunk
@@ -1545,7 +1678,7 @@ class LogoVistaPackage:
             next_pointer = self._next_after(self._body_pointer_offsets(honmon), start)
             if next_pointer is not None:
                 candidates.append((next_pointer, "next_body_pointer"))
-        next_marker = self._next_marker_after(honmon, start)
+        next_marker = self._next_marker_after(honmon, start, max_scan_bytes=max_bytes)
         if next_marker is not None:
             candidates.append((next_marker, "next_marker"))
         elif reader.expanded_size <= 8 * 1024 * 1024:
@@ -1593,7 +1726,7 @@ class LogoVistaPackage:
 
     def inspect_body_pointer(self, address: Address) -> BodyPointerInspection:
         honmon = self.component_for_address(address, role=ComponentRole.HONMON)
-        if honmon is None:
+        if honmon is None or honmon.path is None:
             return BodyPointerInspection(
                 diagnostics=(
                     Diagnostic(
@@ -1741,18 +1874,99 @@ class LogoVistaPackage:
         )
         return entry
 
+    def _try_entry_from_dense_sidecar(
+        self,
+        hit: SearchHit,
+        inspection: BodyPointerInspection,
+        *,
+        include_supplements: bool = True,
+    ) -> Entry | None:
+        anchor_id = inspection.anchor_id
+        if not anchor_id or not self._sidecar_file_candidates():
+            return None
+        sidecar = self._choose_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
+        if sidecar is None:
+            return None
+        body = self._fetch_sidecar_body(sidecar, anchor_id)
+        if body is None:
+            return None
+        note = Diagnostic(
+            severity=Severity.INFO,
+            area=DiagnosticArea.BODY,
+            code="sidecar_body_resolved",
+            message="entry body resolved from SSED sidecar database",
+            location=self._location_for_address(hit.body, role=ComponentRole.HONMON),
+            details=self._sidecar_debug_details(sidecar, anchor_id),
+        )
+        text = body.text or body.title or hit.heading
+        entry = Entry(
+            address=hit.body,
+            end_address=hit.body,
+            headword=body.title or hit.heading,
+            text=text,
+            spans=(Span(kind="text", text=text),),
+            entry_diagnostics=(note,),
+        )
+        return self._attach_sidecar_supplements(entry, include=include_supplements)
+
     def titles(self, component: str | Component | None = None, *, limit: int | None = None) -> list[str]:
         comps = [component] if component is not None else list(self.components_by_role(ComponentRole.TITLE))
         out: list[str] = []
         for comp in comps:
-            decoded = self.decode_component(comp)
+            item = self.component(comp) if isinstance(comp, str) else comp
+            if item is None:
+                continue
+            lines = self._limited_title_lines(item, limit=None if limit is None else max(limit - len(out), 0))
+            for line in lines:
+                out.append(line)
+                if limit is not None and len(out) >= limit:
+                    return out
+        return out
+
+    def _limited_title_lines(self, component: Component, *, limit: int | None = None) -> Iterable[str]:
+        if limit is not None and limit <= 0:
+            return
+        reader = self.data(component)
+        if limit is None:
+            decoded = self.decode_component(component)
             for line in decoded.text.splitlines():
                 line = line.strip()
                 if line:
-                    out.append(line)
-                    if limit is not None and len(out) >= limit:
-                        return out
-        return out
+                    yield line
+            return
+
+        buffer = bytearray()
+        emitted = 0
+        offset = 0
+        separators = (b"\x1f\x0a", b"\x0a")
+        while offset < reader.expanded_size and emitted < limit:
+            chunk = reader.read(offset, min(CHUNK_SIZE, reader.expanded_size - offset))
+            if not chunk:
+                break
+            offset += len(chunk)
+            buffer.extend(chunk)
+            while emitted < limit:
+                found: tuple[int, int] | None = None
+                for separator in separators:
+                    pos = buffer.find(separator)
+                    if pos >= 0 and (found is None or pos < found[0]):
+                        found = (pos, len(separator))
+                if found is None:
+                    break
+                pos, separator_size = found
+                raw = bytes(buffer[:pos])
+                del buffer[: pos + separator_size]
+                decoded = self._decode_text_stream(raw)
+                line = " ".join(part.strip() for part in decoded.text.splitlines() if part.strip()).strip("\x00 ")
+                if not line:
+                    continue
+                yield line
+                emitted += 1
+        if emitted < limit and buffer.strip(b"\x00"):
+            decoded = self._decode_text_stream(bytes(buffer))
+            line = " ".join(part.strip() for part in decoded.text.splitlines() if part.strip()).strip("\x00 ")
+            if line:
+                yield line
 
     def resolve_title(self, address: Address, *, max_bytes: int = 4096) -> tuple[str, tuple[Diagnostic, ...]]:
         component = self.component_for_address(address, role=ComponentRole.TITLE)
@@ -2343,6 +2557,27 @@ class LogoVistaPackage:
         return [self.entry_for_hit(hit, include_supplements=False) for hit in self.search(term, limit=limit, profile=profile).hits]
 
     def entry_for_hit(self, hit: SearchHit, *, include_supplements: bool = True) -> Entry:
+        inspection = self.inspect_body_pointer(hit.body)
+        sidecar_entry = self._try_entry_from_dense_sidecar(hit, inspection, include_supplements=include_supplements)
+        if sidecar_entry is not None:
+            return sidecar_entry
+        honmon = self.honmon_component()
+        if not inspection.anchor_id and honmon is not None and honmon.path is not None:
+            try:
+                return self.entry_at(hit.body, include_supplements=include_supplements)
+            except (FormatError, KeyError, ValueError, OSError) as exc:
+                return self._placeholder_entry(
+                    hit.body,
+                    headword=hit.heading,
+                    code="body_pointer_unresolved",
+                    message="body pointer could not be resolved to a readable HONMON entry",
+                    severity=Severity.ERROR,
+                    details={
+                        "body": hit.body.to_dict(),
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                )
         source = self.body_source()
         if source.ssed_kind == SsedBodySourceKind.BODY_STREAM:
             try:
@@ -2370,7 +2605,6 @@ class LogoVistaPackage:
             SsedBodySourceKind.VLPLJBL_SIDECAR,
             SsedBodySourceKind.SIDECAR_UNKNOWN,
         }:
-            inspection = self.inspect_body_pointer(hit.body)
             sidecar = self._choose_body_sidecar(source.sidecars)
             if sidecar is not None:
                 entry = self._entry_from_sidecar(hit, sidecar, inspection)

@@ -118,7 +118,7 @@ def cmd_body_source(args: argparse.Namespace) -> int:
 
 def cmd_entries(args: argparse.Namespace) -> int:
     package = open_package(args.path)
-    for entry in package.iter_entries(limit=args.limit):
+    for entry in package.iter_entries(limit=args.limit, include_supplements=args.spans):
         record = entry.to_dict(debug=True) if args.spans else {
             "address": entry.address.to_dict(),
             "headword": entry.headword,
