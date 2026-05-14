@@ -6,9 +6,16 @@ import sys
 
 from logovista_tools.writer import WriterEntry, build_plain_honmon_package, write_plain_package
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_PATH = REPO_ROOT / "src"
+
+
+def _env() -> dict[str, str]:
+    return {"PYTHONPATH": str(SRC_PATH)}
+
 
 def test_console_script_name_is_hyphenated() -> None:
-    pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     scripts = pyproject.split("[project.scripts]", 1)[1].split("\n[", 1)[0]
 
     assert 'logovista-tools = "logovista_tools.fast_cli:main"' in scripts
@@ -16,7 +23,7 @@ def test_console_script_name_is_hyphenated() -> None:
 
 
 def test_source_checkout_wrapper_is_hyphenated() -> None:
-    wrapper = Path("logovista-tools")
+    wrapper = REPO_ROOT / "logovista-tools"
 
     assert wrapper.is_file()
     assert "from logovista_tools.fast_cli import main" in wrapper.read_text(encoding="utf-8")
@@ -28,7 +35,7 @@ def test_logovista_tools_missing_file_error_is_friendly(tmp_path: Path) -> None:
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env={"PYTHONPATH": "src"},
+        env=_env(),
     )
 
     assert result.returncode != 0
@@ -43,7 +50,7 @@ def test_logovista_tools_verbose_expected_error_stays_friendly(tmp_path: Path) -
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env={"PYTHONPATH": "src"},
+        env=_env(),
     )
 
     assert result.returncode != 0
@@ -57,7 +64,7 @@ def test_logovista_tools_entries_missing_root_reports_path(tmp_path: Path) -> No
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env={"PYTHONPATH": "src"},
+        env=_env(),
     )
 
     assert result.returncode != 0
@@ -91,7 +98,7 @@ def test_logovista_tools_scan_detects_ssed_lved_and_multiview(tmp_path: Path) ->
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env={"PYTHONPATH": "src"},
+        env=_env(),
     )
 
     assert result.returncode == 0
@@ -120,7 +127,7 @@ def test_logovista_tools_colscr_direct_component_reports_expected_input(tmp_path
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env={"PYTHONPATH": "src"},
+        env=_env(),
     )
 
     assert result.returncode != 0
@@ -155,7 +162,7 @@ def test_logovista_tools_entries_print_outputs_rows_to_terminal(tmp_path: Path) 
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env={"PYTHONPATH": "src"},
+        env=_env(),
     )
 
     assert result.returncode == 0
@@ -194,7 +201,7 @@ def test_logovista_tools_extract_writes_entry_formats(tmp_path: Path) -> None:
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env={"PYTHONPATH": "src"},
+        env=_env(),
     )
 
     assert result.returncode == 0
@@ -232,7 +239,7 @@ def test_logovista_tools_extract_interactive_selection(tmp_path: Path) -> None:
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env={"PYTHONPATH": "src"},
+        env=_env(),
     )
 
     assert result.returncode == 0

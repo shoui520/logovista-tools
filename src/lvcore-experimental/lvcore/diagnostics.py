@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from .json_types import JsonObject
 
+DIAGNOSTIC_SCHEMA = "lvcore.diagnostic.v1"
+DIAGNOSTIC_MODEL_VERSION = 1
+
 
 class Severity(str, Enum):
     INFO = "info"
@@ -108,6 +111,8 @@ class Diagnostic:
 
     def to_dict(self) -> JsonObject:
         return {
+            "schema": DIAGNOSTIC_SCHEMA,
+            "model_version": DIAGNOSTIC_MODEL_VERSION,
             "severity": self.severity.value,
             "area": self.area.value,
             "code": self.code.value,

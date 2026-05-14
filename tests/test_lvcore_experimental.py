@@ -2225,7 +2225,13 @@ def test_lvcore_entry_to_dict_is_friendly_unless_debug() -> None:
     debug = entry.to_dict(debug=True)
     inspected = entry.inspect()
 
-    assert friendly == {"headword": "visible", "text": "visible", "diagnostics": []}
+    assert friendly == {
+        "schema": "lvcore.entry.v1",
+        "model_version": 1,
+        "headword": "visible",
+        "text": "visible",
+        "diagnostics": [],
+    }
     assert "address" in debug
     assert "span_summaries" in debug
     assert '"raw":' not in json.dumps(debug, ensure_ascii=False)

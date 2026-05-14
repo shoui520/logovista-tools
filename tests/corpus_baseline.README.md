@@ -26,7 +26,7 @@ Intentional update history:
   appears under unsupported role counts as a non-compatibility-significant
   category.
 
-Latest intentional update:
+Intentional update:
 
 - Phase: Phase 3 composition/lazy/deterministic discovery
 - Gaiji source discovery: package-matched sibling `*_GAIJI` image directories
@@ -35,6 +35,14 @@ Latest intentional update:
   gaiji image directory is now visible to the reader. Sampled resolved gaiji,
   unresolved gaiji, media, link, body-source, and search counters are unchanged;
   this is an inventory expansion, not a compatibility regression.
+
+Latest intentional update:
+
+- Phase: Phase 4 schema/version invariants
+- Public body-source dictionaries now include `schema:
+  lvcore.body_source.v1` and `model_version: 1`. No counters, package counts,
+  sampled render/search results, or resolved/unresolved resource counts changed;
+  this is a serialization contract update for the Rust-port audit baseline.
 
 Capture command:
 

@@ -38,6 +38,10 @@ STYLE_TAGS = {
 ResourceUrlMapper = Callable[[str], str]
 
 
+def _opaque_gaiji_resource_id(code: str) -> str:
+    return f"gaiji-{hashlib.sha1(code.lower().encode('utf-8')).hexdigest()[:12]}"
+
+
 def _default_resource_url(resource_id: str) -> str:
     return f"lvcore-resource://{resource_id}"
 
@@ -92,7 +96,7 @@ def _render_gaiji_html(
     resource_url_mapper: ResourceUrlMapper | None,
 ) -> str:
     text = escape(_gaiji_text(node, gaiji_policy))
-    resource_id = node.resource_id or (f"gaiji-{node.code}" if node.code else "")
+    resource_id = node.resource_id or (_opaque_gaiji_resource_id(node.code) if node.code else "")
     status = str(node.attrs.get("gaiji_display_status") or "")
     if profile == HtmlProfile.SEMANTIC:
         return f'<span class="lv-inline lv-inline-gaiji" data-kind="gaiji">{text}</span>'

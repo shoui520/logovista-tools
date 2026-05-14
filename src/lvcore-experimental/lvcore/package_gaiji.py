@@ -122,7 +122,7 @@ class PackageGaijiMixin:
     @staticmethod
     def _gaiji_resource_id(code: str, *, source: str = "gaiji") -> str:
         digest = hashlib.sha1(f"{source}:{code.lower()}".encode("utf-8")).hexdigest()[:12]
-        return f"gaiji-{code.lower()}-{digest}"
+        return f"gaiji-{digest}"
 
     @staticmethod
     def _is_blank_glyph(glyph: bytes | None) -> bool:

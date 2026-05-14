@@ -14,6 +14,9 @@ from .diagnostics import Diagnostic
 from .json_types import JsonObject
 from .model import PackageFamily
 
+BODY_SOURCE_SCHEMA = "lvcore.body_source.v1"
+BODY_SOURCE_MODEL_VERSION = 1
+
 
 class SsedBodySourceKind(str, Enum):
     BODY_STREAM = "body_stream"
@@ -215,6 +218,8 @@ class BodySourceInfo:
 
     def to_dict(self, *, debug: bool = False) -> JsonObject:
         data = {
+            "schema": BODY_SOURCE_SCHEMA,
+            "model_version": BODY_SOURCE_MODEL_VERSION,
             "package_family": self.package_family.value,
             "ssed_kind": self.ssed_kind.value,
             "support": self.support.value,

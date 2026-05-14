@@ -12,8 +12,10 @@ from .json_types import JsonObject
 
 SPAN_SCHEMA = "lvcore.span.v1"
 SPAN_DEBUG_SCHEMA = "lvcore.span_debug.v1"
+ENTRY_SCHEMA = "lvcore.entry.v1"
 SPAN_MODEL_VERSION = 1
 SPAN_DEBUG_MODEL_VERSION = 1
+ENTRY_MODEL_VERSION = 1
 
 
 class PackageFamily(str, Enum):
@@ -305,6 +307,8 @@ class Entry:
 
     def to_dict(self, *, debug: bool = False) -> JsonObject:
         data: JsonObject = {
+            "schema": ENTRY_SCHEMA,
+            "model_version": ENTRY_MODEL_VERSION,
             "headword": self.headword,
             "text": self.text,
             "diagnostics": [
