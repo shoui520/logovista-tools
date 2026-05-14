@@ -1178,21 +1178,29 @@ class PackageSearchMixin:
         if not raw_query:
             return
         for sidecar in self._body_sidecars(stop_after_body_resolver=True, allow_expensive=allow_expensive):
-            if sidecar.kind != "main_wordlist" or not sidecar.table or not sidecar.id_column:
+            if sidecar.kind not in {"main_wordlist", "sqlite_body"} or not sidecar.table or not sidecar.id_column:
                 continue
             sqlite_path = self._sqlite_path_for_sidecar(sidecar.path, sidecar.storage)
             con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
             try:
                 columns = sqlite_columns(con, sidecar.table)
-                text_columns = [
-                    column
-                    for column in ("C_text", "J_text", "K_text")
-                    if find_column(columns, column)
-                ]
+                table_info = next((table for table in sidecar.tables if table.table == sidecar.table), None)
+                text_columns = []
+                for column in (
+                    sidecar.title_column,
+                    sidecar.plain_column,
+                    table_info.html_column if table_info is not None else None,
+                    find_column(columns, "C_text"),
+                    find_column(columns, "J_text"),
+                    find_column(columns, "K_text"),
+                    find_column(columns, "Pinyin"),
+                ):
+                    if column and column in columns and column not in text_columns:
+                        text_columns.append(column)
                 if not text_columns:
                     continue
                 select_columns = [sidecar.id_column]
-                for column in ("Class", "C_text", "J_text", "K_text", "Pinyin"):
+                for column in ("Class", *text_columns):
                     found = find_column(columns, column)
                     if found and found not in select_columns:
                         select_columns.append(found)
@@ -1210,11 +1218,9 @@ class PackageSearchMixin:
                 for offset, row in enumerate(rows, start=start_id):
                     data = dict(zip(select_columns, row))
                     id_value = str(data.get(sidecar.id_column) or "")
-                    c_text = str(data.get("C_text") or "")
-                    j_text = str(data.get("J_text") or "")
-                    k_text = str(data.get("K_text") or "")
-                    heading = c_text or j_text or k_text or id_value
-                    matched = next((value for value in (c_text, j_text, k_text) if value == raw_query), heading)
+                    text_values = [str(data.get(column) or "") for column in text_columns]
+                    heading = next((value for value in text_values if value), id_value)
+                    matched = next((value for value in text_values if value == raw_query), heading)
                     try:
                         pseudo_offset = int(id_value)
                     except ValueError:
@@ -1243,6 +1249,7 @@ class PackageSearchMixin:
                             "id_column": sidecar.id_column,
                             "id": id_value,
                             "columns": data,
+                            "text_columns": text_columns,
                         },
                         _package=self,
                     )
@@ -1379,11 +1386,9 @@ class PackageSearchMixin:
         row = hit.sidecar_row or {}
         columns = row.get("columns")
         data = columns if isinstance(columns, dict) else {}
-        lines = [
-            str(value)
-            for key in ("C_text", "J_text", "K_text", "Pinyin", "Class")
-            if (value := data.get(key))
-        ]
+        row_text_columns = row.get("text_columns")
+        text_columns = [str(column) for column in row_text_columns] if isinstance(row_text_columns, list) else []
+        lines = [str(value) for key in (*text_columns, "Class") if (value := data.get(key))]
         if not lines:
             lines = [hit.heading]
         spans: list[Span] = []

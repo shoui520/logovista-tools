@@ -779,11 +779,119 @@ def sqlite_table_summaries(db_path: Path) -> tuple[dict[str, Any], ...]:
         con.close()
 
 
+def sqlite_table_schema_summaries(db_path: Path) -> tuple[dict[str, Any], ...]:
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        rows: list[dict[str, Any]] = []
+        for name, sql in con.execute("select name, sql from sqlite_master where type='table' order by name"):
+            columns = [row[1] for row in con.execute(f"pragma table_info({quote_identifier(name)})")]
+            rows.append({"name": name, "rows": None, "columns": columns, "sql": sql})
+        return tuple(rows)
+    finally:
+        con.close()
+
+
 def _column_sets(tables: tuple[dict[str, Any], ...]) -> dict[str, set[str]]:
     return {
         str(table["name"]).lower(): {str(column).lower() for column in table.get("columns", [])}
         for table in tables
     }
+
+
+def _has_any(columns: set[str], *candidates: str) -> bool:
+    return any(candidate.lower() in columns for candidate in candidates)
+
+
+def _sqlite_table_role(name: str, columns: set[str]) -> str:
+    """Infer a renderer SQLite table role from schema capabilities.
+
+    Table names are still useful evidence, but they are not stable enough to be
+    the primary dispatch mechanism. Prefer id/body/blob/address capabilities,
+    then fall back to a few known names only when the schema is ambiguous.
+    """
+
+    lower = name.lower()
+    has_id = _has_any(
+        columns,
+        "id",
+        "no",
+        "itemid",
+        "dataid",
+        "contentid",
+        "content_id",
+        "contents_id",
+        "row_id",
+        "f_dataid",
+        "f_data_id",
+        "f_contents_id",
+        "f_order_id",
+        "index",
+    )
+    has_title = _has_any(
+        columns,
+        "title",
+        "heading",
+        "headword",
+        "label",
+        "title_utf8",
+        "title_sjis",
+        "f_title",
+        "f_midasi",
+        "f_midashi",
+        "f_midashi_hyoki",
+        "keyword",
+        "midashi",
+        "midashij",
+        "c_text",
+        "k_text",
+        "j_text",
+    )
+    has_body = _has_any(
+        columns,
+        "body",
+        "text",
+        "plain",
+        "body_text",
+        "body_html",
+        "html_body",
+        "content_html",
+        "plain_text",
+        "contents_html_box",
+        "contents_html_list",
+        "f_html",
+        "f_html_text",
+        "f_contents",
+        "f_body",
+        "f_plane",
+        "f_plane_text",
+        "h_text",
+        "c_text",
+        "k_text",
+        "j_text",
+    )
+    has_blob = _has_any(columns, "blob", "payload", "payload_blob", "resource_blob", "image_blob", "media_blob", "f_blob", "f_main", "main")
+    has_name = _has_any(columns, "name", "filename", "file_name", "path", "asset_name", "resource_name", "f_name")
+    has_address = _has_any(columns, "block", "block_s", "f_block") and _has_any(columns, "offset", "offset_s", "f_offset")
+    has_search_type = _has_any(columns, "f_type", "type", "search_type", "category")
+    if not columns:
+        return "empty"
+    if columns == {"index", "data"}:
+        return "ancillary"
+    if lower in {"t_all", "t_bushu", "t_jukugo", "t_yomi", "t_exam"}:
+        return "kanji_support"
+    if has_blob and (has_name or has_id):
+        return "media_store"
+    if has_id and has_body and not has_address:
+        return "body"
+    if has_address and has_search_type and has_title:
+        return "search"
+    if has_address and has_title:
+        return "link_reference"
+    if has_id and has_title:
+        return "search"
+    if lower.startswith("t_search_") or "zenbun" in lower or lower == "t_index":
+        return "search"
+    return "unknown"
 
 
 def sqlite_role_for_tables(tables: tuple[dict[str, Any], ...]) -> str:
@@ -793,11 +901,13 @@ def sqlite_role_for_tables(tables: tuple[dict[str, Any], ...]) -> str:
     names = set(columns)
     if not names:
         return "sqlite_empty"
-    if names <= {"media", "t_media"}:
+    roles = {name: _sqlite_table_role(name, cols) for name, cols in columns.items()}
+    role_values = set(roles.values())
+    if role_values <= {"media_store"}:
         return "sqlite_media_store"
-    if names and all(name.startswith("t_search_") for name in names):
+    if role_values <= {"search"} and any(name.startswith("t_search_") for name in names):
         return "sqlite_category_search_index"
-    if names == {"t_index"}:
+    if role_values <= {"search"} and len(names) == 1:
         return "sqlite_search_index"
     if "honbun" in names:
         honbun = columns["honbun"]
@@ -806,6 +916,10 @@ def sqlite_role_for_tables(tables: tuple[dict[str, Any], ...]) -> str:
         if {"f_data_id", "f_honbun"} <= honbun or {"f_data_id", "f_contents"} <= honbun:
             return "sqlite_honbun_data_id_body"
         return "sqlite_honbun"
+    if "body" in role_values:
+        if "media_store" in role_values:
+            return "sqlite_renderer_body_with_media"
+        return "sqlite_renderer_body"
     if any({"block", "offset", "body"} <= cols for cols in columns.values()):
         return "sqlite_block_offset_body"
     if "t_contents" in names:
@@ -825,7 +939,9 @@ def sqlite_role_for_tables(tables: tuple[dict[str, Any], ...]) -> str:
             return "sqlite_renderer_body"
     if any({"block", "offset", "title"} <= cols for cols in columns.values()):
         return "sqlite_block_offset_title_index"
-    if {"t_search", "t_zenbun"} & names:
+    if "link_reference" in role_values:
+        return "sqlite_block_offset_title_index"
+    if "search" in role_values or {"t_search", "t_zenbun"} & names:
         return "sqlite_search_or_fulltext"
     return "sqlite_unclassified"
 
@@ -916,21 +1032,12 @@ def discover_vlpljbl_files(roots: list[Path]) -> list[Path]:
     return rows
 
 
-def sqlite_has_table(path: Path, table_name: str) -> bool:
+def sqlite_has_supported_sidecar_schema(path: Path) -> bool:
     try:
-        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        role = sqlite_role_for_tables(sqlite_table_schema_summaries(path))
     except sqlite3.Error:
         return False
-    try:
-        row = con.execute(
-            "select 1 from sqlite_master where type='table' and name=? limit 1",
-            (table_name,),
-        ).fetchone()
-    except sqlite3.Error:
-        return False
-    finally:
-        con.close()
-    return row is not None
+    return role not in {"sqlite_empty", "sqlite_unclassified"}
 
 
 def discover_renderer_sidecars(idx: Path, exinfo: Exinfo | None = None) -> list[RendererSidecar]:
@@ -963,9 +1070,7 @@ def discover_renderer_sidecars(idx: Path, exinfo: Exinfo | None = None) -> list[
         storage = sqlite_storage_for_path(candidate)
         if storage is None:
             continue
-        if storage == "plain" and not (
-            sqlite_has_table(candidate, "t_contents") or sqlite_has_table(candidate, "HONBUN")
-        ):
+        if storage == "plain" and not sqlite_has_supported_sidecar_schema(candidate):
             continue
         rows.append(RendererSidecar(path=candidate, storage=storage))
     return rows

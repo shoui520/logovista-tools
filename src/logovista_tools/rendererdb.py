@@ -281,18 +281,27 @@ def summarize_ziptomedia_refs(idx: Path, refs: Counter[str]) -> dict[str, Any]:
     }
 
 
-def media_column_names(con: sqlite3.Connection) -> tuple[str, str, str | None, str] | None:
-    table = media_table_name(con)
-    if table is None:
-        return None
-    columns = table_column_map(con, table)
+def _media_column_names_for_columns(columns: dict[str, str]) -> tuple[str, str, str | None, str] | None:
     if {"no", "f_name", "f_type", "f_main"} <= set(columns):
         return (columns["no"], columns["f_name"], columns["f_type"], columns["f_main"])
     if {"id", "name", "type", "main"} <= set(columns):
         return (columns["id"], columns["name"], columns["type"], columns["main"])
     if {"f_name", "f_blob"} <= set(columns):
         return ("rowid", columns["f_name"], None, columns["f_blob"])
+    name_col = next((columns[key] for key in ("asset_name", "resource_name", "filename", "file_name", "name", "f_name") if key in columns), None)
+    blob_col = next((columns[key] for key in ("payload_blob", "resource_blob", "image_blob", "media_blob", "blob", "f_blob", "f_main") if key in columns), None)
+    id_col = next((columns[key] for key in ("no", "id", "itemid", "content_id", "row_id") if key in columns), "rowid")
+    type_col = next((columns[key] for key in ("f_type", "type", "media_type") if key in columns), None)
+    if name_col and blob_col:
+        return (id_col, name_col, type_col, blob_col)
     return None
+
+
+def media_column_names(con: sqlite3.Connection) -> tuple[str, str, str | None, str] | None:
+    table = media_table_name(con)
+    if table is None:
+        return None
+    return _media_column_names_for_columns(table_column_map(con, table))
 
 
 def media_table_name(con: sqlite3.Connection) -> str | None:
@@ -300,6 +309,13 @@ def media_table_name(con: sqlite3.Connection) -> str | None:
         return "media"
     if table_exists(con, "t_media"):
         return "t_media"
+    try:
+        tables = [str(row[0]) for row in con.execute("select name from sqlite_master where type='table' order by name")]
+    except sqlite3.DatabaseError:
+        return None
+    for table in tables:
+        if _media_column_names_for_columns(table_column_map(con, table)) is not None:
+            return table
     return None
 
 

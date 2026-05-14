@@ -288,7 +288,7 @@ class PackageEntryMixin:
             return None
         for sidecar in renderable:
             lower = sidecar.path.name.lower()
-            if lower.startswith("vlpljbl") and sidecar.kind in {"t_contents", "honbun"}:
+            if lower.startswith("vlpljbl") and sidecar.kind in {"t_contents", "honbun", "sqlite_body"}:
                 return sidecar
         return renderable[0]
 

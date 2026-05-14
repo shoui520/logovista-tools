@@ -14,10 +14,11 @@ from .body_source import (
     SidecarRole,
     SidecarSupportStatus,
     SidecarTableInfo,
+    classify_sqlite_table_role,
     classify_sqlite_sidecar_role,
     compatibility_significant_sidecar_role,
-    find_column,
     quote_sql_identifier,
+    resolve_sqlite_sidecar_columns,
     sqlite_columns,
     strip_html,
 )
@@ -116,48 +117,35 @@ class PackageSidecarMixin:
 
     def _sidecar_table_info(self, con: sqlite3.Connection, table: str, *, include_row_count: bool = True) -> SidecarTableInfo:
         columns = sqlite_columns(con, table)
-        lower = {column.lower(): column for column in columns}
-
-        def first(*names: str) -> str | None:
-            for name in names:
-                found = lower.get(name.lower())
-                if found is not None:
-                    return found
-            return None
-
-        block_col = first("Block", "Block_s", "f_block")
-        offset_col = first("Offset", "Offset_s", "f_offset")
-        role = classify_sqlite_sidecar_role("sqlite_unmapped", (table,), {table: columns})
+        resolved = resolve_sqlite_sidecar_columns(columns)
+        role = classify_sqlite_table_role(table, columns)
         return SidecarTableInfo(
             table=table,
             columns=tuple(columns),
             row_count=self._row_count(con, table) if include_row_count else None,
             role=role,
-            id_column=first("ID", "No", "ItemID", "f_DataId", "f_data_id", "f_array_no", "f_contents_id", "f_order_id", "id", "index"),
-            title_column=first(
-                "Title",
-                "TitleJIS",
-                "JIS_Title",
-                "Title_UTF8",
-                "Title_SJIS",
-                "f_Title",
-                "f_title",
-                "Keyword",
-                "Midashi",
-                "MidashiJ",
-                "f_midasi",
-                "f_midashi_hyoki",
-                "f_midashi_key",
-            ),
-            html_column=first("f_Html", "f_html_text", "Contents_HTML_box", "Contents_HTML_list", "f_contents"),
-            plain_column=first("Body", "f_body", "f_Plane", "f_plane", "f_plane_text", "h_text", "Value", "data"),
-            blob_column=first("f_blob", "f_main"),
-            name_column=first("f_name", "name"),
-            block_column=block_col,
-            offset_column=offset_col,
-            end_block_column=first("Block_e"),
-            end_offset_column=first("Offset_e"),
+            id_column=resolved["id"],
+            title_column=resolved["title"],
+            html_column=resolved["html"],
+            plain_column=resolved["plain"],
+            blob_column=resolved["blob"],
+            name_column=resolved["name"],
+            block_column=resolved["block"],
+            offset_column=resolved["offset"],
+            end_block_column=resolved["end_block"],
+            end_offset_column=resolved["end_offset"],
         )
+
+    @staticmethod
+    def _body_sidecar_kind(table: SidecarTableInfo) -> str:
+        table_lower = table.table.lower()
+        if table_lower == "honbun":
+            return "honbun"
+        if table_lower == "main":
+            return "main_wordlist"
+        if table_lower == "t_contents":
+            return "t_contents"
+        return "sqlite_body"
 
     @staticmethod
     def _sidecar_support_status(role: SidecarRole | str, tables: tuple[SidecarTableInfo, ...]) -> SidecarSupportStatus:
@@ -202,78 +190,32 @@ class PackageSidecarMixin:
             tables = [row[0] for row in con.execute("select name from sqlite_master where type='table' order by name")]
             table_infos = tuple(self._sidecar_table_info(con, table, include_row_count=include_row_counts) for table in tables)
             columns_by_table = {info.table: list(info.columns) for info in table_infos}
-            for table in ("t_contents", "HONBUN", "main"):
-                if table not in tables:
+            for table_info in table_infos:
+                table_role = table_info.role.value if isinstance(table_info.role, SidecarRole) else str(table_info.role)
+                if table_role != SidecarRole.BODY_CRITICAL.value:
                     continue
-                columns = sqlite_columns(con, table)
-                table_info = next((info for info in table_infos if info.table == table), None)
-                if table_info is not None:
-                    table_info = replace(table_info, role=SidecarRole.BODY_CRITICAL)
-                if table == "HONBUN":
-                    id_col = find_column(columns, "ID", "f_DataId", "f_data_id")
-                    title_col = find_column(columns, "Title_UTF8", "Title_SJIS", "Title", "f_Title")
-                    html_col = find_column(columns, "Contents_HTML_box", "Contents_HTML_list", "f_Html", "f_contents")
-                    plain_col = find_column(columns, "f_Plane", "f_body", "Body")
-                    if id_col and (html_col or plain_col or title_col):
-                        info = SidecarInfo(
-                            path=path,
-                            kind="honbun",
-                            storage=storage,
-                            role=classify_sqlite_sidecar_role("honbun", tables),
-                            support_status=SidecarSupportStatus.BODY_RESOLVER,
-                            table=table,
-                            id_column=id_col,
-                            title_column=title_col,
-                            html_column=html_col,
-                            plain_column=plain_col,
-                            row_count=self._row_count(con, table) if include_row_counts else None,
-                            tables=(table_info,) if table_info is not None else (),
-                        )
-                        self._sqlite_schema_cache[key] = info
-                        return info
-                elif table == "main":
-                    id_col = find_column(columns, "ID")
-                    title_col = find_column(columns, "C_text", "K_text", "J_text")
-                    plain_col = find_column(columns, "J_text", "C_text", "K_text")
-                    if id_col and (title_col or plain_col):
-                        info = SidecarInfo(
-                            path=path,
-                            kind="main_wordlist",
-                            storage=storage,
-                            role=classify_sqlite_sidecar_role("main_wordlist", tables),
-                            support_status=SidecarSupportStatus.BODY_RESOLVER,
-                            table=table,
-                            id_column=id_col,
-                            title_column=title_col,
-                            html_column=None,
-                            plain_column=plain_col,
-                            row_count=self._row_count(con, table) if include_row_counts else None,
-                            tables=(table_info,) if table_info is not None else (),
-                        )
-                        self._sqlite_schema_cache[key] = info
-                        return info
-                else:
-                    id_col = find_column(columns, "f_DataId", "f_data_id", "f_array_no", "f_contents_id", "f_order_id")
-                    title_col = find_column(columns, "f_Title", "f_title", "f_midashi", "f_midashi_hyoki", "f_midashi_key", "f_abbr", "f_fullname")
-                    html_col = find_column(columns, "f_Html", "f_html_text", "f_contents", "f_body")
-                    plain_col = find_column(columns, "f_Plane", "f_plane", "f_plane_text", "f_body")
-                    if id_col and (html_col or plain_col):
-                        info = SidecarInfo(
-                            path=path,
-                            kind="t_contents",
-                            storage=storage,
-                            role=classify_sqlite_sidecar_role("t_contents", tables),
-                            support_status=SidecarSupportStatus.BODY_RESOLVER,
-                            table=table,
-                            id_column=id_col,
-                            title_column=title_col,
-                            html_column=html_col,
-                            plain_column=plain_col,
-                            row_count=self._row_count(con, table) if include_row_counts else None,
-                            tables=(table_info,) if table_info is not None else (),
-                        )
-                        self._sqlite_schema_cache[key] = info
-                        return info
+                if not table_info.id_column or not (table_info.html_column or table_info.plain_column or table_info.title_column):
+                    continue
+                kind = self._body_sidecar_kind(table_info)
+                info = SidecarInfo(
+                    path=path,
+                    kind=kind,
+                    storage=storage,
+                    role=classify_sqlite_sidecar_role(kind, tables, columns_by_table),
+                    support_status=SidecarSupportStatus.BODY_RESOLVER,
+                    table=table_info.table,
+                    id_column=table_info.id_column,
+                    title_column=table_info.title_column,
+                    html_column=table_info.html_column,
+                    plain_column=table_info.plain_column,
+                    row_count=table_info.row_count,
+                    tables=tuple(
+                        replace(item, role=SidecarRole.BODY_CRITICAL) if item.table == table_info.table else item
+                        for item in table_infos
+                    ),
+                )
+                self._sqlite_schema_cache[key] = info
+                return info
             role = classify_sqlite_sidecar_role("sqlite_unmapped", tables, columns_by_table)
             support_status = self._sidecar_support_status(role, table_infos)
             self._sqlite_schema_cache[key] = SidecarInfo(

@@ -68,6 +68,7 @@ from logovista_tools.rendererdb import (
     html_ziptomedia_reference_rows,
     honbun_columns,
     iter_honmon_id_records,
+    media_table_name,
     media_type_counts,
     parse_dense_honmon_id,
     parse_decimal_int,
@@ -1144,7 +1145,7 @@ def test_discover_numeric_aux_indexes_excludes_main_ssedinfo(tmp_path) -> None:
     assert discover_numeric_aux_indexes(idx) == [numeric.resolve(), sharded_numeric.resolve()]
 
 
-def test_plain_sqlite_renderer_sidecar_requires_t_contents(tmp_path) -> None:
+def test_plain_sqlite_renderer_sidecar_requires_supported_schema(tmp_path) -> None:
     idx = tmp_path / "DICT.IDX"
     idx.write_bytes(b"")
     cache = tmp_path / "DICT.db"
@@ -1156,7 +1157,7 @@ def test_plain_sqlite_renderer_sidecar_requires_t_contents(tmp_path) -> None:
     assert discover_renderer_sidecars(idx) == []
 
     con = sqlite3.connect(cache)
-    con.execute("create table t_contents (f_DataId integer primary key, f_Html text)")
+    con.execute("create table EntryPayload (content_id integer primary key, body_html text)")
     con.commit()
     con.close()
 
@@ -1202,12 +1203,13 @@ def test_vlpljbl_classifier_identifies_plain_sqlite_role(tmp_path) -> None:
 def test_vlpljbl_magic_and_sqlite_roles() -> None:
     assert file_magic_kind(b"MZ" + b"\x00" * 20) == "pe_executable"
     assert file_magic_kind(b"OTTO" + b"\x00" * 20) == "opentype_cff"
-    assert sqlite_role_for_tables(({"name": "t_media", "columns": ["f_name", "f_blob"]},)) == "sqlite_media_store"
+    assert sqlite_role_for_tables(({"name": "AssetRows", "columns": ["asset_name", "payload_blob"]},)) == "sqlite_media_store"
     assert (
         sqlite_role_for_tables(({"name": "HONBUN", "columns": ["ID", "Title_UTF8", "Contents_HTML_box"]},))
         == "sqlite_row_ordered_honbun_renderer_body"
     )
     assert sqlite_role_for_tables(({"name": "MAIN", "columns": ["Block", "Offset", "Body"]},)) == "sqlite_block_offset_body"
+    assert sqlite_role_for_tables(({"name": "EntryPayload", "columns": ["content_id", "body_html"]},)) == "sqlite_renderer_body"
 
 
 def test_discover_android_body_database_and_media_schema(tmp_path) -> None:
@@ -1278,6 +1280,17 @@ def test_rendererdb_two_column_t_media_schema() -> None:
     con.execute("create table t_media (f_name text, f_blob blob)")
     con.execute("insert into t_media values ('figure.jpg', ?)", (b"\xff\xd8\xffx",))
 
+    assert media_type_counts(con) == {"0": 1}
+
+    con.close()
+
+
+def test_rendererdb_generic_media_blob_schema() -> None:
+    con = sqlite3.connect(":memory:")
+    con.execute("create table AssetRows (asset_name text, payload_blob blob)")
+    con.execute("insert into AssetRows values ('figure.jpg', ?)", (b"\xff\xd8\xffx",))
+
+    assert media_table_name(con) == "AssetRows"
     assert media_type_counts(con) == {"0": 1}
 
     con.close()

@@ -53,8 +53,22 @@ def test_lvcore_source_stays_independent_from_toolkit() -> None:
 
 def test_lvcore_sidecar_role_classification_is_structural() -> None:
     assert classify_sqlite_sidecar_role("t_contents", ("t_contents",)) == SidecarRole.BODY_CRITICAL
-    assert classify_sqlite_sidecar_role("sqlite_unmapped", ("t_media",)) == SidecarRole.MEDIA_RESOURCE
-    assert classify_sqlite_sidecar_role("sqlite_unmapped", ("D_Example", "D_Idiom")) == SidecarRole.EXAMPLES_IDIOMS
+    assert (
+        classify_sqlite_sidecar_role(
+            "sqlite_unmapped",
+            ("AssetRows",),
+            {"AssetRows": ["asset_name", "payload_blob"]},
+        )
+        == SidecarRole.MEDIA_RESOURCE
+    )
+    assert (
+        classify_sqlite_sidecar_role(
+            "sqlite_unmapped",
+            ("SupplementRows",),
+            {"SupplementRows": ["No", "Block", "Offset", "Keyword", "Midashi", "Title"]},
+        )
+        == SidecarRole.EXAMPLES_IDIOMS
+    )
     assert (
         classify_sqlite_sidecar_role(
             "sqlite_unmapped",
@@ -63,7 +77,22 @@ def test_lvcore_sidecar_role_classification_is_structural() -> None:
         )
         == SidecarRole.LINK_REFERENCE
     )
-    assert classify_sqlite_sidecar_role("sqlite_unmapped", ("t_Search_01", "t_zenbun")) == SidecarRole.SEARCH
+    assert (
+        classify_sqlite_sidecar_role(
+            "sqlite_unmapped",
+            ("LookupRows",),
+            {"LookupRows": ["row_id", "f_type", "f_midasi", "f_block", "f_offset"]},
+        )
+        == SidecarRole.SEARCH
+    )
+    assert (
+        classify_sqlite_sidecar_role(
+            "sqlite_unmapped",
+            ("EntryPayload",),
+            {"EntryPayload": ["content_id", "heading", "body_html", "body_text"]},
+        )
+        == SidecarRole.BODY_CRITICAL
+    )
     assert classify_sqlite_sidecar_role("sqlite_unmapped", ("t_all", "t_bushu", "t_jukugo")) == SidecarRole.KANJI_SUPPORT
     assert classify_sqlite_sidecar_role("sqlite_unmapped", ("D_InternationalChronology",)) == SidecarRole.ANCILLARY
     assert classify_sqlite_sidecar_role("sqlite_unmapped", ("t_data",), {"t_data": ["index", "data"]}) == SidecarRole.ANCILLARY
@@ -667,11 +696,31 @@ def add_media_table_sidecar(root: Path) -> None:
         con.close()
 
 
+def add_generic_media_sidecar(root: Path) -> None:
+    con = sqlite3.connect(root / "assets.db")
+    try:
+        con.execute("create table AssetRows (asset_name text primary key, payload_blob blob)")
+        con.execute("insert into AssetRows values (?, ?)", ("generic-png", b"\x89PNG\r\n\x1a\ngeneric"))
+        con.commit()
+    finally:
+        con.close()
+
+
 def add_link_reference_sidecar(root: Path, *, block: int = 2, offset: int = 0) -> None:
     con = sqlite3.connect(root / "links.db")
     try:
         con.execute("create table LINKS (No integer primary key, Block integer, Offset integer, Title text, Body text, TitleJIS text)")
         con.execute("insert into LINKS values (?, ?, ?, ?, ?, ?)", (1, block, offset, "related entry", "target body", "related jis"))
+        con.commit()
+    finally:
+        con.close()
+
+
+def add_generic_example_sidecar(root: Path, *, block: int = 2, offset: int = 0) -> None:
+    con = sqlite3.connect(root / "generic-examples.db")
+    try:
+        con.execute("create table SupplementRows (No integer primary key, Block integer, Offset integer, Keyword text, Midashi text, Title text)")
+        con.execute("insert into SupplementRows values (?, ?, ?, ?, ?, ?)", (1, block, offset, "alpha", "generic midashi", "generic example title"))
         con.commit()
     finally:
         con.close()
@@ -1627,6 +1676,24 @@ def test_lvcore_sidecar_media_table_schema_resolves_untouched_blob(tmp_path: Pat
     assert package.resource_bytes(resources[0]) == b"\x89PNG\r\n\x1a\npayload"
 
 
+def test_lvcore_generic_sidecar_media_schema_resolves_without_table_name(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    add_generic_media_sidecar(tmp_path)
+    package = open_package(tmp_path)
+
+    summary = package.sidecar_role_summary()
+    resources = package.sidecar_media_resources()
+
+    assert summary["role_counts"]["media_resource"] == 1
+    assert summary["supported_role_counts"]["media_resource"] == 1
+    assert len(resources) == 1
+    info = package.resource_info(resources[0])
+    assert info["source_table"] == "AssetRows"
+    assert info["details"]["blob_column"] == "payload_blob"
+    assert info["mime_type"] == "image/png"
+    assert package.resource_bytes(resources[0]) == b"\x89PNG\r\n\x1a\ngeneric"
+
+
 def test_lvcore_link_reference_sidecar_attaches_safe_link_supplement(tmp_path: Path) -> None:
     make_synthetic_package(tmp_path)
     add_link_reference_sidecar(tmp_path)
@@ -1650,6 +1717,23 @@ def test_lvcore_link_reference_sidecar_attaches_safe_link_supplement(tmp_path: P
     assert "row_id" not in dumped
     assert "links.db" in debug_dumped
     assert "row_id" in debug_dumped
+
+
+def test_lvcore_generic_example_sidecar_attaches_by_schema_without_table_name(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    add_generic_example_sidecar(tmp_path)
+    package = open_package(tmp_path)
+
+    summary = package.sidecar_role_summary()
+    references = package.sidecar_references(Address(2, 0, "HONMON.DIC"), debug=True)
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+    entry = package.entry_for_hit(hit, include_supplements=True)
+
+    assert summary["role_counts"]["examples_idioms"] == 1
+    assert summary["supported_role_counts"]["examples_idioms"] == 1
+    assert references[0]["table"] == "SupplementRows"
+    assert references[0]["role"] == "examples_idioms"
+    assert "generic example title" in package.render_entry_text(entry)
 
 
 def test_lvcore_search_metadata_sidecar_is_supported_but_not_native_search(tmp_path: Path) -> None:
@@ -1743,6 +1827,30 @@ def test_lvcore_dense_anchor_with_extensionless_main_sidecar_renders_body(tmp_pa
 
     assert entry.headword == "beta title"
     assert "beta main sidecar body" in package.render_entry_text(entry)
+
+
+def test_lvcore_dense_anchor_with_generic_body_sidecar_schema_renders_body(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path)
+    con = sqlite3.connect(tmp_path / "body.db")
+    try:
+        con.execute("create table EntryPayload (content_id integer primary key, heading text, body_html text, body_text text)")
+        con.execute("insert into EntryPayload values (?, ?, ?, ?)", (2, "beta generic title", "<div>html fallback</div>", "beta generic body"))
+        con.commit()
+    finally:
+        con.close()
+
+    package = open_package(tmp_path)
+    source = package.body_source()
+    hit = package.search("beta", profile=SearchProfile.EXACT).hits[0]
+    entry = package.entry_for_hit(hit)
+
+    assert source.ssed_kind == SsedBodySourceKind.DENSE_ANCHOR_WITH_SIDECAR
+    assert source.sidecars[0].kind == "sqlite_body"
+    assert source.sidecars[0].table == "EntryPayload"
+    assert source.sidecars[0].id_column == "content_id"
+    assert source.sidecars[0].plain_column == "body_text"
+    assert entry.headword == "beta generic title"
+    assert "beta generic body" in package.render_entry_text(entry)
 
 
 def test_lvcore_dense_anchor_with_observed_t_contents_schema_variants(tmp_path: Path) -> None:
