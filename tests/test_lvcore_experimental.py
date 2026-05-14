@@ -1517,6 +1517,17 @@ def test_lvcore_dense_anchor_with_sqlite_sidecar_renders_body(tmp_path: Path) ->
     assert any(diagnostic.code == "sidecar_body_resolved" for diagnostic in entry.diagnostics())
 
 
+def test_lvcore_dense_anchor_iter_entries_uses_sidecar_body_provider(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path, with_sidecar=True)
+    package = open_package(tmp_path)
+
+    entries = list(package.iter_entries(limit=3))
+
+    assert [entry.headword for entry in entries] == ["alpha", "beta", "gamma"]
+    assert [entry.text for entry in entries] == ["alpha sidecar body", "beta sidecar body", "gamma sidecar body"]
+    assert [entry.address.component for entry in entries] == ["body.db", "body.db", "body.db"]
+
+
 def test_lvcore_dense_anchor_hit_dereference_does_not_depend_on_body_source_classification(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

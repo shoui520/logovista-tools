@@ -291,6 +291,8 @@ class PackageSearchMixin:
     def _find_title_matches(self, query: str, profile: SearchProfile, *, limit: int) -> list[TitleMatch]:
         if profile not in {SearchProfile.NATIVE, SearchProfile.EXACT, SearchProfile.FORWARD}:
             return []
+        if not _contains_cjk_ideograph(str(query or "")):
+            return []
         raw_matches = self._find_title_matches_raw(query, profile, limit=limit)
         if raw_matches:
             return sorted(raw_matches, key=lambda item: self._surface_match_score(item[2], query, profile))[:limit]
@@ -670,12 +672,20 @@ class PackageSearchMixin:
         stored_normalized: tuple[str, ...],
         natural_normalized: tuple[str, ...],
         normalized_query: str,
+        normalized_candidates: set[str] | None = None,
         profile: SearchProfile,
         backward: bool,
         multi_page_index: bool = False,
     ) -> bool:
         if not normalized_query:
             return False
+        if profile == SearchProfile.EXACT:
+            candidates = tuple(sorted(value for value in (normalized_candidates or {normalized_query}) if value))
+            if not candidates:
+                return False
+            ceiling = candidates[-1]
+            values = tuple(value for value in ((stored_normalized if backward else natural_normalized) or stored_normalized) if value)
+            return bool(values) and all(value not in candidates for value in values) and any(value > ceiling for value in values)
         if profile == SearchProfile.FORWARD:
             values = tuple(value for value in natural_normalized if value)
             return bool(values) and all(not value.startswith(normalized_query) for value in values) and any(
@@ -933,6 +943,7 @@ class PackageSearchMixin:
                     stored_normalized=stored_normalized,
                     natural_normalized=natural_normalized,
                     normalized_query=normalized_query,
+                    normalized_candidates=normalized_candidates,
                     profile=profile,
                     backward=backward,
                     multi_page_index=multi_page_index,
@@ -1180,9 +1191,8 @@ class PackageSearchMixin:
         for sidecar in self._body_sidecars(stop_after_body_resolver=True, allow_expensive=allow_expensive):
             if sidecar.kind not in {"main_wordlist", "sqlite_body"} or not sidecar.table or not sidecar.id_column:
                 continue
-            sqlite_path = self._sqlite_path_for_sidecar(sidecar.path, sidecar.storage)
-            con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
             try:
+                con = self._sqlite_connection_for_sidecar(sidecar.path, sidecar.storage)
                 columns = sqlite_columns(con, sidecar.table)
                 table_info = next((table for table in sidecar.tables if table.table == sidecar.table), None)
                 text_columns = []
@@ -1253,8 +1263,8 @@ class PackageSearchMixin:
                         },
                         _package=self,
                     )
-            finally:
-                con.close()
+            except sqlite3.DatabaseError:
+                continue
 
     def search(
         self,
@@ -1273,9 +1283,10 @@ class PackageSearchMixin:
         profiles = (SearchProfile.EXACT, SearchProfile.FORWARD, SearchProfile.BACKWARD) if profile == SearchProfile.NATIVE else (profile,)
         hits: list[SearchHit] = []
         seen: set[tuple[int, int, int, int]] = set()
+        has_native_indexes = any(component.path is not None for component in self.components_by_role(ComponentRole.INDEX))
 
         if profile in {SearchProfile.NATIVE, SearchProfile.EXACT, SearchProfile.FORWARD}:
-            allow_expensive_sidecar = not any(component.path is not None for component in self.components_by_role(ComponentRole.INDEX))
+            allow_expensive_sidecar = not has_native_indexes
             for hit in self._iter_main_wordlist_sidecar_hits(
                 query,
                 limit=limit,
@@ -1343,7 +1354,12 @@ class PackageSearchMixin:
             if profile == SearchProfile.NATIVE and len(hits) > before_profile:
                 return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits))
         if not hits:
-            for hit in self._iter_main_wordlist_sidecar_hits(query, limit=limit, profile=profile, allow_expensive=True):
+            for hit in self._iter_main_wordlist_sidecar_hits(
+                query,
+                limit=limit,
+                profile=profile,
+                allow_expensive=debug or not has_native_indexes,
+            ):
                 hits.append(hit)
                 if len(hits) >= limit:
                     break

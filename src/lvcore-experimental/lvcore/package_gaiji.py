@@ -108,18 +108,24 @@ class PackageGaijiMixin:
         return bool(glyph is not None) and all(byte == 0 for byte in glyph)
 
     def _gaiji_image_info(self, code: str) -> dict[str, object] | None:
+        if code in self._gaiji_image_info_cache:
+            cached = self._gaiji_image_info_cache[code]
+            return dict(cached) if cached is not None else None
         image = self._gaiji_image_by_code.get(code.lower())
         if image is None:
+            self._gaiji_image_info_cache[code] = None
             return None
         try:
             payload = image.path.read_bytes()
         except OSError:
-            return {
+            info = {
                 "display_status": GaijiDisplayStatus.UNRESOLVED.value,
                 "reason": GaijiResolutionReason.MISSING_IMAGE_RESOURCE.value,
                 "source": image.source,
                 "image_path": str(image.path),
             }
+            self._gaiji_image_info_cache[code] = info
+            return dict(info)
         mime_type, format_hint, container_kind = _media_mime_and_format(payload[:256], store_kind="gaiji_image")
         if mime_type == "application/octet-stream":
             suffix = image.path.suffix.lower()
@@ -132,7 +138,7 @@ class PackageGaijiMixin:
             }.get(suffix, mime_type)
             format_hint = suffix.removeprefix(".") or format_hint
             container_kind = "image" if mime_type.startswith("image/") else container_kind
-        return {
+        info = {
             "display_status": GaijiDisplayStatus.IMAGE_BACKED.value,
             "reason": GaijiResolutionReason.IMAGE_ASSET.value,
             "source": "image",
@@ -146,15 +152,23 @@ class PackageGaijiMixin:
             "image_source": image.source,
             "image_key": image.key,
         }
+        self._gaiji_image_info_cache[code] = info
+        return dict(info)
 
     def _gaiji_glyph_info(self, code: str, *, prefer_record_order: bool = True) -> dict[str, object] | None:
+        cache_key = (code, prefer_record_order)
+        if cache_key in self._gaiji_glyph_info_cache:
+            cached = self._gaiji_glyph_info_cache[cache_key]
+            return dict(cached) if cached is not None else None
         try:
             code_int = int(code, 16)
         except ValueError:
-            return {
+            info = {
                 "display_status": GaijiDisplayStatus.UNRESOLVED.value,
                 "reason": GaijiResolutionReason.MALFORMED_GAIJI_CODE.value,
             }
+            self._gaiji_glyph_info_cache[cache_key] = info
+            return dict(info)
         record = self.gaiji.record_for_code(code)
         if prefer_record_order and record is not None and record.index >= 0:
             for resource in self.ga16:
@@ -169,7 +183,7 @@ class PackageGaijiMixin:
                     if status == GaijiDisplayStatus.FORMATTING_HELPER
                     else GaijiResolutionReason.UNI_RECORD_ORDER_GA16
                 )
-                return {
+                info = {
                     "display_status": status.value,
                     "reason": reason.value,
                     "source": "ga16_record_order",
@@ -184,6 +198,8 @@ class PackageGaijiMixin:
                     "glyph_bytes": resource.glyph_bytes,
                     "ga16_section": resource.section,
                 }
+                self._gaiji_glyph_info_cache[cache_key] = info
+                return dict(info)
         for resource in self.ga16:
             index = resource.index_for_code(code_int)
             glyph = resource.glyph_by_index(index)
@@ -195,7 +211,7 @@ class PackageGaijiMixin:
                 if status == GaijiDisplayStatus.FORMATTING_HELPER
                 else GaijiResolutionReason.JIS_GRID_GA16
             )
-            return {
+            info = {
                 "display_status": status.value,
                 "reason": reason.value,
                 "source": "ga16_grid",
@@ -210,6 +226,9 @@ class PackageGaijiMixin:
                 "glyph_bytes": resource.glyph_bytes,
                 "ga16_section": resource.section,
             }
+            self._gaiji_glyph_info_cache[cache_key] = info
+            return dict(info)
+        self._gaiji_glyph_info_cache[cache_key] = None
         return None
 
     def gaiji_info(self, code_or_resource: str | ResourceRef | dict[str, object]) -> dict[str, object]:

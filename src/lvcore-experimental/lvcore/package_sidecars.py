@@ -22,10 +22,10 @@ from .body_source import (
     sqlite_columns,
     strip_html,
 )
-from .crypto import decrypt_logofont_file_to_path, decrypt_logofont_prefix
+from .crypto import decrypt_logofont_file, decrypt_logofont_file_to_path, decrypt_logofont_prefix
 from .document import ResourceKind, ResourceRef
 from .model import Address, Entry
-from .package_utils import EXPENSIVE_SIDECAR_BYTES, _media_mime_and_format
+from .package_utils import _media_mime_and_format
 from .ssed import read_file_prefix
 
 
@@ -34,6 +34,8 @@ class PackageSidecarMixin:
 
     def _sidecar_file_candidates(self) -> list[Path]:
         self._ensure_open()
+        if self._sidecar_file_candidates_cache is not None:
+            return list(self._sidecar_file_candidates_cache)
         candidates: list[Path] = []
         try:
             children = sorted(self.info.root.iterdir(), key=lambda path: path.name.lower())
@@ -49,6 +51,7 @@ class PackageSidecarMixin:
             is_dict_id_payload = bool(dict_id and child.suffix == "" and lower == dict_id)
             if lower.startswith("vlpljbl") or child.suffix.lower() in {".db", ".sqlite", ".sqlite3", ".sql"} or is_dict_id_payload:
                 candidates.append(child)
+        self._sidecar_file_candidates_cache = candidates
         return candidates
 
     def _body_sidecar_file_candidates(self) -> list[Path]:
@@ -72,11 +75,6 @@ class PackageSidecarMixin:
         return sorted(candidates, key=priority)
 
     def _is_expensive_sidecar_candidate(self, path: Path) -> bool:
-        try:
-            if path.stat().st_size <= EXPENSIVE_SIDECAR_BYTES:
-                return False
-        except OSError:
-            return False
         return self._sqlite_storage(path) == "logofont_cipher"
 
     @staticmethod
@@ -107,6 +105,22 @@ class PackageSidecarMixin:
         decrypt_logofont_file_to_path(path, decrypted)
         self._sqlite_sidecar_cache[key] = decrypted
         return decrypted
+
+    def _sqlite_connection_for_sidecar(self, path: Path, storage: str) -> sqlite3.Connection:
+        key = (str(path), storage)
+        cached = self._sqlite_connection_cache.get(key)
+        if isinstance(cached, sqlite3.Connection):
+            return cached
+        if storage == "logofont_cipher" and hasattr(sqlite3.Connection, "deserialize"):
+            data = decrypt_logofont_file(path)
+            con = sqlite3.connect(":memory:")
+            con.deserialize(data)
+        else:
+            sqlite_path = self._sqlite_path_for_sidecar(path, storage)
+            con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+        con.row_factory = sqlite3.Row
+        self._sqlite_connection_cache[key] = con
+        return con
 
     @staticmethod
     def _row_count(con: sqlite3.Connection, table: str) -> int | None:
@@ -180,56 +194,52 @@ class PackageSidecarMixin:
         if storage is None:
             self._sqlite_schema_cache[key] = None
             return None
-        sqlite_path = self._sqlite_path_for_sidecar(path, storage)
         try:
-            con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+            con = self._sqlite_connection_for_sidecar(path, storage)
         except sqlite3.DatabaseError:
             self._sqlite_schema_cache[key] = None
             return None
-        try:
-            tables = [row[0] for row in con.execute("select name from sqlite_master where type='table' order by name")]
-            table_infos = tuple(self._sidecar_table_info(con, table, include_row_count=include_row_counts) for table in tables)
-            columns_by_table = {info.table: list(info.columns) for info in table_infos}
-            for table_info in table_infos:
-                table_role = table_info.role.value if isinstance(table_info.role, SidecarRole) else str(table_info.role)
-                if table_role != SidecarRole.BODY_CRITICAL.value:
-                    continue
-                if not table_info.id_column or not (table_info.html_column or table_info.plain_column or table_info.title_column):
-                    continue
-                kind = self._body_sidecar_kind(table_info)
-                info = SidecarInfo(
-                    path=path,
-                    kind=kind,
-                    storage=storage,
-                    role=classify_sqlite_sidecar_role(kind, tables, columns_by_table),
-                    support_status=SidecarSupportStatus.BODY_RESOLVER,
-                    table=table_info.table,
-                    id_column=table_info.id_column,
-                    title_column=table_info.title_column,
-                    html_column=table_info.html_column,
-                    plain_column=table_info.plain_column,
-                    row_count=table_info.row_count,
-                    tables=tuple(
-                        replace(item, role=SidecarRole.BODY_CRITICAL) if item.table == table_info.table else item
-                        for item in table_infos
-                    ),
-                )
-                self._sqlite_schema_cache[key] = info
-                return info
-            role = classify_sqlite_sidecar_role("sqlite_unmapped", tables, columns_by_table)
-            support_status = self._sidecar_support_status(role, table_infos)
-            self._sqlite_schema_cache[key] = SidecarInfo(
+        tables = [row[0] for row in con.execute("select name from sqlite_master where type='table' order by name")]
+        table_infos = tuple(self._sidecar_table_info(con, table, include_row_count=include_row_counts) for table in tables)
+        columns_by_table = {info.table: list(info.columns) for info in table_infos}
+        for table_info in table_infos:
+            table_role = table_info.role.value if isinstance(table_info.role, SidecarRole) else str(table_info.role)
+            if table_role != SidecarRole.BODY_CRITICAL.value:
+                continue
+            if not table_info.id_column or not (table_info.html_column or table_info.plain_column or table_info.title_column):
+                continue
+            kind = self._body_sidecar_kind(table_info)
+            info = SidecarInfo(
                 path=path,
-                kind="sqlite_unmapped",
+                kind=kind,
                 storage=storage,
-                role=role,
-                support_status=support_status,
-                tables=table_infos,
-                notes=tuple(tables[:8]),
+                role=classify_sqlite_sidecar_role(kind, tables, columns_by_table),
+                support_status=SidecarSupportStatus.BODY_RESOLVER,
+                table=table_info.table,
+                id_column=table_info.id_column,
+                title_column=table_info.title_column,
+                html_column=table_info.html_column,
+                plain_column=table_info.plain_column,
+                row_count=table_info.row_count,
+                tables=tuple(
+                    replace(item, role=SidecarRole.BODY_CRITICAL) if item.table == table_info.table else item
+                    for item in table_infos
+                ),
             )
-            return self._sqlite_schema_cache[key]
-        finally:
-            con.close()
+            self._sqlite_schema_cache[key] = info
+            return info
+        role = classify_sqlite_sidecar_role("sqlite_unmapped", tables, columns_by_table)
+        support_status = self._sidecar_support_status(role, table_infos)
+        self._sqlite_schema_cache[key] = SidecarInfo(
+            path=path,
+            kind="sqlite_unmapped",
+            storage=storage,
+            role=role,
+            support_status=support_status,
+            tables=table_infos,
+            notes=tuple(tables[:8]),
+        )
+        return self._sqlite_schema_cache[key]
 
     def _body_sidecars(self, *, stop_after_body_resolver: bool = False, allow_expensive: bool = True) -> tuple[SidecarInfo, ...]:
         cache_key = (stop_after_body_resolver, allow_expensive)
@@ -369,85 +379,80 @@ class PackageSidecarMixin:
             candidate_tables = [table for table in sidecar.tables if table.block_column and table.offset_column]
             if not candidate_tables:
                 continue
-            sqlite_path = self._sqlite_path_for_sidecar(sidecar.path, sidecar.storage)
             try:
-                con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
-                con.row_factory = sqlite3.Row
+                con = self._sqlite_connection_for_sidecar(sidecar.path, sidecar.storage)
             except sqlite3.DatabaseError:
                 continue
-            try:
-                for table in candidate_tables:
-                    text_columns = self._sidecar_table_text_columns(table)
-                    select_columns: list[str] = []
-                    for column in (table.id_column, table.block_column, table.offset_column, *text_columns):
-                        if column and column in table.columns and column not in select_columns:
-                            select_columns.append(column)
-                    quoted_columns = [quote_sql_identifier(column) for column in select_columns]
-                    quoted = ", ".join(["rowid as __rowid", *quoted_columns])
-                    sql = (
-                        f"select {quoted} from {quote_sql_identifier(table.table)} "
-                        f"where {quote_sql_identifier(table.block_column or '')}=? "
-                        f"and {quote_sql_identifier(table.offset_column or '')}=? "
-                        f"order by rowid limit ?"
+            for table in candidate_tables:
+                text_columns = self._sidecar_table_text_columns(table)
+                select_columns: list[str] = []
+                for column in (table.id_column, table.block_column, table.offset_column, *text_columns):
+                    if column and column in table.columns and column not in select_columns:
+                        select_columns.append(column)
+                quoted_columns = [quote_sql_identifier(column) for column in select_columns]
+                quoted = ", ".join(["rowid as __rowid", *quoted_columns])
+                sql = (
+                    f"select {quoted} from {quote_sql_identifier(table.table)} "
+                    f"where {quote_sql_identifier(table.block_column or '')}=? "
+                    f"and {quote_sql_identifier(table.offset_column or '')}=? "
+                    f"order by rowid limit ?"
+                )
+                try:
+                    rows = con.execute(sql, (address.block, address.offset, max(1, limit - len(supplements)))).fetchall()
+                except sqlite3.DatabaseError:
+                    continue
+                role = table.role.value if isinstance(table.role, SidecarRole) else str(table.role)
+                for row in rows:
+                    values = {column: self._safe_sidecar_text(row[column]) for column in text_columns if column in row.keys()}
+                    heading = values.get(table.title_column or "") or values.get("Title") or values.get("Midashi") or values.get("Keyword") or ""
+                    text = (
+                        values.get(table.plain_column or "")
+                        or values.get(table.html_column or "")
+                        or values.get("Body")
+                        or values.get("h_text")
+                        or heading
                     )
-                    try:
-                        rows = con.execute(sql, (address.block, address.offset, max(1, limit - len(supplements)))).fetchall()
-                    except sqlite3.DatabaseError:
-                        continue
-                    role = table.role.value if isinstance(table.role, SidecarRole) else str(table.role)
-                    for row in rows:
-                        values = {column: self._safe_sidecar_text(row[column]) for column in text_columns if column in row.keys()}
-                        heading = values.get(table.title_column or "") or values.get("Title") or values.get("Midashi") or values.get("Keyword") or ""
-                        text = (
-                            values.get(table.plain_column or "")
-                            or values.get(table.html_column or "")
-                            or values.get("Body")
-                            or values.get("h_text")
-                            or heading
-                        )
-                        kind = self._sidecar_supplement_kind(table.role, table.table)
-                        row_id = int(row["__rowid"])
-                        supplement: dict[str, object] = {
-                            "id": f"sidecar-{kind}-{len(supplements) + 1}",
-                            "kind": kind,
-                            "role": role,
-                            "status": "address_matched",
-                            "sidecar": sidecar.path.name,
-                            "table": table.table,
-                            "row_id": row_id,
+                    kind = self._sidecar_supplement_kind(table.role, table.table)
+                    row_id = int(row["__rowid"])
+                    supplement: dict[str, object] = {
+                        "id": f"sidecar-{kind}-{len(supplements) + 1}",
+                        "kind": kind,
+                        "role": role,
+                        "status": "address_matched",
+                        "sidecar": sidecar.path.name,
+                        "table": table.table,
+                        "row_id": row_id,
+                        "address": address.to_dict(),
+                        "heading": strip_html(heading),
+                        "text": strip_html(text),
+                        "keyword": values.get("Keyword") or "",
+                    }
+                    if kind in {"link_reference", "sidecar_search"}:
+                        label = str(supplement.get("heading") or supplement.get("text") or "reference")
+                        supplement["link_target"] = {
+                            "kind": "internal_address" if kind == "link_reference" else "sidecar_search",
+                            "href": f"lvcore-entry://{address.block}/{address.offset}",
+                            "status": "resolved",
+                            "label": label,
                             "address": address.to_dict(),
-                            "heading": strip_html(heading),
-                            "text": strip_html(text),
-                            "keyword": values.get("Keyword") or "",
+                            "details": {
+                                "status": "address_matched",
+                                "source_sidecar": sidecar.path.name,
+                                "source_table": table.table,
+                                "row_id": row_id,
+                            },
                         }
-                        if kind in {"link_reference", "sidecar_search"}:
-                            label = str(supplement.get("heading") or supplement.get("text") or "reference")
-                            supplement["link_target"] = {
-                                "kind": "internal_address" if kind == "link_reference" else "sidecar_search",
-                                "href": f"lvcore-entry://{address.block}/{address.offset}",
-                                "status": "resolved",
-                                "label": label,
-                                "address": address.to_dict(),
-                                "details": {
-                                    "status": "address_matched",
-                                    "source_sidecar": sidecar.path.name,
-                                    "source_table": table.table,
-                                    "row_id": row_id,
-                                },
-                            }
-                        if debug:
-                            supplement["debug"] = {
-                                "storage": sidecar.storage,
-                                "block_column": table.block_column,
-                                "offset_column": table.offset_column,
-                                "id_column": table.id_column,
-                                "text_columns": list(text_columns),
-                            }
-                        supplements.append(supplement)
-                        if len(supplements) >= limit:
-                            return supplements
-            finally:
-                con.close()
+                    if debug:
+                        supplement["debug"] = {
+                            "storage": sidecar.storage,
+                            "block_column": table.block_column,
+                            "offset_column": table.offset_column,
+                            "id_column": table.id_column,
+                            "text_columns": list(text_columns),
+                        }
+                    supplements.append(supplement)
+                    if len(supplements) >= limit:
+                        return supplements
         return supplements
 
     def _attach_sidecar_supplements(self, entry: Entry, *, include: bool = True) -> Entry:
@@ -477,73 +482,68 @@ class PackageSidecarMixin:
             candidate_tables = [table for table in sidecar.tables if table.blob_column]
             if not candidate_tables:
                 continue
-            sqlite_path = self._sqlite_path_for_sidecar(sidecar.path, sidecar.storage)
             try:
-                con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
-                con.row_factory = sqlite3.Row
+                con = self._sqlite_connection_for_sidecar(sidecar.path, sidecar.storage)
             except sqlite3.DatabaseError:
                 continue
-            try:
-                for table in candidate_tables:
-                    name_column = table.name_column or table.id_column
-                    select_columns: list[str] = []
-                    for column in (name_column, table.id_column):
-                        if column and column in table.columns and column not in select_columns:
-                            select_columns.append(column)
-                    quoted_columns = [quote_sql_identifier(column) for column in select_columns]
-                    quoted = ", ".join(["rowid as __rowid", *quoted_columns])
-                    sql = (
-                        f"select {quoted}, "
-                        f"length({quote_sql_identifier(table.blob_column)}) as __blob_length, "
-                        f"substr({quote_sql_identifier(table.blob_column)}, 1, 1024) as __blob_prefix "
-                        f"from {quote_sql_identifier(table.table)} order by rowid"
-                    )
-                    if limit is not None:
-                        sql += " limit ?"
-                        params: tuple[object, ...] = (max(0, limit - len(resources)),)
-                    else:
-                        params = ()
-                    try:
-                        rows = con.execute(sql, params).fetchall()
-                    except sqlite3.DatabaseError:
-                        continue
-                    for row in rows:
-                        row_id = int(row["__rowid"])
-                        name = self._safe_sidecar_text(row[name_column]) if name_column and name_column in row.keys() else ""
-                        prefix = bytes(row["__blob_prefix"] or b"")
-                        mime_type, format_hint, container_kind = _media_mime_and_format(prefix, store_kind="sidecar_media")
-                        digest = hashlib.sha1(f"{sidecar.path.name}:{table.table}:{row_id}:{name}".encode("utf-8")).hexdigest()[:12]
-                        resources.append(
-                            ResourceRef(
-                                id=f"sidecar-media-{digest}",
-                                kind=self._resource_kind_from_container(container_kind),
-                                label=name or f"{table.table}#{row_id}",
-                                status="resolved",
-                                mime_type=mime_type,
-                                source_path=str(sidecar.path),
-                                details={
-                                    "reason": "sidecar_media_blob",
-                                    "resolved": True,
-                                    "sidecar_media": True,
-                                    "store_kind": "sidecar_media",
-                                    "sidecar": sidecar.path.name,
-                                    "storage": sidecar.storage,
-                                    "table": table.table,
-                                    "row_id": row_id,
-                                    "name": name,
-                                    "id_column": table.id_column,
-                                    "name_column": name_column,
-                                    "blob_column": table.blob_column,
-                                    "byte_length": int(row["__blob_length"] or 0),
-                                    "format_hint": format_hint,
-                                    "container_kind": container_kind,
-                                },
-                            )
+            for table in candidate_tables:
+                name_column = table.name_column or table.id_column
+                select_columns: list[str] = []
+                for column in (name_column, table.id_column):
+                    if column and column in table.columns and column not in select_columns:
+                        select_columns.append(column)
+                quoted_columns = [quote_sql_identifier(column) for column in select_columns]
+                quoted = ", ".join(["rowid as __rowid", *quoted_columns])
+                sql = (
+                    f"select {quoted}, "
+                    f"length({quote_sql_identifier(table.blob_column)}) as __blob_length, "
+                    f"substr({quote_sql_identifier(table.blob_column)}, 1, 1024) as __blob_prefix "
+                    f"from {quote_sql_identifier(table.table)} order by rowid"
+                )
+                if limit is not None:
+                    sql += " limit ?"
+                    params: tuple[object, ...] = (max(0, limit - len(resources)),)
+                else:
+                    params = ()
+                try:
+                    rows = con.execute(sql, params).fetchall()
+                except sqlite3.DatabaseError:
+                    continue
+                for row in rows:
+                    row_id = int(row["__rowid"])
+                    name = self._safe_sidecar_text(row[name_column]) if name_column and name_column in row.keys() else ""
+                    prefix = bytes(row["__blob_prefix"] or b"")
+                    mime_type, format_hint, container_kind = _media_mime_and_format(prefix, store_kind="sidecar_media")
+                    digest = hashlib.sha1(f"{sidecar.path.name}:{table.table}:{row_id}:{name}".encode("utf-8")).hexdigest()[:12]
+                    resources.append(
+                        ResourceRef(
+                            id=f"sidecar-media-{digest}",
+                            kind=self._resource_kind_from_container(container_kind),
+                            label=name or f"{table.table}#{row_id}",
+                            status="resolved",
+                            mime_type=mime_type,
+                            source_path=str(sidecar.path),
+                            details={
+                                "reason": "sidecar_media_blob",
+                                "resolved": True,
+                                "sidecar_media": True,
+                                "store_kind": "sidecar_media",
+                                "sidecar": sidecar.path.name,
+                                "storage": sidecar.storage,
+                                "table": table.table,
+                                "row_id": row_id,
+                                "name": name,
+                                "id_column": table.id_column,
+                                "name_column": name_column,
+                                "blob_column": table.blob_column,
+                                "byte_length": int(row["__blob_length"] or 0),
+                                "format_hint": format_hint,
+                                "container_kind": container_kind,
+                            },
                         )
-                        if limit is not None and len(resources) >= limit:
-                            return tuple(resources)
-            finally:
-                con.close()
+                    )
+                    if limit is not None and len(resources) >= limit:
+                        return tuple(resources)
         return tuple(resources)
 
     def sidecar_supplement_summary(self) -> dict[str, object]:
@@ -602,43 +602,39 @@ class PackageSidecarMixin:
             candidate_tables = [table for table in sidecar.tables if table.block_column and table.offset_column]
             if not candidate_tables:
                 continue
-            sqlite_path = self._sqlite_path_for_sidecar(sidecar.path, sidecar.storage)
             try:
-                con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+                con = self._sqlite_connection_for_sidecar(sidecar.path, sidecar.storage)
             except sqlite3.DatabaseError:
                 continue
-            try:
-                for table in candidate_tables:
-                    sql = (
-                        f"select count(*) from {quote_sql_identifier(table.table)} "
-                        f"where {quote_sql_identifier(table.block_column or '')}=? "
-                        f"and {quote_sql_identifier(table.offset_column or '')}=?"
-                    )
-                    try:
-                        count = int(con.execute(sql, (address.block, address.offset)).fetchone()[0])
-                    except sqlite3.DatabaseError:
-                        continue
-                    if count <= 0:
-                        continue
-                    role = table.role.value if isinstance(table.role, SidecarRole) else str(table.role)
-                    support_status = sidecar.support_status.value if isinstance(sidecar.support_status, SidecarSupportStatus) else str(sidecar.support_status)
-                    row: dict[str, object] = {
-                        "sidecar": sidecar.path.name,
-                        "kind": sidecar.kind,
-                        "role": role,
-                        "support_status": support_status,
-                        "table": table.table,
-                        "match_count": count,
-                        "status": "matched",
-                    }
-                    if debug:
-                        row["block_column"] = table.block_column
-                        row["offset_column"] = table.offset_column
-                        row["title_column"] = table.title_column
-                        row["plain_column"] = table.plain_column
-                    matches.append(row)
-                    if len(matches) >= limit:
-                        return matches
-            finally:
-                con.close()
+            for table in candidate_tables:
+                sql = (
+                    f"select count(*) from {quote_sql_identifier(table.table)} "
+                    f"where {quote_sql_identifier(table.block_column or '')}=? "
+                    f"and {quote_sql_identifier(table.offset_column or '')}=?"
+                )
+                try:
+                    count = int(con.execute(sql, (address.block, address.offset)).fetchone()[0])
+                except sqlite3.DatabaseError:
+                    continue
+                if count <= 0:
+                    continue
+                role = table.role.value if isinstance(table.role, SidecarRole) else str(table.role)
+                support_status = sidecar.support_status.value if isinstance(sidecar.support_status, SidecarSupportStatus) else str(sidecar.support_status)
+                row: dict[str, object] = {
+                    "sidecar": sidecar.path.name,
+                    "kind": sidecar.kind,
+                    "role": role,
+                    "support_status": support_status,
+                    "table": table.table,
+                    "match_count": count,
+                    "status": "matched",
+                }
+                if debug:
+                    row["block_column"] = table.block_column
+                    row["offset_column"] = table.offset_column
+                    row["title_column"] = table.title_column
+                    row["plain_column"] = table.plain_column
+                matches.append(row)
+                if len(matches) >= limit:
+                    return matches
         return matches

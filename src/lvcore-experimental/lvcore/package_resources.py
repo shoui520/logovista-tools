@@ -72,10 +72,8 @@ class PackageResourceMixin:
             info["status"] = "deferred"
             info["details"] = {"reason": "sidecar_media_source_not_found", "sidecar": sidecar_name}
             return info
-        sqlite_path = self._sqlite_path_for_sidecar(sidecar.path, sidecar.storage)
         try:
-            con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
-            con.row_factory = sqlite3.Row
+            con = self._sqlite_connection_for_sidecar(sidecar.path, sidecar.storage)
         except sqlite3.DatabaseError:
             info["status"] = "deferred"
             info["details"] = {"reason": "sidecar_media_open_failed", "sidecar": sidecar_name}
@@ -123,8 +121,10 @@ class PackageResourceMixin:
                 }
             )
             return info
-        finally:
-            con.close()
+        except sqlite3.DatabaseError:
+            info["status"] = "deferred"
+            info["details"] = {"reason": "sidecar_media_query_failed", "sidecar": sidecar_name, "table": table, "row_id": row_id}
+            return info
 
     def _resolve_colscr_resource(self, resource_id: str, kind: str, address: Address, original_target: object) -> dict[str, object]:
         info = self._media_info_base(resource_id, kind)
@@ -397,19 +397,14 @@ class PackageResourceMixin:
                 sidecar = next((item for item in self._body_sidecars() if item.path.name == sidecar_name), None)
                 if sidecar is None:
                     return None
-                sqlite_path = self._sqlite_path_for_sidecar(sidecar.path, sidecar.storage)
-                con: sqlite3.Connection | None = None
                 try:
-                    con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+                    con = self._sqlite_connection_for_sidecar(sidecar.path, sidecar.storage)
                     row = con.execute(
                         f"select {quote_sql_identifier(blob_column)} from {quote_sql_identifier(table)} where rowid=?",
                         (row_id,),
                     ).fetchone()
                 except sqlite3.DatabaseError:
                     return None
-                finally:
-                    if con is not None:
-                        con.close()
                 if row is None:
                     return None
                 return bytes(row[0] or b"")

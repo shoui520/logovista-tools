@@ -96,8 +96,16 @@ class PackageEntryMixin:
                 SsedBodySourceKind.VLPLJBL_SIDECAR,
                 SsedBodySourceKind.SIDECAR_UNKNOWN,
             }:
-                for hit in self._iter_entry_hits_fast(limit=limit):
-                    yield self.entry_for_hit(hit, include_supplements=include_supplements)
+                if not include_supplements:
+                    sidecar = self._choose_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
+                    if sidecar is not None:
+                        yielded = False
+                        for entry in self._iter_body_sidecar_entries_fast(sidecar, limit=limit):
+                            yielded = True
+                            yield entry
+                        if yielded:
+                            return
+                yield from self._iter_dense_sidecar_entries_fast(limit=limit, include_supplements=include_supplements)
                 return
             sample = reader.read(0, min(reader.expanded_size, BLOCK_SIZE))
             if ENTRY_MARKER not in sample:
@@ -186,6 +194,91 @@ class PackageEntryMixin:
                 count += 1
                 if count >= limit:
                     return
+
+    def _iter_dense_sidecar_entries_fast(self, *, limit: int, include_supplements: bool = False) -> Iterable[Entry]:
+        hits = list(self._iter_entry_hits_fast(limit=limit))
+        if not hits:
+            return
+        sidecar = self._choose_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
+        if sidecar is None:
+            for hit in hits:
+                yield self.entry_for_hit(hit, include_supplements=include_supplements)
+            return
+
+        anchor_by_index: dict[int, str] = {}
+        for index, hit in enumerate(hits):
+            inspection = self.inspect_body_pointer(hit.body)
+            if inspection.anchor_id:
+                anchor_by_index[index] = inspection.anchor_id
+        bodies = self._fetch_sidecar_bodies(sidecar, tuple(anchor_by_index.values()))
+        for index, hit in enumerate(hits):
+            anchor_id = anchor_by_index.get(index)
+            if not anchor_id:
+                yield self._placeholder_entry(
+                    hit.body,
+                    headword=hit.heading,
+                    code="dense_anchor_missing_id",
+                    message="dense HONMON record did not expose a numeric anchor id",
+                    severity=Severity.ERROR,
+                )
+                continue
+            body = bodies.get(anchor_id)
+            if body is None:
+                yield self._placeholder_entry(
+                    hit.body,
+                    headword=hit.heading,
+                    code="sidecar_body_not_found",
+                    message="body sidecar did not contain a row for the dense HONMON anchor",
+                    severity=Severity.ERROR,
+                    details=self._sidecar_debug_details(sidecar, anchor_id),
+                )
+                continue
+            yield self._entry_from_sidecar_body(
+                hit,
+                body,
+                sidecar=sidecar,
+                anchor_id=anchor_id,
+                include_supplements=include_supplements,
+            )
+
+    def _iter_body_sidecar_entries_fast(self, sidecar: SidecarInfo, *, limit: int) -> Iterable[Entry]:
+        if limit <= 0 or not sidecar.table or not sidecar.id_column:
+            return
+        try:
+            con = self._sqlite_connection_for_sidecar(sidecar.path, sidecar.storage)
+        except sqlite3.DatabaseError:
+            return
+        select_columns = [sidecar.id_column]
+        for column in (sidecar.title_column, sidecar.html_column, sidecar.plain_column):
+            if column and column not in select_columns:
+                select_columns.append(column)
+        quoted = ", ".join(quote_sql_identifier(column) for column in select_columns)
+        sql = (
+            f"select {quoted} from {quote_sql_identifier(sidecar.table)} "
+            f"order by {quote_sql_identifier(sidecar.id_column)} limit ?"
+        )
+        try:
+            rows = con.execute(sql, (limit,))
+        except sqlite3.DatabaseError:
+            return
+        for row_index, row in enumerate(rows, start=1):
+            raw_id = row[sidecar.id_column]
+            anchor_id = str(raw_id) if raw_id is not None else str(row_index)
+            body = self._sidecar_body_from_row(sidecar, row)
+            if body is None:
+                continue
+            try:
+                pseudo_offset = int(anchor_id.lstrip("0") or "0")
+            except ValueError:
+                pseudo_offset = row_index
+            address = Address(0, pseudo_offset, sidecar.path.name)
+            yield self._make_sidecar_body_entry(
+                address,
+                body,
+                sidecar=sidecar,
+                anchor_id=anchor_id,
+                headword_hint=anchor_id,
+            )
 
     def _body_pointer_offsets(self, component: Component) -> list[int]:
         key = component.name.lower()
@@ -534,10 +627,8 @@ class PackageEntryMixin:
     def _fetch_sidecar_body(self, sidecar: SidecarInfo, anchor_id: str) -> SidecarBody | None:
         if not sidecar.table or not sidecar.id_column:
             return None
-        sqlite_path = self._sqlite_path_for_sidecar(sidecar.path, sidecar.storage)
         try:
-            con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
-            con.row_factory = sqlite3.Row
+            con = self._sqlite_connection_for_sidecar(sidecar.path, sidecar.storage)
         except sqlite3.DatabaseError:
             return None
         try:
@@ -557,13 +648,118 @@ class PackageEntryMixin:
                     break
             if row is None:
                 return None
-            title = str(row[sidecar.title_column]) if sidecar.title_column and row[sidecar.title_column] is not None else ""
-            html_value = str(row[sidecar.html_column]) if sidecar.html_column and row[sidecar.html_column] is not None else ""
-            plain_value = str(row[sidecar.plain_column]) if sidecar.plain_column and row[sidecar.plain_column] is not None else ""
-            text = plain_value.strip() or strip_html(html_value) or title.strip()
-            return SidecarBody(title=strip_html(title), text=text, html=html_value or None, source=sidecar)
-        finally:
-            con.close()
+            return self._sidecar_body_from_row(sidecar, row)
+        except sqlite3.DatabaseError:
+            return None
+
+    @staticmethod
+    def _sidecar_body_from_row(sidecar: SidecarInfo, row: sqlite3.Row) -> SidecarBody | None:
+        title = str(row[sidecar.title_column]) if sidecar.title_column and row[sidecar.title_column] is not None else ""
+        html_value = str(row[sidecar.html_column]) if sidecar.html_column and row[sidecar.html_column] is not None else ""
+        plain_value = str(row[sidecar.plain_column]) if sidecar.plain_column and row[sidecar.plain_column] is not None else ""
+        text = plain_value.strip() or strip_html(html_value) or title.strip()
+        if not (text or html_value or title):
+            return None
+        return SidecarBody(title=strip_html(title), text=text, html=html_value or None, source=sidecar)
+
+    def _fetch_sidecar_bodies(self, sidecar: SidecarInfo, anchor_ids: tuple[str, ...]) -> dict[str, SidecarBody]:
+        if not sidecar.table or not sidecar.id_column or not anchor_ids:
+            return {}
+        try:
+            con = self._sqlite_connection_for_sidecar(sidecar.path, sidecar.storage)
+        except sqlite3.DatabaseError:
+            return {}
+
+        value_to_anchor: dict[object, str] = {}
+        query_values: list[object] = []
+        seen_values: set[tuple[str, object]] = set()
+        for anchor_id in anchor_ids:
+            for value in self._anchor_query_values(anchor_id, sidecar):
+                marker = (type(value).__name__, value)
+                if marker not in seen_values:
+                    seen_values.add(marker)
+                    query_values.append(value)
+                value_to_anchor.setdefault(value, anchor_id)
+                value_to_anchor.setdefault(str(value), anchor_id)
+
+        select_columns = [sidecar.id_column]
+        for column in (sidecar.title_column, sidecar.html_column, sidecar.plain_column):
+            if column and column not in select_columns:
+                select_columns.append(column)
+        quoted = ", ".join(quote_sql_identifier(column) for column in select_columns)
+        base_sql = (
+            f"select {quoted} from {quote_sql_identifier(sidecar.table)} "
+            f"where {quote_sql_identifier(sidecar.id_column)} in "
+        )
+
+        bodies: dict[str, SidecarBody] = {}
+        try:
+            for start in range(0, len(query_values), 900):
+                batch = query_values[start : start + 900]
+                placeholders = ",".join("?" for _ in batch)
+                for row in con.execute(f"{base_sql}({placeholders})", batch):
+                    raw_id = row[sidecar.id_column]
+                    anchor_id = value_to_anchor.get(raw_id) or value_to_anchor.get(str(raw_id))
+                    if not anchor_id or anchor_id in bodies:
+                        continue
+                    body = self._sidecar_body_from_row(sidecar, row)
+                    if body is not None:
+                        bodies[anchor_id] = body
+        except sqlite3.DatabaseError:
+            return bodies
+        return bodies
+
+    def _make_sidecar_body_entry(
+        self,
+        address: Address,
+        body: SidecarBody,
+        *,
+        sidecar: SidecarInfo,
+        anchor_id: str,
+        headword_hint: str,
+        include_supplements: bool = False,
+    ) -> Entry:
+        note = Diagnostic(
+            severity=Severity.INFO,
+            area=DiagnosticArea.BODY,
+            code="sidecar_body_resolved",
+            message="entry body resolved from SSED sidecar database",
+            location=self._location_for_address(address, role=ComponentRole.HONMON),
+            details=self._sidecar_debug_details(sidecar, anchor_id),
+        )
+        text = body.text or body.title or headword_hint
+        spans = (
+            (Span(kind="sidecar_html", text=body.html, attrs={"plain_text": text}),)
+            if body.html
+            else (Span(kind="text", text=text),)
+        )
+        entry = Entry(
+            address=address,
+            end_address=address,
+            headword=body.title or headword_hint,
+            text=text,
+            spans=spans,
+            entry_diagnostics=(note,),
+        )
+        return self._attach_sidecar_supplements(entry, include=include_supplements)
+
+    def _entry_from_sidecar_body(
+        self,
+        hit: SearchHit,
+        body: SidecarBody,
+        *,
+        sidecar: SidecarInfo,
+        anchor_id: str,
+        include_supplements: bool = False,
+    ) -> Entry:
+        return self._make_sidecar_body_entry(
+            hit.body,
+            body,
+            sidecar=sidecar,
+            anchor_id=anchor_id,
+            headword_hint=hit.heading,
+            include_supplements=include_supplements,
+        )
 
     def _placeholder_entry(
         self,
@@ -626,29 +822,7 @@ class PackageEntryMixin:
                 severity=Severity.ERROR,
                 details=self._sidecar_debug_details(sidecar, anchor_id),
             )
-        note = Diagnostic(
-            severity=Severity.INFO,
-            area=DiagnosticArea.BODY,
-            code="sidecar_body_resolved",
-            message="entry body resolved from SSED sidecar database",
-            location=self._location_for_address(hit.body, role=ComponentRole.HONMON),
-            details=self._sidecar_debug_details(sidecar, anchor_id),
-        )
-        text = body.text or body.title or hit.heading
-        spans = (
-            (Span(kind="sidecar_html", text=body.html, attrs={"plain_text": text}),)
-            if body.html
-            else (Span(kind="text", text=text),)
-        )
-        entry = Entry(
-            address=hit.body,
-            end_address=hit.body,
-            headword=body.title or hit.heading,
-            text=text,
-            spans=spans,
-            entry_diagnostics=(note,),
-        )
-        return entry
+        return self._entry_from_sidecar_body(hit, body, sidecar=sidecar, anchor_id=anchor_id)
 
     def _try_entry_from_dense_sidecar(
         self,
@@ -658,7 +832,7 @@ class PackageEntryMixin:
         include_supplements: bool = False,
     ) -> Entry | None:
         anchor_id = inspection.anchor_id
-        if not anchor_id or not self._sidecar_file_candidates():
+        if not anchor_id:
             return None
         sidecar = self._choose_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
         if sidecar is None:
@@ -666,26 +840,10 @@ class PackageEntryMixin:
         body = self._fetch_sidecar_body(sidecar, anchor_id)
         if body is None:
             return None
-        note = Diagnostic(
-            severity=Severity.INFO,
-            area=DiagnosticArea.BODY,
-            code="sidecar_body_resolved",
-            message="entry body resolved from SSED sidecar database",
-            location=self._location_for_address(hit.body, role=ComponentRole.HONMON),
-            details=self._sidecar_debug_details(sidecar, anchor_id),
+        return self._entry_from_sidecar_body(
+            hit,
+            body,
+            sidecar=sidecar,
+            anchor_id=anchor_id,
+            include_supplements=include_supplements,
         )
-        text = body.text or body.title or hit.heading
-        spans = (
-            (Span(kind="sidecar_html", text=body.html, attrs={"plain_text": text}),)
-            if body.html
-            else (Span(kind="text", text=text),)
-        )
-        entry = Entry(
-            address=hit.body,
-            end_address=hit.body,
-            headword=body.title or hit.heading,
-            text=text,
-            spans=spans,
-            entry_diagnostics=(note,),
-        )
-        return self._attach_sidecar_supplements(entry, include=include_supplements)

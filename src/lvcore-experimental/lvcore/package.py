@@ -59,6 +59,8 @@ class LogoVistaPackage(
         self._ga16: tuple[Ga16Resource, ...] | None = None
         self._gaiji_images: tuple[ImageGaijiResource, ...] | None = None
         self._gaiji_image_by_code_cache: dict[str, ImageGaijiResource] | None = None
+        self._gaiji_image_info_cache: dict[str, dict[str, object] | None] = {}
+        self._gaiji_glyph_info_cache: dict[tuple[str, bool], dict[str, object] | None] = {}
         self._component_by_name = {component.name.lower(): component for component in self.components}
         self._data_cache: dict[str, SsedData] = {}
         self._index_cache: dict[str, IndexParse] = {}
@@ -68,7 +70,9 @@ class LogoVistaPackage(
         self._body_pointer_cache: dict[str, list[int]] = {}
         self._body_source_cache: dict[bool, BodySourceInfo] = {}
         self._sqlite_sidecar_cache: dict[str, Path] = {}
+        self._sqlite_connection_cache: dict[tuple[str, str], object] = {}
         self._sqlite_schema_cache: dict[str, SidecarInfo | None] = {}
+        self._sidecar_file_candidates_cache: list[Path] | None = None
         self._body_sidecars_cache: dict[tuple[bool, bool], tuple[SidecarInfo, ...]] = {}
         self._tempdir: tempfile.TemporaryDirectory[str] | None = None
         self._closed = False
@@ -96,8 +100,17 @@ class LogoVistaPackage(
         self._marker_cache.clear()
         self._body_pointer_cache.clear()
         self._body_source_cache.clear()
+        self._gaiji_image_info_cache.clear()
+        self._gaiji_glyph_info_cache.clear()
+        for connection in self._sqlite_connection_cache.values():
+            try:
+                connection.close()
+            except Exception:
+                pass
+        self._sqlite_connection_cache.clear()
         self._sqlite_sidecar_cache.clear()
         self._sqlite_schema_cache.clear()
+        self._sidecar_file_candidates_cache = None
         self._body_sidecars_cache.clear()
         tempdir = self._tempdir
         self._tempdir = None
