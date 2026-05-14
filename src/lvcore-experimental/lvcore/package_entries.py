@@ -15,7 +15,9 @@ from .body_source import (
     SidecarBody,
     SidecarInfo,
     SsedBodySourceKind,
+    body_source_kind_for_sidecar,
     quote_sql_identifier,
+    select_body_sidecar,
     strip_html,
 )
 from .diagnostics import Diagnostic, DiagnosticArea, Severity
@@ -211,7 +213,7 @@ class PackageEntryMixin:
                 SsedBodySourceKind.VLPLJBL_SIDECAR,
                 SsedBodySourceKind.SIDECAR_UNKNOWN,
             }:
-                sidecar = self._choose_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
+                sidecar = select_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
                 if sidecar is not None:
                     yielded = False
                     for entry in self._iter_body_sidecar_entries_fast(sidecar, limit=limit):
@@ -318,7 +320,7 @@ class PackageEntryMixin:
         hits = list(self._iter_entry_hits_fast(limit=limit))
         if not hits:
             return
-        sidecar = self._choose_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
+        sidecar = select_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
         if sidecar is None:
             for hit in hits:
                 yield self.entry_for_hit(hit)
@@ -326,7 +328,7 @@ class PackageEntryMixin:
 
         anchor_by_index: dict[int, str] = {}
         for index, hit in enumerate(hits):
-            inspection = self.inspect_body_pointer(hit.body)
+            inspection = self.inspect_body_pointer(hit.debug_info.body)
             if inspection.anchor_id:
                 anchor_by_index[index] = inspection.anchor_id
         bodies = self._fetch_sidecar_bodies(sidecar, tuple(anchor_by_index.values()))
@@ -334,7 +336,7 @@ class PackageEntryMixin:
             anchor_id = anchor_by_index.get(index)
             if not anchor_id:
                 yield self._placeholder_entry(
-                    hit.body,
+                    hit.debug_info.body,
                     headword=hit.heading,
                     code="dense_anchor_missing_id",
                     message="dense HONMON record did not expose a numeric anchor id",
@@ -344,7 +346,7 @@ class PackageEntryMixin:
             body = bodies.get(anchor_id)
             if body is None:
                 yield self._placeholder_entry(
-                    hit.body,
+                    hit.debug_info.body,
                     headword=hit.heading,
                     code="sidecar_body_not_found",
                     message="body sidecar did not contain a row for the dense HONMON anchor",
@@ -493,16 +495,6 @@ class PackageEntryMixin:
                     best_offsets = candidates
         return best_offsets
 
-    def _choose_body_sidecar(self, sidecars: tuple[SidecarInfo, ...]) -> SidecarInfo | None:
-        renderable = [sidecar for sidecar in sidecars if sidecar.table and sidecar.id_column and (sidecar.html_column or sidecar.plain_column)]
-        if not renderable:
-            return None
-        for sidecar in renderable:
-            lower = sidecar.path.name.lower()
-            if lower.startswith("vlpljbl") and sidecar.kind in {"t_contents", "honbun", "sqlite_body"}:
-                return sidecar
-        return renderable[0]
-
     def body_source(self, *, debug: bool = False) -> BodySourceInfo:
         if debug in self._body_source_cache:
             return self._body_source_cache[debug]
@@ -525,16 +517,11 @@ class PackageEntryMixin:
         numeric_ratio = float(evidence["numeric_ratio"])
         is_dense = numeric_ratio >= 0.6 and int(evidence["sample_count"]) >= 4
         sidecars = self._body_sidecars(stop_after_body_resolver=not debug) if is_dense else ()
-        chosen_sidecar = self._choose_body_sidecar(sidecars)
+        chosen_sidecar = select_body_sidecar(sidecars)
 
         if is_dense:
             if chosen_sidecar is not None:
-                if chosen_sidecar.kind == "honbun":
-                    kind = SsedBodySourceKind.HONBUN_SIDECAR
-                elif chosen_sidecar.path.name.lower().startswith("vlpljbl"):
-                    kind = SsedBodySourceKind.RENDERER_SQLITE_SIDECAR
-                else:
-                    kind = SsedBodySourceKind.DENSE_ANCHOR_WITH_SIDECAR
+                kind = body_source_kind_for_sidecar(chosen_sidecar)
                 support = BodySourceSupport.PARTIALLY_RENDERABLE
                 provider = "sqlite_sidecar"
                 sidecar_kind = chosen_sidecar.kind
@@ -867,7 +854,7 @@ class PackageEntryMixin:
         anchor_id: str,
     ) -> Entry:
         return self._make_sidecar_body_entry(
-            hit.body,
+            hit.debug_info.body,
             body,
             sidecar=sidecar,
             anchor_id=anchor_id,
@@ -907,11 +894,11 @@ class PackageEntryMixin:
         if entry.text.strip() or any(span.text for span in entry.spans if span.kind == "text"):
             return entry
         return self._placeholder_entry(
-            hit.body,
+            hit.debug_info.body,
             headword=hit.heading,
             code="empty_body_at_pointer",
             message="entry body pointer decoded to no displayable text",
-            details={"body": hit.body.to_dict(), "heading": hit.heading},
+            details={"body": hit.debug_info.body.to_dict(), "heading": hit.heading},
             placeholder_text="Entry body pointer decoded to no displayable text.",
         )
 
@@ -919,7 +906,7 @@ class PackageEntryMixin:
         anchor_id = inspection.anchor_id
         if not anchor_id:
             return self._placeholder_entry(
-                hit.body,
+                hit.debug_info.body,
                 headword=hit.heading,
                 code="dense_anchor_missing_id",
                 message="dense HONMON record did not expose a numeric anchor id",
@@ -928,7 +915,7 @@ class PackageEntryMixin:
         body = self._fetch_sidecar_body(sidecar, anchor_id)
         if body is None:
             return self._placeholder_entry(
-                hit.body,
+                hit.debug_info.body,
                 headword=hit.heading,
                 code="sidecar_body_not_found",
                 message="body sidecar did not contain a row for the dense HONMON anchor",
@@ -945,7 +932,7 @@ class PackageEntryMixin:
         anchor_id = inspection.anchor_id
         if not anchor_id:
             return None
-        sidecar = self._choose_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
+        sidecar = select_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
         if sidecar is None:
             return None
         body = self._fetch_sidecar_body(sidecar, anchor_id)

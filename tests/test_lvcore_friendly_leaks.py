@@ -27,7 +27,7 @@ def _assert_friendly(value: object) -> None:
     text = json.dumps(value, ensure_ascii=False, sort_keys=True)
     for key in FORBIDDEN_FRIENDLY_KEYS:
         assert f'"{key}"' not in text
-    assert re.search(r'"op"\\s*:\\s*"[0-9a-fA-F]{2}"', text) is None
+    assert re.search(r'"op"\s*:\s*"[0-9a-fA-F]{2}"', text) is None
     assert "/tmp/" not in text
     assert "/mnt/" not in text
     assert "/home/" not in text

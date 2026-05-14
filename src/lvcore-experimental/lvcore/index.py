@@ -212,7 +212,7 @@ def parse_simple_leaf(page: bytes, page_index: int, gaiji: dict[str, str] | None
             malformed += 1
             diagnostics.append(
                 IndexDiagnostic(
-                    code="malformed_simple_leaf_row",
+                    code=DiagnosticCode.MALFORMED_SIMPLE_LEAF_ROW,
                     message="simple index row exceeds leaf page bounds",
                     page=page_index,
                     row=row_index,
@@ -234,7 +234,7 @@ def parse_simple_leaf(page: bytes, page_index: int, gaiji: dict[str, str] | None
             malformed += 1
             diagnostics.append(
                 IndexDiagnostic(
-                    code="invalid_body_pointer",
+                    code=DiagnosticCode.INVALID_BODY_POINTER,
                     message="index row body pointer has no positive block",
                     page=page_index,
                     row=row_index,
@@ -310,7 +310,7 @@ def parse_tagged_leaf(
                 malformed += 1
                 diagnostics.append(
                     IndexDiagnostic(
-                        code="malformed_direct_leaf_row",
+                        code=DiagnosticCode.MALFORMED_DIRECT_LEAF_ROW,
                         message="direct tagged index row exceeds leaf page bounds",
                         page=page_index,
                         row=row_number,
@@ -332,7 +332,7 @@ def parse_tagged_leaf(
                 malformed += 1
                 diagnostics.append(
                     IndexDiagnostic(
-                        code="invalid_body_pointer",
+                        code=DiagnosticCode.INVALID_BODY_POINTER,
                         message="direct tagged index row body pointer has no positive block",
                         page=page_index,
                         row=row_number,
@@ -369,7 +369,7 @@ def parse_tagged_leaf(
                 malformed += 1
                 diagnostics.append(
                     IndexDiagnostic(
-                        code="malformed_group_leaf_row",
+                        code=DiagnosticCode.MALFORMED_GROUP_LEAF_ROW,
                         message="grouped index header exceeds leaf page bounds",
                         page=page_index,
                         row=row_number,
@@ -399,7 +399,7 @@ def parse_tagged_leaf(
                     malformed += 1
                     diagnostics.append(
                         IndexDiagnostic(
-                            code="malformed_target_leaf_row",
+                            code=DiagnosticCode.MALFORMED_TARGET_LEAF_ROW,
                             message="target row missing target key length",
                             page=page_index,
                             row=row_number,
@@ -415,7 +415,7 @@ def parse_tagged_leaf(
                     malformed += 1
                     diagnostics.append(
                         IndexDiagnostic(
-                            code="malformed_target_leaf_row",
+                            code=DiagnosticCode.MALFORMED_TARGET_LEAF_ROW,
                             message="target index row exceeds leaf page bounds",
                             page=page_index,
                             row=row_number,
@@ -432,7 +432,7 @@ def parse_tagged_leaf(
                     malformed += 1
                     diagnostics.append(
                         IndexDiagnostic(
-                            code="malformed_target_leaf_row",
+                            code=DiagnosticCode.MALFORMED_TARGET_LEAF_ROW,
                             message="compact target index row exceeds leaf page bounds",
                             page=page_index,
                             row=row_number,
@@ -448,7 +448,7 @@ def parse_tagged_leaf(
                     dangling += 1
                     diagnostics.append(
                         IndexDiagnostic(
-                            code="dangling_continuation_row",
+                            code=DiagnosticCode.DANGLING_CONTINUATION_ROW,
                             message="compact target row appeared without an active group context",
                             page=page_index,
                             row=row_number,
@@ -474,7 +474,7 @@ def parse_tagged_leaf(
                     dangling += 1
                     diagnostics.append(
                         IndexDiagnostic(
-                            code="dangling_multi_target_row",
+                            code=DiagnosticCode.DANGLING_MULTI_TARGET_ROW,
                             message="MULTI target row appeared without an active group key",
                             page=page_index,
                             row=row_number,
@@ -498,7 +498,7 @@ def parse_tagged_leaf(
                 malformed += 1
                 diagnostics.append(
                     IndexDiagnostic(
-                        code="invalid_body_pointer",
+                        code=DiagnosticCode.INVALID_BODY_POINTER,
                         message="target index row body pointer has no positive block",
                         page=page_index,
                         row=row_number,
@@ -536,7 +536,7 @@ def parse_tagged_leaf(
         malformed += 1
         diagnostics.append(
             IndexDiagnostic(
-                code="unknown_leaf_tag",
+                code=DiagnosticCode.UNKNOWN_LEAF_TAG,
                 message="unknown tagged index leaf row tag",
                 page=page_index,
                 row=row_number,
@@ -581,7 +581,7 @@ def parse_index(data: bytes, start_block: int, component_type: int, gaiji: dict[
                 if nonzero:
                     diagnostics.append(
                         IndexDiagnostic(
-                            code="partial_index_page_tail",
+                            code=DiagnosticCode.PARTIAL_INDEX_PAGE_TAIL,
                             message="index component ended with a partial physical page tail",
                             page=page_index,
                             details={
@@ -607,7 +607,7 @@ def parse_index(data: bytes, start_block: int, component_type: int, gaiji: dict[
                     unknown_leaf_bytes=0,
                     diagnostics=(
                         IndexDiagnostic(
-                            code="unsupported_component_type",
+                            code=DiagnosticCode.UNSUPPORTED_COMPONENT_TYPE,
                             message="index component type has no lvcore parser",
                             page=page_index,
                             details={"component_type": f"{component_type:02x}"},
@@ -625,12 +625,14 @@ def parse_index(data: bytes, start_block: int, component_type: int, gaiji: dict[
         else:
             internal_pages += 1
             internal.extend(parse_internal_page(page, page_index, gaiji))
-    if component_type not in SUPPORTED_INDEX_TYPES and (leaf_pages or internal_pages or data.strip(b"\x00")) and not any(
-        diagnostic.code == "unsupported_component_type" for diagnostic in diagnostics
+    if (
+        component_type not in SUPPORTED_INDEX_TYPES
+        and (leaf_pages or internal_pages or data.strip(b"\x00"))
+        and not any(diagnostic.code == DiagnosticCode.UNSUPPORTED_COMPONENT_TYPE for diagnostic in diagnostics)
     ):
         diagnostics.append(
             IndexDiagnostic(
-                code="unsupported_component_type",
+                code=DiagnosticCode.UNSUPPORTED_COMPONENT_TYPE,
                 message="index component type has no lvcore parser",
                 details={
                     "component_type": f"{component_type:02x}",

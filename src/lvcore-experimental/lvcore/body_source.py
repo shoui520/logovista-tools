@@ -159,6 +159,49 @@ class SidecarInfo:
         return data
 
 
+BODY_SIDECAR_KIND_ORDER = {
+    "t_contents": 0,
+    "honbun": 1,
+    "main_wordlist": 2,
+    "sqlite_body": 3,
+}
+
+
+def is_renderable_body_sidecar(sidecar: SidecarInfo) -> bool:
+    return bool(sidecar.table and sidecar.id_column and (sidecar.html_column or sidecar.plain_column))
+
+
+def body_sidecar_candidates(sidecars: tuple[SidecarInfo, ...], *, kind: str | None = None) -> tuple[SidecarInfo, ...]:
+    candidates = [
+        sidecar
+        for sidecar in sidecars
+        if is_renderable_body_sidecar(sidecar) and (kind is None or sidecar.kind == kind)
+    ]
+    return tuple(
+        sorted(
+            candidates,
+            key=lambda sidecar: (
+                BODY_SIDECAR_KIND_ORDER.get(sidecar.kind, 100),
+                (sidecar.table or "").lower(),
+                sidecar.path.name.lower(),
+            ),
+        )
+    )
+
+
+def select_body_sidecar(sidecars: tuple[SidecarInfo, ...], *, kind: str | None = None) -> SidecarInfo | None:
+    candidates = body_sidecar_candidates(sidecars, kind=kind)
+    return candidates[0] if candidates else None
+
+
+def body_source_kind_for_sidecar(sidecar: SidecarInfo) -> SsedBodySourceKind:
+    if sidecar.kind == "honbun":
+        return SsedBodySourceKind.HONBUN_SIDECAR
+    if sidecar.kind == "t_contents" and sidecar.storage == "logofont_cipher":
+        return SsedBodySourceKind.RENDERER_SQLITE_SIDECAR
+    return SsedBodySourceKind.DENSE_ANCHOR_WITH_SIDECAR
+
+
 @dataclass(frozen=True)
 class SidecarAddressMatch:
     sidecar_name: str

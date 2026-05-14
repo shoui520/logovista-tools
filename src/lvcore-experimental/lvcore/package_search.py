@@ -7,8 +7,9 @@ from typing import Callable, Iterable
 
 from .body_source import (
     SsedBodySourceKind,
+    select_body_sidecar,
 )
-from .diagnostics import Diagnostic, DiagnosticArea, Severity
+from .diagnostics import Diagnostic, DiagnosticArea, DiagnosticCode, Severity
 from .errors import FormatError
 from .index import (
     BODY_ONLY_SIMPLE_TYPES,
@@ -49,11 +50,6 @@ class BodyProvider:
         raise NotImplementedError
 
 
-class DenseSidecarBodyProvider(BodyProvider):
-    def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
-        return package._try_entry_from_dense_sidecar(hit, inspection)
-
-
 class BodyStreamProvider(BodyProvider):
     def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
         honmon = package.honmon_component()
@@ -65,7 +61,9 @@ class BodyStreamProvider(BodyProvider):
         return None
 
 
-class SupportedSidecarBodyProvider(BodyProvider):
+class DenseAnchorSidecarBodyProvider(BodyProvider):
+    """Resolve a dense-anchor body through one supported sidecar schema."""
+
     SUPPORTED = {
         SsedBodySourceKind.DENSE_ANCHOR_TABLE,
         SsedBodySourceKind.DENSE_MARKER_TABLE,
@@ -76,16 +74,30 @@ class SupportedSidecarBodyProvider(BodyProvider):
         SsedBodySourceKind.VLPLJBL_SIDECAR,
         SsedBodySourceKind.SIDECAR_UNKNOWN,
     }
+    kind: str
+
+    def __init__(self, kind: str) -> None:
+        self.kind = kind
 
     def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
         source = source_getter()
         if source.ssed_kind not in self.SUPPORTED:
             return None
-        sidecar = package._choose_body_sidecar(source.sidecars)
+        sidecar = select_body_sidecar(source.sidecars, kind=self.kind)
         if sidecar is not None:
             return package._entry_from_sidecar(hit, sidecar, inspection)
+        return None
+
+
+class DeferredDenseSidecarProvider(BodyProvider):
+    SUPPORTED = DenseAnchorSidecarBodyProvider.SUPPORTED
+
+    def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
+        source = source_getter()
+        if source.ssed_kind not in self.SUPPORTED:
+            return None
         return package._placeholder_entry(
-            hit.body,
+            hit.debug_info.body,
             headword=hit.heading,
             code="unsupported_body_source",
             message="SSED dense HONMON body source is not renderable without a supported sidecar",
@@ -100,7 +112,7 @@ class MissingBodyComponentProvider(BodyProvider):
         if source.ssed_kind != SsedBodySourceKind.MISSING_BODY_COMPONENT:
             return None
         return package._placeholder_entry(
-            hit.body,
+            hit.debug_info.body,
             headword=hit.heading,
             code="missing_body_component",
             message="local SSED package declares no readable HONMON component for entry bodies",
@@ -113,7 +125,7 @@ class UnsupportedBodyProvider(BodyProvider):
     def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
         source = source_getter()
         return package._placeholder_entry(
-            hit.body,
+            hit.debug_info.body,
             headword=hit.heading,
             code="unsupported_body_source",
             message="entry body source is not supported by lvcore",
@@ -123,9 +135,12 @@ class UnsupportedBodyProvider(BodyProvider):
 
 
 BODY_PROVIDERS: tuple[BodyProvider, ...] = (
-    DenseSidecarBodyProvider(),
     BodyStreamProvider(),
-    SupportedSidecarBodyProvider(),
+    DenseAnchorSidecarBodyProvider("t_contents"),
+    DenseAnchorSidecarBodyProvider("honbun"),
+    DenseAnchorSidecarBodyProvider("main_wordlist"),
+    DenseAnchorSidecarBodyProvider("sqlite_body"),
+    DeferredDenseSidecarProvider(),
     MissingBodyComponentProvider(),
     UnsupportedBodyProvider(),
 )
@@ -759,7 +774,7 @@ class PackageSearchMixin:
                 title_status = "resolved"
             elif diagnostics:
                 first = diagnostics[0]
-                title_status = "failed" if first.code == "title_dereference_failed" else "missing"
+                title_status = "failed" if first.code == DiagnosticCode.TITLE_DEREFERENCE_FAILED else "missing"
                 title_diagnostic_code = first.code.value
                 title_reason = str(first.details.get("reason") or first.code.value)
             else:
@@ -900,8 +915,8 @@ class PackageSearchMixin:
     def search_index(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[JsonObject]:
         return [
             {
-                "component": hit.index_component,
-                **(hit.raw_row.to_dict() if hit.raw_row is not None else {}),
+                "component": hit.debug_info.index_component,
+                **(hit.debug_info.raw_row.to_dict() if hit.debug_info.raw_row is not None else {}),
                 "heading": hit.heading,
                 "display_key": hit.display_key,
             }
@@ -920,25 +935,25 @@ class PackageSearchMixin:
     def _entry_from_body_stream_pointer(self, hit: SearchHit) -> Entry:
         try:
             return self._entry_or_empty_body_placeholder(
-                self._entry_with_hit_headword(self.entry_at(hit.body), hit),
+                self._entry_with_hit_headword(self.entry_at(hit.debug_info.body), hit),
                 hit,
             )
         except (FormatError, KeyError, ValueError, OSError) as exc:
             return self._placeholder_entry(
-                hit.body,
+                hit.debug_info.body,
                 headword=hit.heading,
                 code="body_pointer_unresolved",
                 message="body pointer could not be resolved to a readable HONMON entry",
                 severity=Severity.ERROR,
                 details={
-                    "body": hit.body.to_dict(),
+                    "body": hit.debug_info.body.to_dict(),
                     "error_type": type(exc).__name__,
                     "error": str(exc),
                 },
             )
 
     def entry_for_hit(self, hit: SearchHit) -> Entry:
-        inspection = self.inspect_body_pointer(hit.body)
+        inspection = self.inspect_body_pointer(hit.debug_info.body)
         source_cache = None
 
         def source_getter():

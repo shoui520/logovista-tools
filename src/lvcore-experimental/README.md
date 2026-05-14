@@ -252,12 +252,12 @@ misses, and true display-unresolved gaiji. Sidecar reports also classify sibling
 SQLite and non-SQLite files by observed role, such as body-critical,
 media/resource, examples/idioms, search, kanji-support, ancillary, or unknown.
 For sidecars with visible block/offset columns, validation records whether
-sampled entry addresses are referenced by supplemental tables. Structurally
-clear example/idiom, usage, link-reference, and sidecar-search rows are attached
-to `EntryDocument` as experimental supplements. Structurally clear sidecar BLOB
-media tables are exposed as package-level `ResourceRef` records with explicit
-`resource_bytes()` access to the untouched BLOB payload. Remaining ambiguous
-schemas stay diagnosed and counted.
+sampled entry addresses are referenced by supplemental tables. Those
+supplemental sidecar rows are audit evidence only; the reader no longer attaches
+them to `EntryDocument`. Structurally clear sidecar BLOB media tables are
+exposed as package-level `ResourceRef` records with explicit `resource_bytes()`
+access to the untouched BLOB payload. Remaining ambiguous schemas stay
+diagnosed and counted.
 
 `lvcore_audit corpus` is the private full-corpus audit entry point. Its JSON summary
 uses the `lvcore.audit.corpus.v1` schema and reports package-family counts,

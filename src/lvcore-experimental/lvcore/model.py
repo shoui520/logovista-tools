@@ -147,7 +147,7 @@ class SpanDebug:
         return data
 
 
-@dataclass(frozen=True, init=False)
+@dataclass(init=False)
 class Span:
     kind: str
     text: str | None = None
@@ -173,56 +173,31 @@ class Span:
         debug: SpanDebug | None = None,
     ) -> None:
         resolved_span_id = offset if span_id is None else span_id
-        object.__setattr__(self, "kind", kind)
-        object.__setattr__(self, "text", text)
-        object.__setattr__(self, "offset", offset)
-        object.__setattr__(self, "length", length)
-        object.__setattr__(self, "hidden", hidden)
-        object.__setattr__(self, "span_id", resolved_span_id)
-        object.__setattr__(
-            self,
-            "debug",
-            debug
-            or SpanDebug(
-                span_id=resolved_span_id,
-                raw=raw,
-                payload=payload,
-                op=op,
-                code=code,
-                attrs=dict(attrs or {}),
-            ),
+        self.kind = kind
+        self.text = text
+        self.offset = offset
+        self.length = length
+        self.hidden = hidden
+        self.span_id = resolved_span_id
+        self.debug = debug or SpanDebug(
+            span_id=resolved_span_id,
+            raw=raw,
+            payload=payload,
+            op=op,
+            code=code,
+            attrs=dict(attrs or {}),
         )
-
-    @property
-    def raw(self) -> bytes:
-        return self.debug.raw
-
-    @property
-    def payload(self) -> bytes:
-        return self.debug.payload
-
-    @property
-    def op(self) -> int | None:
-        return self.debug.op
-
-    @property
-    def code(self) -> str | None:
-        return self.debug.code
-
-    @property
-    def attrs(self) -> JsonObject:
-        return self.debug.attrs
 
     def with_debug_attrs(self, attrs: JsonObject) -> "Span":
         return Span(
             kind=self.kind,
             text=self.text,
-            raw=self.raw,
+            raw=self.debug.raw,
             offset=self.offset,
             length=self.length,
-            op=self.op,
-            payload=self.payload,
-            code=self.code,
+            op=self.debug.op,
+            payload=self.debug.payload,
+            code=self.debug.code,
             hidden=self.hidden,
             attrs=attrs,
             span_id=self.span_id,

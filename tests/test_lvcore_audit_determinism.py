@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+from contextlib import redirect_stdout
+import io
 from pathlib import Path
 
 from test_lvcore_experimental import make_synthetic_package
 
-from lvcore import open_package
-from lvcore_audit.determinism import canonical_json
-from lvcore_audit.package_validation import validate_package
+from lvcore_audit.cli import main as audit_main
 
 
 def _audit_package(path: Path) -> str:
-    report = validate_package(open_package(path), sample_entries=1, sample_search_hits=1)
-    return canonical_json(report)
+    output = io.StringIO()
+    with redirect_stdout(output):
+        code = audit_main(["package", str(path), "--sample-entries", "1", "--sample-search-hits", "1"])
+    assert code == 0
+    text = output.getvalue()
+    assert str(path) not in text
+    return text
 
 
 def test_package_audit_is_byte_identical_across_runs(tmp_path: Path) -> None:
@@ -21,21 +26,13 @@ def test_package_audit_is_byte_identical_across_runs(tmp_path: Path) -> None:
 
 
 def test_package_audit_is_stable_across_case_only_renames(tmp_path: Path) -> None:
-    first = tmp_path / "first"
-    second = tmp_path / "second"
-    make_synthetic_package(first)
-    make_synthetic_package(second)
-    (second / "HONMON.DIC").rename(second / "honmon.dic")
-    (second / "FHTITLE.DIC").rename(second / "fhtitle.dic")
-    (second / "FHINDEX.DIC").rename(second / "fhindex.dic")
+    make_synthetic_package(tmp_path)
+    first_report = _audit_package(tmp_path)
+    (tmp_path / "HONMON.DIC").rename(tmp_path / "honmon.dic")
+    (tmp_path / "FHTITLE.DIC").rename(tmp_path / "fhtitle.dic")
+    (tmp_path / "FHINDEX.DIC").rename(tmp_path / "fhindex.dic")
 
-    first_report = validate_package(open_package(first), sample_entries=1, sample_search_hits=1)
-    second_report = validate_package(open_package(second), sample_entries=1, sample_search_hits=1)
-    for report in (first_report, second_report):
-        report["package"]["root"] = "<package>"
-        report["package"]["idx_path"] = "<package>/TEST.IDX"
-
-    assert canonical_json(first_report) == canonical_json(second_report)
+    assert first_report == _audit_package(tmp_path)
 
 
 def test_package_audit_sorts_filesystem_order(tmp_path: Path, monkeypatch) -> None:

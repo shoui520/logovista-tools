@@ -16,7 +16,7 @@
     "renderable": 145,
     "sample_search_skipped_empty_query": 2,
     "ssed_packages": 161,
-    "status": "blocked_by_named_residuals",
+    "status": "blocked_by_diagnostics",
     "top_blockers": [
       {
         "code": "private_renderer_directive",
@@ -331,12 +331,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.4e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -507,12 +509,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.4e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -683,12 +687,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.74e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -871,12 +877,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.75e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "vlpljblB",
@@ -1093,12 +1101,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 6.804e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -1277,12 +1287,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 6e-08,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "Bri2014.db"
@@ -1513,12 +1525,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 6e-08,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "Bri2016.db"
@@ -1749,12 +1763,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 5e-08,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "Bri2019.db"
@@ -1981,12 +1997,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 0.00012577,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "sqlite_sidecar",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": "t_contents",
         "sidecar_paths": [
           "vlpljblF"
@@ -2210,12 +2228,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.7e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "sqlite_sidecar",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": "main_wordlist",
         "sidecar_paths": [
           "CJJC160"
@@ -2418,12 +2438,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.9e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "sqlite_sidecar",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": "t_contents",
         "sidecar_paths": [
           "vlpljblb"
@@ -2647,12 +2669,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 9e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -2838,12 +2862,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -3034,12 +3060,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -3213,12 +3241,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.3e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "vlpljblF"
@@ -3399,12 +3429,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.68e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -3585,12 +3617,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.77e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -3773,12 +3807,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.72e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -3961,12 +3997,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.84e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -4149,12 +4187,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.83e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -4337,12 +4377,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.99e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -4534,12 +4576,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.93e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -4722,12 +4766,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.18e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -4910,12 +4956,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.02e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -5098,12 +5146,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.166e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -5286,12 +5336,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.019e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -5474,12 +5526,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "Genius43.db"
@@ -5690,12 +5744,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.1e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "GENIUSEB.db"
@@ -5882,12 +5938,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 4.81e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "vlpljbl"
@@ -6066,12 +6124,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.035e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -6260,12 +6320,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.03e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -6454,12 +6516,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.879e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -6639,12 +6703,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.731e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -6831,12 +6897,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.436e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -7028,12 +7096,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.41e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -7218,12 +7288,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.913e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -7402,12 +7474,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 6.059e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -7600,12 +7674,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 4.02e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "GKKNJPZL.db"
@@ -7818,12 +7894,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 9.19e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -8015,12 +8093,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.504e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -8213,12 +8293,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.099e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -8410,12 +8492,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 5.425e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -8595,12 +8679,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 7.96e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -8781,12 +8867,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.89e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -8975,12 +9063,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.01e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -9163,12 +9253,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 4.8e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "sqlite_sidecar",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": "t_contents",
         "sidecar_paths": [
           "vlpljblF"
@@ -9382,12 +9474,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 6.1e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "HAESPJPN.db"
@@ -9598,12 +9692,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 6.694e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "sqlite_sidecar",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": "t_contents",
         "sidecar_paths": [
           "vlpljblF"
@@ -9821,12 +9917,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 8.67e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -10007,12 +10105,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 1,
         "marker_density": 1.58e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -10191,12 +10291,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 5e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -10389,12 +10491,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.36e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -10584,12 +10688,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.14e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -10769,12 +10875,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.24e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -10954,12 +11062,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.07e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -11141,12 +11251,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 8.15e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -11329,12 +11441,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.03e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -11513,12 +11627,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.8e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -11695,12 +11811,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 6.1e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "vlpljblF"
@@ -11887,12 +12005,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.73e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -12071,12 +12191,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.413e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -12253,12 +12375,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.61e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -12465,12 +12589,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.051e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -12651,12 +12777,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 7.14e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -12839,12 +12967,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.16e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -13036,12 +13166,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 1,
         "marker_density": 0.00048828,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "vlpljblF"
@@ -13242,12 +13374,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.95e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -13428,12 +13562,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 9.5e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "vlpljbl",
@@ -13678,12 +13814,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.62e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "sqlite_sidecar",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": "t_contents",
         "sidecar_paths": [
           "vlpljblB",
@@ -13911,12 +14049,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 8.49e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -14093,12 +14233,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 5.2e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "sqlite_sidecar",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": "t_contents",
         "sidecar_paths": [
           "vlpljblF"
@@ -14322,12 +14464,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.22e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -14506,12 +14650,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 9.7e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "Kanjign5.db"
@@ -14745,12 +14891,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 0.00013835,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -14932,12 +15080,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 5.74e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -15124,12 +15274,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.3e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -15311,12 +15463,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.1e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -15515,12 +15669,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.3e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "sqlite_sidecar",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": "t_contents",
         "sidecar_paths": [
           "vlpljblF"
@@ -15736,12 +15892,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.7e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "sqlite_sidecar",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": "main_wordlist",
         "sidecar_paths": [
           "KJJK100"
@@ -15949,12 +16107,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.5e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "sqlite_sidecar",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": "t_contents",
         "sidecar_paths": [
           "vlpljblB",
@@ -16235,12 +16395,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.05e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -16425,12 +16587,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 6.36e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -16612,12 +16776,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.4e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "KQDENTAL.db"
@@ -16813,12 +16979,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.1e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "KQEBHOU.db"
@@ -17018,12 +17186,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 5.1e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -17210,12 +17380,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 4.01e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -17405,12 +17577,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 0,
         "marker_density": 0.0,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -17585,12 +17759,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.82e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "KQLATINO.db"
@@ -17775,12 +17951,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.2e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -17959,12 +18137,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.6e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -18142,12 +18322,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 7.57e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -18325,12 +18507,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 4.33e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -18509,12 +18693,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.45e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -18698,12 +18884,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.18e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "MEIKYO2.db"
@@ -18899,12 +19087,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.1e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -19075,12 +19265,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 4.8e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -19257,12 +19449,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 4.54e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -19439,12 +19633,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.63e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -19621,12 +19817,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 8.7e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -19807,12 +20005,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.3e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "sqlite_sidecar",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": "t_contents",
         "sidecar_paths": [
           "vlpljblF",
@@ -20041,12 +20241,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 5.7e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -20225,12 +20427,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.5e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -20413,12 +20617,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.6e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -20595,12 +20801,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.11e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "vlpljblF"
@@ -20776,12 +20984,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.78e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -20958,12 +21168,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 9.9e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "nkgorin2.db"
@@ -21195,12 +21407,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 6.2e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -21374,12 +21588,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 5.26e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "sqlite_sidecar",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": "t_contents",
         "sidecar_paths": [
           "vlpljblF"
@@ -21599,12 +21815,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 5.5e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "PROYAL43.db"
@@ -21813,12 +22031,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.41e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "sqlite_sidecar",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": "t_contents",
         "sidecar_paths": [
           "vlpljblF"
@@ -22088,12 +22308,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.7e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "RDRSP2.db"
@@ -22284,12 +22506,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 5.19e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -22474,12 +22698,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.8e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "RPLUSREV.db"
@@ -22670,12 +22896,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.2e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "Readers3.db"
@@ -22872,12 +23100,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 5.6e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -23054,12 +23284,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.935e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -23254,12 +23486,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.79e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "sqlite_sidecar",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": "t_contents",
         "sidecar_paths": [
           "SINJIGEN.db",
@@ -23523,12 +23757,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.6e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -23717,12 +23953,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -23900,12 +24138,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -24083,12 +24323,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00097656,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -24266,12 +24508,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -24449,12 +24693,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -24632,12 +24878,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -24815,12 +25063,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -24998,12 +25248,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -25181,12 +25433,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -25364,12 +25618,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -25547,12 +25803,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -25730,12 +25988,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -25913,12 +26173,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -26096,12 +26358,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -26279,12 +26543,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -26462,12 +26728,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -26645,12 +26913,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -26831,12 +27101,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -27014,12 +27286,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -27197,12 +27471,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -27380,12 +27656,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -27563,12 +27841,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00097656,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -27749,12 +28029,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -27932,12 +28214,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00097656,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -28115,12 +28399,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -28298,12 +28584,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -28481,12 +28769,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -28664,12 +28954,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -28847,12 +29139,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -29030,12 +29324,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 4,
         "marker_density": 0.00195312,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -29213,12 +29509,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 0.00013176,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -29386,12 +29684,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 4.8e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -29564,12 +29864,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 5e-07,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -29746,12 +30048,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.168e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -29919,12 +30223,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 6.694e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -30113,12 +30419,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.54e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -30297,12 +30605,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.02e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -30494,12 +30804,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.756e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "sqlite_sidecar",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": "t_contents",
         "sidecar_paths": [
           "vlpljblb"
@@ -30737,12 +31049,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.273e-05,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -30927,12 +31241,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 2.28e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [],
         "sidecars": [],
@@ -31122,12 +31438,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 0.00010123,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "sqlite_sidecar",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": "t_contents",
         "sidecar_paths": [
           "vlpljblb"
@@ -31373,12 +31691,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 3.39e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "vlpljbl",
@@ -31579,12 +31899,14 @@
         "honmon_component": "HONMON.DIC",
         "marker_count": 17,
         "marker_density": 1.62e-06,
+        "model_version": 1,
         "notes": [
           "HONMON body pointers resolve directly into readable body-stream data",
           "fast body-source classification; run with --debug for index-pointer evidence"
         ],
         "package_family": "ssed",
         "render_provider": "honmon_body_stream",
+        "schema": "lvcore.body_source.v1",
         "sidecar_kind": null,
         "sidecar_paths": [
           "vlpljbl",

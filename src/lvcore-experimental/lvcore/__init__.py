@@ -32,7 +32,6 @@ from .package import LogoVistaPackage, open_package
 from .render import GaijiPolicy, HtmlProfile, render_html, render_text
 from .resources import ColscrLocator, GaijiLocator, PcmRangeLocator, ResourceLocation, SidecarBlobLocator, UnresolvedAddress
 from .search import SearchHit, SearchHitDebug, SearchResults, TitleResolution, normalize_query
-from .ssed import TEXT_LIKE_INDEX_OUTLIER_TYPES
 
 __all__ = [
     "Address",
@@ -84,7 +83,6 @@ __all__ = [
     "Severity",
     "Span",
     "SpanDebug",
-    "TEXT_LIKE_INDEX_OUTLIER_TYPES",
     "TitleResolution",
     "UnresolvedAddress",
     "behavior_for",

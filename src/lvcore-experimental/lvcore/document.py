@@ -322,14 +322,14 @@ class EntryDocument:
 
 
 def _gaiji_unresolved(span: Span) -> bool:
-    status = span.attrs.get("gaiji_display_status") if isinstance(span.attrs, dict) else None
+    status = span.debug.attrs.get("gaiji_display_status") if isinstance(span.debug.attrs, dict) else None
     if status:
         return str(status) == "unresolved"
-    if not span.code:
+    if not span.debug.code:
         return False
     if span.text is None:
         return True
-    upper = span.code.upper()
+    upper = span.debug.code.upper()
     return span.text in {f"<h{upper}>", f"<z{upper}>", f"<g{upper}>"}
 
 
@@ -427,26 +427,26 @@ def _pcm_descriptor_from_payload(payload: bytes) -> JsonObject:
 
 
 def _link_attrs_for_start(span: Span, *, resource_id: str | None = None) -> JsonObject:
-    op_hex = f"{span.op:02x}" if span.op is not None else None
-    kind = LINK_START_KINDS.get(span.op, LinkTargetKind.UNKNOWN)
-    if span.op == 0x3B:
-        target = LinkTarget(kind=kind, status=LinkTargetStatus.CONTENT, start_op=op_hex, start_payload=span.payload.hex())
-    elif span.op == 0x4A:
-        address_range = _range_from_pcm_payload(span.payload)
+    op_hex = f"{span.debug.op:02x}" if span.debug.op is not None else None
+    kind = LINK_START_KINDS.get(span.debug.op, LinkTargetKind.UNKNOWN)
+    if span.debug.op == 0x3B:
+        target = LinkTarget(kind=kind, status=LinkTargetStatus.CONTENT, start_op=op_hex, start_payload=span.debug.payload.hex())
+    elif span.debug.op == 0x4A:
+        address_range = _range_from_pcm_payload(span.debug.payload)
         if address_range is not None:
             start, end = address_range
             target = LinkTarget(
                 kind=kind,
                 address=start,
                 end_address=end,
-                raw_payload=span.payload.hex() or None,
+                raw_payload=span.debug.payload.hex() or None,
                 start_op=op_hex,
-                start_payload=span.payload.hex(),
+                start_payload=span.debug.payload.hex(),
                 status=LinkTargetStatus.DEFERRED,
                 details={
                     "range_start": start.to_dict(),
                     "range_end": end.to_dict(),
-                    "kind_flags": span.payload[:4].hex(),
+                    "kind_flags": span.debug.payload[:4].hex(),
                     "resource_id": resource_id,
                 },
                 resource_id=resource_id,
@@ -454,24 +454,24 @@ def _link_attrs_for_start(span: Span, *, resource_id: str | None = None) -> Json
         else:
             target = LinkTarget(
                 kind=kind,
-                raw_payload=span.payload.hex() or None,
+                raw_payload=span.debug.payload.hex() or None,
                 start_op=op_hex,
-                start_payload=span.payload.hex(),
-                status=LinkTargetStatus.MALFORMED if span.payload else LinkTargetStatus.UNRESOLVED,
+                start_payload=span.debug.payload.hex(),
+                status=LinkTargetStatus.MALFORMED if span.debug.payload else LinkTargetStatus.UNRESOLVED,
                 resource_id=resource_id,
             )
     else:
         target = LinkTarget(
             kind=kind,
-            raw_payload=span.payload.hex() or None,
+            raw_payload=span.debug.payload.hex() or None,
             start_op=op_hex,
-            start_payload=span.payload.hex(),
+            start_payload=span.debug.payload.hex(),
             status=LinkTargetStatus.PENDING,
         )
     return {
         "link_target": target.to_dict(debug=True),
         "start_op": op_hex,
-        "start_payload": span.payload.hex(),
+        "start_payload": span.debug.payload.hex(),
         "resource_id": resource_id,
     }
 
@@ -539,14 +539,14 @@ def build_entry_document(entry: Entry) -> EntryDocument:
 
     for span in entry.spans:
         if span.hidden:
-            if span.kind == "control" and span.op in {0xE2, 0xE3}:
+            if span.kind == "control" and span.debug.op in {0xE2, 0xE3}:
                 diagnostics.add(
                     Severity.INFO,
                     DiagnosticArea.OPCODE,
                     "private_renderer_directive",
                     "private renderer directive hidden from friendly document",
                     location=location(span),
-                    details={"op": f"{span.op:02x}" if span.op is not None else None},
+                    details={"op": f"{span.debug.op:02x}" if span.debug.op is not None else None},
                 )
             continue
 
@@ -559,7 +559,7 @@ def build_entry_document(entry: Entry) -> EntryDocument:
             continue
 
         if span.kind == "gaiji":
-            attrs = dict(span.attrs)
+            attrs = dict(span.debug.attrs)
             status = str(attrs.get("gaiji_display_status") or "")
             if renderer_entry_backed and (not status or status == "unresolved") and _gaiji_unresolved(span):
                 status = "renderer_entry_backed"
@@ -582,7 +582,7 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                     status=ResourceStatus.UNRESOLVED if unresolved else ResourceStatus.RESOLVED,
                     mime_type=str(attrs.get("mime_type")) if attrs.get("mime_type") else None,
                     component=entry.address.component,
-                    code=span.code,
+                    code=span.debug.code,
                     source_offset=span.offset,
                     details={
                         "resolved": not unresolved,
@@ -602,12 +602,12 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                     "unresolved_gaiji",
                     "gaiji has no Unicode mapping in the current package context",
                     location=location(span),
-                    details={"code": span.code, "reason": reason},
+                    details={"code": span.debug.code, "reason": reason},
                 )
             node = InlineNode(
                 InlineKind.GAIJI,
                 text=None if unresolved else display_text,
-                code=span.code,
+                code=span.debug.code,
                 resource_id=resource_id,
                 attrs={
                     "resolved": not unresolved,
@@ -621,12 +621,12 @@ def build_entry_document(entry: Entry) -> EntryDocument:
 
         if span.kind == "media_ref":
             resource_counter += 1
-            resource_kind_name = str(span.attrs.get("resource_kind") or "media")
+            resource_kind_name = str(span.debug.attrs.get("resource_kind") or "media")
             try:
                 resource_kind = ResourceKind(resource_kind_name)
             except ValueError:
                 resource_kind = ResourceKind.MEDIA
-            descriptor = _media_descriptor_from_payload(span.payload)
+            descriptor = _media_descriptor_from_payload(span.debug.payload)
             status = ResourceStatus(descriptor.get("status", ResourceStatus.UNRESOLVED.value))
             resource = ResourceRef(
                 id=f"media-{resource_counter}",
@@ -647,7 +647,7 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                         attrs={
                             "label": resource.label,
                             "resource_kind": resource.kind.value,
-                            "payload_hex": span.payload.hex(),
+                            "payload_hex": span.debug.payload.hex(),
                             "resource_status": status.value,
                             "media_descriptor": descriptor,
                         },
@@ -673,19 +673,19 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                 "unknown_byte",
                 "unknown body byte skipped from friendly document",
                 location=location(span),
-                details={"raw": span.raw.hex()},
+                details={"raw": span.debug.raw.hex()},
             )
-            inlines.append(InlineNode(InlineKind.UNKNOWN_CONTROL, attrs={"raw": span.raw.hex(), "span_offset": span.offset}))
+            inlines.append(InlineNode(InlineKind.UNKNOWN_CONTROL, attrs={"raw": span.debug.raw.hex(), "span_offset": span.offset}))
             continue
 
         if span.kind in {"control", "section"}:
-            tag = span.attrs.get("tag")
-            behavior = behavior_for(span.op)
-            if tag in STYLE_START_TO_KIND and span.op in STYLE_START_OPS:
+            tag = span.debug.attrs.get("tag")
+            behavior = behavior_for(span.debug.op)
+            if tag in STYLE_START_TO_KIND and span.debug.op in STYLE_START_OPS:
                 attrs: JsonObject
-                if span.op == 0x4A:
+                if span.debug.op == 0x4A:
                     resource_counter += 1
-                    descriptor = _pcm_descriptor_from_payload(span.payload)
+                    descriptor = _pcm_descriptor_from_payload(span.debug.payload)
                     status = ResourceStatus(descriptor.get("status", ResourceStatus.UNRESOLVED.value))
                     resource = ResourceRef(
                         id=f"audio-{resource_counter}",
@@ -711,20 +711,20 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                             details={"resource_id": resource.id, "reason": descriptor.get("reason")},
                         )
                 else:
-                    attrs = _link_attrs_for_start(span) if span.op in LINK_START_OPS else {}
+                    attrs = _link_attrs_for_start(span) if span.debug.op in LINK_START_OPS else {}
                 active_styles.append(ActiveInline(STYLE_START_TO_KIND[tag], attrs))
-            elif tag in STYLE_START_TO_KIND and span.op in STYLE_END_OPS:
+            elif tag in STYLE_START_TO_KIND and span.debug.op in STYLE_END_OPS:
                 style = STYLE_START_TO_KIND[tag]
                 active_index = next((index for index in range(len(active_styles) - 1, -1, -1) if active_styles[index].kind == style), None)
                 if active_index is not None:
                     active = active_styles[active_index]
-                    if span.op in LINK_END_OPS:
+                    if span.debug.op in LINK_END_OPS:
                         target = active.attrs.get("link_target")
                         if isinstance(target, dict):
-                            target["end_op"] = f"{span.op:02x}" if span.op is not None else None
-                            target["end_payload"] = span.payload.hex()
-                            if span.op in LINK_END_TARGET_OPS:
-                                address = _address_from_bcd_payload(span.payload)
+                            target["end_op"] = f"{span.debug.op:02x}" if span.debug.op is not None else None
+                            target["end_payload"] = span.debug.payload.hex()
+                            if span.debug.op in LINK_END_TARGET_OPS:
+                                address = _address_from_bcd_payload(span.debug.payload)
                                 if address is not None:
                                     target["address"] = address.to_dict()
                                     target["href"] = f"lvcore-entry://{address.block}/{address.offset}"
@@ -750,8 +750,8 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                                     "link control did not expose a resolvable target",
                                     location=location(span),
                                     details={
-                                        "op": f"{span.op:02x}" if span.op is not None else None,
-                                        "payload": span.payload.hex(),
+                                        "op": f"{span.debug.op:02x}" if span.debug.op is not None else None,
+                                        "payload": span.debug.payload.hex(),
                                         "reason": target.get("reason") or "unresolved_target",
                                         "kind": target.get("kind"),
                                     },
@@ -767,7 +767,7 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                         "unmatched_style_end",
                         "style end control had no matching start",
                         location=location(span),
-                        details={"style": style.value, "op": f"{span.op:02x}" if span.op is not None else None},
+                        details={"style": style.value, "op": f"{span.debug.op:02x}" if span.debug.op is not None else None},
                     )
             elif behavior is not None and behavior.category == OpcodeCategory.TAB:
                 diagnostics.add(
@@ -776,7 +776,7 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                     behavior.diagnostic_code or "tab_column_control",
                     "tab/column positioning control preserved as a nonprinting layout hint",
                     location=location(span),
-                    details={"op": f"{span.op:02x}" if span.op is not None else None, "payload": span.payload.hex()},
+                    details={"op": f"{span.debug.op:02x}" if span.debug.op is not None else None, "payload": span.debug.payload.hex()},
                 )
             elif behavior is not None and behavior.category == OpcodeCategory.MEDIA_LAYOUT:
                 diagnostics.add(
@@ -785,9 +785,9 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                     behavior.diagnostic_code or "media_layout_control",
                     "media layout control preserved as a nonprinting resource hint",
                     location=location(span),
-                    details={"op": f"{span.op:02x}" if span.op is not None else None, "payload": span.payload.hex()},
+                    details={"op": f"{span.debug.op:02x}" if span.debug.op is not None else None, "payload": span.debug.payload.hex()},
                 )
-            elif tag in IGNORED_CONTROL_TAGS or span.op in KNOWN_NEUTRAL_OPS:
+            elif tag in IGNORED_CONTROL_TAGS or span.debug.op in KNOWN_NEUTRAL_OPS:
                 pass
             elif tag is None:
                 diagnostics.add(
@@ -796,14 +796,14 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                     "unknown_control",
                     "unknown control opcode skipped from friendly document",
                     location=location(span),
-                    details={"op": f"{span.op:02x}" if span.op is not None else None, "payload": span.payload.hex()},
+                    details={"op": f"{span.debug.op:02x}" if span.debug.op is not None else None, "payload": span.debug.payload.hex()},
                 )
                 inlines.append(
                     InlineNode(
                         InlineKind.UNKNOWN_CONTROL,
                         attrs={
-                            "op": f"{span.op:02x}" if span.op is not None else None,
-                            "payload": span.payload.hex(),
+                            "op": f"{span.debug.op:02x}" if span.debug.op is not None else None,
+                            "payload": span.debug.payload.hex(),
                             "span_offset": span.offset,
                         },
                     )

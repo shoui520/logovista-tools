@@ -44,6 +44,14 @@ Latest intentional update:
   sampled render/search results, or resolved/unresolved resource counts changed;
   this is a serialization contract update for the Rust-port audit baseline.
 
+Latest intentional update:
+
+- Phase: review hardening after Phase 4
+- The closure scorecard status now reports `blocked_by_diagnostics` when the
+  only remaining blockers are diagnostic counters such as sampled native search
+  misses. It reserves `blocked_by_named_residuals` for actual named residual
+  packages/sidecars. No counters or package classifications changed.
+
 Capture command:
 
 ```bash

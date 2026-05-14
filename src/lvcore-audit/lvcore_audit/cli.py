@@ -504,8 +504,10 @@ def build_corpus_summary(args: argparse.Namespace) -> tuple[dict[str, Any], list
                 }
             )
     closure_status = "closure_ready_for_deeper_audit"
-    if hard_ssed_failures or compatibility_significant_unsupported_sidecar_counts or int(diagnostics_by_code.get("sample_search_miss", 0)) or true_display_unresolved or named_residuals:
+    if hard_ssed_failures or compatibility_significant_unsupported_sidecar_counts or named_residuals:
         closure_status = "blocked_by_named_residuals"
+    elif int(diagnostics_by_code.get("sample_search_miss", 0)) or true_display_unresolved:
+        closure_status = "blocked_by_diagnostics"
 
     closure_scorecard = {
         "status": closure_status,

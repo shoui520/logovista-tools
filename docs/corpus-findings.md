@@ -114,12 +114,12 @@ that intentionally reuse the body pointer as the title pointer are counted as
 safe heading fallback rather than title failures. Sidecar summaries also
 separate body-critical stores from media/resource, examples/idioms, search,
 kanji-support, ancillary, non-SQLite, and unknown roles. Supplemental sidecars
-with visible block/offset relationships are either attached as experimental
-entry supplements where the mapping is clear or counted as deferred sidecar
-references, so example/idiom and navigation-like schemas are tracked as reader
-compatibility work rather than dismissed as harmless ancillary files. Sidecar
-BLOB media tables with clear name/blob columns are exposed as package-level
-resources with explicit untouched byte access. Index summaries count
+with visible block/offset relationships are tracked as audit-side sidecar
+references rather than attached to entry documents, so example/idiom and
+navigation-like schemas remain visible compatibility evidence without expanding
+the reader's friendly document model. Sidecar BLOB media tables with clear
+name/blob columns are exposed as package-level resources with explicit untouched
+byte access. Index summaries count
 component types, rows by component type, malformed leaf rows, partial physical
 page tails, text-like index outliers, unsupported component types, and
 grouped-continuation rows; body decode telemetry records unknown control and

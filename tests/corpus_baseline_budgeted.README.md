@@ -10,6 +10,12 @@ This baseline exercises deterministic partial-scan behavior for the
 - Sample limits: `--sample-entries 1 --sample-search-hits 1`
 - Scan budget: `--max-bytes-per-scan 65536`
 - Observed budget diagnostics: `scan_truncated=2`
+- Scorecard status: `blocked_by_diagnostics` means the budgeted audit still has
+  diagnostic counters such as sampled native search misses, but no named
+  residual packages. This status label was corrected after Phase 4 without
+  changing package counts or counters.
+- Body-source rows include `schema: lvcore.body_source.v1` and
+  `model_version: 1`, matching the full baseline serialization contract.
 
 Capture command:
 

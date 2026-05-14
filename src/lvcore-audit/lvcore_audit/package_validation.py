@@ -8,6 +8,7 @@ from lvcore import (
     ComponentRole,
     Diagnostic,
     DiagnosticArea,
+    DiagnosticCode,
     Entry,
     GaijiDisplayStatus,
     IndexRow,
@@ -20,11 +21,12 @@ from lvcore import (
     SidecarRole,
     SsedBodySourceKind,
     Severity,
-    TEXT_LIKE_INDEX_OUTLIER_TYPES,
     normalize_query,
     render_html,
     render_text,
 )
+
+TEXT_LIKE_INDEX_OUTLIER_TYPES = {0x27}
 
 
 COMPATIBILITY_SIGNIFICANT_SIDECAR_ROLES = {
@@ -496,12 +498,16 @@ class _PackageValidationAdapter:
         if debug:
             def unsupported_type_for(name: str, parsed) -> str | None:
                 for diagnostic in parsed.diagnostics:
-                    if diagnostic.code == "unsupported_component_type":
+                    if diagnostic.code == DiagnosticCode.UNSUPPORTED_COMPONENT_TYPE:
                         value = diagnostic.details.get("component_type")
                         if value:
                             return str(value)
                 component = self.component(name)
-                return f"{component.type:02x}" if component is not None and any(d.code == "unsupported_component_type" for d in parsed.diagnostics) else None
+                return (
+                    f"{component.type:02x}"
+                    if component is not None and any(d.code == DiagnosticCode.UNSUPPORTED_COMPONENT_TYPE for d in parsed.diagnostics)
+                    else None
+                )
 
             index_stats = {
                 name: {
@@ -512,7 +518,11 @@ class _PackageValidationAdapter:
                     "unknown_leaf_bytes": parsed.unknown_leaf_bytes,
                     "component_type": f"{self.component(name).type:02x}" if self.component(name) is not None else None,
                     "unsupported_component_type": unsupported_type_for(name, parsed),
-                    "unsupported_leaf_pages": sum(1 for diagnostic in parsed.diagnostics if diagnostic.code == "unsupported_component_type" and diagnostic.page is not None),
+                    "unsupported_leaf_pages": sum(
+                        1
+                        for diagnostic in parsed.diagnostics
+                        if diagnostic.code == DiagnosticCode.UNSUPPORTED_COMPONENT_TYPE and diagnostic.page is not None
+                    ),
                     "malformed_leaf_rows": parsed.malformed_leaf_rows,
                     "physical_tail_bytes": parsed.physical_tail_bytes,
                     "physical_tail_nonzero_bytes": parsed.physical_tail_nonzero_bytes,

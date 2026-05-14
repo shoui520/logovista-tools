@@ -309,10 +309,6 @@ def _render_inline_text(node: InlineNode, *, gaiji_policy: GaijiPolicy) -> str:
 def render_text(document: EntryDocument, *, gaiji_policy: GaijiPolicy = GaijiPolicy.UNICODE_PREFERRED) -> str:
     lines: list[str] = []
     for block in document.blocks:
-        sidecar_text = block.attrs.get("sidecar_text")
-        if isinstance(sidecar_text, str) and sidecar_text.strip():
-            lines.append(sidecar_text.strip())
-            continue
         text = "".join(_render_inline_text(node, gaiji_policy=gaiji_policy) for node in block.inlines).strip()
         if text:
             lines.append(text)

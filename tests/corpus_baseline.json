@@ -16,7 +16,7 @@
     "renderable": 145,
     "sample_search_skipped_empty_query": 10,
     "ssed_packages": 161,
-    "status": "blocked_by_named_residuals",
+    "status": "blocked_by_diagnostics",
     "top_blockers": [
       {
         "code": "private_renderer_directive",

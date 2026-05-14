@@ -472,11 +472,11 @@ class PackageGaijiMixin:
     def _annotate_gaiji_spans(self, spans: tuple[Span, ...], *, renderer_entry_backed: bool = False) -> tuple[Span, ...]:
         out: list[Span] = []
         for span in spans:
-            if span.kind != "gaiji" or not span.code:
+            if span.kind != "gaiji" or not span.debug.code:
                 out.append(span)
                 continue
-            info = self.gaiji_info(span.code)
-            attrs = dict(span.attrs)
+            info = self.gaiji_info(span.debug.code)
+            attrs = dict(span.debug.attrs)
             attrs.update(
                 {
                     "gaiji_display_status": info.display_status.value,

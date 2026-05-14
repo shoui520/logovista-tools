@@ -150,30 +150,6 @@ class SearchHit:
     title_reason: str | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
 
-    @property
-    def index_component(self) -> str:
-        return self.debug_info.index_component
-
-    @property
-    def body(self) -> Address:
-        return self.debug_info.body
-
-    @property
-    def title(self) -> Address:
-        return self.debug_info.title
-
-    @property
-    def page(self) -> int | None:
-        return self.debug_info.page
-
-    @property
-    def row(self) -> int | None:
-        return self.debug_info.row
-
-    @property
-    def raw_row(self) -> IndexRow | None:
-        return self.debug_info.raw_row
-
     def inspect(self) -> JsonObject:
         return self.to_dict(debug=True)
 
