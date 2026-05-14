@@ -1400,6 +1400,7 @@ def test_parse_internal_index_page_uses_32bit_child() -> None:
 
     assert len(rows) == 1
     assert rows[0].key == "あ"
+    assert rows[0].raw_key == bytes.fromhex("2422")
     assert rows[0].child_block == 0x000112BD
 
 

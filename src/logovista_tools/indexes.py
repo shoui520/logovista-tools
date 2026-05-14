@@ -45,6 +45,7 @@ class InternalRow:
     row_index: int
     key: str
     child_block: int
+    raw_key: bytes = b""
 
 
 @dataclass(frozen=True)
@@ -159,7 +160,8 @@ def parse_internal_page(
             return
         row = page[pos : pos + slot]
         pos += slot
-        key = decode_index_key(row[:-4], gaiji=gaiji, gaiji_map=gaiji_map)
+        raw_key = row[:-4].split(b"\x00", 1)[0]
+        key = decode_index_key(raw_key, gaiji=gaiji, gaiji_map=gaiji_map)
         yield InternalRow(
             component=component,
             page_index=page_index,
@@ -167,6 +169,7 @@ def parse_internal_page(
             row_index=row_index,
             key=key,
             child_block=be32(row, len(row) - 4),
+            raw_key=raw_key,
         )
 
 
@@ -922,6 +925,7 @@ def _scan_index_component_pages(
                             "logical_block": row.logical_block,
                             "row_index": row.row_index,
                             "key": row.key,
+                            "raw_key_hex": row.raw_key.hex(),
                             "child_block": row.child_block,
                         }
                     )

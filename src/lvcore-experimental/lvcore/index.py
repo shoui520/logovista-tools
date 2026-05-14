@@ -69,6 +69,7 @@ class InternalRow:
     child_block: int
     page: int
     row: int
+    raw_key: bytes = b""
 
 
 @dataclass(frozen=True)
@@ -185,7 +186,8 @@ def parse_internal_page(page: bytes, page_index: int, gaiji: dict[str, str] | No
         if size < 6 or pos + size > len(page):
             break
         raw = page[pos : pos + size]
-        rows.append(InternalRow(key=decode_key(raw[:-4], gaiji), child_block=be32(raw, len(raw) - 4), page=page_index, row=row_index))
+        raw_key = raw[:-4].split(b"\x00", 1)[0]
+        rows.append(InternalRow(key=decode_key(raw_key, gaiji), child_block=be32(raw, len(raw) - 4), page=page_index, row=row_index, raw_key=raw_key))
         pos += size
     return rows
 

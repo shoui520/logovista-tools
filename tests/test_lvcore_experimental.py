@@ -353,6 +353,17 @@ def leaf_page(records: list[bytes], *, word: int = 0x8000) -> bytes:
     return pad_block(be16(word) + be16(len(records)) + b"".join(records))
 
 
+def internal_page(rows: list[tuple[str, int]], *, key_bytes: int = 32) -> bytes:
+    slot = key_bytes + 4
+    data = bytearray(be16(slot - 4) + be16(len(rows)))
+    for key, child_block in rows:
+        raw = index_key(key)[:key_bytes]
+        data.extend(raw)
+        data.extend(bytes(key_bytes - len(raw)))
+        data.extend(be32(child_block))
+    return pad_block(bytes(data))
+
+
 def direct_index_record(key: str, body_block: int = 10, body_offset: int = 0, title_block: int = 20, title_offset: int = 0) -> bytes:
     raw = index_key(key)
     return bytes([0x00, len(raw)]) + raw + be32(body_block) + be16(body_offset) + be32(title_block) + be16(title_offset)
@@ -758,7 +769,7 @@ def test_lvcore_bad_body_pointer_returns_diagnostic_placeholder(tmp_path: Path) 
     package = open_package(tmp_path)
     hit = package.search("bad", profile=SearchProfile.EXACT).hits[0]
 
-    entry = package.entry_for_hit(hit)
+    entry = package.entry_for_hit(hit, include_supplements=True)
     html = package.render_entry_html(entry)
     text = package.render_entry_text(entry)
 
@@ -844,7 +855,7 @@ def test_lvcore_invalid_sqlite_sidecar_is_deferred_without_anchor_leak(tmp_path:
 
     source = package.body_source()
     hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
-    entry = package.entry_for_hit(hit)
+    entry = package.entry_for_hit(hit, include_supplements=True)
     html = package.render_entry_html(entry)
 
     assert source.ssed_kind == SsedBodySourceKind.DENSE_ANCHOR_TABLE
@@ -1428,7 +1439,7 @@ def test_lvcore_dense_anchor_without_sidecar_is_deferred_and_safe(tmp_path: Path
     assert source.ssed_kind == SsedBodySourceKind.DENSE_ANCHOR_TABLE
     assert source.support.value == "deferred"
     hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
-    entry = package.entry_for_hit(hit)
+    entry = package.entry_for_hit(hit, include_supplements=True)
     html = package.render_entry_html(entry)
     text = package.render_entry_text(entry)
 
@@ -1447,7 +1458,7 @@ def test_lvcore_dense_anchor_with_sqlite_sidecar_renders_body(tmp_path: Path) ->
     assert source.ssed_kind == SsedBodySourceKind.DENSE_ANCHOR_WITH_SIDECAR
     assert source.support.value == "partially_renderable"
     hit = package.search("beta", profile=SearchProfile.EXACT).hits[0]
-    entry = package.entry_for_hit(hit)
+    entry = package.entry_for_hit(hit, include_supplements=True)
 
     assert entry.headword == "beta"
     assert "beta sidecar body" in package.render_entry_text(entry)
@@ -1526,7 +1537,7 @@ def test_lvcore_dense_anchor_with_unsupported_sqlite_sidecar_schema_is_precise(t
     assert source.sidecars[0].kind == "sqlite_unmapped"
     assert source.sidecar_kind == "sqlite_unmapped"
     hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
-    entry = package.entry_for_hit(hit)
+    entry = package.entry_for_hit(hit, include_supplements=True)
     html = package.render_entry_html(entry)
 
     assert "Entry body is not yet supported" in package.render_entry_text(entry)
@@ -1554,7 +1565,9 @@ def test_lvcore_example_idiom_sidecar_is_classified_and_address_mapped(tmp_path:
     assert all("block_column" in reference for reference in references)
 
     hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
-    entry = package.entry_for_hit(hit)
+    fast_entry = package.entry_for_hit(hit)
+    assert "alpha example title" not in package.render_entry_text(fast_entry)
+    entry = package.entry_for_hit(hit, include_supplements=True)
     html = package.render_entry_html(entry)
     debug_document = entry.document().to_dict(debug=True)
     assert "alpha example title" in package.render_entry_text(entry)
@@ -1625,7 +1638,7 @@ def test_lvcore_link_reference_sidecar_attaches_safe_link_supplement(tmp_path: P
     assert summary["support_status_counts"]["supplement_resolver"] == 1
 
     hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
-    entry = package.entry_for_hit(hit)
+    entry = package.entry_for_hit(hit, include_supplements=True)
     document = entry.document()
     dumped = json.dumps(document.to_dict(debug=False), ensure_ascii=False)
     debug_dumped = json.dumps(document.to_dict(debug=True), ensure_ascii=False)
@@ -1891,6 +1904,178 @@ def test_lvcore_search_falls_back_to_main_wordlist_sidecar(tmp_path: Path) -> No
     assert hit.heading_source == "sidecar_wordlist"
     assert "mechanical scanner" in package.render_entry_text(entry)
     assert any(diagnostic.code == "sidecar_wordlist_entry_resolved" for diagnostic in entry.diagnostics())
+
+
+def test_lvcore_search_falls_back_to_title_surface_form(tmp_path: Path) -> None:
+    honmon_start = 2
+    title_start = 3
+    index_start = 4
+    body = body_text("たべる") + b"\x1f\x0a" + body_text("body") + b"\x1f\x0a"
+    title = body_text("た・べる【食べる】") + b"\x1f\x0a"
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("FHTITLE.DIC", 0x05, title_start, title_start, b"\x01\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start, b"\x02\x01\x55\x40"),
+    ]
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "SURFACE.IDX").write_bytes(ssedinfo("Surface", components))
+    (tmp_path / "HONMON.DIC").write_bytes(literal_sseddata(body, start_block=honmon_start, kind=0))
+    (tmp_path / "FHTITLE.DIC").write_bytes(literal_sseddata(title, start_block=title_start, kind=5))
+    (tmp_path / "FHINDEX.DIC").write_bytes(
+        literal_sseddata(simple_index([("たべる", honmon_start, 0, title_start, 0)]), start_block=index_start, kind=0x91)
+    )
+
+    package = open_package(tmp_path)
+    hit = package.search("食べる", profile=SearchProfile.EXACT).hits[0]
+
+    assert hit.display_key == "たべる"
+    assert hit.heading == "た・べる【食べる】"
+    assert hit.heading_source == "title_surface"
+    assert "body" in package.render_hit_text(hit)
+
+
+def test_lvcore_search_falls_back_to_body_surface_heading(tmp_path: Path) -> None:
+    honmon_start = 2
+    index_start = 4
+    first = b"\x1f\x09\x00\x01" + body_text("いへたか・し【家高し】") + b"\x1f\x0a" + body_text("compound") + b"\x1f\x0a"
+    second_offset = len(first)
+    body = first + b"\x1f\x09\x00\x01" + body_text("たか・し【高し】") + b"\x1f\x0a" + body_text("body") + b"\x1f\x0a"
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start, b"\x02\x01\x55\x40"),
+    ]
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "SURFACE.IDX").write_bytes(ssedinfo("Surface", components))
+    (tmp_path / "HONMON.DIC").write_bytes(literal_sseddata(body, start_block=honmon_start, kind=0))
+    (tmp_path / "FHINDEX.DIC").write_bytes(
+        literal_sseddata(simple_index([("たかし", honmon_start, second_offset, honmon_start, second_offset)]), start_block=index_start, kind=0x91)
+    )
+
+    package = open_package(tmp_path)
+    hit = package.search("高し", profile=SearchProfile.EXACT).hits[0]
+
+    assert hit.display_key == "たか・し【高し】"
+    assert hit.heading == "たか・し【高し】"
+    assert hit.heading_source == "body_surface"
+    assert "body" in package.render_hit_text(hit)
+
+
+def test_lvcore_fast_search_seeks_index_with_raw_key_order(tmp_path: Path) -> None:
+    honmon_start = 2
+    index_start = 4
+    first = b"\x1f\x09\x00\x01" + body_text("アーイシャ") + b"\x1f\x0a"
+    second_offset = len(first)
+    body = first + b"\x1f\x09\x00\x01" + body_text("イーエヌ") + b"\x1f\x0a"
+    root = internal_page(
+        [
+            ("あじろ", index_start + 1),
+            ("いーゆー", index_start + 2),
+            ("", index_start + 3),
+        ]
+    )
+    target_leaf = pad_block(simple_index([("あーいしゃ", honmon_start, 0, honmon_start, 0)]))
+    other_leaf = pad_block(simple_index([("いーえぬ", honmon_start, second_offset, honmon_start, second_offset)]))
+    sentinel_leaf = pad_block(simple_index([]))
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start + 3, b"\x02\x01\x55\x40"),
+    ]
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "RAWIDX.IDX").write_bytes(ssedinfo("RawIndex", components))
+    (tmp_path / "HONMON.DIC").write_bytes(literal_sseddata(body, start_block=honmon_start, kind=0))
+    (tmp_path / "FHINDEX.DIC").write_bytes(literal_sseddata(root + target_leaf + other_leaf + sentinel_leaf, start_block=index_start, kind=0x91))
+
+    package = open_package(tmp_path)
+    hit = package.search("あーいしゃ", profile=SearchProfile.EXACT).hits[0]
+    second_hit = package.search("いーえぬ", profile=SearchProfile.EXACT).hits[0]
+
+    assert hit.display_key == "あーいしゃ"
+    assert hit.heading == "アーイシャ"
+    assert second_hit.display_key == "いーえぬ"
+    assert second_hit.heading == "イーエヌ"
+
+
+def test_lvcore_fast_exact_search_tries_raw_and_normalized_index_keys(tmp_path: Path) -> None:
+    honmon_start = 2
+    index_start = 4
+    body = b"\x1f\x09\x00\x01" + body_text("・外字・") + b"\x1f\x0a"
+    root = internal_page(
+        [
+            ("", index_start + 1),
+            ("外字", index_start + 2),
+        ]
+    )
+    target_leaf = pad_block(simple_index([("・外字・", honmon_start, 0, honmon_start, 0)]))
+    wrong_leaf = pad_block(simple_index([("外字", honmon_start, 0, honmon_start, 0)]))
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start + 2, b"\x02\x01\x55\x40"),
+    ]
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "RAWEXACT.IDX").write_bytes(ssedinfo("RawExact", components))
+    (tmp_path / "HONMON.DIC").write_bytes(literal_sseddata(body, start_block=honmon_start, kind=0))
+    (tmp_path / "FHINDEX.DIC").write_bytes(literal_sseddata(root + target_leaf + wrong_leaf, start_block=index_start, kind=0x91))
+
+    package = open_package(tmp_path)
+    hit = package.search("・外字・", profile=SearchProfile.EXACT).hits[0]
+
+    assert hit.display_key == "・外字・"
+    assert hit.heading == "・外字・"
+
+
+def test_lvcore_fast_exact_search_tries_small_kana_folded_index_key(tmp_path: Path) -> None:
+    honmon_start = 2
+    index_start = 4
+    body = b"\x1f\x09\x00\x01" + body_text("いちけんしゅつき") + b"\x1f\x0a"
+    root = internal_page(
+        [
+            ("", index_start),
+            ("いちけんしゆつき", index_start + 1),
+        ]
+    )
+    target_leaf = simple_index([("いちけんしゅつき", honmon_start, 0, honmon_start, 0)])
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start + 1, b"\x02\x01\x55\x40"),
+    ]
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "KANAIDX.IDX").write_bytes(ssedinfo("KanaIndex", components))
+    (tmp_path / "HONMON.DIC").write_bytes(literal_sseddata(body, start_block=honmon_start, kind=0))
+    (tmp_path / "FHINDEX.DIC").write_bytes(literal_sseddata(root + target_leaf, start_block=index_start, kind=0x91))
+
+    package = open_package(tmp_path)
+    hit = package.search("いちけんしゅつき", profile=SearchProfile.EXACT).hits[0]
+
+    assert hit.display_key == "いちけんしゅつき"
+    assert hit.heading == "いちけんしゅつき"
+
+
+def test_lvcore_body_only_index_exact_search_scans_from_first_leaf(tmp_path: Path) -> None:
+    honmon_start = 2
+    index_start = 4
+    body = b"\x1f\x09\x00\x01" + body_text("アーヴィング") + b"\x1f\x0a"
+    root = internal_page(
+        [
+            ("", index_start + 2),
+            ("あーヴぃんぐ", index_start + 2),
+        ]
+    )
+    target_leaf = leaf_page([tagged_direct_body_only_record("アーヴィング", honmon_start, 0)])
+    wrong_leaf = leaf_page([tagged_direct_body_only_record("ランダウ", honmon_start, 0)])
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("KINDEX.DIC", 0x30, index_start, index_start + 2, b"\x02\x01\x55\x40"),
+    ]
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "BODYONLY.IDX").write_bytes(ssedinfo("BodyOnly", components))
+    (tmp_path / "HONMON.DIC").write_bytes(literal_sseddata(body, start_block=honmon_start, kind=0))
+    (tmp_path / "KINDEX.DIC").write_bytes(literal_sseddata(root + target_leaf + wrong_leaf, start_block=index_start, kind=0x30))
+
+    package = open_package(tmp_path)
+    hit = package.search("アーヴィング", profile=SearchProfile.EXACT).hits[0]
+
+    assert hit.display_key == "アーヴィング"
+    assert hit.heading == "アーヴィング"
 
 
 def test_lvcore_entry_document_and_friendly_rendering_from_spans() -> None:
