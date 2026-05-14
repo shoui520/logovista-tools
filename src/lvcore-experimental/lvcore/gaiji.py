@@ -7,13 +7,27 @@ from enum import Enum
 from pathlib import Path
 import plistlib
 import re
-from typing import Any
+from typing import Any, Iterable
 
 
 UNI_MAGIC = b"Ver2  "
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".bmp"}
 PLIST_GAIJI_NAMES = {"gaiji.plist", "gaijis.plist", "resourcescopy.plist", "gaijiicon.plist"}
 CODE_RE = re.compile(r"(?i)([ab][0-9a-f]{3})")
+KNOWN_GAIJI_IMAGE_DIRS = (
+    "Templates",
+    "img",
+    "res",
+    "OTHER",
+    "html",
+    "HANREI/img",
+    "HANREI/contents/hanrei/img",
+    "HANREI/contents/hanrei/img/gai",
+    "resource/kmkimages",
+    "resource/kmkimges",
+    "appendix/img",
+    "manual/contents/img",
+)
 
 
 class GaijiDisplayStatus(str, Enum):
@@ -113,6 +127,14 @@ class ImageGaijiResource:
     path: Path
     source: str
     key: str | None = None
+
+
+@dataclass(frozen=True)
+class GaijiSources:
+    uni_files: tuple[Path, ...]
+    ga16_files: tuple[Path, ...]
+    plist_files: tuple[Path, ...]
+    image_directories: tuple[Path, ...]
 
 
 def ga16_row_size(width: int) -> int:
@@ -237,12 +259,66 @@ def parse_uni(path: Path) -> tuple[UniRecord, ...]:
     return tuple(half + full)
 
 
+def _case_insensitive_child(parent: Path, name: str) -> Path | None:
+    candidate = parent / name
+    if candidate.exists():
+        return candidate
+    try:
+        children = sorted(parent.iterdir(), key=lambda item: item.name.lower())
+    except OSError:
+        return None
+    wanted = name.lower()
+    for child in children:
+        if child.name.lower() == wanted:
+            return child
+    return None
+
+
+def _case_insensitive_path(root: Path, relative: str) -> Path | None:
+    current = root
+    for part in Path(relative.replace("\\", "/")).parts:
+        child = _case_insensitive_child(current, part)
+        if child is None:
+            return None
+        current = child
+    return current
+
+
+def _dedupe_existing(paths: Iterable[Path]) -> tuple[Path, ...]:
+    out: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        if not path.exists():
+            continue
+        try:
+            resolved = path.resolve()
+        except OSError:
+            resolved = path
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        out.append(path)
+    return tuple(sorted(out, key=lambda item: str(item).lower()))
+
+
+def _iter_files_bounded(path: Path, *, max_depth: int = 4) -> Iterable[Path]:
+    if max_depth < 0:
+        return
+    try:
+        children = sorted(path.iterdir(), key=lambda item: item.name.lower())
+    except OSError:
+        return
+    for child in children:
+        if child.is_file():
+            yield child
+        elif child.is_dir() and max_depth > 0:
+            yield from _iter_files_bounded(child, max_depth=max_depth - 1)
+
+
 def _exinfo_uni_names(root: Path) -> list[Path]:
     paths: list[Path] = []
-    exinfo = root / "EXINFO.INI"
-    if not exinfo.exists():
-        exinfo = root / "exinfo.ini"
-    if not exinfo.exists():
+    exinfo = _case_insensitive_child(root, "EXINFO.INI")
+    if exinfo is None or not exinfo.exists():
         return paths
     for raw_line in exinfo.read_text(encoding="cp932", errors="ignore").splitlines():
         if "=" not in raw_line:
@@ -253,19 +329,83 @@ def _exinfo_uni_names(root: Path) -> list[Path]:
         value = value.strip().strip('"').replace("\\", "/")
         if value.lower().endswith(".uni"):
             candidate = Path(value)
-            paths.append(candidate if candidate.is_absolute() else root / candidate)
+            if candidate.is_absolute():
+                paths.append(candidate)
+                continue
+            resolved = _case_insensitive_path(root, value)
+            paths.append(resolved if resolved is not None else root / candidate)
     return paths
 
 
-def _plist_candidates(root: Path) -> list[Path]:
-    candidates: list[Path] = []
+def resolve_gaiji_sources(
+    root: Path,
+    dict_id: str,
+    *,
+    component_paths: Iterable[Path] = (),
+) -> GaijiSources:
+    uni_candidates = [
+        root / f"{dict_id}.uni",
+        root / f"{dict_id}.UNI",
+        root / f"{dict_id.upper()}.uni",
+        root / f"{dict_id.upper()}.UNI",
+        *_exinfo_uni_names(root),
+        *sorted(root.glob("*.uni"), key=lambda item: item.name.lower()),
+        *sorted(root.glob("*.UNI"), key=lambda item: item.name.lower()),
+    ]
+
+    known_dirs: list[Path] = [root]
+    root_key = root.name.lower()
+    dict_key = dict_id.lower()
+    bare_root_key = root_key.removeprefix("_dct_")
+    sibling_keys = {key for key in (root_key, dict_key, bare_root_key) if key}
     try:
-        for path in root.rglob("*.plist"):
-            if path.name.lower() in PLIST_GAIJI_NAMES:
-                candidates.append(path)
+        for sibling in sorted(root.parent.iterdir(), key=lambda item: item.name.lower()):
+            sibling_name = sibling.name.lower()
+            if (
+                sibling.is_dir()
+                and sibling_name.endswith("_gaiji")
+                and any(sibling_name in {f"{key}_gaiji", f"_{key}_gaiji"} or sibling_name.startswith(f"{key}_") for key in sibling_keys)
+            ):
+                known_dirs.append(sibling)
     except OSError:
-        return []
-    return sorted(candidates, key=lambda item: str(item).lower())
+        pass
+    for relative in KNOWN_GAIJI_IMAGE_DIRS:
+        resolved = _case_insensitive_path(root, relative)
+        if resolved is not None and resolved.is_dir():
+            known_dirs.append(resolved)
+
+    plist_candidates: list[Path] = []
+    for directory in known_dirs:
+        for name in sorted(PLIST_GAIJI_NAMES):
+            candidate = _case_insensitive_child(directory, name)
+            if candidate is not None and candidate.is_file():
+                plist_candidates.append(candidate)
+
+    image_dirs = [path for path in known_dirs if path.is_dir()]
+    for plist in plist_candidates:
+        image_dirs.append(plist.parent)
+
+    ga16_candidates: list[Path] = list(component_paths)
+    for directory in known_dirs:
+        try:
+            children = sorted(directory.iterdir(), key=lambda item: item.name.lower())
+        except OSError:
+            continue
+        for child in children:
+            upper = child.name.upper()
+            if child.is_file() and upper.startswith(("GA16", "GAI16")):
+                ga16_candidates.append(child)
+
+    return GaijiSources(
+        uni_files=_dedupe_existing(uni_candidates),
+        ga16_files=_dedupe_existing(ga16_candidates),
+        plist_files=_dedupe_existing(plist_candidates),
+        image_directories=_dedupe_existing(image_dirs),
+    )
+
+
+def _plist_candidates(root: Path, sources: GaijiSources | None = None) -> tuple[Path, ...]:
+    return sources.plist_files if sources is not None else resolve_gaiji_sources(root, "").plist_files
 
 
 def _looks_like_code(value: str) -> str | None:
@@ -299,12 +439,12 @@ def _load_plist(path: Path) -> Any | None:
         return None
 
 
-def plist_unicode_mappings(root: Path) -> tuple[dict[str, str], int, int, int]:
+def plist_unicode_mappings(root: Path, sources: GaijiSources | None = None) -> tuple[dict[str, str], int, int, int]:
     mappings: dict[str, str] = {}
     mapped = 0
     ambiguous = 0
     parse_failures = 0
-    for path in _plist_candidates(root):
+    for path in _plist_candidates(root, sources):
         data = _load_plist(path)
         if data is None:
             parse_failures += 1
@@ -327,9 +467,22 @@ def plist_unicode_mappings(root: Path) -> tuple[dict[str, str], int, int, int]:
     return mappings, mapped, ambiguous, parse_failures
 
 
-def load_image_gaiji_resources(root: Path) -> tuple[ImageGaijiResource, ...]:
+def _find_unique_named_file(sources: GaijiSources, name: str) -> Path | None:
+    matches = [
+        path
+        for directory in sources.image_directories
+        for path in _iter_files_bounded(directory, max_depth=4)
+        if path.name.lower() == name.lower()
+    ]
+    matches = [match for match in matches if match.suffix.lower() in IMAGE_SUFFIXES]
+    unique = _dedupe_existing(matches)
+    return unique[0] if len(unique) == 1 else None
+
+
+def load_image_gaiji_resources(root: Path, sources: GaijiSources | None = None) -> tuple[ImageGaijiResource, ...]:
+    sources = sources or resolve_gaiji_sources(root, "")
     resources: dict[str, ImageGaijiResource] = {}
-    for path in _plist_candidates(root):
+    for path in _plist_candidates(root, sources):
         data = _load_plist(path)
         if data is None:
             continue
@@ -344,23 +497,20 @@ def load_image_gaiji_resources(root: Path) -> tuple[ImageGaijiResource, ...]:
             candidate = Path(value.replace("\\", "/"))
             full_path = candidate if candidate.is_absolute() else root / candidate
             if not full_path.exists():
-                # Some manifests omit the directory. Fall back to a bounded
-                # filename search before treating the mapping as unusable.
-                matches = list(root.rglob(candidate.name))
-                matches = [match for match in matches if match.suffix.lower() in IMAGE_SUFFIXES]
-                if len(matches) == 1:
-                    full_path = matches[0]
-                else:
+                resolved = _case_insensitive_path(root, value)
+                full_path = resolved if resolved is not None else full_path
+            if not full_path.exists():
+                found = _find_unique_named_file(sources, candidate.name)
+                if found is None:
                     continue
+                full_path = found
             resources.setdefault(code, ImageGaijiResource(code=code, path=full_path, source=path.name, key="/".join(key_path)))
-    try:
-        image_paths = [
-            path
-            for path in root.rglob("*")
-            if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES
-        ]
-    except OSError:
-        image_paths = []
+    image_paths = [
+        path
+        for directory in sources.image_directories
+        for path in _iter_files_bounded(directory, max_depth=4)
+        if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES
+    ]
     for path in sorted(image_paths, key=lambda item: str(item).lower()):
         code = _looks_like_code(path.stem)
         if code is None:
@@ -369,16 +519,9 @@ def load_image_gaiji_resources(root: Path) -> tuple[ImageGaijiResource, ...]:
     return tuple(resources[code] for code in sorted(resources))
 
 
-def load_gaiji_map(root: Path, dict_id: str) -> GaijiMap:
-    candidates = [
-        root / f"{dict_id}.uni",
-        root / f"{dict_id}.UNI",
-        root / f"{dict_id.upper()}.uni",
-        root / f"{dict_id.upper()}.UNI",
-    ]
-    candidates.extend(_exinfo_uni_names(root))
-    candidates.extend(sorted(root.glob("*.uni")))
-    candidates.extend(sorted(root.glob("*.UNI")))
+def load_gaiji_map(root: Path, dict_id: str, sources: GaijiSources | None = None) -> GaijiMap:
+    sources = sources or resolve_gaiji_sources(root, dict_id)
+    candidates = list(sources.uni_files)
     records: list[UniRecord] = []
     paths: list[Path] = []
     seen: set[Path] = set()
@@ -391,7 +534,7 @@ def load_gaiji_map(root: Path, dict_id: str) -> GaijiMap:
             records.extend(parsed)
             paths.append(path)
     mapping = {record.code: (record.display or record.fallback) for record in records if record.display or record.fallback}
-    plist_mappings, plist_count, plist_ambiguous, plist_failures = plist_unicode_mappings(root)
+    plist_mappings, plist_count, plist_ambiguous, plist_failures = plist_unicode_mappings(root, sources)
     for code, display in plist_mappings.items():
         if code in mapping:
             continue

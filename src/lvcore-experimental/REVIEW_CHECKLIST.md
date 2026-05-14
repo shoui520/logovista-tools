@@ -47,9 +47,11 @@ Use this checklist when reviewing changes under `src/lvcore-experimental`.
 - Unknown or unsupported controls are hidden from friendly output and visible in
   debug output.
 
-## Corpus Validation
+## Audit Package
 
-- `validate` and `corpus-validate` keep stable JSON fields for package family,
+- `lvcore-audit` owns validation and corpus scorecards; reader code does not
+  depend on audit concepts.
+- `lvcore_audit package` and `lvcore_audit corpus` keep stable JSON fields for package family,
   body source, sidecar roles, resources, title dereference, diagnostics, and
   sample limits.
 - Title dereference reports distinguish resolved titles, expected fallback

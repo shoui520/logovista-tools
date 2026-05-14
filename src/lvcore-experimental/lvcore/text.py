@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .model import Span
+from .model import Span, SpanDebug
 from .opcodes import (
     CONTROL_ARG_LENGTHS,
     END_TAGS,
@@ -22,6 +22,7 @@ class DecodeResult:
     text: str
     unknown_controls: int
     unknown_bytes: int
+    spans_debug: tuple[SpanDebug, ...] = ()
 
 
 def jis_to_sjis(pair: bytes) -> bytes:
@@ -187,4 +188,10 @@ def decode_text_stream(data: bytes, gaiji: dict[str, str] | None = None) -> Deco
         spans.append(Span(kind="unknown_byte", raw=data[i : i + 1], offset=i, length=1, hidden=bool(private)))
         i += 1
 
-    return DecodeResult(spans=tuple(spans), text="".join(text_parts), unknown_controls=unknown_controls, unknown_bytes=unknown_bytes)
+    return DecodeResult(
+        spans=tuple(spans),
+        spans_debug=tuple(span.debug for span in spans),
+        text="".join(text_parts),
+        unknown_controls=unknown_controls,
+        unknown_bytes=unknown_bytes,
+    )

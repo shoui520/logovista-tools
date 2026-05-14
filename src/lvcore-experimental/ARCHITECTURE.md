@@ -17,6 +17,15 @@ The writer proof-of-concept in the broader repository is separate. It is a
 reverse-engineering checkpoint, not lvcore's compatibility target. lvcore should
 be judged against real LogoVista packages.
 
+`LogoVistaPackage` is a thin owner of package identity, catalog components,
+shared caches, and composed reader services. The SSED reader services are
+gaiji, sidecars, entries/body resolution, indexes/search, and resources. Public
+dictionary operations are exposed through a `Dictionary` handle, with
+package-level wrappers kept as convenience delegates for current
+single-dictionary SSED packages. This is the intended Rust shape: an owning
+package handle, dictionary handles, and focused sub-stores rather than
+mixin-style inheritance.
+
 ## Layering
 
 The body pipeline is:
@@ -97,6 +106,13 @@ body-source internals, gaiji codes, and resource payload identifiers. Debug
 span output is bounded by default: it reports offsets, lengths, hashes, and
 small previews instead of unbounded body-byte dumps.
 
+Sidecar HTML bodies are parsed into normal text/style/break spans before
+document construction. Raw sidecar HTML is not carried on the span timeline or
+deferred to renderer-time sanitization. If a sidecar row also has a plain body
+column, lvcore prefers the plain body. If HTML is the only body form, the parser
+preserves readable text plus supported inline emphasis while dropping unknown
+HTML structure instead of exposing raw markup as reader text.
+
 Node records deliberately use simple enum-like strings plus tuples/lists of
 children. This maps cleanly to Rust enums and to a future opaque C ABI where
 callers enumerate blocks, inlines, resources, and diagnostics through handles.
@@ -166,6 +182,14 @@ display fallback is available, friendly rendering uses a harmless placeholder
 and records a diagnostic. Debug rendering can expose raw gaiji codes, lookup
 source, glyph index, and reason.
 
+Gaiji source discovery is deterministic. It uses catalog-declared gaiji
+components, declared `EXINFO.INI` `.uni` references, direct package `.uni` /
+`.UNI` files, direct GA16/GAI16 resources, package-local plist metadata, sibling
+`*_GAIJI` directories, and a bounded set of known image/resource directories
+such as `Templates/`, `img/`, `res/`, platform resource image folders, and
+manual/appendix image folders. The reader does not perform unbounded recursive
+filesystem discovery during normal package operation.
+
 Media, image, audio, and unresolved payload references are first-class resource
 references. Friendly HTML may use stable placeholders such as
 `lvcore-resource://media-1`; raw media opcode payloads must not leak into
@@ -205,13 +229,19 @@ Native LogoVista/EPWING-style index search remains a core reader capability.
 Future enhanced/fuzzy/full-text app search can be added as a separate profile,
 but it should not replace native forward/backward index traversal.
 
+Reader-facing search and entry enumeration use lazy scans by default. Full
+index materialization remains available through audit/inspection paths. Scans
+that touch HONMON, native index pages, or sidecar rows accept optional
+byte-budget/cancel plumbing and report `scan_truncated` diagnostics when a
+budgeted operation stops early.
+
 The current Python proof of concept exposes reader-facing `SearchResults` and
 `SearchHit` objects. Normal callers should follow:
 
 ```text
 Package.search(query, profile)
   -> SearchResults
-  -> SearchHit.entry()
+  -> Package.entry_for_hit(SearchHit)
   -> Entry.document()
   -> friendly HTML / plain text
 ```
@@ -323,12 +353,14 @@ sidecar row. Observed `t_contents` key columns include `f_DataId`,
 Unmapped, encrypted, or schema-unknown sidecars are classified and reported as
 deferred; the reader does not fake a body by decoding anchor records.
 
-`body-source`, `validate`, and `corpus-validate` expose body-source information
-in JSON. Debug output may include anchor IDs, raw pointers, sidecar names, and
-mapping status, including attempted query values and selected table/column
-names. Friendly output must not. Validation also reports sampled sidecar
-resolution counters so corpus runs can distinguish resolved rows, missing rows,
-missing anchor IDs, and unsupported body-source placeholders.
+`body-source` exposes reader body-source information in JSON. The sibling
+`lvcore-audit` package owns validation and corpus scorecards, using public
+reader APIs rather than reader-private helpers. Debug output may include anchor
+IDs, raw pointers, sidecar names, and mapping status, including attempted query
+values and selected table/column names. Friendly output must not. Audit reports
+sampled sidecar resolution counters so corpus runs can distinguish resolved
+rows, missing rows, missing anchor IDs, and unsupported body-source
+placeholders.
 
 Sidecar files are also classified by role when the structure is visible. The
 current role vocabulary separates body-critical stores from media/resource

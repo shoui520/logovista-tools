@@ -2,34 +2,159 @@
 
 from __future__ import annotations
 
-from .body_source import (
+from lvcore import (
+    Address,
+    BlockNode,
+    ComponentRole,
+    Diagnostic,
+    DiagnosticArea,
+    Entry,
+    GaijiDisplayStatus,
+    IndexRow,
+    InlineKind,
+    InlineNode,
+    ResourceKind,
+    ResourceRef,
+    ResourceStatus,
+    SearchProfile,
     SidecarRole,
     SsedBodySourceKind,
+    Severity,
+    TEXT_LIKE_INDEX_OUTLIER_TYPES,
+    normalize_query,
+    render_html,
+    render_text,
 )
-from .diagnostics import Diagnostic, DiagnosticArea, Severity
-from .document import BlockNode, InlineKind, InlineNode, ResourceKind, ResourceRef
-from .gaiji import GaijiDisplayStatus
-from .index import IndexRow
-from .model import Address, ComponentRole, Entry, SearchProfile
-from .render import render_html, render_text
-from .search import normalize_query
-from .ssed import TEXT_LIKE_INDEX_OUTLIER_TYPES
 
 
-class PackageValidationMixin:
-    """Validation and summary methods for LogoVistaPackage."""
+COMPATIBILITY_SIGNIFICANT_SIDECAR_ROLES = {
+    SidecarRole.BODY_CRITICAL.value,
+    SidecarRole.MEDIA_RESOURCE.value,
+    SidecarRole.EXAMPLES_IDIOMS.value,
+    SidecarRole.LINK_REFERENCE.value,
+    SidecarRole.SEARCH.value,
+    SidecarRole.UNKNOWN.value,
+}
+
+
+class _PackageValidationAdapter:
+    """Audit-side validation adapter around a public lvcore package."""
+
+    def __init__(self, package) -> None:
+        self._package = package
+
+    def __getattr__(self, name: str):
+        return getattr(self._package, name)
 
     @staticmethod
     def _count_diagnostics(target: tuple[Diagnostic, ...], by_severity: dict[str, int], by_area: dict[str, int], by_code: dict[str, int]) -> None:
         for diagnostic in target:
             by_severity[diagnostic.severity.value] = by_severity.get(diagnostic.severity.value, 0) + 1
             by_area[diagnostic.area.value] = by_area.get(diagnostic.area.value, 0) + 1
-            by_code[diagnostic.code] = by_code.get(diagnostic.code, 0) + 1
+            by_code[diagnostic.code.value] = by_code.get(diagnostic.code.value, 0) + 1
 
     @staticmethod
     def _increment_reason(counts: dict[str, int], reason: object) -> None:
         key = str(reason or "unknown")
         counts[key] = counts.get(key, 0) + 1
+
+    def _sidecar_role_summary(self) -> dict[str, object]:
+        role_counts: dict[str, int] = {}
+        unsupported_role_counts: dict[str, int] = {}
+        supported_role_counts: dict[str, int] = {}
+        compatibility_significant_unsupported_counts: dict[str, int] = {}
+        support_status_counts: dict[str, int] = {}
+        unsupported_sidecars: list[dict[str, object]] = []
+        candidates = tuple(self.sidecar_candidate_paths()) if hasattr(self._package, "sidecar_candidate_paths") else ()
+        sidecars = tuple(self.sidecars())
+        sidecars_by_path = {getattr(sidecar, "path", None): sidecar for sidecar in sidecars}
+        sqlite_count = 0
+        non_sqlite_count = 0
+        for path in candidates:
+            sidecar = sidecars_by_path.get(path)
+            if sidecar is None:
+                non_sqlite_count += 1
+                role = SidecarRole.NON_SQLITE_OR_UNKNOWN.value
+                status = "non_sqlite_or_unknown"
+            else:
+                sqlite_count += 1
+                role = sidecar.role.value if hasattr(sidecar.role, "value") else str(sidecar.role)
+                status = sidecar.support_status.value if hasattr(sidecar.support_status, "value") else str(sidecar.support_status)
+            role_counts[role] = role_counts.get(role, 0) + 1
+            support_status_counts[status] = support_status_counts.get(status, 0) + 1
+            if status in {"body_resolver", "supplement_resolver", "resource_resolver", "search_metadata"}:
+                supported_role_counts[role] = supported_role_counts.get(role, 0) + 1
+            else:
+                unsupported_role_counts[role] = unsupported_role_counts.get(role, 0) + 1
+                significant = role in COMPATIBILITY_SIGNIFICANT_SIDECAR_ROLES
+                if significant:
+                    compatibility_significant_unsupported_counts[role] = compatibility_significant_unsupported_counts.get(role, 0) + 1
+                if sidecar is not None:
+                    unsupported_sidecars.append(
+                        {
+                            "name": sidecar.path.name,
+                            "kind": sidecar.kind,
+                            "role": role,
+                            "support_status": status,
+                            "compatibility_significant": significant,
+                            "tables": [table.table for table in sidecar.tables] or list(sidecar.notes),
+                        }
+                    )
+        return {
+            "candidate_count": len(candidates),
+            "sqlite_count": sqlite_count,
+            "non_sqlite_or_unknown_count": non_sqlite_count,
+            "role_counts": role_counts,
+            "supported_role_counts": supported_role_counts,
+            "unsupported_role_counts": unsupported_role_counts,
+            "compatibility_significant_unsupported_counts": compatibility_significant_unsupported_counts,
+            "support_status_counts": support_status_counts,
+            "unsupported_sidecars": unsupported_sidecars,
+        }
+
+    def _sidecar_supplement_summary(self) -> dict[str, object]:
+        summary: dict[str, object] = {
+            "examples_idioms_rows_seen": 0,
+            "examples_idioms_rows_attached": 0,
+            "entry_supplements_attached": 0,
+            "link_reference_rows_seen": 0,
+            "link_reference_rows_matched": 0,
+            "link_reference_targets_resolved": 0,
+            "sidecar_search_rows_seen": 0,
+            "sidecar_search_rows_supported": 0,
+            "sidecar_search_rows_deferred": 0,
+            "sidecar_media_rows_seen": 0,
+            "sidecar_media_rows_resolved": 0,
+            "sidecar_media_bytes_available": 0,
+            "sidecar_media_mime_counts": {},
+        }
+        for sidecar in self.sidecars():
+            role = sidecar.role.value if hasattr(sidecar.role, "value") else str(sidecar.role)
+            status = sidecar.support_status.value if hasattr(sidecar.support_status, "value") else str(sidecar.support_status)
+            for table in sidecar.tables:
+                rows = int(table.row_count or 0)
+                if role == SidecarRole.EXAMPLES_IDIOMS.value:
+                    summary["examples_idioms_rows_seen"] = int(summary["examples_idioms_rows_seen"]) + rows
+                elif role == SidecarRole.LINK_REFERENCE.value:
+                    summary["link_reference_rows_seen"] = int(summary["link_reference_rows_seen"]) + rows
+                elif role == SidecarRole.SEARCH.value:
+                    summary["sidecar_search_rows_seen"] = int(summary["sidecar_search_rows_seen"]) + rows
+                    if status == "search_metadata":
+                        summary["sidecar_search_rows_supported"] = int(summary["sidecar_search_rows_supported"]) + rows
+                    else:
+                        summary["sidecar_search_rows_deferred"] = int(summary["sidecar_search_rows_deferred"]) + rows
+                elif role == SidecarRole.MEDIA_RESOURCE.value and table.blob_column:
+                    summary["sidecar_media_rows_seen"] = int(summary["sidecar_media_rows_seen"]) + rows
+        media_mime_counts = summary["sidecar_media_mime_counts"]
+        for resource in self.sidecar_media_resources():
+            info = self.resource_info(resource)
+            if info.status == ResourceStatus.RESOLVED:
+                summary["sidecar_media_rows_resolved"] = int(summary["sidecar_media_rows_resolved"]) + 1
+                summary["sidecar_media_bytes_available"] = int(summary["sidecar_media_bytes_available"]) + 1
+                if isinstance(media_mime_counts, dict):
+                    mime = str(info.mime_type or "unknown")
+                    media_mime_counts[mime] = media_mime_counts.get(mime, 0) + 1
+        return summary
 
     def _count_document_resources(self, resources: tuple[ResourceRef, ...], counters: dict[str, object]) -> None:
         gaiji_by_reason = counters.setdefault("unresolved_gaiji_by_reason", {})
@@ -72,15 +197,14 @@ class PackageValidationMixin:
             reason = resource.details.get("reason")
             if resource.kind == ResourceKind.GAIJI:
                 info = self.resource_info(resource)
-                info_details = info.get("details") if isinstance(info.get("details"), dict) else {}
+                info_debug = info.to_dict(debug=True)
                 display_status = str(
                     resource.details.get("display_status")
-                    or info.get("display_status")
-                    or info_details.get("display_status")
+                    or info_debug.get("display_status")
                     or ("unresolved" if status != "resolved" else "unicode_mapped")
                 )
-                display_reason = resource.details.get("reason") or info.get("reason") or info_details.get("reason") or reason
-                source = resource.details.get("source") or info.get("source") or info_details.get("source") or "unknown"
+                display_reason = resource.details.get("reason") or info.reason or info_debug.get("unresolved_reason") or reason
+                source = resource.details.get("source") or info_debug.get("source") or "unknown"
                 counters["gaiji_occurrences"] = int(counters.get("gaiji_occurrences", 0)) + 1
                 status_key = f"gaiji_{display_status}"
                 counters[status_key] = int(counters.get(status_key, 0)) + 1
@@ -90,7 +214,7 @@ class PackageValidationMixin:
                     self._increment_reason(counters["gaiji_by_source"], source)
                 if isinstance(counters.get("gaiji_by_reason"), dict):
                     self._increment_reason(counters["gaiji_by_reason"], display_reason)
-                byte_length = info.get("byte_length")
+                byte_length = info.byte_length
                 if isinstance(byte_length, int) and byte_length > 0:
                     counters["gaiji_resource_bytes_available"] = int(counters.get("gaiji_resource_bytes_available", 0)) + 1
                 elif display_status in {GaijiDisplayStatus.BITMAP_BACKED.value, GaijiDisplayStatus.IMAGE_BACKED.value}:
@@ -108,21 +232,20 @@ class PackageValidationMixin:
                 kind_value = resource.kind.value
                 if isinstance(counters["media_kind_counts"], dict):
                     self._increment_reason(counters["media_kind_counts"], kind_value)
-                if info.get("status") == "resolved":
+                if info.status == ResourceStatus.RESOLVED:
                     counters["resolved_media"] = int(counters.get("resolved_media", 0)) + 1
                     counters["media_bytes_available"] = int(counters.get("media_bytes_available", 0)) + 1
                     if isinstance(counters["media_mime_counts"], dict):
-                        self._increment_reason(counters["media_mime_counts"], info.get("mime_type"))
+                        self._increment_reason(counters["media_mime_counts"], info.mime_type)
                     if isinstance(counters["media_store_kind_counts"], dict):
-                        self._increment_reason(counters["media_store_kind_counts"], info.get("store_kind"))
-                    if info.get("store_kind") == "colscr":
+                        self._increment_reason(counters["media_store_kind_counts"], info.store_kind)
+                    if info.store_kind == "colscr":
                         counters["colscr_records_resolved"] = int(counters.get("colscr_records_resolved", 0)) + 1
-                    elif info.get("store_kind") == "pcmdata":
+                    elif info.store_kind == "pcmdata":
                         counters["pcmdata_ranges_resolved"] = int(counters.get("pcmdata_ranges_resolved", 0)) + 1
                 else:
                     counters["unresolved_media"] = int(counters.get("unresolved_media", 0)) + 1
-                    info_details = info.get("details") if isinstance(info.get("details"), dict) else {}
-                    unresolved_reason = info_details.get("reason") if isinstance(info_details, dict) else reason
+                    unresolved_reason = info.reason or reason
                     self._increment_reason(media_by_reason, unresolved_reason)
                     if isinstance(counters["media_bytes_unavailable_by_reason"], dict):
                         self._increment_reason(counters["media_bytes_unavailable_by_reason"], unresolved_reason)
@@ -159,10 +282,17 @@ class PackageValidationMixin:
                 counters["unresolved_link"] = int(counters.get("unresolved_link", 0)) + 1
                 self._increment_reason(link_by_reason, target.get("reason") or status)
 
-    def validate(self, *, sample_entries: int = 3, sample_search_hits: int = 5, debug: bool = False) -> dict[str, object]:
+    def validate(
+        self,
+        *,
+        sample_entries: int = 3,
+        sample_search_hits: int = 5,
+        debug: bool = False,
+        max_bytes_per_scan: int | None = None,
+    ) -> dict[str, object]:
         body_source = self.body_source(debug=debug)
-        sidecar_roles = self.sidecar_role_summary()
-        sidecar_supplement_counters = self.sidecar_supplement_summary()
+        sidecar_roles = self._sidecar_role_summary()
+        sidecar_supplement_counters = self._sidecar_supplement_summary()
         diagnostics_by_severity = {"info": 0, "warning": 0, "error": 0}
         diagnostics_by_area: dict[str, int] = {}
         diagnostics_by_code: dict[str, int] = {}
@@ -234,7 +364,7 @@ class PackageValidationMixin:
                 return
             sidecar_reference_seen.add(key)
             sidecar_reference_counters["addresses_checked"] = int(sidecar_reference_counters.get("addresses_checked", 0)) + 1
-            matches = self.sidecar_references(address)
+            matches = self.sidecar_address_matches(address)
             if not matches:
                 return
             sidecar_reference_counters["matched"] = int(sidecar_reference_counters.get("matched", 0)) + len(matches)
@@ -243,25 +373,19 @@ class PackageValidationMixin:
             by_table = sidecar_reference_counters.setdefault("by_table", {})
             if isinstance(by_role, dict) and isinstance(by_status, dict) and isinstance(by_table, dict):
                 for match in matches:
-                    self._increment_reason(by_role, match.get("role"))
-                    self._increment_reason(by_status, match.get("support_status"))
-                    self._increment_reason(by_table, match.get("table"))
-
-        def count_entry_supplements(entry: Entry) -> None:
-            if not entry.supplements:
-                return
-            sidecar_supplement_counters["entry_supplements_attached"] = int(sidecar_supplement_counters.get("entry_supplements_attached", 0)) + len(entry.supplements)
-            for supplement in entry.supplements:
-                role = str(supplement.get("role") or "")
-                kind = str(supplement.get("kind") or "")
-                if role == SidecarRole.EXAMPLES_IDIOMS.value:
-                    sidecar_supplement_counters["examples_idioms_rows_attached"] = int(sidecar_supplement_counters.get("examples_idioms_rows_attached", 0)) + 1
-                elif role == SidecarRole.LINK_REFERENCE.value:
-                    sidecar_supplement_counters["link_reference_rows_matched"] = int(sidecar_supplement_counters.get("link_reference_rows_matched", 0)) + 1
-                    if supplement.get("link_target"):
-                        sidecar_supplement_counters["link_reference_targets_resolved"] = int(sidecar_supplement_counters.get("link_reference_targets_resolved", 0)) + 1
-                elif role == SidecarRole.SEARCH.value or kind == "sidecar_search":
-                    sidecar_supplement_counters["sidecar_search_rows_supported"] = int(sidecar_supplement_counters.get("sidecar_search_rows_supported", 0)) + 1
+                    role = match.role.value if hasattr(match.role, "value") else str(match.role)
+                    support_status = match.support_status.value if hasattr(match.support_status, "value") else str(match.support_status)
+                    self._increment_reason(by_role, role)
+                    self._increment_reason(by_status, support_status)
+                    self._increment_reason(by_table, match.table)
+                    count = int(match.match_count)
+                    if role == SidecarRole.EXAMPLES_IDIOMS.value:
+                        sidecar_supplement_counters["examples_idioms_rows_attached"] = int(sidecar_supplement_counters.get("examples_idioms_rows_attached", 0)) + count
+                        sidecar_supplement_counters["entry_supplements_attached"] = int(sidecar_supplement_counters.get("entry_supplements_attached", 0)) + count
+                    elif role == SidecarRole.LINK_REFERENCE.value:
+                        sidecar_supplement_counters["link_reference_rows_matched"] = int(sidecar_supplement_counters.get("link_reference_rows_matched", 0)) + count
+                        sidecar_supplement_counters["link_reference_targets_resolved"] = int(sidecar_supplement_counters.get("link_reference_targets_resolved", 0)) + count
+                        sidecar_supplement_counters["entry_supplements_attached"] = int(sidecar_supplement_counters.get("entry_supplements_attached", 0)) + count
 
         for unsupported in sidecar_roles.get("unsupported_sidecars", []) if isinstance(sidecar_roles.get("unsupported_sidecars"), list) else []:
             if not isinstance(unsupported, dict):
@@ -284,11 +408,10 @@ class PackageValidationMixin:
             decode_counters["unknown_bytes"] += entry.decode_unknown_bytes
 
         if body_source.ssed_kind == SsedBodySourceKind.BODY_STREAM:
-            for entry in self.iter_entries(limit=sample_entries, include_supplements=True):
+            for entry in self.iter_entries(limit=sample_entries, max_bytes=max_bytes_per_scan):
                 entries_checked += 1
                 try:
                     document = entry.document()
-                    count_entry_supplements(entry)
                     count_sidecar_references(entry.address)
                     count_decode_telemetry(entry)
                     render_html(document)
@@ -319,7 +442,7 @@ class PackageValidationMixin:
             for component in self.components_by_role(ComponentRole.INDEX):
                 if component.path is None:
                     continue
-                for row in self._iter_index_rows_fast(component):
+                for row in self.iter_index_rows(component, max_bytes=max_bytes_per_scan):
                     sampled_rows.append((component.name, row))
                     if len(sampled_rows) >= sample_search_hits:
                         break
@@ -334,7 +457,7 @@ class PackageValidationMixin:
                 diagnostics_by_code["sample_search_skipped_empty_query"] = diagnostics_by_code.get("sample_search_skipped_empty_query", 0) + 1
                 continue
             try:
-                results = self.search(query, profile=SearchProfile.EXACT, limit=1)
+                results = self.search(query, profile=SearchProfile.EXACT, limit=1, max_bytes=max_bytes_per_scan)
                 self._count_diagnostics(results.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
                 if not results.hits:
                     search_errors.append(f"no hit for sampled index key on page {row.page} row {row.row}")
@@ -350,12 +473,11 @@ class PackageValidationMixin:
                     self._increment_reason(title_failure_by_reason, hit.title_reason)
                 self._count_diagnostics(hit.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
                 for diagnostic in hit.diagnostics:
-                    if diagnostic.code.startswith("title_dereference"):
+                    if diagnostic.code.value.startswith("title_dereference"):
                         self._increment_reason(title_failure_by_reason, diagnostic.details.get("reason"))
-                entry = self.entry_for_hit(hit, include_supplements=True)
+                entry = self.entry_for_hit(hit)
                 search_hits_dereferenced += 1
                 count_sidecar_references(entry.address)
-                count_entry_supplements(entry)
                 document = entry.document()
                 count_decode_telemetry(entry)
                 self._count_diagnostics(document.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
@@ -372,6 +494,15 @@ class PackageValidationMixin:
         index_component_type_counts: dict[str, int] = {}
         index_rows_by_component_type: dict[str, int] = {}
         if debug:
+            def unsupported_type_for(name: str, parsed) -> str | None:
+                for diagnostic in parsed.diagnostics:
+                    if diagnostic.code == "unsupported_component_type":
+                        value = diagnostic.details.get("component_type")
+                        if value:
+                            return str(value)
+                component = self.component(name)
+                return f"{component.type:02x}" if component is not None and any(d.code == "unsupported_component_type" for d in parsed.diagnostics) else None
+
             index_stats = {
                 name: {
                     "rows": len(parsed.rows),
@@ -380,8 +511,8 @@ class PackageValidationMixin:
                     "internal_pages": parsed.internal_pages,
                     "unknown_leaf_bytes": parsed.unknown_leaf_bytes,
                     "component_type": f"{self.component(name).type:02x}" if self.component(name) is not None else None,
-                    "unsupported_component_type": f"{parsed.unsupported_component_type:02x}" if parsed.unsupported_component_type is not None else None,
-                    "unsupported_leaf_pages": parsed.unsupported_leaf_pages,
+                    "unsupported_component_type": unsupported_type_for(name, parsed),
+                    "unsupported_leaf_pages": sum(1 for diagnostic in parsed.diagnostics if diagnostic.code == "unsupported_component_type" and diagnostic.page is not None),
                     "malformed_leaf_rows": parsed.malformed_leaf_rows,
                     "physical_tail_bytes": parsed.physical_tail_bytes,
                     "physical_tail_nonzero_bytes": parsed.physical_tail_nonzero_bytes,
@@ -393,9 +524,10 @@ class PackageValidationMixin:
                 for name, parsed in self.indexes().items()
             }
             unsupported_component_types = {
-                name: f"{parsed.unsupported_component_type:02x}"
+                name: unsupported_type
                 for name, parsed in self.indexes().items()
-                if parsed.unsupported_component_type is not None
+                for unsupported_type in [unsupported_type_for(name, parsed)]
+                if unsupported_type is not None
             }
             malformed_leaf_rows = sum(parsed.malformed_leaf_rows for parsed in self.indexes().values())
             physical_tail_bytes = sum(parsed.physical_tail_bytes for parsed in self.indexes().values())
@@ -410,7 +542,7 @@ class PackageValidationMixin:
                 for diagnostic in parsed.diagnostics:
                     diagnostics_by_severity["warning"] = diagnostics_by_severity.get("warning", 0) + 1
                     diagnostics_by_area[DiagnosticArea.INDEX.value] = diagnostics_by_area.get(DiagnosticArea.INDEX.value, 0) + 1
-                    diagnostics_by_code[diagnostic.code] = diagnostics_by_code.get(diagnostic.code, 0) + 1
+                    diagnostics_by_code[diagnostic.code.value] = diagnostics_by_code.get(diagnostic.code.value, 0) + 1
         else:
             index_stats = {}
             unsupported_component_types = {}
@@ -536,35 +668,25 @@ class PackageValidationMixin:
             "ok": diagnostics_by_severity.get("error", 0) == 0 and not entry_errors,
         }
 
-    def summary(self, *, debug: bool = False) -> dict[str, object]:
-        data: dict[str, object] = {
-            "package": self.info.to_dict(),
-            "components": [component.to_dict() for component in self.components],
-        }
-        if not debug:
-            data["notes"] = ["fast summary; use --debug for body-source, gaiji, and resource evidence"]
-            return data
+def validate_package(
+    package,
+    *,
+    sample_entries: int = 3,
+    sample_search_hits: int = 5,
+    debug: bool = False,
+    max_bytes_per_scan: int | None = None,
+) -> dict[str, object]:
+    """Validate a package using audit-side scorecard logic."""
 
-        data["body_source"] = self.body_source(debug=True).to_dict(debug=False)
-        data["gaiji"] = {
-                "records": len(self.gaiji.records),
-                "mapped": len(self.gaiji.mapping),
-                "paths": [str(path) for path in self.gaiji.paths],
-                "image_resources": len(self.gaiji_images),
-                "plist_unicode_mappings": self.gaiji.plist_unicode_mappings,
-                "plist_mapping_ambiguous": self.gaiji.plist_mapping_ambiguous,
-                "plist_parse_failures": self.gaiji.plist_parse_failures,
-                "ga16": [
-                    {
-                        "path": str(resource.path),
-                        "width": resource.width,
-                        "height": resource.height,
-                        "start_code": f"{resource.start_code:04x}",
-                        "count": resource.count,
-                        "glyph_bytes": resource.glyph_bytes,
-                        "section": resource.section,
-                    }
-                    for resource in self.ga16
-                ],
-            }
-        return data
+    return _PackageValidationAdapter(package).validate(
+        sample_entries=sample_entries,
+        sample_search_hits=sample_search_hits,
+        debug=debug,
+        max_bytes_per_scan=max_bytes_per_scan,
+    )
+
+
+def sidecar_role_summary(package) -> dict[str, object]:
+    """Return audit-side sidecar role/support counters without body validation."""
+
+    return _PackageValidationAdapter(package)._sidecar_role_summary()

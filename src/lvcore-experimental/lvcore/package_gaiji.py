@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import hashlib
 from pathlib import Path
 
@@ -12,11 +11,23 @@ from .gaiji import (
     GaijiDisplayStatus,
     GaijiMap,
     GaijiResolutionReason,
+    GaijiSources,
     ImageGaijiResource,
     load_gaiji_map,
     load_image_gaiji_resources,
     parse_ga16,
+    resolve_gaiji_sources,
 )
+from .gaiji_resolution import (
+    BitmapGaijiBacking,
+    FormattingHelperGaijiBacking,
+    GaijiResolution,
+    ImageGaijiBacking,
+    RendererEntryGaijiBacking,
+    UnicodeGaijiBacking,
+    UnresolvedGaijiBacking,
+)
+from .json_types import JsonObject
 from .model import Component, ComponentRole, Span
 from .package_utils import _media_mime_and_format
 from .text import DecodeResult, decode_text_stream
@@ -26,23 +37,10 @@ class PackageGaijiMixin:
     """Gaiji mapping and resource methods for LogoVistaPackage."""
 
     @staticmethod
-    def _load_ga16_resources(root: Path, components: tuple[Component, ...]) -> tuple[Ga16Resource, ...]:
-        paths: list[Path] = []
-        for component in components:
-            if component.role == ComponentRole.GAIJI and component.path is not None:
-                paths.append(component.path)
-        try:
-            for path in root.rglob("*"):
-                if not path.is_file():
-                    continue
-                upper = path.name.upper()
-                if upper.startswith(("GA16", "GAI16")):
-                    paths.append(path)
-        except OSError:
-            pass
+    def _load_ga16_resources(sources: GaijiSources) -> tuple[Ga16Resource, ...]:
         resources: list[Ga16Resource] = []
         seen: set[Path] = set()
-        for path in paths:
+        for path in sources.ga16_files:
             try:
                 resolved = path.resolve()
             except OSError:
@@ -56,21 +54,40 @@ class PackageGaijiMixin:
         return tuple(resources)
 
     @property
+    def gaiji_sources(self) -> GaijiSources:
+        if self._gaiji_sources is None:
+            component_paths = tuple(
+                component.path
+                for component in self.components
+                if component.role == ComponentRole.GAIJI and component.path is not None
+            )
+            self._gaiji_sources = resolve_gaiji_sources(
+                self.info.root,
+                self.info.dict_id or self.catalog.dict_id,
+                component_paths=component_paths,
+            )
+        return self._gaiji_sources
+
+    @property
     def gaiji(self) -> GaijiMap:
         if self._gaiji is None:
-            self._gaiji = load_gaiji_map(self.info.root, self.info.dict_id or self.catalog.dict_id)
+            self._gaiji = load_gaiji_map(
+                self.info.root,
+                self.info.dict_id or self.catalog.dict_id,
+                self.gaiji_sources,
+            )
         return self._gaiji
 
     @property
     def ga16(self) -> tuple[Ga16Resource, ...]:
         if self._ga16 is None:
-            self._ga16 = self._load_ga16_resources(self.info.root, self.components)
+            self._ga16 = self._load_ga16_resources(self.gaiji_sources)
         return self._ga16
 
     @property
     def gaiji_images(self) -> tuple[ImageGaijiResource, ...]:
         if self._gaiji_images is None:
-            self._gaiji_images = load_image_gaiji_resources(self.info.root)
+            self._gaiji_images = load_image_gaiji_resources(self.info.root, self.gaiji_sources)
         return self._gaiji_images
 
     @property
@@ -82,32 +99,36 @@ class PackageGaijiMixin:
     def decode_component(self, component: str | Component) -> DecodeResult:
         self._ensure_open()
         decoded = decode_text_stream(self.expanded(component), self.gaiji.mapping)
+        spans = self._annotate_gaiji_spans(decoded.spans)
         return DecodeResult(
-            spans=self._annotate_gaiji_spans(decoded.spans),
+            spans=spans,
             text=decoded.text,
             unknown_controls=decoded.unknown_controls,
             unknown_bytes=decoded.unknown_bytes,
+            spans_debug=tuple(span.debug for span in spans),
         )
 
     def _decode_text_stream(self, data: bytes, *, renderer_entry_backed: bool = False) -> DecodeResult:
         decoded = decode_text_stream(data, self.gaiji.mapping)
+        spans = self._annotate_gaiji_spans(decoded.spans, renderer_entry_backed=renderer_entry_backed)
         return DecodeResult(
-            spans=self._annotate_gaiji_spans(decoded.spans, renderer_entry_backed=renderer_entry_backed),
+            spans=spans,
             text=decoded.text,
             unknown_controls=decoded.unknown_controls,
             unknown_bytes=decoded.unknown_bytes,
+            spans_debug=tuple(span.debug for span in spans),
         )
 
     @staticmethod
     def _gaiji_resource_id(code: str, *, source: str = "gaiji") -> str:
         digest = hashlib.sha1(f"{source}:{code.lower()}".encode("utf-8")).hexdigest()[:12]
-        return f"gaiji-{code.lower()}-{digest}"
+        return f"gaiji-{digest}"
 
     @staticmethod
     def _is_blank_glyph(glyph: bytes | None) -> bool:
         return bool(glyph is not None) and all(byte == 0 for byte in glyph)
 
-    def _gaiji_image_info(self, code: str) -> dict[str, object] | None:
+    def _gaiji_image_info(self, code: str) -> JsonObject | None:
         if code in self._gaiji_image_info_cache:
             cached = self._gaiji_image_info_cache[code]
             return dict(cached) if cached is not None else None
@@ -155,7 +176,7 @@ class PackageGaijiMixin:
         self._gaiji_image_info_cache[code] = info
         return dict(info)
 
-    def _gaiji_glyph_info(self, code: str, *, prefer_record_order: bool = True) -> dict[str, object] | None:
+    def _gaiji_glyph_info(self, code: str, *, prefer_record_order: bool = True) -> JsonObject | None:
         cache_key = (code, prefer_record_order)
         if cache_key in self._gaiji_glyph_info_cache:
             cached = self._gaiji_glyph_info_cache[cache_key]
@@ -231,7 +252,95 @@ class PackageGaijiMixin:
         self._gaiji_glyph_info_cache[cache_key] = None
         return None
 
-    def gaiji_info(self, code_or_resource: str | ResourceRef | dict[str, object]) -> dict[str, object]:
+    @staticmethod
+    def _gaiji_status(value: object) -> GaijiDisplayStatus:
+        try:
+            return GaijiDisplayStatus(str(value))
+        except ValueError:
+            return GaijiDisplayStatus.UNRESOLVED
+
+    @staticmethod
+    def _gaiji_reason(value: object) -> GaijiResolutionReason:
+        try:
+            return GaijiResolutionReason(str(value))
+        except ValueError:
+            return GaijiResolutionReason.UNKNOWN
+
+    def _gaiji_resolution_from_info(self, code: str, resource_id: str, info: JsonObject) -> GaijiResolution:
+        status = self._gaiji_status(info.get("display_status"))
+        details = info.get("details") if isinstance(info.get("details"), dict) else {}
+        backing_info = details.get("backing_resource") if isinstance(details.get("backing_resource"), dict) else {}
+        reason = self._gaiji_reason(info.get("reason") or details.get("reason"))
+        display_text = str(info.get("display_text")) if info.get("display_text") is not None else None
+        fallback_text = str(info.get("fallback_text")) if info.get("fallback_text") is not None else None
+        resolved_resource_id = str(info.get("resource_id") or resource_id)
+        mime_type = str(info.get("mime_type")) if info.get("mime_type") else None
+        byte_length = info.get("byte_length") if isinstance(info.get("byte_length"), int) else None
+        display_source = str(info.get("source") or details.get("source") or "") or "unknown"
+        source = str(backing_info.get("source") or display_source) or "unknown"
+        source_path = backing_info.get("source_path") or info.get("source_path")
+        image_path = backing_info.get("image_path") or info.get("image_path")
+        if source_path and isinstance(backing_info.get("glyph_index", info.get("glyph_index")), int):
+            glyph_index = backing_info.get("glyph_index", info.get("glyph_index"))
+            backing = BitmapGaijiBacking(
+                source=source,
+                source_path=str(source_path),
+                glyph_index=int(glyph_index or 0),
+                width=int(backing_info.get("glyph_width", info.get("glyph_width")) or 0),
+                height=int(backing_info.get("glyph_height", info.get("glyph_height")) or 0),
+                glyph_bytes=int(backing_info.get("glyph_bytes", info.get("glyph_bytes")) or 0),
+                section=str(backing_info.get("ga16_section", info.get("ga16_section")) or "unknown"),
+            )
+        elif image_path:
+            backing = ImageGaijiBacking(
+                source=source,
+                image_path=str(image_path),
+                image_key=str(backing_info.get("image_key", info.get("image_key"))) if backing_info.get("image_key", info.get("image_key")) is not None else None,
+                byte_length=byte_length or 0,
+                format_hint=str(backing_info.get("format_hint", info.get("format_hint"))) if backing_info.get("format_hint", info.get("format_hint")) else None,
+                container_kind=str(backing_info.get("container_kind", info.get("container_kind"))) if backing_info.get("container_kind", info.get("container_kind")) else None,
+            )
+        elif status == GaijiDisplayStatus.UNICODE_MAPPED:
+            backing = UnicodeGaijiBacking(text=display_text or "", source=source)
+        elif status == GaijiDisplayStatus.BITMAP_BACKED:
+            backing = BitmapGaijiBacking(
+                source=source,
+                source_path=str(info.get("source_path") or ""),
+                glyph_index=int(info.get("glyph_index") or 0),
+                width=int(info.get("glyph_width") or 0),
+                height=int(info.get("glyph_height") or 0),
+                glyph_bytes=int(info.get("glyph_bytes") or 0),
+                section=str(info.get("ga16_section") or "unknown"),
+            )
+        elif status == GaijiDisplayStatus.IMAGE_BACKED:
+            backing = ImageGaijiBacking(
+                source=source,
+                image_path=str(info.get("image_path") or ""),
+                image_key=str(info.get("image_key")) if info.get("image_key") is not None else None,
+                byte_length=byte_length or 0,
+                format_hint=str(info.get("format_hint")) if info.get("format_hint") else None,
+                container_kind=str(info.get("container_kind")) if info.get("container_kind") else None,
+            )
+        elif status == GaijiDisplayStatus.FORMATTING_HELPER:
+            backing = FormattingHelperGaijiBacking(source=source)
+        elif status == GaijiDisplayStatus.RENDERER_ENTRY_BACKED:
+            backing = RendererEntryGaijiBacking()
+        else:
+            backing = UnresolvedGaijiBacking(reason=reason)
+        return GaijiResolution(
+            code=code,
+            display_status=status,
+            display_text=display_text,
+            fallback_text=fallback_text,
+            resource_id=resolved_resource_id,
+            mime_type=mime_type,
+            reason=reason,
+            backing=backing,
+            source=display_source,
+            byte_length=byte_length,
+        )
+
+    def _gaiji_info_dict(self, code_or_resource: str | ResourceRef | JsonObject) -> JsonObject:
         if isinstance(code_or_resource, ResourceRef):
             code = code_or_resource.code or ""
             resource_id = code_or_resource.id
@@ -247,7 +356,7 @@ class PackageGaijiMixin:
             resource_id = self._gaiji_resource_id(code)
             details = {}
         code = code.lower()
-        info: dict[str, object] = self._media_info_base(resource_id, ResourceKind.GAIJI.value)
+        info: JsonObject = self._media_info_base(resource_id, ResourceKind.GAIJI.value)
         info["code"] = code
         if len(code) != 4:
             info["status"] = "malformed"
@@ -346,6 +455,20 @@ class PackageGaijiMixin:
         )
         return info
 
+    def gaiji_info(self, code_or_resource: str | ResourceRef | JsonObject) -> GaijiResolution:
+        if isinstance(code_or_resource, ResourceRef):
+            code = code_or_resource.code or ""
+            resource_id = code_or_resource.id
+        elif isinstance(code_or_resource, dict):
+            code_value = code_or_resource.get("code")
+            code = str(code_value or "")
+            resource_id = str(code_or_resource.get("id") or self._gaiji_resource_id(code))
+        else:
+            code = str(code_or_resource or "")
+            resource_id = self._gaiji_resource_id(code)
+        code = code.lower()
+        return self._gaiji_resolution_from_info(code, resource_id, self._gaiji_info_dict(code_or_resource))
+
     def _annotate_gaiji_spans(self, spans: tuple[Span, ...], *, renderer_entry_backed: bool = False) -> tuple[Span, ...]:
         out: list[Span] = []
         for span in spans:
@@ -353,25 +476,24 @@ class PackageGaijiMixin:
                 out.append(span)
                 continue
             info = self.gaiji_info(span.code)
-            details = info.get("details") if isinstance(info.get("details"), dict) else {}
             attrs = dict(span.attrs)
             attrs.update(
                 {
-                    "gaiji_display_status": info.get("display_status"),
-                    "gaiji_reason": info.get("reason") or details.get("reason"),
-                    "display_text": info.get("display_text"),
-                    "fallback_text": info.get("fallback_text"),
-                    "resource_id": info.get("resource_id"),
-                    "resource_kind": info.get("resource_kind"),
-                    "mime_type": info.get("mime_type"),
-                    "byte_length": info.get("byte_length"),
-                    "gaiji_source": info.get("source") or details.get("source"),
+                    "gaiji_display_status": info.display_status.value,
+                    "gaiji_reason": info.reason.value,
+                    "display_text": info.display_text,
+                    "fallback_text": info.fallback_text,
+                    "resource_id": info.resource_id,
+                    "resource_kind": ResourceKind.GAIJI.value,
+                    "mime_type": info.mime_type,
+                    "byte_length": info.byte_length,
+                    "gaiji_source": info.source,
                 }
             )
             if renderer_entry_backed and attrs.get("gaiji_display_status") == GaijiDisplayStatus.UNRESOLVED.value:
                 attrs["gaiji_display_status"] = GaijiDisplayStatus.RENDERER_ENTRY_BACKED.value
                 attrs["gaiji_reason"] = GaijiResolutionReason.RENDERER_CONTEXTUAL_REQUIRED.value
-            out.append(replace(span, attrs=attrs))
+            out.append(span.with_debug_attrs(attrs))
         return tuple(out)
 
     def gaiji_resources(self, *, limit: int | None = None) -> tuple[ResourceRef, ...]:
@@ -381,23 +503,24 @@ class PackageGaijiMixin:
         resources: list[ResourceRef] = []
         for code in codes:
             info = self.gaiji_info(code)
-            details = info.get("details") if isinstance(info.get("details"), dict) else {}
+            debug = info.to_dict(debug=True)
+            backing = debug.get("backing") if isinstance(debug.get("backing"), dict) else {}
             resources.append(
                 ResourceRef(
-                    id=str(info.get("resource_id") or self._gaiji_resource_id(code)),
+                    id=info.resource_id,
                     kind=ResourceKind.GAIJI,
-                    label=str(info.get("display_text") or code),
-                    status=ResourceStatus.RESOLVED if info.get("status") == "resolved" else ResourceStatus.UNRESOLVED,
-                    mime_type=str(info.get("mime_type")) if info.get("mime_type") else None,
+                    label=str(info.display_text or code),
+                    status=ResourceStatus.RESOLVED if info.resolved else ResourceStatus.UNRESOLVED,
+                    mime_type=info.mime_type,
                     code=code,
-                    source_path=str(info.get("source_path") or info.get("image_path") or "") or None,
+                    source_path=str(backing.get("source_path") or backing.get("image_path") or "") or None,
                     details={
-                        "resolved": info.get("status") == "resolved",
-                        "reason": info.get("reason") or details.get("reason"),
-                        "display_status": info.get("display_status") or details.get("display_status"),
-                        "display_text": info.get("display_text"),
-                        "source": info.get("source") or details.get("source"),
-                        "byte_length": info.get("byte_length"),
+                        "resolved": info.resolved,
+                        "reason": info.reason.value,
+                        "display_status": info.display_status.value,
+                        "display_text": info.display_text,
+                        "source": info.source,
+                        "byte_length": info.byte_length,
                     },
                 )
             )

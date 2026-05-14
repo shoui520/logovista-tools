@@ -11,7 +11,11 @@ from pathlib import Path
 from typing import Any
 
 from .diagnostics import Diagnostic
+from .json_types import JsonObject
 from .model import PackageFamily
+
+BODY_SOURCE_SCHEMA = "lvcore.body_source.v1"
+BODY_SOURCE_MODEL_VERSION = 1
 
 
 class SsedBodySourceKind(str, Enum):
@@ -83,9 +87,9 @@ class SidecarTableInfo:
     end_block_column: str | None = None
     end_offset_column: str | None = None
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
         role = self.role.value if isinstance(self.role, SidecarRole) else str(self.role)
-        data: dict[str, Any] = {
+        data: JsonObject = {
             "table": self.table,
             "row_count": self.row_count,
             "role": role,
@@ -130,7 +134,7 @@ class SidecarInfo:
     tables: tuple[SidecarTableInfo, ...] = ()
     notes: tuple[str, ...] = ()
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
         support_status = self.support_status.value if isinstance(self.support_status, SidecarSupportStatus) else str(self.support_status)
         data = {
             "path": str(self.path),
@@ -156,6 +160,44 @@ class SidecarInfo:
 
 
 @dataclass(frozen=True)
+class SidecarAddressMatch:
+    sidecar_name: str
+    kind: str
+    role: SidecarRole | str
+    support_status: SidecarSupportStatus | str
+    table: str
+    match_count: int
+    status: str = "matched"
+    block_column: str | None = None
+    offset_column: str | None = None
+    title_column: str | None = None
+    plain_column: str | None = None
+
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
+        role = self.role.value if isinstance(self.role, SidecarRole) else str(self.role)
+        support_status = self.support_status.value if isinstance(self.support_status, SidecarSupportStatus) else str(self.support_status)
+        data: JsonObject = {
+            "sidecar": self.sidecar_name,
+            "kind": self.kind,
+            "role": role,
+            "support_status": support_status,
+            "table": self.table,
+            "match_count": self.match_count,
+            "status": self.status,
+        }
+        if debug:
+            data.update(
+                {
+                    "block_column": self.block_column,
+                    "offset_column": self.offset_column,
+                    "title_column": self.title_column,
+                    "plain_column": self.plain_column,
+                }
+            )
+        return data
+
+
+@dataclass(frozen=True)
 class BodySourceInfo:
     package_family: PackageFamily
     ssed_kind: SsedBodySourceKind = SsedBodySourceKind.UNKNOWN
@@ -174,8 +216,10 @@ class BodySourceInfo:
     diagnostics: tuple[Diagnostic, ...] = ()
     sidecars: tuple[SidecarInfo, ...] = ()
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
         data = {
+            "schema": BODY_SOURCE_SCHEMA,
+            "model_version": BODY_SOURCE_MODEL_VERSION,
             "package_family": self.package_family.value,
             "ssed_kind": self.ssed_kind.value,
             "support": self.support.value,
@@ -205,7 +249,7 @@ class BodyPointerInspection:
     record_length: int | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
         data = {
             "anchor_id": self.anchor_id if debug else None,
             "raw_text_hash": self.raw_text_hash,

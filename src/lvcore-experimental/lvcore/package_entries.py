@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+from html.parser import HTMLParser
 import sqlite3
-from typing import Iterable
+from typing import Callable, Iterable
 
 from .body_source import (
     BodyPointerInspection,
@@ -18,22 +19,120 @@ from .body_source import (
     strip_html,
 )
 from .diagnostics import Diagnostic, DiagnosticArea, Severity
+from .json_types import JsonObject
 from .model import Address, Component, ComponentRole, Entry, SearchProfile, Span
 from .package_utils import ENTRY_MARKER
+from .scan import ScanBudget
 from .search import SearchHit
 from .ssed import BLOCK_SIZE, CHUNK_SIZE, SsedData
 from .text import decode_text_stream
+
+
+_SIDECAR_BLOCK_TAGS = {
+    "address",
+    "article",
+    "blockquote",
+    "dd",
+    "div",
+    "dl",
+    "dt",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "li",
+    "ol",
+    "p",
+    "section",
+    "table",
+    "td",
+    "th",
+    "tr",
+    "ul",
+}
+
+_SIDECAR_STYLE_TAGS = {
+    "b": ("bold", 0x06, 0x07),
+    "strong": ("bold", 0x06, 0x07),
+    "i": ("italic", 0x0E, 0x0F),
+    "em": ("em", 0x10, 0x11),
+}
+
+
+class _SidecarHtmlSpanParser(HTMLParser):
+    """Convert supported sidecar HTML into normal text/control spans."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.spans: list[Span] = []
+        self._offset = 0
+
+    def _append(self, span: Span) -> None:
+        self.spans.append(span)
+
+    def _break(self) -> None:
+        if not self.spans or self.spans[-1].kind == "break":
+            return
+        self._append(Span(kind="break", offset=self._offset, length=0))
+
+    def _control(self, tag: str, op: int) -> None:
+        self._append(Span(kind="control", offset=self._offset, length=0, op=op, attrs={"tag": tag}))
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        lower = tag.lower()
+        if lower == "br":
+            self._break()
+            return
+        if lower in _SIDECAR_BLOCK_TAGS:
+            self._break()
+        style = _SIDECAR_STYLE_TAGS.get(lower)
+        if style is not None:
+            logical_tag, start_op, _end_op = style
+            self._control(logical_tag, start_op)
+
+    def handle_endtag(self, tag: str) -> None:
+        lower = tag.lower()
+        style = _SIDECAR_STYLE_TAGS.get(lower)
+        if style is not None:
+            logical_tag, _start_op, end_op = style
+            self._control(logical_tag, end_op)
+        if lower in _SIDECAR_BLOCK_TAGS:
+            self._break()
+
+    def handle_data(self, data: str) -> None:
+        if not data:
+            return
+        self._append(Span(kind="text", text=data, offset=self._offset, length=len(data)))
+        self._offset += len(data)
+
+
+def _sidecar_html_to_spans(value: str, *, fallback_text: str) -> tuple[Span, ...]:
+    parser = _SidecarHtmlSpanParser()
+    try:
+        parser.feed(value)
+        parser.close()
+    except Exception:
+        return (Span(kind="text", text=fallback_text),)
+    spans = tuple(span for span in parser.spans if not (span.kind == "break" and span is parser.spans[-1]))
+    if any(span.kind == "text" and span.text for span in spans):
+        return spans
+    return (Span(kind="text", text=fallback_text),)
 
 
 class PackageEntryMixin:
     """Entry/body-source methods for LogoVistaPackage."""
 
     @staticmethod
-    def _marker_offsets(reader: SsedData, *, limit: int | None = None) -> list[int]:
+    def _marker_offsets(reader: SsedData, *, limit: int | None = None, budget: ScanBudget | None = None) -> list[int]:
         offsets: list[int] = []
         tail = b""
         tail_base = 0
+        budget = budget or ScanBudget()
         for chunk_index in range(len(reader.offsets)):
+            if not budget.allow(CHUNK_SIZE):
+                return offsets
             chunk = reader.chunk(chunk_index)
             if not chunk:
                 continue
@@ -56,21 +155,30 @@ class PackageEntryMixin:
             tail_base = chunk_base + len(chunk) - len(tail)
         return offsets
 
-    def _markers_for_component(self, component: Component, *, limit: int | None = None) -> list[int]:
+    def _markers_for_component(self, component: Component, *, limit: int | None = None, budget: ScanBudget | None = None) -> list[int]:
         key = component.name.lower()
         if limit is not None and key not in self._marker_cache:
-            return self._marker_offsets(self.data(component), limit=limit)
+            return self._marker_offsets(self.data(component), limit=limit, budget=budget)
         if key not in self._marker_cache:
-            self._marker_cache[key] = self._marker_offsets(self.data(component))
+            self._marker_cache[key] = self._marker_offsets(self.data(component), budget=budget)
         return self._marker_cache[key]
 
-    def iter_entry_slices(self, *, limit: int | None = None) -> Iterable[tuple[int, int]]:
+    def iter_entry_slices(
+        self,
+        *,
+        limit: int | None = None,
+        max_bytes: int | None = None,
+        cancel: Callable[[], bool] | None = None,
+    ) -> Iterable[tuple[int, int]]:
         honmon = self.honmon_component()
         if honmon is None or honmon.path is None:
             return
         reader = self.data(honmon)
-        starts = self._markers_for_component(honmon, limit=limit)
+        budget = ScanBudget(max_bytes=max_bytes, cancel=cancel)
+        starts = self._markers_for_component(honmon, limit=limit, budget=budget)
         if not starts:
+            if not budget.allow(min(reader.expanded_size, BLOCK_SIZE)):
+                return
             sample = reader.read(0, min(reader.expanded_size, BLOCK_SIZE))
             if sample.strip(b"\x00"):
                 yield 0, reader.expanded_size
@@ -79,11 +187,18 @@ class PackageEntryMixin:
             end = starts[index + 1] if index + 1 < len(starts) else reader.expanded_size
             yield start, end
 
-    def iter_entries(self, *, limit: int | None = None, include_supplements: bool = False) -> Iterable[Entry]:
+    def iter_entries(
+        self,
+        *,
+        limit: int | None = None,
+        max_bytes: int | None = None,
+        cancel: Callable[[], bool] | None = None,
+    ) -> Iterable[Entry]:
         honmon = self.honmon_component()
         if honmon is None:
             return
         reader = self.data(honmon)
+        budget = ScanBudget(max_bytes=max_bytes, cancel=cancel)
         if limit is not None:
             source = self.body_source()
             if source.ssed_kind in {
@@ -96,43 +211,40 @@ class PackageEntryMixin:
                 SsedBodySourceKind.VLPLJBL_SIDECAR,
                 SsedBodySourceKind.SIDECAR_UNKNOWN,
             }:
-                if not include_supplements:
-                    sidecar = self._choose_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
-                    if sidecar is not None:
-                        yielded = False
-                        for entry in self._iter_body_sidecar_entries_fast(sidecar, limit=limit):
-                            yielded = True
-                            yield entry
-                        if yielded:
-                            return
-                yield from self._iter_dense_sidecar_entries_fast(limit=limit, include_supplements=include_supplements)
+                sidecar = self._choose_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
+                if sidecar is not None:
+                    yielded = False
+                    for entry in self._iter_body_sidecar_entries_fast(sidecar, limit=limit):
+                        yielded = True
+                        yield entry
+                    if yielded:
+                        return
+                yield from self._iter_dense_sidecar_entries_fast(limit=limit)
                 return
             sample = reader.read(0, min(reader.expanded_size, BLOCK_SIZE))
             if ENTRY_MARKER not in sample:
-                pointer_offsets = self._body_pointer_offsets_fast(honmon, limit=limit, preserve_order=True)
+                pointer_offsets = self._body_pointer_offsets_fast(honmon, limit=limit, preserve_order=True, budget=budget)
                 if pointer_offsets:
                     for start in pointer_offsets[:limit]:
                         address = Address(honmon.start_block + start // BLOCK_SIZE, start % BLOCK_SIZE, honmon.name)
-                        yield self.entry_at(address, max_bytes=64 * 1024, include_supplements=include_supplements)
+                        yield self.entry_at(address, max_bytes=64 * 1024)
                     return
         count = 0
-        for start, end in self.iter_entry_slices(limit=limit):
+        for start, end in self.iter_entry_slices(limit=limit, max_bytes=max_bytes, cancel=cancel):
+            if not budget.allow(end - start):
+                break
             decoded = self._decode_text_stream(reader.read(start, end - start))
             text = decoded.text.strip("\x00")
-            head = ""
-            lines = [line.strip() for line in text.splitlines() if line.strip()]
-            if lines:
-                head = lines[0]
             entry = Entry(
                 address=Address(honmon.start_block + start // 2048, start % 2048, honmon.name),
                 end_address=Address(honmon.start_block + end // 2048, end % 2048, honmon.name),
-                headword=head,
+                headword=None,
                 text=text,
                 spans=decoded.spans,
                 decode_unknown_controls=decoded.unknown_controls,
                 decode_unknown_bytes=decoded.unknown_bytes,
             )
-            yield self._attach_sidecar_supplements(entry) if include_supplements else entry
+            yield entry
             count += 1
             if limit is not None and count >= limit:
                 break
@@ -150,14 +262,21 @@ class PackageEntryMixin:
 
         return sorted(components, key=priority)
 
-    def _body_pointer_offsets_fast(self, component: Component, *, limit: int, preserve_order: bool = False) -> list[int]:
+    def _body_pointer_offsets_fast(
+        self,
+        component: Component,
+        *,
+        limit: int,
+        preserve_order: bool = False,
+        budget: ScanBudget | None = None,
+    ) -> list[int]:
         if limit <= 0:
             return []
         reader = self.data(component)
         offsets: list[int] = []
         seen: set[int] = set()
         for index_component in self._index_components_for_entry_boundaries():
-            for row in self._iter_index_rows_fast(index_component):
+            for row in self._iter_index_rows_fast(index_component, budget=budget):
                 target = self.component_for_address(row.body, role=ComponentRole.HONMON)
                 if target is None or target.name.lower() != component.name.lower():
                     continue
@@ -195,14 +314,14 @@ class PackageEntryMixin:
                 if count >= limit:
                     return
 
-    def _iter_dense_sidecar_entries_fast(self, *, limit: int, include_supplements: bool = False) -> Iterable[Entry]:
+    def _iter_dense_sidecar_entries_fast(self, *, limit: int) -> Iterable[Entry]:
         hits = list(self._iter_entry_hits_fast(limit=limit))
         if not hits:
             return
         sidecar = self._choose_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
         if sidecar is None:
             for hit in hits:
-                yield self.entry_for_hit(hit, include_supplements=include_supplements)
+                yield self.entry_for_hit(hit)
             return
 
         anchor_by_index: dict[int, str] = {}
@@ -238,7 +357,6 @@ class PackageEntryMixin:
                 body,
                 sidecar=sidecar,
                 anchor_id=anchor_id,
-                include_supplements=include_supplements,
             )
 
     def _iter_body_sidecar_entries_fast(self, sidecar: SidecarInfo, *, limit: int) -> Iterable[Entry]:
@@ -313,7 +431,7 @@ class PackageEntryMixin:
             return compact, len(data)
         return "", len(data)
 
-    def _dense_anchor_evidence(self, component: Component, *, use_index_pointers: bool = True) -> dict[str, object]:
+    def _dense_anchor_evidence(self, component: Component, *, use_index_pointers: bool = True) -> JsonObject:
         if use_index_pointers:
             pointer_offsets = self._body_pointer_offsets(component)
         else:
@@ -559,23 +677,21 @@ class PackageEntryMixin:
             )
         return honmon, start, end, tuple(diagnostics)
 
-    def entry_at(self, address: Address, *, max_bytes: int = 64 * 1024, include_supplements: bool = False) -> Entry:
+    def entry_at(self, address: Address, *, max_bytes: int = 64 * 1024) -> Entry:
         honmon, start, end_offset, diagnostics = self._entry_range_for_address(address, max_bytes=max_bytes)
         reader = self.data(honmon)
         decoded = self._decode_text_stream(reader.read(start, end_offset - start))
-        lines = [line.strip() for line in decoded.text.splitlines() if line.strip()]
-        headword = lines[0] if lines else ""
         entry = Entry(
             address=Address(address.block, address.offset, honmon.name),
             end_address=Address(honmon.start_block + end_offset // BLOCK_SIZE, end_offset % BLOCK_SIZE, honmon.name),
-            headword=headword,
+            headword=None,
             text=decoded.text.strip("\x00"),
             spans=decoded.spans,
             entry_diagnostics=diagnostics,
             decode_unknown_controls=decoded.unknown_controls,
             decode_unknown_bytes=decoded.unknown_bytes,
         )
-        return self._attach_sidecar_supplements(entry, include=include_supplements)
+        return entry
 
     def inspect_body_pointer(self, address: Address) -> BodyPointerInspection:
         honmon = self.component_for_address(address, role=ComponentRole.HONMON)
@@ -609,7 +725,7 @@ class PackageEntryMixin:
                 pass
         return tuple(dict.fromkeys(values))
 
-    def _sidecar_debug_details(self, sidecar: SidecarInfo, anchor_id: str) -> dict[str, object]:
+    def _sidecar_debug_details(self, sidecar: SidecarInfo, anchor_id: str) -> JsonObject:
         query_values = [str(value) for value in self._anchor_query_values(anchor_id, sidecar)]
         return {
             "anchor_id": anchor_id,
@@ -717,7 +833,6 @@ class PackageEntryMixin:
         sidecar: SidecarInfo,
         anchor_id: str,
         headword_hint: str,
-        include_supplements: bool = False,
     ) -> Entry:
         note = Diagnostic(
             severity=Severity.INFO,
@@ -728,12 +843,13 @@ class PackageEntryMixin:
             details=self._sidecar_debug_details(sidecar, anchor_id),
         )
         text = body.text or body.title or headword_hint
+        html_fallback_text = strip_html(body.html) if body.html else ""
         spans = (
-            (Span(kind="sidecar_html", text=body.html, attrs={"plain_text": text}),)
-            if body.html
+            _sidecar_html_to_spans(body.html, fallback_text=text)
+            if body.html and (not body.text or body.text == html_fallback_text)
             else (Span(kind="text", text=text),)
         )
-        entry = Entry(
+        return Entry(
             address=address,
             end_address=address,
             headword=body.title or headword_hint,
@@ -741,7 +857,6 @@ class PackageEntryMixin:
             spans=spans,
             entry_diagnostics=(note,),
         )
-        return self._attach_sidecar_supplements(entry, include=include_supplements)
 
     def _entry_from_sidecar_body(
         self,
@@ -750,7 +865,6 @@ class PackageEntryMixin:
         *,
         sidecar: SidecarInfo,
         anchor_id: str,
-        include_supplements: bool = False,
     ) -> Entry:
         return self._make_sidecar_body_entry(
             hit.body,
@@ -758,7 +872,6 @@ class PackageEntryMixin:
             sidecar=sidecar,
             anchor_id=anchor_id,
             headword_hint=hit.heading,
-            include_supplements=include_supplements,
         )
 
     def _placeholder_entry(
@@ -769,7 +882,7 @@ class PackageEntryMixin:
         code: str,
         message: str,
         severity: Severity = Severity.WARNING,
-        details: dict[str, object] | None = None,
+        details: JsonObject | None = None,
         placeholder_text: str = "Entry body is not yet supported for this LogoVista body source.",
     ) -> Entry:
         diagnostic = Diagnostic(
@@ -828,8 +941,6 @@ class PackageEntryMixin:
         self,
         hit: SearchHit,
         inspection: BodyPointerInspection,
-        *,
-        include_supplements: bool = False,
     ) -> Entry | None:
         anchor_id = inspection.anchor_id
         if not anchor_id:
@@ -845,5 +956,4 @@ class PackageEntryMixin:
             body,
             sidecar=sidecar,
             anchor_id=anchor_id,
-            include_supplements=include_supplements,
         )

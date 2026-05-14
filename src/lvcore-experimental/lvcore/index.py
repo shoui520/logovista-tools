@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
-
+from .diagnostics import DiagnosticCode, diagnostic_code
+from .json_types import JsonObject
 from .model import Address
 from .ssed import BLOCK_SIZE, be16, be32
 from .text import decode_jis_pair, gaiji_placeholder, narrow_fullwidth
@@ -37,8 +37,8 @@ class IndexRow:
     group_page: int | None = None
     group_row: int | None = None
 
-    def to_dict(self) -> dict[str, object]:
-        data: dict[str, object] = {
+    def to_dict(self) -> JsonObject:
+        data: JsonObject = {
             "key": self.key,
             "target_key": self.target_key,
             "body": self.body.to_dict(),
@@ -74,15 +74,18 @@ class InternalRow:
 
 @dataclass(frozen=True)
 class IndexDiagnostic:
-    code: str
+    code: DiagnosticCode
     message: str
     page: int | None = None
     row: int | None = None
-    details: dict[str, Any] = field(default_factory=dict)
+    details: JsonObject = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "code", diagnostic_code(self.code))
+
+    def to_dict(self) -> JsonObject:
         return {
-            "code": self.code,
+            "code": self.code.value,
             "message": self.message,
             "page": self.page,
             "row": self.row,
@@ -97,8 +100,6 @@ class IndexParse:
     leaf_pages: int
     internal_pages: int
     unknown_leaf_bytes: int
-    unsupported_component_type: int | None = None
-    unsupported_leaf_pages: int = 0
     malformed_leaf_rows: int = 0
     physical_tail_bytes: int = 0
     physical_tail_nonzero_bytes: int = 0
@@ -561,7 +562,6 @@ def parse_index(data: bytes, start_block: int, component_type: int, gaiji: dict[
     leaf_pages = 0
     internal_pages = 0
     unknown = 0
-    unsupported_leaf_pages = 0
     malformed_leaf_rows = 0
     physical_tail_bytes = 0
     physical_tail_nonzero_bytes = 0
@@ -602,7 +602,6 @@ def parse_index(data: bytes, start_block: int, component_type: int, gaiji: dict[
                 parsed = parse_tagged_leaf(page, page_index, gaiji, component_type=component_type, context=current_context)
                 current_context = parsed.context
             else:
-                unsupported_leaf_pages += 1
                 parsed = LeafParse(
                     rows=[],
                     unknown_leaf_bytes=0,
@@ -626,8 +625,9 @@ def parse_index(data: bytes, start_block: int, component_type: int, gaiji: dict[
         else:
             internal_pages += 1
             internal.extend(parse_internal_page(page, page_index, gaiji))
-    unsupported_component_type = component_type if component_type not in SUPPORTED_INDEX_TYPES and (leaf_pages or internal_pages or data.strip(b"\x00")) else None
-    if unsupported_component_type is not None and not any(diagnostic.code == "unsupported_component_type" for diagnostic in diagnostics):
+    if component_type not in SUPPORTED_INDEX_TYPES and (leaf_pages or internal_pages or data.strip(b"\x00")) and not any(
+        diagnostic.code == "unsupported_component_type" for diagnostic in diagnostics
+    ):
         diagnostics.append(
             IndexDiagnostic(
                 code="unsupported_component_type",
@@ -645,8 +645,6 @@ def parse_index(data: bytes, start_block: int, component_type: int, gaiji: dict[
         leaf_pages=leaf_pages,
         internal_pages=internal_pages,
         unknown_leaf_bytes=unknown,
-        unsupported_component_type=unsupported_component_type,
-        unsupported_leaf_pages=unsupported_leaf_pages,
         malformed_leaf_rows=malformed_leaf_rows,
         physical_tail_bytes=physical_tail_bytes,
         physical_tail_nonzero_bytes=physical_tail_nonzero_bytes,

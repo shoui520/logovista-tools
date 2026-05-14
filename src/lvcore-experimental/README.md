@@ -64,9 +64,17 @@ PYTHONPATH=src/lvcore-experimental python3 -m lvcore gaiji /path/to/_DCT_DICT --
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore sidecars /path/to/_DCT_DICT --json --debug
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore resource-info /path/to/_DCT_DICT term media-1 --json --debug
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore resource-bytes /path/to/_DCT_DICT term media-1 --output /private/output/media.bin
-PYTHONPATH=src/lvcore-experimental python3 -m lvcore validate /path/to/_DCT_DICT --sample-search-hits 5 --json
-PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate /path/to/corpus --json --full --jobs 0
-PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate /path/to/corpus --json --jobs 0 --progress --output-dir /private/reports/lvcore-corpus
+```
+
+Audit and scorecard commands live in the sibling `lvcore-audit` package:
+
+```bash
+PYTHONPATH=src/lvcore-experimental:src/lvcore-audit \
+  python3 -m lvcore_audit package /path/to/_DCT_DICT --sample-search-hits 5
+
+PYTHONPATH=src/lvcore-experimental:src/lvcore-audit \
+  python3 -m lvcore_audit corpus /path/to/corpus --full --jobs 0 --progress \
+  --output-dir /private/reports/lvcore-corpus
 ```
 
 The lvcore CLI writes progress/status messages to stderr and keeps JSON/HTML/text
@@ -76,9 +84,10 @@ progress detail and tracebacks while debugging unexpected errors.
 Reader-facing commands are lazy by default: `info`, `search`, `render`,
 `entries`, and resource listing avoid full index/body-source/sidecar/gaiji
 audits unless debug or explicit resource enumeration asks for them. Use
-`--debug` for forensic body-source evidence and raw structural details; use
-`render --include-supplements` when supplemental sidecar rows should be attached
-to normal rendered output.
+`--debug` for forensic body-source evidence and raw structural details.
+Package-level search/render/entry helpers are convenience delegates; the
+Rust-shaped API surface is `package.dictionaries()[0].search(...)` followed by
+`dictionary.entry_for_hit(...)`.
 
 Small app-facing examples are available under `src/lvcore-experimental/examples`:
 
@@ -105,7 +114,7 @@ results = package.search("term", profile=SearchProfile.NATIVE, limit=5)
 for hit in results.hits:
     heading = hit.heading
     title_status = hit.title_status
-    entry = hit.entry()
+    entry = package.entry_for_hit(hit)
     html = entry.html()
     text = entry.plain_text()
     diagnostics = entry.diagnostics()
@@ -115,8 +124,9 @@ Raw inspection is a separate, explicit path:
 
 ```python
 hit_debug = results.hits[0].inspect()
-entry_debug = results.hits[0].entry().inspect()
-document_debug = results.hits[0].entry().document().to_dict(debug=True)
+entry = package.entry_for_hit(results.hits[0])
+entry_debug = entry.inspect()
+document_debug = entry.document().to_dict(debug=True)
 ```
 
 Inspection output is bounded by default. It exposes useful fields such as
@@ -249,8 +259,8 @@ media tables are exposed as package-level `ResourceRef` records with explicit
 `resource_bytes()` access to the untouched BLOB payload. Remaining ambiguous
 schemas stay diagnosed and counted.
 
-`corpus-validate` is the private full-corpus audit entry point. Its JSON summary
-uses the `lvcore.corpus_validate.v1` schema and reports package-family counts,
+`lvcore_audit corpus` is the private full-corpus audit entry point. Its JSON summary
+uses the `lvcore.audit.corpus.v1` schema and reports package-family counts,
 SSED body-source counts, SSED render-support counts, diagnostic counts by
 severity/area/code, top blockers, sample limits, and search-hit
 dereference/render totals. LVED and LVLMultiView are counted as deferred package
@@ -264,6 +274,8 @@ Useful audit options:
   JSON stdout;
 - `--sample-entries N` and `--sample-search-hits N`: make sample limits
   explicit in the summary;
+- `--max-bytes-per-scan N`: exercise deterministic partial-scan behavior and
+  report `scan_truncated` diagnostics when a sampled operation hits the budget;
 - `--output-dir DIR`: write `summary.json`, `targets.jsonl`,
   `failures.jsonl`, and `diagnostics.jsonl`;
 - `--failures-jsonl PATH` and `--diagnostics-jsonl PATH`: write those streams

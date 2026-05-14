@@ -5,13 +5,11 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from .index import IndexRow
 from .model import Component
 
 ENTRY_MARKER = b"\x1f\x09\x00\x01"
 EXACT_INDEX_PROBE_PAGES = 128
 EXPENSIVE_SIDECAR_BYTES = 64 * 1024 * 1024
-SearchValueRow = tuple[IndexRow, tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]
 TitleMatch = tuple[Component, int, str]
 GAIJI_DEBUG_TAG_RE = re.compile(r"<z[0-9A-Fa-f]{4}>")
 
@@ -154,5 +152,4 @@ def _jis_symbol_index_query_bytes(query: str) -> bytes | None:
         else:
             converted.append(ch)
     return _jis_cell_bytes("".join(converted))
-
 

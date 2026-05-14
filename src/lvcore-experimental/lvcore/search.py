@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import unicodedata
-from typing import Any
 
 from .diagnostics import Diagnostic
 from .index import IndexRow
+from .json_types import JsonObject
 from .model import Address, SearchProfile
+
+SEARCH_HIT_SCHEMA = "lvcore.search_hit.v1"
+SEARCH_HIT_MODEL_VERSION = 1
+SEARCH_RESULTS_SCHEMA = "lvcore.search_results.v1"
+SEARCH_RESULTS_MODEL_VERSION = 1
+TITLE_RESOLUTION_SCHEMA = "lvcore.title_resolution.v1"
+TITLE_RESOLUTION_MODEL_VERSION = 1
 
 
 def kana_to_hiragana(value: str) -> str:
@@ -57,49 +64,123 @@ def natural_backward_key(value: str) -> str:
 
 
 @dataclass(frozen=True)
+class TitleResolution:
+    status: str
+    heading: str
+    heading_source: str
+    title: Address
+    body: Address
+    raw_title: Address
+    raw_body: Address
+    row_title_equals_body: bool
+    fallback_heading_source: str
+    reason: str | None = None
+    title_diagnostic_code: str | None = None
+    raw_title_component: str | None = None
+    raw_title_component_role: str | None = None
+    raw_title_component_type: str | None = None
+
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
+        data: JsonObject = {
+            "schema": TITLE_RESOLUTION_SCHEMA,
+            "model_version": TITLE_RESOLUTION_MODEL_VERSION,
+            "status": self.status,
+            "heading": self.heading,
+            "heading_source": self.heading_source,
+            "reason": self.reason,
+            "diagnostic_code": self.title_diagnostic_code,
+        }
+        if debug:
+            data.update(
+                {
+                    "title": self.title.to_dict(),
+                    "body": self.body.to_dict(),
+                    "raw_title": self.raw_title.to_dict(),
+                    "raw_body": self.raw_body.to_dict(),
+                    "row_title_equals_body": self.row_title_equals_body,
+                    "fallback_heading_source": self.fallback_heading_source,
+                    "raw_title_component": self.raw_title_component,
+                    "raw_title_component_role": self.raw_title_component_role,
+                    "raw_title_component_type": self.raw_title_component_type,
+                }
+            )  # type: ignore[arg-type]
+        return data
+
+
+@dataclass(frozen=True)
+class SearchHitDebug:
+    index_component: str
+    body: Address
+    title: Address
+    page: int | None = None
+    row: int | None = None
+    raw_row: IndexRow | None = None
+    body_source: object | None = None
+    title_resolution: TitleResolution | None = None
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "index_component": self.index_component,
+            "body": self.body.to_dict(),
+            "title": self.title.to_dict(),
+            "page": self.page,
+            "row": self.row,
+            "raw_row": self.raw_row.to_dict() if self.raw_row else None,
+            "body_source": self.body_source.to_dict(debug=False) if hasattr(self.body_source, "to_dict") else None,
+            "title_resolution": self.title_resolution.to_dict(debug=True) if self.title_resolution else None,
+        }
+
+
+@dataclass(frozen=True)
 class SearchHit:
     id: int
     query: str
     normalized_query: str
     search_profile: SearchProfile
     package_id: str | None
-    index_component: str
     display_key: str
     matched_key: str
     target_key: str | None
     heading: str
     heading_source: str
     title_status: str
-    body: Address
-    title: Address
     tagged: bool
+    debug_info: SearchHitDebug
     title_diagnostic_code: str | None = None
     title_reason: str | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
-    page: int | None = None
-    row: int | None = None
-    raw_row: IndexRow | None = field(default=None, repr=False, compare=False)
-    body_source: dict[str, Any] | None = field(default=None, repr=False, compare=False)
-    title_resolution: dict[str, Any] | None = field(default=None, repr=False, compare=False)
-    sidecar_row: dict[str, Any] | None = field(default=None, repr=False, compare=False)
-    _package: Any = field(default=None, repr=False, compare=False)
 
-    def entry(self):
-        if self._package is None:
-            raise RuntimeError("SearchHit is detached from a package")
-        return self._package.entry_for_hit(self)
+    @property
+    def index_component(self) -> str:
+        return self.debug_info.index_component
 
-    def inspect(self) -> dict[str, Any]:
+    @property
+    def body(self) -> Address:
+        return self.debug_info.body
+
+    @property
+    def title(self) -> Address:
+        return self.debug_info.title
+
+    @property
+    def page(self) -> int | None:
+        return self.debug_info.page
+
+    @property
+    def row(self) -> int | None:
+        return self.debug_info.row
+
+    @property
+    def raw_row(self) -> IndexRow | None:
+        return self.debug_info.raw_row
+
+    def inspect(self) -> JsonObject:
         return self.to_dict(debug=True)
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
-        body_source = self.body_source
-        if debug and body_source is None and self._package is not None:
-            try:
-                body_source = self._package.body_source(debug=True).to_dict(debug=False)
-            except Exception:
-                body_source = None
-        data: dict[str, Any] = {
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
+        data: JsonObject = {
+            "schema": SEARCH_HIT_SCHEMA,
+            "model_version": SEARCH_HIT_MODEL_VERSION,
             "id": self.id,
             "package_id": self.package_id,
             "search_profile": self.search_profile.value,
@@ -114,22 +195,10 @@ class SearchHit:
             "diagnostics": [diagnostic.to_dict() for diagnostic in self.diagnostics],
         }
         if debug:
-            data.update(
-                {
-                    "query": self.query,
-                    "normalized_query": self.normalized_query,
-                    "index_component": self.index_component,
-                    "body": self.body.to_dict(),
-                    "title": self.title.to_dict(),
-                    "page": self.page,
-                    "row": self.row,
-                    "raw_row": self.raw_row.to_dict() if self.raw_row else None,
-                    "body_source": body_source,
-                    "title_reason": self.title_reason,
-                    "title_resolution": self.title_resolution,
-                    "sidecar_row": self.sidecar_row,
-                }
-            )
+            data["query"] = self.query
+            data["normalized_query"] = self.normalized_query
+            data["title_reason"] = self.title_reason
+            data.update(self.debug_info.to_dict())  # type: ignore[arg-type]
         return data
 
 
@@ -141,8 +210,10 @@ class SearchResults:
     hits: tuple[SearchHit, ...]
     diagnostics: tuple[Diagnostic, ...] = ()
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
         return {
+            "schema": SEARCH_RESULTS_SCHEMA,
+            "model_version": SEARCH_RESULTS_MODEL_VERSION,
             "query": self.query,
             "normalized_query": self.normalized_query,
             "profile": self.profile.value,

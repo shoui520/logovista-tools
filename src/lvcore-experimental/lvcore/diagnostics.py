@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from .json_types import JsonObject
+
+DIAGNOSTIC_SCHEMA = "lvcore.diagnostic.v1"
+DIAGNOSTIC_MODEL_VERSION = 1
 
 
 class Severity(str, Enum):
@@ -25,6 +28,48 @@ class DiagnosticArea(str, Enum):
     VALIDATION = "validation"
 
 
+class DiagnosticCode(str, Enum):
+    BODY_POINTER_OUTSIDE_HONMON = "body_pointer_outside_honmon"
+    BODY_POINTER_UNRESOLVED = "body_pointer_unresolved"
+    DANGLING_CONTINUATION_ROW = "dangling_continuation_row"
+    DANGLING_MULTI_TARGET_ROW = "dangling_multi_target_row"
+    DENSE_ANCHOR_MISSING_ID = "dense_anchor_missing_id"
+    EMPTY_BODY_AT_POINTER = "empty_body_at_pointer"
+    ENTRY_RANGE_FALLBACK = "entry_range_fallback"
+    INVALID_BODY_POINTER = "invalid_body_pointer"
+    MALFORMED_DIRECT_LEAF_ROW = "malformed_direct_leaf_row"
+    MALFORMED_GROUP_LEAF_ROW = "malformed_group_leaf_row"
+    MALFORMED_SIMPLE_LEAF_ROW = "malformed_simple_leaf_row"
+    MALFORMED_TARGET_LEAF_ROW = "malformed_target_leaf_row"
+    MEDIA_LAYOUT_CONTROL = "media_layout_control"
+    MISSING_BODY_COMPONENT = "missing_body_component"
+    PARTIAL_INDEX_PAGE_TAIL = "partial_index_page_tail"
+    PRIVATE_RENDERER_DIRECTIVE = "private_renderer_directive"
+    SAMPLE_SEARCH_MISS = "sample_search_miss"
+    SAMPLE_SEARCH_SKIPPED_EMPTY_QUERY = "sample_search_skipped_empty_query"
+    SCAN_TRUNCATED = "scan_truncated"
+    SIDECAR_BODY_NOT_FOUND = "sidecar_body_not_found"
+    SIDECAR_BODY_RESOLVED = "sidecar_body_resolved"
+    TAB_COLUMN_CONTROL = "tab_column_control"
+    TITLE_DEREFERENCE_EMPTY = "title_dereference_empty"
+    TITLE_DEREFERENCE_FAILED = "title_dereference_failed"
+    UNKNOWN_BYTE = "unknown_byte"
+    UNKNOWN_CONTROL = "unknown_control"
+    UNKNOWN_LEAF_TAG = "unknown_leaf_tag"
+    UNCLOSED_STYLE = "unclosed_style"
+    UNMATCHED_STYLE_END = "unmatched_style_end"
+    UNRESOLVED_GAIJI = "unresolved_gaiji"
+    UNRESOLVED_LINK_TARGET = "unresolved_link_target"
+    UNRESOLVED_MEDIA_REF = "unresolved_media_ref"
+    UNSUPPORTED_BODY_SOURCE = "unsupported_body_source"
+    UNSUPPORTED_COMPONENT_TYPE = "unsupported_component_type"
+    UNSUPPORTED_SIDECAR_SCHEMA = "unsupported_sidecar_schema"
+
+
+def diagnostic_code(value: DiagnosticCode | str) -> DiagnosticCode:
+    return value if isinstance(value, DiagnosticCode) else DiagnosticCode(str(value))
+
+
 @dataclass(frozen=True)
 class Location:
     component: str | None = None
@@ -35,7 +80,7 @@ class Location:
     row: int | None = None
     entry_id: str | None = None
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> JsonObject:
         return {
             key: value
             for key, value in {
@@ -56,16 +101,21 @@ class Diagnostic:
     severity: Severity
     area: DiagnosticArea
     message: str
-    code: str
+    code: DiagnosticCode
     location: Location = field(default_factory=Location)
     recoverable: bool = True
-    details: dict[str, Any] = field(default_factory=dict)
+    details: JsonObject = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "code", diagnostic_code(self.code))
+
+    def to_dict(self) -> JsonObject:
         return {
+            "schema": DIAGNOSTIC_SCHEMA,
+            "model_version": DIAGNOSTIC_MODEL_VERSION,
             "severity": self.severity.value,
             "area": self.area.value,
-            "code": self.code,
+            "code": self.code.value,
             "message": self.message,
             "location": self.location.to_dict(),
             "recoverable": self.recoverable,
@@ -81,12 +131,12 @@ class DiagnosticBag:
         self,
         severity: Severity,
         area: DiagnosticArea,
-        code: str,
+        code: DiagnosticCode | str,
         message: str,
         *,
         location: Location | None = None,
         recoverable: bool = True,
-        details: dict[str, Any] | None = None,
+        details: JsonObject | None = None,
     ) -> Diagnostic:
         diagnostic = Diagnostic(
             severity=severity,

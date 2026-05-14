@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import Enum
 import hashlib
 from typing import Any, Iterable
 
 from .diagnostics import Diagnostic, DiagnosticArea, DiagnosticBag, Location, Severity
+from .json_types import JsonObject
 from .model import Address, Entry, Span
 from .opcodes import KNOWN_NEUTRAL_OPS, OpcodeCategory, behavior_for
 
@@ -115,7 +116,7 @@ def _stable_private_ref(value: str) -> str:
 
 def _public_mapping(value: Any, *, debug: bool) -> Any:
     if isinstance(value, dict):
-        out: dict[str, Any] = {}
+        out: JsonObject = {}
         for key, item in value.items():
             if not debug and key in DEBUG_ATTR_KEYS:
                 continue
@@ -129,7 +130,7 @@ def _public_mapping(value: Any, *, debug: bool) -> Any:
     return value
 
 
-def _diagnostic_to_dict(diagnostic: Diagnostic, *, debug: bool) -> dict[str, Any]:
+def _diagnostic_to_dict(diagnostic: Diagnostic, *, debug: bool) -> JsonObject:
     data = diagnostic.to_dict()
     if not debug:
         data["details"] = _public_mapping(data.get("details", {}), debug=False)
@@ -184,11 +185,11 @@ class ResourceRef:
     code: str | None = None
     source_offset: int | None = None
     source_path: str | None = None
-    details: dict[str, Any] = field(default_factory=dict)
+    details: JsonObject = field(default_factory=dict)
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
         status = self.status.value if isinstance(self.status, ResourceStatus) else str(self.status)
-        data: dict[str, Any] = {
+        data: JsonObject = {
             "id": self.id,
             "kind": self.kind.value,
             "label": self.label,
@@ -222,9 +223,9 @@ class LinkTarget:
     start_payload: str | None = None
     end_payload: str | None = None
     status: LinkTargetStatus | str = LinkTargetStatus.UNRESOLVED
-    details: dict[str, Any] = field(default_factory=dict)
+    details: JsonObject = field(default_factory=dict)
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
         kind = self.kind.value if isinstance(self.kind, LinkTargetKind) else str(self.kind)
         status = self.status.value if isinstance(self.status, LinkTargetStatus) else str(self.status)
         data = {
@@ -255,10 +256,10 @@ class InlineNode:
     children: tuple["InlineNode", ...] = ()
     code: str | None = None
     resource_id: str | None = None
-    attrs: dict[str, Any] = field(default_factory=dict)
+    attrs: JsonObject = field(default_factory=dict)
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
-        data: dict[str, Any] = {
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
+        data: JsonObject = {
             "kind": self.kind.value,
             "text": self.text,
             "children": [child.to_dict(debug=debug) for child in self.children],
@@ -276,9 +277,9 @@ class InlineNode:
 class BlockNode:
     kind: BlockKind
     inlines: tuple[InlineNode, ...] = ()
-    attrs: dict[str, Any] = field(default_factory=dict)
+    attrs: JsonObject = field(default_factory=dict)
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
         return {
             "kind": self.kind.value,
             "inlines": [node.to_dict(debug=debug) for node in self.inlines],
@@ -291,8 +292,8 @@ class EntryDocument:
     blocks: tuple[BlockNode, ...]
     resources: tuple[ResourceRef, ...] = ()
     diagnostics: tuple[Diagnostic, ...] = ()
-    metadata: dict[str, Any] = field(default_factory=dict)
-    debug_metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: JsonObject = field(default_factory=dict)
+    debug_metadata: JsonObject = field(default_factory=dict)
 
     def resource_map(self) -> dict[str, ResourceRef]:
         return {resource.id: resource for resource in self.resources}
@@ -300,11 +301,11 @@ class EntryDocument:
     def diagnostics_by_code(self) -> dict[str, int]:
         counts: dict[str, int] = {}
         for diagnostic in self.diagnostics:
-            counts[diagnostic.code] = counts.get(diagnostic.code, 0) + 1
+            counts[diagnostic.code.value] = counts.get(diagnostic.code.value, 0) + 1
         return counts
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
-        data: dict[str, Any] = {
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
+        data: JsonObject = {
             "schema": DOCUMENT_SCHEMA,
             "model_version": DOCUMENT_MODEL_VERSION,
             "blocks": [block.to_dict(debug=debug) for block in self.blocks],
@@ -316,7 +317,7 @@ class EntryDocument:
             data["debug_metadata"] = _public_mapping(self.debug_metadata, debug=True)
         return data
 
-    def to_debug_dict(self) -> dict[str, Any]:
+    def to_debug_dict(self) -> JsonObject:
         return self.to_dict(debug=True)
 
 
@@ -335,7 +336,7 @@ def _gaiji_unresolved(span: Span) -> bool:
 @dataclass
 class ActiveInline:
     kind: InlineKind
-    attrs: dict[str, Any] = field(default_factory=dict)
+    attrs: JsonObject = field(default_factory=dict)
 
 
 def _decode_bcd_decimal(data: bytes) -> int | None:
@@ -368,8 +369,8 @@ def _range_from_pcm_payload(payload: bytes) -> tuple[Address, Address] | None:
     return start, end
 
 
-def _media_descriptor_from_payload(payload: bytes) -> dict[str, Any]:
-    descriptor: dict[str, Any] = {
+def _media_descriptor_from_payload(payload: bytes) -> JsonObject:
+    descriptor: JsonObject = {
         "payload_length": len(payload),
         "resolved": False,
         "reason": "unresolved_media_payload",
@@ -399,8 +400,8 @@ def _media_descriptor_from_payload(payload: bytes) -> dict[str, Any]:
     return descriptor
 
 
-def _pcm_descriptor_from_payload(payload: bytes) -> dict[str, Any]:
-    descriptor: dict[str, Any] = {
+def _pcm_descriptor_from_payload(payload: bytes) -> JsonObject:
+    descriptor: JsonObject = {
         "payload_length": len(payload),
         "resolved": False,
         "reason": "unresolved_audio_range",
@@ -425,7 +426,7 @@ def _pcm_descriptor_from_payload(payload: bytes) -> dict[str, Any]:
     return descriptor
 
 
-def _link_attrs_for_start(span: Span, *, resource_id: str | None = None) -> dict[str, Any]:
+def _link_attrs_for_start(span: Span, *, resource_id: str | None = None) -> JsonObject:
     op_hex = f"{span.op:02x}" if span.op is not None else None
     kind = LINK_START_KINDS.get(span.op, LinkTargetKind.UNKNOWN)
     if span.op == 0x3B:
@@ -516,47 +517,6 @@ def _flush_paragraph(blocks: list[BlockNode], inlines: list[InlineNode]) -> None
     inlines.clear()
 
 
-def _supplement_block(supplement: dict[str, Any]) -> BlockNode | None:
-    text_parts = [
-        str(supplement.get(key) or "").strip()
-        for key in ("heading", "text", "keyword")
-        if str(supplement.get(key) or "").strip()
-    ]
-    seen: set[str] = set()
-    text = " / ".join(part for part in text_parts if not (part in seen or seen.add(part)))
-    if not text:
-        return None
-    kind = str(supplement.get("kind") or "supplemental")
-    attrs = {
-        "sidecar_supplement": {
-            "id": supplement.get("id"),
-            "kind": kind,
-            "role": supplement.get("role"),
-            "status": supplement.get("status"),
-            "sidecar": supplement.get("sidecar"),
-            "table": supplement.get("table"),
-            "row_id": supplement.get("row_id"),
-            "source_address": supplement.get("address"),
-            "debug": supplement.get("debug"),
-        }
-    }
-    target = supplement.get("link_target")
-    if isinstance(target, dict):
-        return BlockNode(
-            BlockKind.PARAGRAPH,
-            (
-                InlineNode(
-                    InlineKind.LINK,
-                    children=(InlineNode(InlineKind.TEXT, text=text),),
-                    attrs={"link_target": target},
-                ),
-            ),
-            attrs=attrs,
-        )
-    block_kind = BlockKind.EXAMPLE if kind in {"example", "idiom", "usage_note"} else BlockKind.PARAGRAPH
-    return BlockNode(block_kind, (InlineNode(InlineKind.TEXT, text=text),), attrs=attrs)
-
-
 def build_entry_document(entry: Entry) -> EntryDocument:
     """Build a reader-facing document from an entry's decoded spans."""
 
@@ -594,20 +554,6 @@ def build_entry_document(entry: Entry) -> EntryDocument:
             _add_text(inlines, span.text, active_styles)
             continue
 
-        if span.kind == "sidecar_html":
-            _flush_paragraph(blocks, inlines)
-            blocks.append(
-                BlockNode(
-                    BlockKind.PARAGRAPH,
-                    (),
-                    attrs={
-                        "sidecar_html": span.text or "",
-                        "sidecar_text": span.attrs.get("plain_text") or "",
-                    },
-                )
-            )
-            continue
-
         if span.kind == "break":
             _flush_paragraph(blocks, inlines)
             continue
@@ -619,7 +565,7 @@ def build_entry_document(entry: Entry) -> EntryDocument:
                 status = "renderer_entry_backed"
                 attrs["gaiji_display_status"] = status
                 attrs["gaiji_reason"] = "renderer_contextual_required"
-            unresolved = _gaiji_unresolved(replace(span, attrs=attrs))
+            unresolved = _gaiji_unresolved(span.with_debug_attrs(attrs))
             reason = str(attrs.get("gaiji_reason") or ("missing_unicode_mapping" if unresolved else "unicode_mapping"))
             display_text = attrs.get("display_text")
             if not isinstance(display_text, str) or not display_text:
@@ -736,7 +682,7 @@ def build_entry_document(entry: Entry) -> EntryDocument:
             tag = span.attrs.get("tag")
             behavior = behavior_for(span.op)
             if tag in STYLE_START_TO_KIND and span.op in STYLE_START_OPS:
-                attrs: dict[str, Any]
+                attrs: JsonObject
                 if span.op == 0x4A:
                     resource_counter += 1
                     descriptor = _pcm_descriptor_from_payload(span.payload)
@@ -878,9 +824,6 @@ def build_entry_document(entry: Entry) -> EntryDocument:
     if not blocks and entry.text:
         blocks.append(BlockNode(BlockKind.PARAGRAPH, (InlineNode(InlineKind.TEXT, text=entry.text),)))
 
-    supplement_blocks = [block for supplement in entry.supplements for block in [_supplement_block(supplement)] if block is not None]
-    blocks.extend(supplement_blocks)
-
     return EntryDocument(
         blocks=tuple(blocks),
         resources=tuple(resources),
@@ -892,6 +835,5 @@ def build_entry_document(entry: Entry) -> EntryDocument:
         },
         debug_metadata={
             "span_summaries": [span.to_debug_summary() for span in entry.spans],
-            "sidecar_supplements": list(entry.supplements),
         },
     )

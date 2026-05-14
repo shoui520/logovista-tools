@@ -8,6 +8,15 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
+from .json_types import JsonObject
+
+SPAN_SCHEMA = "lvcore.span.v1"
+SPAN_DEBUG_SCHEMA = "lvcore.span_debug.v1"
+ENTRY_SCHEMA = "lvcore.entry.v1"
+SPAN_MODEL_VERSION = 1
+SPAN_DEBUG_MODEL_VERSION = 1
+ENTRY_MODEL_VERSION = 1
+
 
 class PackageFamily(str, Enum):
     SSED = "ssed"
@@ -42,7 +51,7 @@ class Address:
     offset: int = 0
     component: str | None = None
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> JsonObject:
         out = {"block": self.block, "offset": self.offset}
         if self.component is not None:
             out["component"] = self.component
@@ -70,7 +79,7 @@ class Component:
     def contains(self, address: Address) -> bool:
         return self.start_block <= address.block <= self.end_block
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> JsonObject:
         return {
             "index": self.index,
             "name": self.name,
@@ -93,7 +102,7 @@ class PackageInfo:
     title: str | None = None
     notes: tuple[str, ...] = ()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> JsonObject:
         return {
             "family": self.family.value,
             "root": str(self.root),
@@ -105,47 +114,24 @@ class PackageInfo:
 
 
 @dataclass(frozen=True)
-class Span:
-    kind: str
-    text: str | None = None
+class SpanDebug:
+    span_id: int
     raw: bytes = b""
-    offset: int = 0
-    length: int = 0
-    op: int | None = None
     payload: bytes = b""
+    op: int | None = None
     code: str | None = None
-    hidden: bool = False
-    attrs: dict[str, Any] = field(default_factory=dict)
+    attrs: JsonObject = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "kind": self.kind,
-            "text": self.text,
-            "raw": self.raw.hex(),
-            "offset": self.offset,
-            "length": self.length,
-            "op": f"{self.op:02x}" if self.op is not None else None,
-            "payload": self.payload.hex(),
-            "code": self.code,
-            "hidden": self.hidden,
-            "attrs": self.attrs,
-        }
-
-    def to_debug_summary(self, *, max_preview_bytes: int = 32) -> dict[str, Any]:
-        """Return bounded raw span details for explicit inspection output."""
-
-        data: dict[str, Any] = {
-            "kind": self.kind,
-            "offset": self.offset,
-            "length": self.length,
-            "hidden": self.hidden,
+    def to_dict(self, *, max_preview_bytes: int = 32) -> JsonObject:
+        data: JsonObject = {
+            "schema": SPAN_DEBUG_SCHEMA,
+            "model_version": SPAN_DEBUG_MODEL_VERSION,
+            "span_id": self.span_id,
         }
         if self.op is not None:
             data["op"] = f"{self.op:02x}"
         if self.code is not None:
             data["code"] = self.code
-        if self.text is not None:
-            data["text_length"] = len(self.text)
         if self.payload:
             data["payload_length"] = len(self.payload)
             data["payload_hash"] = hashlib.sha1(self.payload).hexdigest()[:12]
@@ -154,11 +140,119 @@ class Span:
         if self.raw:
             data["raw_length"] = len(self.raw)
             data["raw_hash"] = hashlib.sha1(self.raw).hexdigest()[:12]
-            if self.kind != "text":
-                data["raw_preview"] = self.raw[:max_preview_bytes].hex()
-                data["raw_truncated"] = len(self.raw) > max_preview_bytes
+            data["raw_preview"] = self.raw[:max_preview_bytes].hex()
+            data["raw_truncated"] = len(self.raw) > max_preview_bytes
         if self.attrs:
             data["attrs"] = self.attrs
+        return data
+
+
+@dataclass(frozen=True, init=False)
+class Span:
+    kind: str
+    text: str | None = None
+    offset: int = 0
+    length: int = 0
+    hidden: bool = False
+    span_id: int = 0
+    debug: SpanDebug = field(default_factory=lambda: SpanDebug(0), repr=False, compare=False)
+
+    def __init__(
+        self,
+        kind: str,
+        text: str | None = None,
+        raw: bytes = b"",
+        offset: int = 0,
+        length: int = 0,
+        op: int | None = None,
+        payload: bytes = b"",
+        code: str | None = None,
+        hidden: bool = False,
+        attrs: JsonObject | None = None,
+        span_id: int | None = None,
+        debug: SpanDebug | None = None,
+    ) -> None:
+        resolved_span_id = offset if span_id is None else span_id
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "text", text)
+        object.__setattr__(self, "offset", offset)
+        object.__setattr__(self, "length", length)
+        object.__setattr__(self, "hidden", hidden)
+        object.__setattr__(self, "span_id", resolved_span_id)
+        object.__setattr__(
+            self,
+            "debug",
+            debug
+            or SpanDebug(
+                span_id=resolved_span_id,
+                raw=raw,
+                payload=payload,
+                op=op,
+                code=code,
+                attrs=dict(attrs or {}),
+            ),
+        )
+
+    @property
+    def raw(self) -> bytes:
+        return self.debug.raw
+
+    @property
+    def payload(self) -> bytes:
+        return self.debug.payload
+
+    @property
+    def op(self) -> int | None:
+        return self.debug.op
+
+    @property
+    def code(self) -> str | None:
+        return self.debug.code
+
+    @property
+    def attrs(self) -> JsonObject:
+        return self.debug.attrs
+
+    def with_debug_attrs(self, attrs: JsonObject) -> "Span":
+        return Span(
+            kind=self.kind,
+            text=self.text,
+            raw=self.raw,
+            offset=self.offset,
+            length=self.length,
+            op=self.op,
+            payload=self.payload,
+            code=self.code,
+            hidden=self.hidden,
+            attrs=attrs,
+            span_id=self.span_id,
+        )
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "schema": SPAN_SCHEMA,
+            "model_version": SPAN_MODEL_VERSION,
+            "kind": self.kind,
+            "text": self.text,
+            "offset": self.offset,
+            "length": self.length,
+            "hidden": self.hidden,
+        }
+
+    def to_debug_summary(self, *, max_preview_bytes: int = 32) -> JsonObject:
+        """Return bounded raw span details for explicit inspection output."""
+
+        data = self.debug.to_dict(max_preview_bytes=max_preview_bytes)
+        data.update(
+            {
+            "kind": self.kind,
+            "offset": self.offset,
+            "length": self.length,
+            "hidden": self.hidden,
+            }
+        )
+        if self.text is not None:
+            data["text_length"] = len(self.text)
         return data
 
 
@@ -166,13 +260,12 @@ class Span:
 class Entry:
     address: Address
     end_address: Address
-    headword: str
+    headword: str | None
     text: str
     spans: tuple[Span, ...]
     entry_diagnostics: tuple[Any, ...] = ()
     decode_unknown_controls: int = 0
     decode_unknown_bytes: int = 0
-    supplements: tuple[dict[str, Any], ...] = ()
 
     def document(self):
         from .document import build_entry_document
@@ -180,6 +273,10 @@ class Entry:
         return build_entry_document(self)
 
     def render_html(self, profile: str = "friendly", *, include_diagnostics: bool = False) -> str:
+        if profile.replace("-", "_") == "debug":
+            from .inspect import InspectorRenderer
+
+            return InspectorRenderer().render_html(self.document())
         from .render import HtmlProfile, render_html
 
         return render_html(self.document(), profile=HtmlProfile(profile.replace("-", "_")), include_diagnostics=include_diagnostics)
@@ -195,13 +292,12 @@ class Entry:
     def diagnostics(self):
         return self.document().diagnostics
 
-    def inspect(self) -> dict[str, Any]:
+    def inspect(self) -> JsonObject:
         return {
             "address": self.address.to_dict(),
             "end_address": self.end_address.to_dict(),
             "decode_unknown_controls": self.decode_unknown_controls,
             "decode_unknown_bytes": self.decode_unknown_bytes,
-            "supplements": self.supplements,
             "span_summaries": [span.to_debug_summary() for span in self.spans],
             "diagnostics": [
                 diagnostic.to_dict() if hasattr(diagnostic, "to_dict") else diagnostic
@@ -209,8 +305,10 @@ class Entry:
             ],
         }
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
-        data: dict[str, Any] = {
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
+        data: JsonObject = {
+            "schema": ENTRY_SCHEMA,
+            "model_version": ENTRY_MODEL_VERSION,
             "headword": self.headword,
             "text": self.text,
             "diagnostics": [
@@ -218,15 +316,6 @@ class Entry:
                 for diagnostic in self.entry_diagnostics
             ],
         }
-        if self.supplements:
-            data["supplements"] = [
-                {
-                    key: value
-                    for key, value in supplement.items()
-                    if key not in {"address", "debug", "row_id", "sidecar", "table"}
-                }
-                for supplement in self.supplements
-            ]
         if not debug:
             return data
         data.update(
@@ -239,7 +328,6 @@ class Entry:
                 },
                 "decode_unknown_controls": self.decode_unknown_controls,
                 "decode_unknown_bytes": self.decode_unknown_bytes,
-                "supplements": self.supplements,
                 "span_summaries": [span.to_debug_summary() for span in self.spans],
             }
         )

@@ -9,7 +9,7 @@ There are now two authoritative corpus harnesses, with different purposes:
 - `logovista-tools dump-package-models` is the research/model harness. It keeps
   SSED, LVED SQLCipher, and LVLMultiView packages in one family-aware model
   directory while preserving package paths with deterministic hashes.
-- `lvcore corpus-validate` is the reader-compatibility harness for the clean
+- `lvcore_audit corpus` is the reader-compatibility harness for the clean
   reader core. It validates open/search/dereference/render behavior and reports
   package-family counts, SSED body-source support, diagnostics, and blockers.
 
@@ -89,15 +89,14 @@ after any focused parser/body-source/gaiji/media fix.
 The lvcore reader-core audit has a separate command shape:
 
 ```bash
-PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate \
+PYTHONPATH=src/lvcore-experimental:src/lvcore-audit python3 -m lvcore_audit corpus \
   /path/to/LogoVista \
-  --json \
   --jobs 0 \
   --progress \
   --output-dir /private/reports/lvcore-corpus
 ```
 
-The `lvcore.corpus_validate.v1` summary is designed for private compatibility
+The `lvcore.audit.corpus.v1` summary is designed for private compatibility
 audits. It distinguishes:
 
 - SSED packages whose body source is direct `HONMON.DIC`;

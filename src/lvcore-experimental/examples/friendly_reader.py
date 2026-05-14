@@ -52,7 +52,7 @@ def read_first_entry(package_path: str | Path, query: str, *, profile: str = "na
         return result
 
     hit = results.hits[0]
-    entry = hit.entry()
+    entry = package.entry_for_hit(hit)
     result["entry"] = {
         "heading": hit.heading,
         "heading_source": hit.heading_source,
