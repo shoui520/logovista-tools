@@ -5,6 +5,7 @@ from __future__ import annotations
 from enum import Enum
 import hashlib
 from html import escape
+from html.parser import HTMLParser
 import json
 from typing import Callable, Iterable
 from urllib.parse import urlsplit
@@ -39,6 +40,38 @@ STYLE_TAGS = {
 ResourceUrlMapper = Callable[[str], str]
 
 
+SIDE_CAR_HTML_ALLOWED_TAGS = {
+    "a",
+    "b",
+    "br",
+    "div",
+    "em",
+    "font",
+    "i",
+    "img",
+    "object",
+    "p",
+    "rn",
+    "span",
+    "strong",
+    "sub",
+    "sup",
+}
+
+SIDE_CAR_HTML_ALLOWED_ATTRS = {
+    "class",
+    "style",
+    "name",
+    "title",
+    "alt",
+    "data",
+    "src",
+    "href",
+}
+
+SIDE_CAR_TEXT_BREAK_TAGS = {"br", "div", "p", "rn"}
+
+
 def _default_resource_url(resource_id: str) -> str:
     return f"lvcore-resource://{resource_id}"
 
@@ -57,6 +90,88 @@ def _public_href(href: str, *, profile: HtmlProfile) -> str:
         digest = hashlib.sha1(href.encode("utf-8")).hexdigest()[:12]
         return f"lvcore-entry://ref-{digest}"
     return href
+
+
+class _SidecarHtmlSanitizer(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    @staticmethod
+    def _safe_attr(tag: str, name: str, value: str) -> tuple[str, str] | None:
+        lower = name.lower()
+        if lower not in SIDE_CAR_HTML_ALLOWED_ATTRS:
+            return None
+        if lower in {"href", "src", "data"}:
+            stripped = value.strip()
+            parsed = urlsplit(stripped)
+            if parsed.scheme and parsed.scheme.lower() not in {"http", "https", "mailto", "lved.dataid"}:
+                return (f"data-lvcore-{lower}", stripped)
+            if lower == "href" and parsed.scheme.lower() == "lved.dataid":
+                return ("data-lvcore-href", stripped)
+        return (lower, value)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        lower = tag.lower()
+        if lower not in SIDE_CAR_HTML_ALLOWED_TAGS:
+            return
+        safe_attrs: list[str] = []
+        for name, value in attrs:
+            if value is None:
+                continue
+            safe = self._safe_attr(lower, name, value)
+            if safe is None:
+                continue
+            attr_name, attr_value = safe
+            safe_attrs.append(f'{attr_name}="{escape(attr_value, quote=True)}"')
+        attr_text = (" " + " ".join(safe_attrs)) if safe_attrs else ""
+        self.parts.append(f"<{lower}{attr_text}>")
+
+    def handle_endtag(self, tag: str) -> None:
+        lower = tag.lower()
+        if lower in SIDE_CAR_HTML_ALLOWED_TAGS and lower not in {"br", "img"}:
+            self.parts.append(f"</{lower}>")
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(escape(data))
+
+    def handle_entityref(self, name: str) -> None:
+        self.parts.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        self.parts.append(f"&#{name};")
+
+
+class _SidecarHtmlTextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() in SIDE_CAR_TEXT_BREAK_TAGS:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() in SIDE_CAR_TEXT_BREAK_TAGS:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+
+def _sanitize_sidecar_html(value: str) -> str:
+    parser = _SidecarHtmlSanitizer()
+    parser.feed(value or "")
+    parser.close()
+    return "".join(parser.parts)
+
+
+def _sidecar_html_to_text(value: str) -> str:
+    parser = _SidecarHtmlTextExtractor()
+    parser.feed(value or "")
+    parser.close()
+    lines = [line.strip() for line in "".join(parser.parts).splitlines() if line.strip()]
+    return "\n".join(lines)
 
 
 def _gaiji_text(node: InlineNode, policy: GaijiPolicy) -> str:
@@ -257,6 +372,13 @@ def _render_block_html(
     gaiji_policy: GaijiPolicy,
     resource_url_mapper: ResourceUrlMapper | None,
 ) -> str:
+    sidecar_html = block.attrs.get("sidecar_html")
+    if isinstance(sidecar_html, str) and sidecar_html:
+        body = _sanitize_sidecar_html(sidecar_html)
+        if profile == HtmlProfile.SEMANTIC:
+            return f'<section class="lv-block lv-block-sidecar-html" data-block-kind="sidecar_html">{body}</section>'
+        class_name = "lv-sidecar-html" if profile != HtmlProfile.LOGOVISTA_LIKE else "lv-lvlike-sidecar-html"
+        return f'<div class="{class_name}">{body}</div>'
     body = "".join(
         _render_inline_html(node, profile=profile, gaiji_policy=gaiji_policy, resource_url_mapper=resource_url_mapper)
         for node in block.inlines
@@ -352,6 +474,20 @@ def _render_inline_text(node: InlineNode, *, gaiji_policy: GaijiPolicy) -> str:
 def render_text(document: EntryDocument, *, gaiji_policy: GaijiPolicy = GaijiPolicy.UNICODE_PREFERRED) -> str:
     lines: list[str] = []
     for block in document.blocks:
+        sidecar_html = block.attrs.get("sidecar_html")
+        if isinstance(sidecar_html, str) and sidecar_html:
+            sidecar_text = block.attrs.get("sidecar_text")
+            if isinstance(sidecar_text, str) and sidecar_text.strip():
+                lines.append(sidecar_text.strip())
+                continue
+            text = _sidecar_html_to_text(sidecar_html)
+            if text:
+                lines.append(text)
+            continue
+        sidecar_text = block.attrs.get("sidecar_text")
+        if isinstance(sidecar_text, str) and sidecar_text.strip():
+            lines.append(sidecar_text.strip())
+            continue
         text = "".join(_render_inline_text(node, gaiji_policy=gaiji_policy) for node in block.inlines).strip()
         if text:
             lines.append(text)

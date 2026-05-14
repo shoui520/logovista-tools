@@ -1364,6 +1364,51 @@ def test_lvcore_search_hit_dereference_document_and_entry_range(tmp_path: Path) 
     assert "offset" not in html
 
 
+def test_lvcore_entry_range_ignores_internal_section_markers(tmp_path: Path) -> None:
+    honmon_start = 2
+    title_start = 3
+    index_start = 4
+    first = (
+        b"\x1f\x09\x00\x01"
+        + body_text("alpha")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + body_text("internal section body")
+        + b"\x1f\x0a"
+    )
+    second = b"\x1f\x09\x00\x01" + body_text("beta") + b"\x1f\x0a" + body_text("second body") + b"\x1f\x0a"
+    alpha_title = body_text("alpha") + b"\x1f\x0a"
+    beta_title = body_text("beta") + b"\x1f\x0a"
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("FHTITLE.DIC", 0x05, title_start, title_start, b"\x01\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start, b"\x02\x01\x55\x40"),
+    ]
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "SECTION.IDX").write_bytes(ssedinfo("Section", components))
+    (tmp_path / "HONMON.DIC").write_bytes(literal_sseddata(first + second, start_block=honmon_start, kind=0))
+    (tmp_path / "FHTITLE.DIC").write_bytes(literal_sseddata(alpha_title + beta_title, start_block=title_start, kind=5))
+    (tmp_path / "FHINDEX.DIC").write_bytes(
+        literal_sseddata(
+            simple_index(
+                [
+                    ("alpha", honmon_start, 0, title_start, 0),
+                    ("beta", honmon_start, len(first), title_start, len(alpha_title)),
+                ]
+            ),
+            start_block=index_start,
+            kind=0x91,
+        )
+    )
+
+    package = open_package(tmp_path)
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+    text = package.render_hit_text(hit)
+
+    assert "internal section body" in text
+    assert "second body" not in text
+
+
 def test_lvcore_body_source_classifies_body_stream(tmp_path: Path) -> None:
     make_reader_workflow_package(tmp_path)
     package = open_package(tmp_path)
@@ -1406,6 +1451,9 @@ def test_lvcore_dense_anchor_with_sqlite_sidecar_renders_body(tmp_path: Path) ->
 
     assert entry.headword == "beta"
     assert "beta sidecar body" in package.render_entry_text(entry)
+    html = package.render_entry_html(entry, profile=HtmlProfile.LOGOVISTA_LIKE)
+    assert "lv-lvlike-sidecar-html" in html
+    assert "<div>beta sidecar html</div>" in html
     assert any(diagnostic.code == "sidecar_body_resolved" for diagnostic in entry.diagnostics())
 
 
@@ -1640,6 +1688,9 @@ def test_lvcore_dense_anchor_sidecar_html_only_body_is_readable(tmp_path: Path) 
     assert entry.headword == "beta title"
     assert "beta html body" in package.render_hit_text(hit)
     assert "<b>" not in package.render_hit_text(hit)
+    html = package.render_hit_html(hit, profile=HtmlProfile.LOGOVISTA_LIKE)
+    assert "<b>html</b>" in html
+    assert "lv-lvlike-sidecar-html" in html
 
 
 def test_lvcore_dense_anchor_sidecar_plain_text_body_is_preferred(tmp_path: Path) -> None:

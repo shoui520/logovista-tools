@@ -1640,7 +1640,7 @@ class LogoVistaPackage:
                 break
             data = tail + chunk
             base = tail_base
-            found = data.find(b"\x1f\x09")
+            found = data.find(ENTRY_MARKER)
             if found >= 0:
                 absolute = base + found
                 if absolute > start:
@@ -1864,12 +1864,17 @@ class LogoVistaPackage:
             details=self._sidecar_debug_details(sidecar, anchor_id),
         )
         text = body.text or body.title or hit.heading
+        spans = (
+            (Span(kind="sidecar_html", text=body.html, attrs={"plain_text": text}),)
+            if body.html
+            else (Span(kind="text", text=text),)
+        )
         entry = Entry(
             address=hit.body,
             end_address=hit.body,
             headword=body.title or hit.heading,
             text=text,
-            spans=(Span(kind="text", text=text),),
+            spans=spans,
             entry_diagnostics=(note,),
         )
         return entry
@@ -1899,12 +1904,17 @@ class LogoVistaPackage:
             details=self._sidecar_debug_details(sidecar, anchor_id),
         )
         text = body.text or body.title or hit.heading
+        spans = (
+            (Span(kind="sidecar_html", text=body.html, attrs={"plain_text": text}),)
+            if body.html
+            else (Span(kind="text", text=text),)
+        )
         entry = Entry(
             address=hit.body,
             end_address=hit.body,
             headword=body.title or hit.heading,
             text=text,
-            spans=(Span(kind="text", text=text),),
+            spans=spans,
             entry_diagnostics=(note,),
         )
         return self._attach_sidecar_supplements(entry, include=include_supplements)
