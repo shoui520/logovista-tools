@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .diagnostics import Diagnostic
+from .json_types import JsonObject
 from .model import PackageFamily
 
 
@@ -83,9 +84,9 @@ class SidecarTableInfo:
     end_block_column: str | None = None
     end_offset_column: str | None = None
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
         role = self.role.value if isinstance(self.role, SidecarRole) else str(self.role)
-        data: dict[str, Any] = {
+        data: JsonObject = {
             "table": self.table,
             "row_count": self.row_count,
             "role": role,
@@ -130,7 +131,7 @@ class SidecarInfo:
     tables: tuple[SidecarTableInfo, ...] = ()
     notes: tuple[str, ...] = ()
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
         support_status = self.support_status.value if isinstance(self.support_status, SidecarSupportStatus) else str(self.support_status)
         data = {
             "path": str(self.path),
@@ -169,10 +170,10 @@ class SidecarAddressMatch:
     title_column: str | None = None
     plain_column: str | None = None
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
         role = self.role.value if isinstance(self.role, SidecarRole) else str(self.role)
         support_status = self.support_status.value if isinstance(self.support_status, SidecarSupportStatus) else str(self.support_status)
-        data: dict[str, Any] = {
+        data: JsonObject = {
             "sidecar": self.sidecar_name,
             "kind": self.kind,
             "role": role,
@@ -212,7 +213,7 @@ class BodySourceInfo:
     diagnostics: tuple[Diagnostic, ...] = ()
     sidecars: tuple[SidecarInfo, ...] = ()
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
         data = {
             "package_family": self.package_family.value,
             "ssed_kind": self.ssed_kind.value,
@@ -243,7 +244,7 @@ class BodyPointerInspection:
     record_length: int | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
 
-    def to_dict(self, *, debug: bool = False) -> dict[str, Any]:
+    def to_dict(self, *, debug: bool = False) -> JsonObject:
         data = {
             "anchor_id": self.anchor_id if debug else None,
             "raw_text_hash": self.raw_text_hash,

@@ -275,31 +275,34 @@ def _resources_for_query(
         entry = package.entry_for_hit(hit)
         document = entry.document()
         for resource in document.resources:
+            info = package.resource_info(resource)
             row = {
                 "hit_index": hit_index,
                 "hit": hit.to_dict(debug=debug),
                 "resource": resource.to_dict(debug=debug),
-                "info": package.resource_info(resource),
+                "info": info.to_dict(debug=debug),
             }
             rows.append(row)
     if include_sidecar:
         for resource in package.sidecar_media_resources(limit=limit):
+            info = package.resource_info(resource)
             rows.append(
                 {
                     "hit_index": None,
                     "hit": None,
                     "resource": resource.to_dict(debug=debug),
-                    "info": package.resource_info(resource),
+                    "info": info.to_dict(debug=debug),
                 }
             )
     if include_gaiji:
         for resource in package.gaiji_resources(limit=limit):
+            info = package.resource_info(resource)
             rows.append(
                 {
                     "hit_index": None,
                     "hit": None,
                     "resource": resource.to_dict(debug=debug),
-                    "info": package.resource_info(resource),
+                    "info": info.to_dict(debug=debug),
                 }
             )
     return rows
@@ -360,7 +363,7 @@ def cmd_gaiji(args: argparse.Namespace) -> int:
     rows = [
         {
             "resource": resource.to_dict(debug=args.debug),
-            "info": package.resource_info(resource),
+            "info": package.resource_info(resource).to_dict(debug=args.debug),
         }
         for resource in resources
     ]

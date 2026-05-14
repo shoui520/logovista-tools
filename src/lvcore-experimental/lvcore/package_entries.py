@@ -18,6 +18,7 @@ from .body_source import (
     strip_html,
 )
 from .diagnostics import Diagnostic, DiagnosticArea, Severity
+from .json_types import JsonObject
 from .model import Address, Component, ComponentRole, Entry, SearchProfile, Span
 from .package_utils import ENTRY_MARKER
 from .search import SearchHit
@@ -307,7 +308,7 @@ class PackageEntryMixin:
             return compact, len(data)
         return "", len(data)
 
-    def _dense_anchor_evidence(self, component: Component, *, use_index_pointers: bool = True) -> dict[str, object]:
+    def _dense_anchor_evidence(self, component: Component, *, use_index_pointers: bool = True) -> JsonObject:
         if use_index_pointers:
             pointer_offsets = self._body_pointer_offsets(component)
         else:
@@ -601,7 +602,7 @@ class PackageEntryMixin:
                 pass
         return tuple(dict.fromkeys(values))
 
-    def _sidecar_debug_details(self, sidecar: SidecarInfo, anchor_id: str) -> dict[str, object]:
+    def _sidecar_debug_details(self, sidecar: SidecarInfo, anchor_id: str) -> JsonObject:
         query_values = [str(value) for value in self._anchor_query_values(anchor_id, sidecar)]
         return {
             "anchor_id": anchor_id,
@@ -757,7 +758,7 @@ class PackageEntryMixin:
         code: str,
         message: str,
         severity: Severity = Severity.WARNING,
-        details: dict[str, object] | None = None,
+        details: JsonObject | None = None,
         placeholder_text: str = "Entry body is not yet supported for this LogoVista body source.",
     ) -> Entry:
         diagnostic = Diagnostic(

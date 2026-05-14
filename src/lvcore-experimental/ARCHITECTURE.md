@@ -211,7 +211,7 @@ The current Python proof of concept exposes reader-facing `SearchResults` and
 ```text
 Package.search(query, profile)
   -> SearchResults
-  -> SearchHit.entry()
+  -> Package.entry_for_hit(SearchHit)
   -> Entry.document()
   -> friendly HTML / plain text
 ```

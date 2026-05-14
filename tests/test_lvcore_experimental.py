@@ -17,7 +17,7 @@ LVCORE_AUDIT_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-audit"
 sys.path.insert(0, str(LVCORE_SRC))
 sys.path.insert(0, str(LVCORE_AUDIT_SRC))
 
-from lvcore import Address, InspectorRenderer, Diagnostic, DiagnosticArea, Location, PackageFamily, SearchHit, SearchProfile, SearchResults, Severity, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
+from lvcore import Address, ColscrLocator, InspectorRenderer, Diagnostic, DiagnosticArea, Location, PackageFamily, PcmRangeLocator, SearchHit, SearchProfile, SearchResults, Severity, SidecarBlobLocator, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
 from lvcore.body_source import SidecarRole, classify_sqlite_sidecar_role, quote_sql_identifier, sqlite_columns  # noqa: E402
 from lvcore.crypto import decrypt_logofont, decrypt_logofont_file_to_path, logofont_key_iv  # noqa: E402
 from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, LinkTargetKind, ResourceKind, ResourceRef, ResourceStatus, build_entry_document  # noqa: E402
@@ -914,7 +914,7 @@ def test_lvcore_invalid_sqlite_sidecar_is_deferred_without_anchor_leak(tmp_path:
     package = open_package(tmp_path)
 
     source = package.body_source()
-    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+    hit = package.search("alpha", profile=SearchProfile.EXACT, debug=True).hits[0]
     entry = package.entry_for_hit(hit)
     html = package.render_entry_html(entry)
 
@@ -1011,7 +1011,7 @@ def test_lvcore_direct_body_hit_dereference_does_not_require_body_source_scan(
 ) -> None:
     make_reader_workflow_package(tmp_path)
     package = open_package(tmp_path)
-    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+    hit = package.search("alpha", profile=SearchProfile.EXACT, debug=True).hits[0]
 
     def fail_body_source(*_args, **_kwargs):
         raise AssertionError("direct body hit dereference should not scan body-source classification")
@@ -1068,7 +1068,7 @@ def test_lvcore_fast_search_and_entry_lookup_do_not_require_full_index_boundarie
     package._body_pointer_offsets = fail_body_pointer_offsets  # type: ignore[method-assign]
     hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
 
-    assert hit.body_source is None
+    assert hit.debug_info.body_source is None
     assert package.entry_for_hit(hit).headword == "alpha"
 
 
@@ -1423,7 +1423,7 @@ def test_lvcore_search_hit_dereference_document_and_entry_range(tmp_path: Path) 
     package = open_package(tmp_path)
     hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
 
-    entry = hit.entry()
+    entry = package.entry_for_hit(hit)
     assert entry.headword == "alpha"
     assert "first entry" in entry.text
     assert "second entry" not in entry.text
@@ -1498,7 +1498,7 @@ def test_lvcore_dense_anchor_without_sidecar_is_deferred_and_safe(tmp_path: Path
 
     assert source.ssed_kind == SsedBodySourceKind.DENSE_ANCHOR_TABLE
     assert source.support.value == "deferred"
-    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+    hit = package.search("alpha", profile=SearchProfile.EXACT, debug=True).hits[0]
     entry = package.entry_for_hit(hit)
     html = package.render_entry_html(entry)
     text = package.render_entry_text(entry)
@@ -1671,9 +1671,9 @@ def test_lvcore_media_sidecar_schema_is_compatibility_significant(tmp_path: Path
     resources = package.sidecar_media_resources()
     assert len(resources) == 1
     info = package.resource_info(resources[0])
-    assert info["status"] == "resolved"
-    assert info["store_kind"] == "sidecar_media"
-    assert info["byte_length"] == len(b"original bytes")
+    assert info.status == ResourceStatus.RESOLVED
+    assert info.store_kind == "sidecar_media"
+    assert info.byte_length == len(b"original bytes")
     assert package.resource_bytes(resources[0]) == b"original bytes"
 
     report = validate_package(package, sample_entries=1, sample_search_hits=1)
@@ -1691,8 +1691,8 @@ def test_lvcore_sidecar_media_table_schema_resolves_untouched_blob(tmp_path: Pat
     assert len(resources) == 1
     assert resources[0].kind == ResourceKind.IMAGE
     info = package.resource_info(resources[0])
-    assert info["status"] == "resolved"
-    assert info["mime_type"] == "image/png"
+    assert info.status == ResourceStatus.RESOLVED
+    assert info.mime_type == "image/png"
     assert package.resource_bytes(resources[0]) == b"\x89PNG\r\n\x1a\npayload"
 
 
@@ -1708,9 +1708,10 @@ def test_lvcore_generic_sidecar_media_schema_resolves_without_table_name(tmp_pat
     assert summary["supported_role_counts"]["media_resource"] == 1
     assert len(resources) == 1
     info = package.resource_info(resources[0])
-    assert info["source_table"] == "AssetRows"
-    assert info["details"]["blob_column"] == "payload_blob"
-    assert info["mime_type"] == "image/png"
+    assert isinstance(info.locator, SidecarBlobLocator)
+    assert info.locator.table == "AssetRows"
+    assert info.locator.blob_column == "payload_blob"
+    assert info.mime_type == "image/png"
     assert package.resource_bytes(resources[0]) == b"\x89PNG\r\n\x1a\ngeneric"
 
 
@@ -2488,15 +2489,17 @@ def test_lvcore_ga16_jis_grid_and_record_order_gaiji_resolution(tmp_path: Path) 
     )
 
     package = open_package(tmp_path)
-    entry = package.search("gaiji", limit=1).hits[0].entry()
+    hit = package.search("gaiji", limit=1).hits[0]
+    entry = package.entry_for_hit(hit)
     document = entry.document()
     resource = next(item for item in document.resources if item.kind == ResourceKind.GAIJI)
     info = package.resource_info(resource)
 
     assert resource.details["display_status"] == "bitmap_backed"
     assert resource.details["reason"] == "uni_record_order_ga16"
-    assert info["display_status"] == "bitmap_backed"
-    assert info["glyph_index"] == 0
+    debug_info = info.to_dict(debug=True)
+    assert debug_info["display_status"] == "bitmap_backed"
+    assert debug_info["glyph_index"] == 0
     assert package.resource_bytes(resource) == glyph0
     assert "lvcore-resource://" in render_html(document, gaiji_policy=GaijiPolicy.BITMAP_ONLY)
 
@@ -2511,7 +2514,8 @@ def test_lvcore_blank_ga16_glyph_is_formatting_helper(tmp_path: Path) -> None:
     )
 
     package = open_package(tmp_path)
-    entry = package.search("gaiji", limit=1).hits[0].entry()
+    hit = package.search("gaiji", limit=1).hits[0]
+    entry = package.entry_for_hit(hit)
     document = entry.document()
     resource = next(item for item in document.resources if item.kind == ResourceKind.GAIJI)
 
@@ -2546,7 +2550,7 @@ def test_lvcore_blank_fullwidth_uni_record_is_formatting_helper_candidate(tmp_pa
 
     assert resource.details["display_status"] == "formatting_helper"
     assert resource.details["reason"] == "fullwidth_formatting_helper_candidate"
-    assert info["display_status"] == "formatting_helper"
+    assert info.to_dict(debug=True)["display_status"] == "formatting_helper"
     assert "b130" not in html.lower()
     assert "fullwidth_formatting_helper_candidate" in debug
     assert report["resource_resolution"]["gaiji_formatting_helper"] >= 1
@@ -2564,13 +2568,14 @@ def test_lvcore_raw_fullwidth_gaiji_without_mapping_is_formatting_helper_candida
     )
     package = open_package(tmp_path)
 
-    resource = next(item for item in package.search("gaiji", limit=1).hits[0].entry().document().resources if item.kind == ResourceKind.GAIJI)
+    hit = package.search("gaiji", limit=1).hits[0]
+    resource = next(item for item in package.entry_for_hit(hit).document().resources if item.kind == ResourceKind.GAIJI)
     info = package.resource_info(resource)
     report = validate_package(package, sample_entries=1, sample_search_hits=1)
 
     assert resource.details["display_status"] == "formatting_helper"
     assert resource.details["source"] == "raw_fullwidth"
-    assert info["reason"] == "fullwidth_formatting_helper_candidate"
+    assert info.reason == "fullwidth_formatting_helper_candidate"
     assert report["resource_resolution"]["gaiji_display_unresolved"] == 0
     assert report["resource_resolution"]["unresolved_gaiji"] == 0
 
@@ -2586,14 +2591,15 @@ def test_lvcore_plist_unicode_and_image_backed_gaiji_resources(tmp_path: Path) -
     package = open_package(tmp_path)
     assert package.gaiji.resolve("a155") == "Ω"
 
-    entry = package.search("gaiji", limit=1).hits[0].entry()
+    hit = package.search("gaiji", limit=1).hits[0]
+    entry = package.entry_for_hit(hit)
     document = entry.document()
     resource = next(item for item in document.resources if item.kind == ResourceKind.GAIJI)
     info = package.resource_info(resource)
 
     assert resource.details["display_status"] == "image_backed"
-    assert info["display_status"] == "image_backed"
-    assert info["mime_type"] == "image/png"
+    assert info.to_dict(debug=True)["display_status"] == "image_backed"
+    assert info.mime_type == "image/png"
     assert package.resource_bytes(resource) == png
     assert "lvcore-resource://" in render_html(document, gaiji_policy=GaijiPolicy.BITMAP_ONLY)
 
@@ -2669,16 +2675,16 @@ def test_lvcore_media_resource_info_resolves_original_component_address(tmp_path
 
     assert resource.kind == ResourceKind.MEDIA
     assert resource.details["target_address"] == {"block": 3, "offset": 0}
-    assert info["status"] == "resolved"
-    assert info["reason"] == "colscr_data_record"
-    assert info["source_component"] == "COLSCR.DIC"
-    assert info["source_offset"] == 0
-    assert info["record_offset"] == 0
-    assert info["record_length"] == 16
-    assert info["payload_offset"] == 8
-    assert info["payload_length"] == 8
-    assert info["mime_type"] == "image/png"
-    assert info["store_kind"] == "colscr"
+    assert info.status == ResourceStatus.RESOLVED
+    assert info.reason == "colscr_data_record"
+    assert isinstance(info.locator, ColscrLocator)
+    assert info.locator.component == "COLSCR.DIC"
+    assert info.locator.record_offset == 0
+    assert info.locator.record_length == 16
+    assert info.locator.payload_offset == 8
+    assert info.locator.payload_length == 8
+    assert info.mime_type == "image/png"
+    assert info.store_kind == "colscr"
     assert package.resource_bytes(resource) == b"\x89PNG\r\n\x1a\n"
     assert package.resource_record_bytes(resource) == b"data\x08\x00\x00\x00\x89PNG\r\n\x1a\n"
 
@@ -2697,13 +2703,14 @@ def test_lvcore_pcmdata_audio_range_resolves_original_bytes(tmp_path: Path) -> N
     assert resource.id == "audio-1"
     assert resource.details["range_start"] == {"block": 3, "offset": 0}
     assert resource.details["range_end"] == {"block": 3, "offset": 9}
-    assert info["status"] == "resolved"
-    assert info["reason"] == "pcmdata_range"
-    assert info["source_component"] == "PCMDATA.DIC"
-    assert info["payload_offset"] == 0
-    assert info["payload_length"] == 9
-    assert info["mime_type"] == "audio/mpeg"
-    assert info["store_kind"] == "pcmdata"
+    assert info.status == ResourceStatus.RESOLVED
+    assert info.reason == "pcmdata_range"
+    assert isinstance(info.locator, PcmRangeLocator)
+    assert info.locator.component == "PCMDATA.DIC"
+    assert info.locator.payload_offset == 0
+    assert info.locator.payload_length == 9
+    assert info.mime_type == "audio/mpeg"
+    assert info.store_kind == "pcmdata"
     assert package.resource_bytes(resource) == b"ID3abc123"
     assert "lvcore-resource://audio-1" in render_html(document)
     assert "ID3abc123" not in render_html(document)
@@ -2732,8 +2739,8 @@ def test_lvcore_colscr_malformed_record_reports_reason(tmp_path: Path) -> None:
 
     info = package.resource_info(resource)
 
-    assert info["status"] == "unsupported"
-    assert info["details"]["reason"] == "missing_data_magic"
+    assert info.status == ResourceStatus.UNSUPPORTED
+    assert info.reason == "missing_data_magic"
     assert package.resource_bytes(resource) is None
 
 
@@ -2754,7 +2761,7 @@ def test_lvcore_resource_cli_lists_info_and_writes_bytes(tmp_path: Path) -> None
     assert resources["resources"][0]["info"]["mime_type"] == "image/png"
 
     info_result = subprocess.run(
-        [sys.executable, "-m", "lvcore", "resource-info", str(tmp_path), "media", "media-1", "--json"],
+        [sys.executable, "-m", "lvcore", "resource-info", str(tmp_path), "media", "media-1", "--json", "--debug"],
         check=True,
         text=True,
         stdout=subprocess.PIPE,

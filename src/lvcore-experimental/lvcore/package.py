@@ -12,6 +12,7 @@ from .diagnostics import Location
 from .errors import UnsupportedPackageError
 from .gaiji import Ga16Resource, GaijiMap, ImageGaijiResource
 from .index import IndexParse, IndexRow
+from .json_types import JsonObject
 from .model import Address, Component, ComponentRole, PackageFamily, PackageInfo
 from .ssed import BLOCK_SIZE, Catalog, SsedData, find_file_case_insensitive, parse_catalog
 from .package_entries import PackageEntryMixin
@@ -57,8 +58,8 @@ class LogoVistaPackage(
         self._ga16: tuple[Ga16Resource, ...] | None = None
         self._gaiji_images: tuple[ImageGaijiResource, ...] | None = None
         self._gaiji_image_by_code_cache: dict[str, ImageGaijiResource] | None = None
-        self._gaiji_image_info_cache: dict[str, dict[str, object] | None] = {}
-        self._gaiji_glyph_info_cache: dict[tuple[str, bool], dict[str, object] | None] = {}
+        self._gaiji_image_info_cache: dict[str, JsonObject | None] = {}
+        self._gaiji_glyph_info_cache: dict[tuple[str, bool], JsonObject | None] = {}
         self._component_by_name = {component.name.lower(): component for component in self.components}
         self._data_cache: dict[str, SsedData] = {}
         self._index_cache: dict[str, IndexParse] = {}
@@ -211,10 +212,10 @@ class LogoVistaPackage(
 
         return tuple(self._sidecar_file_candidates())
 
-    def summary(self, *, debug: bool = False) -> dict[str, object]:
+    def summary(self, *, debug: bool = False) -> JsonObject:
         """Return a package summary for the reader CLI."""
 
-        data: dict[str, object] = {
+        data: JsonObject = {
             "package": self.info.to_dict(),
             "components": [component.to_dict() for component in self.components],
         }

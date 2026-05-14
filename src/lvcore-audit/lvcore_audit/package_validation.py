@@ -15,6 +15,7 @@ from lvcore import (
     InlineNode,
     ResourceKind,
     ResourceRef,
+    ResourceStatus,
     SearchProfile,
     SidecarRole,
     SsedBodySourceKind,
@@ -50,7 +51,7 @@ class _PackageValidationAdapter:
         for diagnostic in target:
             by_severity[diagnostic.severity.value] = by_severity.get(diagnostic.severity.value, 0) + 1
             by_area[diagnostic.area.value] = by_area.get(diagnostic.area.value, 0) + 1
-            by_code[diagnostic.code] = by_code.get(diagnostic.code, 0) + 1
+            by_code[diagnostic.code.value] = by_code.get(diagnostic.code.value, 0) + 1
 
     @staticmethod
     def _increment_reason(counts: dict[str, int], reason: object) -> None:
@@ -147,11 +148,11 @@ class _PackageValidationAdapter:
         media_mime_counts = summary["sidecar_media_mime_counts"]
         for resource in self.sidecar_media_resources():
             info = self.resource_info(resource)
-            if info.get("status") == "resolved":
+            if info.status == ResourceStatus.RESOLVED:
                 summary["sidecar_media_rows_resolved"] = int(summary["sidecar_media_rows_resolved"]) + 1
                 summary["sidecar_media_bytes_available"] = int(summary["sidecar_media_bytes_available"]) + 1
                 if isinstance(media_mime_counts, dict):
-                    mime = str(info.get("mime_type") or "unknown")
+                    mime = str(info.mime_type or "unknown")
                     media_mime_counts[mime] = media_mime_counts.get(mime, 0) + 1
         return summary
 
@@ -196,15 +197,14 @@ class _PackageValidationAdapter:
             reason = resource.details.get("reason")
             if resource.kind == ResourceKind.GAIJI:
                 info = self.resource_info(resource)
-                info_details = info.get("details") if isinstance(info.get("details"), dict) else {}
+                info_debug = info.to_dict(debug=True)
                 display_status = str(
                     resource.details.get("display_status")
-                    or info.get("display_status")
-                    or info_details.get("display_status")
+                    or info_debug.get("display_status")
                     or ("unresolved" if status != "resolved" else "unicode_mapped")
                 )
-                display_reason = resource.details.get("reason") or info.get("reason") or info_details.get("reason") or reason
-                source = resource.details.get("source") or info.get("source") or info_details.get("source") or "unknown"
+                display_reason = resource.details.get("reason") or info.reason or info_debug.get("unresolved_reason") or reason
+                source = resource.details.get("source") or info_debug.get("source") or "unknown"
                 counters["gaiji_occurrences"] = int(counters.get("gaiji_occurrences", 0)) + 1
                 status_key = f"gaiji_{display_status}"
                 counters[status_key] = int(counters.get(status_key, 0)) + 1
@@ -214,7 +214,7 @@ class _PackageValidationAdapter:
                     self._increment_reason(counters["gaiji_by_source"], source)
                 if isinstance(counters.get("gaiji_by_reason"), dict):
                     self._increment_reason(counters["gaiji_by_reason"], display_reason)
-                byte_length = info.get("byte_length")
+                byte_length = info.byte_length
                 if isinstance(byte_length, int) and byte_length > 0:
                     counters["gaiji_resource_bytes_available"] = int(counters.get("gaiji_resource_bytes_available", 0)) + 1
                 elif display_status in {GaijiDisplayStatus.BITMAP_BACKED.value, GaijiDisplayStatus.IMAGE_BACKED.value}:
@@ -232,21 +232,20 @@ class _PackageValidationAdapter:
                 kind_value = resource.kind.value
                 if isinstance(counters["media_kind_counts"], dict):
                     self._increment_reason(counters["media_kind_counts"], kind_value)
-                if info.get("status") == "resolved":
+                if info.status == ResourceStatus.RESOLVED:
                     counters["resolved_media"] = int(counters.get("resolved_media", 0)) + 1
                     counters["media_bytes_available"] = int(counters.get("media_bytes_available", 0)) + 1
                     if isinstance(counters["media_mime_counts"], dict):
-                        self._increment_reason(counters["media_mime_counts"], info.get("mime_type"))
+                        self._increment_reason(counters["media_mime_counts"], info.mime_type)
                     if isinstance(counters["media_store_kind_counts"], dict):
-                        self._increment_reason(counters["media_store_kind_counts"], info.get("store_kind"))
-                    if info.get("store_kind") == "colscr":
+                        self._increment_reason(counters["media_store_kind_counts"], info.store_kind)
+                    if info.store_kind == "colscr":
                         counters["colscr_records_resolved"] = int(counters.get("colscr_records_resolved", 0)) + 1
-                    elif info.get("store_kind") == "pcmdata":
+                    elif info.store_kind == "pcmdata":
                         counters["pcmdata_ranges_resolved"] = int(counters.get("pcmdata_ranges_resolved", 0)) + 1
                 else:
                     counters["unresolved_media"] = int(counters.get("unresolved_media", 0)) + 1
-                    info_details = info.get("details") if isinstance(info.get("details"), dict) else {}
-                    unresolved_reason = info_details.get("reason") if isinstance(info_details, dict) else reason
+                    unresolved_reason = info.reason or reason
                     self._increment_reason(media_by_reason, unresolved_reason)
                     if isinstance(counters["media_bytes_unavailable_by_reason"], dict):
                         self._increment_reason(counters["media_bytes_unavailable_by_reason"], unresolved_reason)
@@ -467,7 +466,7 @@ class _PackageValidationAdapter:
                     self._increment_reason(title_failure_by_reason, hit.title_reason)
                 self._count_diagnostics(hit.diagnostics, diagnostics_by_severity, diagnostics_by_area, diagnostics_by_code)
                 for diagnostic in hit.diagnostics:
-                    if diagnostic.code.startswith("title_dereference"):
+                    if diagnostic.code.value.startswith("title_dereference"):
                         self._increment_reason(title_failure_by_reason, diagnostic.details.get("reason"))
                 entry = self.entry_for_hit(hit)
                 search_hits_dereferenced += 1
@@ -536,7 +535,7 @@ class _PackageValidationAdapter:
                 for diagnostic in parsed.diagnostics:
                     diagnostics_by_severity["warning"] = diagnostics_by_severity.get("warning", 0) + 1
                     diagnostics_by_area[DiagnosticArea.INDEX.value] = diagnostics_by_area.get(DiagnosticArea.INDEX.value, 0) + 1
-                    diagnostics_by_code[diagnostic.code] = diagnostics_by_code.get(diagnostic.code, 0) + 1
+                    diagnostics_by_code[diagnostic.code.value] = diagnostics_by_code.get(diagnostic.code.value, 0) + 1
         else:
             index_stats = {}
             unsupported_component_types = {}

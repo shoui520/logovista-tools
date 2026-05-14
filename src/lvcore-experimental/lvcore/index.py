@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
-
+from .diagnostics import DiagnosticCode, diagnostic_code
+from .json_types import JsonObject
 from .model import Address
 from .ssed import BLOCK_SIZE, be16, be32
 from .text import decode_jis_pair, gaiji_placeholder, narrow_fullwidth
@@ -37,8 +37,8 @@ class IndexRow:
     group_page: int | None = None
     group_row: int | None = None
 
-    def to_dict(self) -> dict[str, object]:
-        data: dict[str, object] = {
+    def to_dict(self) -> JsonObject:
+        data: JsonObject = {
             "key": self.key,
             "target_key": self.target_key,
             "body": self.body.to_dict(),
@@ -74,15 +74,18 @@ class InternalRow:
 
 @dataclass(frozen=True)
 class IndexDiagnostic:
-    code: str
+    code: DiagnosticCode
     message: str
     page: int | None = None
     row: int | None = None
-    details: dict[str, Any] = field(default_factory=dict)
+    details: JsonObject = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "code", diagnostic_code(self.code))
+
+    def to_dict(self) -> JsonObject:
         return {
-            "code": self.code,
+            "code": self.code.value,
             "message": self.message,
             "page": self.page,
             "row": self.row,

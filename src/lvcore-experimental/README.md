@@ -113,7 +113,7 @@ results = package.search("term", profile=SearchProfile.NATIVE, limit=5)
 for hit in results.hits:
     heading = hit.heading
     title_status = hit.title_status
-    entry = hit.entry()
+    entry = package.entry_for_hit(hit)
     html = entry.html()
     text = entry.plain_text()
     diagnostics = entry.diagnostics()
@@ -123,8 +123,9 @@ Raw inspection is a separate, explicit path:
 
 ```python
 hit_debug = results.hits[0].inspect()
-entry_debug = results.hits[0].entry().inspect()
-document_debug = results.hits[0].entry().document().to_dict(debug=True)
+entry = package.entry_for_hit(results.hits[0])
+entry_debug = entry.inspect()
+document_debug = entry.document().to_dict(debug=True)
 ```
 
 Inspection output is bounded by default. It exposes useful fields such as

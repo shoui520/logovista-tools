@@ -124,7 +124,7 @@ class InspectorRenderer:
                 '<li class="lv-diagnostic" '
                 f'data-severity="{escape(diagnostic.severity.value)}" '
                 f'data-area="{escape(diagnostic.area.value)}" '
-                f'data-code="{escape(str(diagnostic.code))}" '
+                f'data-code="{escape(diagnostic.code.value)}" '
                 f'data-details="{escape(details_json, quote=True)}">'
                 f"{escape(diagnostic.message)}</li>"
             )

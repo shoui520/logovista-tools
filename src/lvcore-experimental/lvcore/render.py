@@ -10,6 +10,7 @@ from typing import Callable, Iterable
 from urllib.parse import urlsplit
 
 from .document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode
+from .json_types import JsonObject
 
 
 class HtmlProfile(str, Enum):
@@ -398,7 +399,7 @@ def render_html(
                 '<li class="lv-diagnostic" '
                 f'data-severity="{escape(diagnostic.severity.value)}" '
                 f'data-area="{escape(diagnostic.area.value)}" '
-                f'data-code="{escape(diagnostic.code)}">'
+                f'data-code="{escape(diagnostic.code.value)}">'
                 f"{escape(diagnostic.message)}</li>"
             )
         parts.append("</ul>")
@@ -444,5 +445,5 @@ def render_text(document: EntryDocument, *, gaiji_policy: GaijiPolicy = GaijiPol
     return "\n".join(lines)
 
 
-def diagnostics_to_dict(document: EntryDocument) -> list[dict[str, object]]:
+def diagnostics_to_dict(document: EntryDocument) -> list[JsonObject]:
     return [diagnostic.to_dict() for diagnostic in document.diagnostics]

@@ -32,7 +32,7 @@ def inspect_first_hit(package_path: str | Path, query: str, *, profile: str = "n
         return result
 
     hit = results.hits[0]
-    entry = hit.entry()
+    entry = package.entry_for_hit(hit)
     document = entry.document()
     result["entry"] = {
         "hit_inspection": hit.inspect(),

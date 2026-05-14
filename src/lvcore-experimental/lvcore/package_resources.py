@@ -8,12 +8,15 @@ import sqlite3
 from .body_source import (
     quote_sql_identifier,
 )
-from .document import ResourceKind, ResourceRef
+from .document import ResourceKind, ResourceRef, ResourceStatus
 from .gaiji import GaijiDisplayStatus
+from .gaiji_resolution import BitmapGaijiBacking, GaijiResolution, ImageGaijiBacking
 from .inspect import InspectorRenderer
+from .json_types import JsonObject
 from .model import Address, ComponentRole, Entry
 from .package_utils import _media_mime_and_format
 from .render import HtmlProfile, render_html, render_text
+from .resources import ColscrLocator, GaijiLocator, PcmRangeLocator, ResourceLocation, SidecarBlobLocator, UnresolvedAddress
 
 
 class PackageResourceMixin:
@@ -52,7 +55,7 @@ class PackageResourceMixin:
         except (KeyError, TypeError, ValueError):
             return None
 
-    def _media_info_base(self, resource_id: str, kind: str) -> dict[str, object]:
+    def _media_info_base(self, resource_id: str, kind: str) -> JsonObject:
         return {
             "id": resource_id,
             "kind": kind,
@@ -60,7 +63,157 @@ class PackageResourceMixin:
             "details": {},
         }
 
-    def _resolve_sidecar_media_resource(self, resource_id: str, kind: str, details: dict[str, object]) -> dict[str, object]:
+    @staticmethod
+    def _resource_kind(value: str) -> ResourceKind:
+        try:
+            return ResourceKind(value)
+        except ValueError:
+            return ResourceKind.UNKNOWN
+
+    @staticmethod
+    def _resource_status(value: object) -> ResourceStatus:
+        try:
+            return ResourceStatus(str(value))
+        except ValueError:
+            return ResourceStatus.UNRESOLVED
+
+    def _resource_location_from_info(
+        self,
+        *,
+        resource_id: str,
+        kind: str,
+        label: str,
+        code: str | None,
+        info: JsonObject,
+    ) -> ResourceLocation:
+        details = info.get("details") if isinstance(info.get("details"), dict) else {}
+        status = self._resource_status(info.get("status"))
+        resource_kind = self._resource_kind(kind)
+        reason = str(info.get("reason") or details.get("reason") or "") or None
+        byte_length = info.get("byte_length")
+        byte_length = byte_length if isinstance(byte_length, int) else None
+        common = {
+            "resource_id": str(info.get("resource_id") or info.get("id") or resource_id),
+            "kind": resource_kind,
+            "status": status,
+            "mime_type": str(info.get("mime_type")) if info.get("mime_type") else None,
+            "label": label,
+            "reason": reason,
+            "byte_length": byte_length,
+            "format_hint": str(info.get("format_hint")) if info.get("format_hint") else None,
+            "container_kind": str(info.get("container_kind")) if info.get("container_kind") else None,
+            "store_kind": str(info.get("store_kind")) if info.get("store_kind") else None,
+        }
+        if resource_kind == ResourceKind.GAIJI:
+            locator = GaijiLocator(
+                code=code or str(info.get("code") or ""),
+                source=str(info.get("source") or details.get("source") or "") or None,
+                glyph_index=info.get("glyph_index") if isinstance(info.get("glyph_index"), int) else None,
+                glyph_width=info.get("glyph_width") if isinstance(info.get("glyph_width"), int) else None,
+                glyph_height=info.get("glyph_height") if isinstance(info.get("glyph_height"), int) else None,
+                glyph_bytes=info.get("glyph_bytes") if isinstance(info.get("glyph_bytes"), int) else None,
+                source_path=str(info.get("source_path")) if info.get("source_path") else None,
+                image_path=str(info.get("image_path")) if info.get("image_path") else None,
+                display_status=str(info.get("display_status") or details.get("display_status") or "") or None,
+                display_text=str(info.get("display_text")) if info.get("display_text") else None,
+                fallback_text=str(info.get("fallback_text")) if info.get("fallback_text") else None,
+            )
+            return ResourceLocation(locator=locator, **common)
+        if info.get("store_kind") == "sidecar_media":
+            locator = SidecarBlobLocator(
+                sidecar_name=str(details.get("sidecar") or ""),
+                table=str(details.get("table") or ""),
+                row_id=int(details.get("row_id") or 0),
+                blob_column=str(details.get("blob_column") or ""),
+                byte_length=byte_length or 0,
+            )
+            return ResourceLocation(locator=locator, **common)
+        component_name = info.get("source_component")
+        if info.get("store_kind") == "colscr" and isinstance(component_name, str):
+            target = self._address_from_details(details.get("target_address"))
+            locator = ColscrLocator(
+                component=component_name,
+                record_offset=int(info.get("record_offset") or 0),
+                record_length=int(info.get("record_length") or 0),
+                payload_offset=int(info.get("payload_offset") or 0),
+                payload_length=int(info.get("payload_length") or 0),
+                target=target,
+            )
+            return ResourceLocation(locator=locator, **common)
+        if info.get("store_kind") == "pcmdata" and isinstance(component_name, str):
+            start = self._address_from_details(details.get("range_start"))
+            end = self._address_from_details(details.get("range_end"))
+            locator = PcmRangeLocator(
+                component=component_name,
+                range_start=int(info.get("range_start_offset") or info.get("payload_offset") or 0),
+                range_end=int(info.get("range_end_offset") or 0),
+                payload_offset=int(info.get("payload_offset") or 0),
+                payload_length=int(info.get("payload_length") or 0),
+                start_address=start,
+                end_address=end,
+            )
+            return ResourceLocation(locator=locator, **common)
+        unresolved = UnresolvedAddress(reason=reason or "resource_resolution_not_supported")
+        return ResourceLocation(locator=unresolved, **common)
+
+    def _resource_location_from_gaiji_resolution(
+        self,
+        *,
+        resource_id: str,
+        kind: str,
+        label: str,
+        resolution: GaijiResolution,
+    ) -> ResourceLocation:
+        resource_kind = self._resource_kind(kind)
+        status = ResourceStatus.RESOLVED if resolution.resolved else ResourceStatus.UNRESOLVED
+        common = {
+            "resource_id": resolution.resource_id or resource_id,
+            "kind": resource_kind,
+            "status": status,
+            "mime_type": resolution.mime_type,
+            "label": label,
+            "reason": resolution.reason.value,
+            "byte_length": resolution.byte_length,
+        }
+        backing = resolution.backing
+        if isinstance(backing, BitmapGaijiBacking):
+            locator = GaijiLocator(
+                code=resolution.code,
+                source=backing.source,
+                glyph_index=backing.glyph_index,
+                glyph_width=backing.width,
+                glyph_height=backing.height,
+                glyph_bytes=backing.glyph_bytes,
+                source_path=backing.source_path,
+                display_status=resolution.display_status.value,
+                display_text=resolution.display_text,
+                fallback_text=resolution.fallback_text,
+            )
+            return ResourceLocation(locator=locator, **common)
+        if isinstance(backing, ImageGaijiBacking):
+            locator = GaijiLocator(
+                code=resolution.code,
+                source=backing.source,
+                image_path=backing.image_path,
+                display_status=resolution.display_status.value,
+                display_text=resolution.display_text,
+                fallback_text=resolution.fallback_text,
+            )
+            return ResourceLocation(
+                locator=locator,
+                format_hint=backing.format_hint,
+                container_kind=backing.container_kind,
+                **common,
+            )
+        locator = GaijiLocator(
+            code=resolution.code,
+            display_status=resolution.display_status.value,
+            display_text=resolution.display_text,
+            fallback_text=resolution.fallback_text,
+        )
+        return ResourceLocation(locator=locator, **common)
+
+    def _resolve_sidecar_media_resource(self, resource_id: str, kind: str, details: JsonObject) -> JsonObject:
         info = self._media_info_base(resource_id, kind)
         sidecar_name = str(details.get("sidecar") or "")
         table = str(details.get("table") or "")
@@ -129,7 +282,7 @@ class PackageResourceMixin:
             info["details"] = {"reason": "sidecar_media_query_failed", "sidecar": sidecar_name, "table": table, "row_id": row_id}
             return info
 
-    def _resolve_colscr_resource(self, resource_id: str, kind: str, address: Address, original_target: object) -> dict[str, object]:
+    def _resolve_colscr_resource(self, resource_id: str, kind: str, address: Address, original_target: object) -> JsonObject:
         info = self._media_info_base(resource_id, kind)
         component = self.component_for_address(address, role=ComponentRole.MEDIA)
         if component is None:
@@ -216,7 +369,7 @@ class PackageResourceMixin:
         end: Address,
         original_start: object,
         original_end: object,
-    ) -> dict[str, object]:
+    ) -> JsonObject:
         info = self._media_info_base(resource_id, kind)
         start_component = self.component_for_address(start, role=ComponentRole.MEDIA)
         end_component = self.component_for_address(end, role=ComponentRole.MEDIA)
@@ -294,7 +447,7 @@ class PackageResourceMixin:
         )
         return info
 
-    def resource_info(self, resource: ResourceRef | dict[str, object]) -> dict[str, object]:
+    def resource_info(self, resource: ResourceRef | JsonObject | ResourceLocation) -> ResourceLocation:
         """Return package-local metadata for a document resource.
 
         This method does not transform or copy media. It reports whether lvcore
@@ -302,11 +455,14 @@ class PackageResourceMixin:
         presentation to the caller.
         """
 
+        if isinstance(resource, ResourceLocation):
+            return resource
         if isinstance(resource, ResourceRef):
             resource_id = resource.id
             kind = resource.kind.value
             code = resource.code
             details = dict(resource.details)
+            label = resource.label
         else:
             resource_id = str(resource.get("id") or "")
             kind = str(resource.get("kind") or ResourceKind.UNKNOWN.value)
@@ -314,12 +470,15 @@ class PackageResourceMixin:
             code = str(code_value) if code_value is not None else None
             details_value = resource.get("details") or {}
             details = dict(details_value) if isinstance(details_value, dict) else {}
+            label = str(resource.get("label") or resource_id)
 
-        info: dict[str, object] = self._media_info_base(resource_id, kind)
+        info: JsonObject = self._media_info_base(resource_id, kind)
         if details.get("sidecar_media"):
-            return self._resolve_sidecar_media_resource(resource_id, kind, details)
+            info = self._resolve_sidecar_media_resource(resource_id, kind, details)
+            return self._resource_location_from_info(resource_id=resource_id, kind=kind, label=label, code=code, info=info)
         if kind == ResourceKind.GAIJI.value and code:
-            return self.gaiji_info(resource)
+            resolution = self.gaiji_info(resource)
+            return self._resource_location_from_gaiji_resolution(resource_id=resource_id, kind=kind, label=label, resolution=resolution)
 
         range_start = details.get("range_start")
         range_end = details.get("range_end")
@@ -329,8 +488,9 @@ class PackageResourceMixin:
             if start is None or end is None:
                 info["status"] = "malformed"
                 info["details"] = {"reason": "malformed_audio_range", "range_start": range_start, "range_end": range_end}
-                return info
-            return self._resolve_pcmdata_resource(resource_id, kind, start, end, range_start, range_end)
+                return self._resource_location_from_info(resource_id=resource_id, kind=kind, label=label, code=code, info=info)
+            info = self._resolve_pcmdata_resource(resource_id, kind, start, end, range_start, range_end)
+            return self._resource_location_from_info(resource_id=resource_id, kind=kind, label=label, code=code, info=info)
 
         target_address = details.get("target_address")
         if kind in {ResourceKind.MEDIA.value, ResourceKind.IMAGE.value, ResourceKind.AUDIO.value} and isinstance(target_address, dict):
@@ -338,99 +498,61 @@ class PackageResourceMixin:
             if address is None:
                 info["status"] = "malformed"
                 info["details"] = {"reason": "malformed_media_target_address"}
-                return info
-            return self._resolve_colscr_resource(resource_id, kind, address, target_address)
+                return self._resource_location_from_info(resource_id=resource_id, kind=kind, label=label, code=code, info=info)
+            info = self._resolve_colscr_resource(resource_id, kind, address, target_address)
+            return self._resource_location_from_info(resource_id=resource_id, kind=kind, label=label, code=code, info=info)
 
         info["details"] = {"reason": details.get("reason") or "resource_resolution_not_supported"}
-        return info
+        return self._resource_location_from_info(resource_id=resource_id, kind=kind, label=label, code=code, info=info)
 
-    def resource_bytes(self, resource: ResourceRef | dict[str, object]) -> bytes | None:
+    def resource_bytes(self, resource: ResourceRef | JsonObject | ResourceLocation) -> bytes | None:
         """Return untouched resource bytes when lvcore knows an exact extent."""
 
-        if isinstance(resource, ResourceRef):
-            kind = resource.kind.value
-            code = resource.code
-        else:
-            kind = str(resource.get("kind") or ResourceKind.UNKNOWN.value)
-            code_value = resource.get("code")
-            code = str(code_value) if code_value is not None else None
-
-        if kind == ResourceKind.GAIJI.value and code:
-            info = self.gaiji_info(resource)
-            if info.get("status") != "resolved":
+        location = self.resource_info(resource)
+        if location.status != ResourceStatus.RESOLVED:
+            return None
+        locator = location.locator
+        if isinstance(locator, GaijiLocator):
+            if locator.display_status == GaijiDisplayStatus.UNICODE_MAPPED.value and location.byte_length is None:
                 return None
-            details = info.get("details") if isinstance(info.get("details"), dict) else {}
-            status = str(info.get("display_status") or details.get("display_status") or "")
-            if status == GaijiDisplayStatus.UNICODE_MAPPED.value and not info.get("byte_length"):
-                return None
-            source_path = info.get("source_path") or info.get("image_path")
-            if isinstance(source_path, str) and info.get("image_path"):
+            if locator.image_path:
                 try:
-                    return Path(source_path).read_bytes()
+                    return Path(locator.image_path).read_bytes()
                 except OSError:
                     return None
-            glyph_index = info.get("glyph_index")
-            source_path_value = info.get("source_path")
-            if isinstance(glyph_index, int) and isinstance(source_path_value, str):
+            if locator.glyph_index is not None and locator.source_path:
                 for resource_info in self.ga16:
-                    if str(resource_info.path) == source_path_value:
-                        return resource_info.glyph_by_index(glyph_index)
+                    if str(resource_info.path) == locator.source_path:
+                        return resource_info.glyph_by_index(locator.glyph_index)
+            return None
+        if isinstance(locator, SidecarBlobLocator):
+            sidecar = next((item for item in self._body_sidecars() if item.path.name == locator.sidecar_name), None)
+            if sidecar is None:
+                return None
             try:
-                code_int = int(code, 16)
-            except ValueError:
+                con = self._sqlite_connection_for_sidecar(sidecar.path, sidecar.storage)
+                row = con.execute(
+                    f"select {quote_sql_identifier(locator.blob_column)} from {quote_sql_identifier(locator.table)} where rowid=?",
+                    (locator.row_id,),
+                ).fetchone()
+            except sqlite3.DatabaseError:
                 return None
-            for ga16 in self.ga16:
-                glyph = ga16.glyph(code_int)
-                if glyph is not None:
-                    return glyph
-        if kind in {ResourceKind.MEDIA.value, ResourceKind.IMAGE.value, ResourceKind.AUDIO.value}:
-            info = self.resource_info(resource)
-            if info.get("status") != "resolved":
+            if row is None:
                 return None
-            if info.get("store_kind") == "sidecar_media":
-                details = resource.details if isinstance(resource, ResourceRef) else resource.get("details", {})
-                if not isinstance(details, dict):
-                    return None
-                sidecar_name = str(details.get("sidecar") or "")
-                table = str(details.get("table") or "")
-                blob_column = str(details.get("blob_column") or "")
-                row_id = details.get("row_id")
-                if not sidecar_name or not table or not blob_column or not isinstance(row_id, int):
-                    return None
-                sidecar = next((item for item in self._body_sidecars() if item.path.name == sidecar_name), None)
-                if sidecar is None:
-                    return None
-                try:
-                    con = self._sqlite_connection_for_sidecar(sidecar.path, sidecar.storage)
-                    row = con.execute(
-                        f"select {quote_sql_identifier(blob_column)} from {quote_sql_identifier(table)} where rowid=?",
-                        (row_id,),
-                    ).fetchone()
-                except sqlite3.DatabaseError:
-                    return None
-                if row is None:
-                    return None
-                return bytes(row[0] or b"")
-            component_name = info.get("source_component")
-            payload_offset = info.get("payload_offset")
-            payload_length = info.get("payload_length")
-            if not isinstance(component_name, str) or not isinstance(payload_offset, int) or not isinstance(payload_length, int):
-                return None
-            return self.data(component_name).read(payload_offset, payload_length)
+            return bytes(row[0] or b"")
+        if isinstance(locator, ColscrLocator):
+            return self.data(locator.component).read(locator.payload_offset, locator.payload_length)
+        if isinstance(locator, PcmRangeLocator):
+            return self.data(locator.component).read(locator.payload_offset, locator.payload_length)
         return None
 
-    def resource_record_bytes(self, resource: ResourceRef | dict[str, object]) -> bytes | None:
+    def resource_record_bytes(self, resource: ResourceRef | JsonObject | ResourceLocation) -> bytes | None:
         """Return original wrapped record bytes when a resolved store has a wrapper."""
 
-        info = self.resource_info(resource)
-        if info.get("status") != "resolved" or info.get("store_kind") != "colscr":
+        location = self.resource_info(resource)
+        if location.status != ResourceStatus.RESOLVED or not isinstance(location.locator, ColscrLocator):
             return None
-        component_name = info.get("source_component")
-        record_offset = info.get("record_offset")
-        record_length = info.get("record_length")
-        if not isinstance(component_name, str) or not isinstance(record_offset, int) or not isinstance(record_length, int):
-            return None
-        return self.data(component_name).read(record_offset, record_length)
+        return self.data(location.locator.component).read(location.locator.record_offset, location.locator.record_length)
 
-    def resolve_resource(self, resource: ResourceRef | dict[str, object]) -> dict[str, object]:
+    def resolve_resource(self, resource: ResourceRef | JsonObject | ResourceLocation) -> ResourceLocation:
         return self.resource_info(resource)

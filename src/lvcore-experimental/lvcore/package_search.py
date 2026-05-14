@@ -27,6 +27,7 @@ from .index import (
     parse_simple_leaf,
     parse_tagged_leaf,
 )
+from .json_types import JsonObject
 from .model import Address, Component, ComponentRole, Entry, SearchProfile, Span
 from .package_utils import (
     EXACT_INDEX_PROBE_PAGES,
@@ -37,7 +38,7 @@ from .package_utils import (
     _title_surface_query_bytes,
 )
 from .render import HtmlProfile
-from .search import SearchHit, SearchResults, natural_backward_key, normalize_query, query_candidates
+from .search import SearchHit, SearchHitDebug, SearchResults, TitleResolution, natural_backward_key, normalize_query, query_candidates
 from .ssed import BLOCK_SIZE, CHUNK_SIZE
 
 
@@ -714,20 +715,13 @@ class PackageSearchMixin:
         title_reason: str | None = None
         raw_title_component = self.component_for_address(row.title)
         title_components = self.components_by_role(ComponentRole.TITLE)
-        title_resolution: dict[str, object] = {
-            "body": body.to_dict(),
-            "title": title.to_dict(),
-            "raw_title": row.title.to_dict(),
-            "raw_body": row.body.to_dict(),
-            "row_title_equals_body": row.title == row.body,
-            "fallback_heading_source": fallback_source,
-        }
+        raw_title_component_name: str | None = None
+        raw_title_component_role: str | None = None
+        raw_title_component_type: str | None = None
         if raw_title_component is not None:
-            title_resolution["raw_title_component"] = {
-                "name": raw_title_component.name,
-                "role": raw_title_component.role.value,
-                "type": f"{raw_title_component.type:02x}",
-            }
+            raw_title_component_name = raw_title_component.name
+            raw_title_component_role = raw_title_component.role.value
+            raw_title_component_type = f"{raw_title_component.type:02x}"
         if row.title == row.body and raw_title_component is not None and raw_title_component.role == ComponentRole.HONMON:
             title_reason = "title_pointer_is_body_pointer"
         elif not title_components and raw_title_component is not None and raw_title_component.role == ComponentRole.HONMON:
@@ -741,41 +735,54 @@ class PackageSearchMixin:
             elif diagnostics:
                 first = diagnostics[0]
                 title_status = "failed" if first.code == "title_dereference_failed" else "missing"
-                title_diagnostic_code = first.code
-                title_reason = str(first.details.get("reason") or first.code)
+                title_diagnostic_code = first.code.value
+                title_reason = str(first.details.get("reason") or first.code.value)
             else:
                 title_status = "missing"
                 title_reason = "empty_title_data"
-        if title_reason:
-            title_resolution["reason"] = title_reason
-        title_resolution["status"] = title_status
-        title_resolution["heading_source"] = heading_source
-        title_resolution["diagnostic_code"] = title_diagnostic_code
+        title_resolution = TitleResolution(
+            status=title_status,
+            heading=heading,
+            heading_source=heading_source,
+            title=title,
+            body=body,
+            raw_title=row.title,
+            raw_body=row.body,
+            row_title_equals_body=row.title == row.body,
+            fallback_heading_source=fallback_source,
+            reason=title_reason,
+            title_diagnostic_code=title_diagnostic_code,
+            raw_title_component=raw_title_component_name,
+            raw_title_component_role=raw_title_component_role,
+            raw_title_component_type=raw_title_component_type,
+        )
+        debug_info = SearchHitDebug(
+            index_component=component_name,
+            body=body,
+            title=title,
+            page=row.page,
+            row=row.row,
+            raw_row=row,
+            body_source=self.body_source(debug=True) if debug else None,
+            title_resolution=title_resolution,
+        )
         return SearchHit(
             id=hit_id,
             query=query,
             normalized_query=normalized_query,
             search_profile=profile,
             package_id=self.info.dict_id,
-            index_component=component_name,
             display_key=display_key,
             matched_key=matched_key,
             target_key=row.target_key,
             heading=heading,
             heading_source=heading_source,
             title_status=title_status,
-            body=body,
-            title=title,
             tagged=row.tagged,
+            debug_info=debug_info,
             title_diagnostic_code=title_diagnostic_code,
             title_reason=title_reason,
             diagnostics=diagnostics,
-            page=row.page,
-            row=row.row,
-            raw_row=row,
-            body_source=self.body_source(debug=True).to_dict(debug=False) if debug else None,
-            title_resolution=title_resolution,
-            _package=self,
         )
 
     @staticmethod
@@ -855,7 +862,7 @@ class PackageSearchMixin:
                 return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits))
         return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits))
 
-    def search_index(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[dict[str, object]]:
+    def search_index(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[JsonObject]:
         return [
             {
                 "component": hit.index_component,
