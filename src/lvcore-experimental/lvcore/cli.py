@@ -114,7 +114,7 @@ def cmd_body_source(args: argparse.Namespace) -> int:
 
 def cmd_entries(args: argparse.Namespace) -> int:
     package = open_package(args.path)
-    for entry in package.iter_entries(limit=args.limit, include_supplements=args.spans):
+    for entry in package.iter_entries(limit=args.limit):
         record = entry.to_dict(debug=True) if args.spans else {
             "address": entry.address.to_dict(),
             "headword": entry.headword,
@@ -188,7 +188,7 @@ def cmd_search(args: argparse.Namespace) -> int:
         entries = []
         for hit in results.hits:
             try:
-                entry = package.entry_for_hit(hit, include_supplements=args.debug)
+                entry = package.entry_for_hit(hit)
             except Exception as exc:
                 entries.append({"hit": hit.to_dict(debug=args.debug), "error": str(exc)})
                 continue
@@ -208,13 +208,15 @@ def cmd_render(args: argparse.Namespace) -> int:
     _status(args, f"lvcore: rendering {args.path} term={args.term!r} format={args.format} limit={args.limit}", verbose=True)
     package = open_package(args.path)
     results = package.search(args.term, limit=args.limit, profile=args.search_profile, debug=args.debug)
-    profile = HtmlProfile(args.profile.replace("-", "_"))
+    profile_name = args.profile.replace("-", "_")
+    profile: HtmlProfile | str = "debug" if profile_name == "debug" else HtmlProfile(profile_name)
+    profile_value = profile if isinstance(profile, str) else profile.value
 
     if args.format == "json":
         rendered = []
         for hit in results.hits:
             try:
-                entry = package.entry_for_hit(hit, include_supplements=args.debug or args.include_supplements)
+                entry = package.entry_for_hit(hit)
                 record = {
                     "hit": hit.to_dict(debug=args.debug),
                     "headword": entry.headword,
@@ -231,7 +233,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         emit(
             {
                 "query": args.term,
-                "profile": profile.value,
+                "profile": profile_value,
                 "search_profile": args.search_profile,
                 "results": results.to_dict(debug=args.debug),
                 "entries": rendered,
@@ -243,7 +245,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         for index, hit in enumerate(results.hits):
             if index:
                 print()
-            print(package.render_hit_text(hit, include_supplements=args.debug or args.include_supplements))
+            print(package.render_hit_text(hit))
         return 0
 
     for hit in results.hits:
@@ -252,7 +254,6 @@ def cmd_render(args: argparse.Namespace) -> int:
                 hit,
                 profile=profile,
                 include_diagnostics=args.diagnostics,
-                include_supplements=args.debug or args.include_supplements,
             )
         )
     return 0
@@ -271,7 +272,7 @@ def _resources_for_query(
     results = package.search(term, limit=limit, profile=profile, debug=debug)
     rows: list[dict[str, Any]] = []
     for hit_index, hit in enumerate(results.hits):
-        entry = package.entry_for_hit(hit, include_supplements=debug)
+        entry = package.entry_for_hit(hit)
         document = entry.document()
         for resource in document.resources:
             row = {
@@ -474,10 +475,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_render.add_argument("term")
     p_render.add_argument("--limit", type=int, default=3)
     p_render.add_argument("--search-profile", choices=[profile.value for profile in SearchProfile], default=SearchProfile.NATIVE.value)
-    p_render.add_argument("--profile", choices=[*(profile.value for profile in HtmlProfile), "logovista-like"], default=HtmlProfile.FRIENDLY.value)
+    p_render.add_argument("--profile", choices=[*(profile.value for profile in HtmlProfile), "logovista-like", "debug"], default=HtmlProfile.FRIENDLY.value)
     p_render.add_argument("--format", choices=["html", "text", "json"], default="html")
     p_render.add_argument("--diagnostics", action="store_true", help="Include diagnostics in rendered output")
-    p_render.add_argument("--include-supplements", action="store_true", help="Attach supplemental sidecar rows while rendering")
     p_render.add_argument("--debug", action="store_true", help="Include debug hit details in JSON output")
     p_render.set_defaults(func=cmd_render)
 

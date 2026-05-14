@@ -75,12 +75,6 @@ class LogoVistaPackage(
         self._tempdir: tempfile.TemporaryDirectory[str] | None = None
         self._closed = False
 
-    def __del__(self) -> None:  # pragma: no cover - best-effort cleanup
-        try:
-            self.close()
-        except Exception:
-            pass
-
     def __enter__(self) -> "LogoVistaPackage":
         self._ensure_open()
         return self
@@ -211,6 +205,11 @@ class LogoVistaPackage(
             stop_after_body_resolver=stop_after_body_resolver,
             allow_expensive=allow_expensive,
         )
+
+    def sidecar_candidate_paths(self) -> tuple[Path, ...]:
+        """Return package-local sidecar candidate paths for audit/inspection callers."""
+
+        return tuple(self._sidecar_file_candidates())
 
     def summary(self, *, debug: bool = False) -> dict[str, object]:
         """Return a package summary for the reader CLI."""

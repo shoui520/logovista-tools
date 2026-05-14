@@ -1,4 +1,4 @@
-"""SQLite sidecar discovery, role classification, supplements, and sidecar media."""
+"""SQLite sidecar discovery, role classification, and sidecar media."""
 
 from __future__ import annotations
 
@@ -10,21 +10,20 @@ import tempfile
 
 from .body_source import (
     SQLITE_MAGIC,
+    SidecarAddressMatch,
     SidecarInfo,
     SidecarRole,
     SidecarSupportStatus,
     SidecarTableInfo,
     classify_sqlite_table_role,
     classify_sqlite_sidecar_role,
-    compatibility_significant_sidecar_role,
     quote_sql_identifier,
     resolve_sqlite_sidecar_columns,
     sqlite_columns,
-    strip_html,
 )
 from .crypto import decrypt_logofont_file, decrypt_logofont_file_to_path, decrypt_logofont_prefix
 from .document import ResourceKind, ResourceRef
-from .model import Address, Entry
+from .model import Address
 from .package_utils import _media_mime_and_format
 from .ssed import read_file_prefix
 
@@ -258,64 +257,6 @@ class PackageSidecarMixin:
         self._body_sidecars_cache[cache_key] = tuple(rows)
         return self._body_sidecars_cache[cache_key]
 
-    def sidecar_role_summary(self) -> dict[str, object]:
-        role_counts: dict[str, int] = {}
-        unsupported_role_counts: dict[str, int] = {}
-        supported_role_counts: dict[str, int] = {}
-        compatibility_significant_unsupported_counts: dict[str, int] = {}
-        support_status_counts: dict[str, int] = {}
-        unsupported_sidecars: list[dict[str, object]] = []
-        sqlite_count = 0
-        non_sqlite_count = 0
-        candidates = self._sidecar_file_candidates()
-        for path in candidates:
-            sidecar = self._inspect_sqlite_sidecar(path)
-            if sidecar is None:
-                non_sqlite_count += 1
-                role = SidecarRole.NON_SQLITE_OR_UNKNOWN.value
-                role_counts[role] = role_counts.get(role, 0) + 1
-                status = SidecarSupportStatus.NON_SQLITE_OR_UNKNOWN.value
-                support_status_counts[status] = support_status_counts.get(status, 0) + 1
-                continue
-            sqlite_count += 1
-            role = sidecar.role.value if isinstance(sidecar.role, SidecarRole) else str(sidecar.role)
-            status = sidecar.support_status.value if isinstance(sidecar.support_status, SidecarSupportStatus) else str(sidecar.support_status)
-            role_counts[role] = role_counts.get(role, 0) + 1
-            support_status_counts[status] = support_status_counts.get(status, 0) + 1
-            if status in {
-                SidecarSupportStatus.BODY_RESOLVER.value,
-                SidecarSupportStatus.SUPPLEMENT_RESOLVER.value,
-                SidecarSupportStatus.RESOURCE_RESOLVER.value,
-                SidecarSupportStatus.SEARCH_METADATA.value,
-            }:
-                supported_role_counts[role] = supported_role_counts.get(role, 0) + 1
-            else:
-                unsupported_role_counts[role] = unsupported_role_counts.get(role, 0) + 1
-                significant = compatibility_significant_sidecar_role(role)
-                if significant:
-                    compatibility_significant_unsupported_counts[role] = compatibility_significant_unsupported_counts.get(role, 0) + 1
-                unsupported_sidecars.append(
-                    {
-                        "name": sidecar.path.name,
-                        "kind": sidecar.kind,
-                        "role": role,
-                        "support_status": status,
-                        "compatibility_significant": significant,
-                        "tables": [table.table for table in sidecar.tables] or list(sidecar.notes),
-                    }
-                )
-        return {
-            "candidate_count": len(candidates),
-            "sqlite_count": sqlite_count,
-            "non_sqlite_or_unknown_count": non_sqlite_count,
-            "role_counts": role_counts,
-            "supported_role_counts": supported_role_counts,
-            "unsupported_role_counts": unsupported_role_counts,
-            "compatibility_significant_unsupported_counts": compatibility_significant_unsupported_counts,
-            "support_status_counts": support_status_counts,
-            "unsupported_sidecars": unsupported_sidecars,
-        }
-
     @staticmethod
     def _safe_sidecar_text(value: object) -> str:
         if value is None:
@@ -328,140 +269,6 @@ class PackageSidecarMixin:
                     continue
             return ""
         return str(value).strip()
-
-    @staticmethod
-    def _sidecar_supplement_kind(role: SidecarRole | str, table: str) -> str:
-        role_value = role.value if isinstance(role, SidecarRole) else str(role)
-        table_lower = table.lower()
-        if role_value == SidecarRole.EXAMPLES_IDIOMS.value:
-            if "idiom" in table_lower:
-                return "idiom"
-            if any(token in table_lower for token in ("goyo", "keigo", "kininaru")):
-                return "usage_note"
-            return "example"
-        if role_value == SidecarRole.LINK_REFERENCE.value:
-            return "link_reference"
-        if role_value == SidecarRole.SEARCH.value:
-            return "sidecar_search"
-        return "supplemental"
-
-    @staticmethod
-    def _sidecar_table_text_columns(table: SidecarTableInfo) -> tuple[str, ...]:
-        candidates = [
-            table.title_column,
-            table.plain_column,
-            table.html_column,
-            table.name_column,
-            "Keyword",
-            "Midashi",
-            "MidashiJ",
-            "Title",
-            "TitleJIS",
-            "JIS_Title",
-            "Body",
-            "h_text",
-        ]
-        columns = set(table.columns)
-        out: list[str] = []
-        for column in candidates:
-            if column and column in columns and column not in out:
-                out.append(column)
-        return tuple(out)
-
-    def sidecar_supplements(self, address: Address, *, limit: int = 32, debug: bool = False) -> list[dict[str, object]]:
-        """Return readable supplemental sidecar rows for one entry address."""
-
-        supplements: list[dict[str, object]] = []
-        for sidecar in self._body_sidecars(allow_expensive=False):
-            status = sidecar.support_status.value if isinstance(sidecar.support_status, SidecarSupportStatus) else str(sidecar.support_status)
-            if status not in {SidecarSupportStatus.SUPPLEMENT_RESOLVER.value, SidecarSupportStatus.SEARCH_METADATA.value}:
-                continue
-            candidate_tables = [table for table in sidecar.tables if table.block_column and table.offset_column]
-            if not candidate_tables:
-                continue
-            try:
-                con = self._sqlite_connection_for_sidecar(sidecar.path, sidecar.storage)
-            except sqlite3.DatabaseError:
-                continue
-            for table in candidate_tables:
-                text_columns = self._sidecar_table_text_columns(table)
-                select_columns: list[str] = []
-                for column in (table.id_column, table.block_column, table.offset_column, *text_columns):
-                    if column and column in table.columns and column not in select_columns:
-                        select_columns.append(column)
-                quoted_columns = [quote_sql_identifier(column) for column in select_columns]
-                quoted = ", ".join(["rowid as __rowid", *quoted_columns])
-                sql = (
-                    f"select {quoted} from {quote_sql_identifier(table.table)} "
-                    f"where {quote_sql_identifier(table.block_column or '')}=? "
-                    f"and {quote_sql_identifier(table.offset_column or '')}=? "
-                    f"order by rowid limit ?"
-                )
-                try:
-                    rows = con.execute(sql, (address.block, address.offset, max(1, limit - len(supplements)))).fetchall()
-                except sqlite3.DatabaseError:
-                    continue
-                role = table.role.value if isinstance(table.role, SidecarRole) else str(table.role)
-                for row in rows:
-                    values = {column: self._safe_sidecar_text(row[column]) for column in text_columns if column in row.keys()}
-                    heading = values.get(table.title_column or "") or values.get("Title") or values.get("Midashi") or values.get("Keyword") or ""
-                    text = (
-                        values.get(table.plain_column or "")
-                        or values.get(table.html_column or "")
-                        or values.get("Body")
-                        or values.get("h_text")
-                        or heading
-                    )
-                    kind = self._sidecar_supplement_kind(table.role, table.table)
-                    row_id = int(row["__rowid"])
-                    supplement: dict[str, object] = {
-                        "id": f"sidecar-{kind}-{len(supplements) + 1}",
-                        "kind": kind,
-                        "role": role,
-                        "status": "address_matched",
-                        "sidecar": sidecar.path.name,
-                        "table": table.table,
-                        "row_id": row_id,
-                        "address": address.to_dict(),
-                        "heading": strip_html(heading),
-                        "text": strip_html(text),
-                        "keyword": values.get("Keyword") or "",
-                    }
-                    if kind in {"link_reference", "sidecar_search"}:
-                        label = str(supplement.get("heading") or supplement.get("text") or "reference")
-                        supplement["link_target"] = {
-                            "kind": "internal_address" if kind == "link_reference" else "sidecar_search",
-                            "href": f"lvcore-entry://{address.block}/{address.offset}",
-                            "status": "resolved",
-                            "label": label,
-                            "address": address.to_dict(),
-                            "details": {
-                                "status": "address_matched",
-                                "source_sidecar": sidecar.path.name,
-                                "source_table": table.table,
-                                "row_id": row_id,
-                            },
-                        }
-                    if debug:
-                        supplement["debug"] = {
-                            "storage": sidecar.storage,
-                            "block_column": table.block_column,
-                            "offset_column": table.offset_column,
-                            "id_column": table.id_column,
-                            "text_columns": list(text_columns),
-                        }
-                    supplements.append(supplement)
-                    if len(supplements) >= limit:
-                        return supplements
-        return supplements
-
-    def _attach_sidecar_supplements(self, entry: Entry, *, include: bool = True) -> Entry:
-        if not include:
-            return entry
-        supplements = tuple(self.sidecar_supplements(entry.address, debug=True))
-        if not supplements:
-            return entry
-        return replace(entry, supplements=supplements)
 
     @staticmethod
     def _resource_kind_from_container(container_kind: str) -> ResourceKind:
@@ -546,59 +353,10 @@ class PackageSidecarMixin:
                         return tuple(resources)
         return tuple(resources)
 
-    def sidecar_supplement_summary(self) -> dict[str, object]:
-        summary: dict[str, object] = {
-            "examples_idioms_rows_seen": 0,
-            "examples_idioms_rows_attached": 0,
-            "entry_supplements_attached": 0,
-            "link_reference_rows_seen": 0,
-            "link_reference_rows_matched": 0,
-            "link_reference_targets_resolved": 0,
-            "sidecar_search_rows_seen": 0,
-            "sidecar_search_rows_supported": 0,
-            "sidecar_search_rows_deferred": 0,
-            "sidecar_media_rows_seen": 0,
-            "sidecar_media_rows_resolved": 0,
-            "sidecar_media_bytes_available": 0,
-            "sidecar_media_mime_counts": {},
-        }
-        for sidecar in self._body_sidecars():
-            role = sidecar.role.value if isinstance(sidecar.role, SidecarRole) else str(sidecar.role)
-            status = sidecar.support_status.value if isinstance(sidecar.support_status, SidecarSupportStatus) else str(sidecar.support_status)
-            for table in sidecar.tables:
-                rows = int(table.row_count or 0)
-                if role == SidecarRole.EXAMPLES_IDIOMS.value:
-                    summary["examples_idioms_rows_seen"] = int(summary["examples_idioms_rows_seen"]) + rows
-                elif role == SidecarRole.LINK_REFERENCE.value:
-                    summary["link_reference_rows_seen"] = int(summary["link_reference_rows_seen"]) + rows
-                elif role == SidecarRole.SEARCH.value:
-                    summary["sidecar_search_rows_seen"] = int(summary["sidecar_search_rows_seen"]) + rows
-                    if status == SidecarSupportStatus.SEARCH_METADATA.value:
-                        summary["sidecar_search_rows_supported"] = int(summary["sidecar_search_rows_supported"]) + rows
-                    else:
-                        summary["sidecar_search_rows_deferred"] = int(summary["sidecar_search_rows_deferred"]) + rows
-                elif role == SidecarRole.MEDIA_RESOURCE.value and table.blob_column:
-                    summary["sidecar_media_rows_seen"] = int(summary["sidecar_media_rows_seen"]) + rows
-        media_mime_counts = summary["sidecar_media_mime_counts"]
-        for resource in self.sidecar_media_resources():
-            info = self.resource_info(resource)
-            if info.get("status") == "resolved":
-                summary["sidecar_media_rows_resolved"] = int(summary["sidecar_media_rows_resolved"]) + 1
-                summary["sidecar_media_bytes_available"] = int(summary["sidecar_media_bytes_available"]) + 1
-                if isinstance(media_mime_counts, dict):
-                    mime = str(info.get("mime_type") or "unknown")
-                    media_mime_counts[mime] = media_mime_counts.get(mime, 0) + 1
-        return summary
+    def sidecar_address_matches(self, address: Address, *, limit: int = 32) -> tuple[SidecarAddressMatch, ...]:
+        """Return structural sidecar rows that point at an entry address."""
 
-    def sidecar_references(self, address: Address, *, limit: int = 32, debug: bool = False) -> list[dict[str, object]]:
-        """Return structural sidecar rows that point at an entry address.
-
-        This is a read-only metadata resolver for supplemental sidecars such as
-        example/idiom/search/navigation tables. It reports table relationships
-        without returning dictionary text.
-        """
-
-        matches: list[dict[str, object]] = []
+        matches: list[SidecarAddressMatch] = []
         for sidecar in self._body_sidecars(allow_expensive=False):
             candidate_tables = [table for table in sidecar.tables if table.block_column and table.offset_column]
             if not candidate_tables:
@@ -621,21 +379,20 @@ class PackageSidecarMixin:
                     continue
                 role = table.role.value if isinstance(table.role, SidecarRole) else str(table.role)
                 support_status = sidecar.support_status.value if isinstance(sidecar.support_status, SidecarSupportStatus) else str(sidecar.support_status)
-                row: dict[str, object] = {
-                    "sidecar": sidecar.path.name,
-                    "kind": sidecar.kind,
-                    "role": role,
-                    "support_status": support_status,
-                    "table": table.table,
-                    "match_count": count,
-                    "status": "matched",
-                }
-                if debug:
-                    row["block_column"] = table.block_column
-                    row["offset_column"] = table.offset_column
-                    row["title_column"] = table.title_column
-                    row["plain_column"] = table.plain_column
-                matches.append(row)
+                matches.append(
+                    SidecarAddressMatch(
+                        sidecar_name=sidecar.path.name,
+                        kind=sidecar.kind,
+                        role=role,
+                        support_status=support_status,
+                        table=table.table,
+                        match_count=count,
+                        block_column=table.block_column,
+                        offset_column=table.offset_column,
+                        title_column=table.title_column,
+                        plain_column=table.plain_column,
+                    )
+                )
                 if len(matches) >= limit:
-                    return matches
-        return matches
+                    return tuple(matches)
+        return tuple(matches)

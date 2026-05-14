@@ -6,7 +6,7 @@ model, starting with SSED.
 """
 
 from .detect import detect_family
-from .body_source import BodySourceInfo, BodySourceSupport, Confidence, SidecarRole, SsedBodySourceKind
+from .body_source import BodySourceInfo, BodySourceSupport, Confidence, SidecarAddressMatch, SidecarRole, SsedBodySourceKind
 from .diagnostics import Diagnostic, DiagnosticArea, Location, Severity
 from .document import (
     BlockKind,
@@ -23,6 +23,7 @@ from .document import (
 )
 from .gaiji import GaijiDisplayStatus
 from .index import IndexRow
+from .inspect import InspectorRenderer
 from .model import Address, Component, ComponentRole, Entry, PackageFamily, PackageInfo, SearchProfile, Span
 from .opcodes import OpcodeBehavior, OpcodeCategory, behavior_for
 from .package import LogoVistaPackage, open_package
@@ -49,6 +50,7 @@ __all__ = [
     "IndexRow",
     "InlineKind",
     "InlineNode",
+    "InspectorRenderer",
     "LinkTarget",
     "LinkTargetKind",
     "LinkTargetStatus",
@@ -64,6 +66,7 @@ __all__ = [
     "SearchProfile",
     "SearchHit",
     "SearchResults",
+    "SidecarAddressMatch",
     "SidecarRole",
     "SsedBodySourceKind",
     "Severity",

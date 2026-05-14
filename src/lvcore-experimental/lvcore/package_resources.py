@@ -10,6 +10,7 @@ from .body_source import (
 )
 from .document import ResourceKind, ResourceRef
 from .gaiji import GaijiDisplayStatus
+from .inspect import InspectorRenderer
 from .model import Address, ComponentRole, Entry
 from .package_utils import _media_mime_and_format
 from .render import HtmlProfile, render_html, render_text
@@ -29,6 +30,8 @@ class PackageResourceMixin:
         include_diagnostics: bool = False,
     ) -> str:
         if isinstance(profile, str):
+            if profile.replace("-", "_") == "debug":
+                return InspectorRenderer().render_html(entry.document())
             profile = HtmlProfile(profile.replace("-", "_"))
         return render_html(entry.document(), profile=profile, include_diagnostics=include_diagnostics)
 

@@ -16,7 +16,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from lvcore import HtmlProfile, SearchProfile, open_package
+from lvcore import InspectorRenderer, SearchProfile, open_package
 
 
 def inspect_first_hit(package_path: str | Path, query: str, *, profile: str = "native") -> dict[str, Any]:
@@ -38,7 +38,7 @@ def inspect_first_hit(package_path: str | Path, query: str, *, profile: str = "n
         "hit_inspection": hit.inspect(),
         "entry_inspection": entry.inspect(),
         "document": document.to_dict(debug=True),
-        "debug_html": entry.render_html(HtmlProfile.DEBUG.value),
+        "debug_html": InspectorRenderer().render_html(document),
     }
     return result
 

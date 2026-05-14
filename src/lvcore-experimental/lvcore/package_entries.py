@@ -79,7 +79,7 @@ class PackageEntryMixin:
             end = starts[index + 1] if index + 1 < len(starts) else reader.expanded_size
             yield start, end
 
-    def iter_entries(self, *, limit: int | None = None, include_supplements: bool = False) -> Iterable[Entry]:
+    def iter_entries(self, *, limit: int | None = None) -> Iterable[Entry]:
         honmon = self.honmon_component()
         if honmon is None:
             return
@@ -96,16 +96,15 @@ class PackageEntryMixin:
                 SsedBodySourceKind.VLPLJBL_SIDECAR,
                 SsedBodySourceKind.SIDECAR_UNKNOWN,
             }:
-                if not include_supplements:
-                    sidecar = self._choose_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
-                    if sidecar is not None:
-                        yielded = False
-                        for entry in self._iter_body_sidecar_entries_fast(sidecar, limit=limit):
-                            yielded = True
-                            yield entry
-                        if yielded:
-                            return
-                yield from self._iter_dense_sidecar_entries_fast(limit=limit, include_supplements=include_supplements)
+                sidecar = self._choose_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
+                if sidecar is not None:
+                    yielded = False
+                    for entry in self._iter_body_sidecar_entries_fast(sidecar, limit=limit):
+                        yielded = True
+                        yield entry
+                    if yielded:
+                        return
+                yield from self._iter_dense_sidecar_entries_fast(limit=limit)
                 return
             sample = reader.read(0, min(reader.expanded_size, BLOCK_SIZE))
             if ENTRY_MARKER not in sample:
@@ -113,26 +112,22 @@ class PackageEntryMixin:
                 if pointer_offsets:
                     for start in pointer_offsets[:limit]:
                         address = Address(honmon.start_block + start // BLOCK_SIZE, start % BLOCK_SIZE, honmon.name)
-                        yield self.entry_at(address, max_bytes=64 * 1024, include_supplements=include_supplements)
+                        yield self.entry_at(address, max_bytes=64 * 1024)
                     return
         count = 0
         for start, end in self.iter_entry_slices(limit=limit):
             decoded = self._decode_text_stream(reader.read(start, end - start))
             text = decoded.text.strip("\x00")
-            head = ""
-            lines = [line.strip() for line in text.splitlines() if line.strip()]
-            if lines:
-                head = lines[0]
             entry = Entry(
                 address=Address(honmon.start_block + start // 2048, start % 2048, honmon.name),
                 end_address=Address(honmon.start_block + end // 2048, end % 2048, honmon.name),
-                headword=head,
+                headword=None,
                 text=text,
                 spans=decoded.spans,
                 decode_unknown_controls=decoded.unknown_controls,
                 decode_unknown_bytes=decoded.unknown_bytes,
             )
-            yield self._attach_sidecar_supplements(entry) if include_supplements else entry
+            yield entry
             count += 1
             if limit is not None and count >= limit:
                 break
@@ -195,14 +190,14 @@ class PackageEntryMixin:
                 if count >= limit:
                     return
 
-    def _iter_dense_sidecar_entries_fast(self, *, limit: int, include_supplements: bool = False) -> Iterable[Entry]:
+    def _iter_dense_sidecar_entries_fast(self, *, limit: int) -> Iterable[Entry]:
         hits = list(self._iter_entry_hits_fast(limit=limit))
         if not hits:
             return
         sidecar = self._choose_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
         if sidecar is None:
             for hit in hits:
-                yield self.entry_for_hit(hit, include_supplements=include_supplements)
+                yield self.entry_for_hit(hit)
             return
 
         anchor_by_index: dict[int, str] = {}
@@ -238,7 +233,6 @@ class PackageEntryMixin:
                 body,
                 sidecar=sidecar,
                 anchor_id=anchor_id,
-                include_supplements=include_supplements,
             )
 
     def _iter_body_sidecar_entries_fast(self, sidecar: SidecarInfo, *, limit: int) -> Iterable[Entry]:
@@ -559,23 +553,21 @@ class PackageEntryMixin:
             )
         return honmon, start, end, tuple(diagnostics)
 
-    def entry_at(self, address: Address, *, max_bytes: int = 64 * 1024, include_supplements: bool = False) -> Entry:
+    def entry_at(self, address: Address, *, max_bytes: int = 64 * 1024) -> Entry:
         honmon, start, end_offset, diagnostics = self._entry_range_for_address(address, max_bytes=max_bytes)
         reader = self.data(honmon)
         decoded = self._decode_text_stream(reader.read(start, end_offset - start))
-        lines = [line.strip() for line in decoded.text.splitlines() if line.strip()]
-        headword = lines[0] if lines else ""
         entry = Entry(
             address=Address(address.block, address.offset, honmon.name),
             end_address=Address(honmon.start_block + end_offset // BLOCK_SIZE, end_offset % BLOCK_SIZE, honmon.name),
-            headword=headword,
+            headword=None,
             text=decoded.text.strip("\x00"),
             spans=decoded.spans,
             entry_diagnostics=diagnostics,
             decode_unknown_controls=decoded.unknown_controls,
             decode_unknown_bytes=decoded.unknown_bytes,
         )
-        return self._attach_sidecar_supplements(entry, include=include_supplements)
+        return entry
 
     def inspect_body_pointer(self, address: Address) -> BodyPointerInspection:
         honmon = self.component_for_address(address, role=ComponentRole.HONMON)
@@ -717,7 +709,6 @@ class PackageEntryMixin:
         sidecar: SidecarInfo,
         anchor_id: str,
         headword_hint: str,
-        include_supplements: bool = False,
     ) -> Entry:
         note = Diagnostic(
             severity=Severity.INFO,
@@ -733,7 +724,7 @@ class PackageEntryMixin:
             if body.html
             else (Span(kind="text", text=text),)
         )
-        entry = Entry(
+        return Entry(
             address=address,
             end_address=address,
             headword=body.title or headword_hint,
@@ -741,7 +732,6 @@ class PackageEntryMixin:
             spans=spans,
             entry_diagnostics=(note,),
         )
-        return self._attach_sidecar_supplements(entry, include=include_supplements)
 
     def _entry_from_sidecar_body(
         self,
@@ -750,7 +740,6 @@ class PackageEntryMixin:
         *,
         sidecar: SidecarInfo,
         anchor_id: str,
-        include_supplements: bool = False,
     ) -> Entry:
         return self._make_sidecar_body_entry(
             hit.body,
@@ -758,7 +747,6 @@ class PackageEntryMixin:
             sidecar=sidecar,
             anchor_id=anchor_id,
             headword_hint=hit.heading,
-            include_supplements=include_supplements,
         )
 
     def _placeholder_entry(
@@ -828,8 +816,6 @@ class PackageEntryMixin:
         self,
         hit: SearchHit,
         inspection: BodyPointerInspection,
-        *,
-        include_supplements: bool = False,
     ) -> Entry | None:
         anchor_id = inspection.anchor_id
         if not anchor_id:
@@ -845,5 +831,4 @@ class PackageEntryMixin:
             body,
             sidecar=sidecar,
             anchor_id=anchor_id,
-            include_supplements=include_supplements,
         )

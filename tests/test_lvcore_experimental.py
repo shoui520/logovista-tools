@@ -17,7 +17,7 @@ LVCORE_AUDIT_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-audit"
 sys.path.insert(0, str(LVCORE_SRC))
 sys.path.insert(0, str(LVCORE_AUDIT_SRC))
 
-from lvcore import Address, Diagnostic, DiagnosticArea, Location, PackageFamily, SearchHit, SearchProfile, SearchResults, Severity, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
+from lvcore import Address, InspectorRenderer, Diagnostic, DiagnosticArea, Location, PackageFamily, SearchHit, SearchProfile, SearchResults, Severity, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
 from lvcore.body_source import SidecarRole, classify_sqlite_sidecar_role, quote_sql_identifier, sqlite_columns  # noqa: E402
 from lvcore.crypto import decrypt_logofont, decrypt_logofont_file_to_path, logofont_key_iv  # noqa: E402
 from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, LinkTargetKind, ResourceKind, ResourceRef, ResourceStatus, build_entry_document  # noqa: E402
@@ -29,7 +29,15 @@ from lvcore.opcodes import OpcodeCategory, behavior_for  # noqa: E402
 from lvcore.render import GaijiPolicy, HtmlProfile, render_html, render_text  # noqa: E402
 from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE, SsedData, expand_sseddata, parse_catalog  # noqa: E402
 from lvcore.text import decode_text_stream  # noqa: E402
-from lvcore_audit import validate_package  # noqa: E402
+from lvcore_audit import sidecar_role_summary, validate_package  # noqa: E402
+
+
+def audit_sidecar_roles(package) -> dict[str, object]:
+    return sidecar_role_summary(package)
+
+
+def sidecar_matches(package, address: Address) -> list[dict[str, object]]:
+    return [match.to_dict(debug=True) for match in package.sidecar_address_matches(address)]
 
 
 def test_lvcore_source_stays_independent_from_toolkit() -> None:
@@ -821,7 +829,7 @@ def test_lvcore_bad_body_pointer_returns_diagnostic_placeholder(tmp_path: Path) 
     package = open_package(tmp_path)
     hit = package.search("bad", profile=SearchProfile.EXACT).hits[0]
 
-    entry = package.entry_for_hit(hit, include_supplements=True)
+    entry = package.entry_for_hit(hit)
     html = package.render_entry_html(entry)
     text = package.render_entry_text(entry)
 
@@ -866,7 +874,7 @@ def test_lvcore_truncated_honmon_entry_is_rendered_with_diagnostics_not_raw_leak
     entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "HONMON.DIC"), "visible", decoded.text, decoded.spans)
     document = entry.document()
     html = render_html(document)
-    debug = render_html(document, profile=HtmlProfile.DEBUG)
+    debug = InspectorRenderer().render_html(document)
 
     assert "visible" in html
     assert "1f44" not in html.lower()
@@ -879,7 +887,7 @@ def test_lvcore_malformed_gaiji_reference_is_diagnostic_and_friendly_safe() -> N
     entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, 1, "HONMON.DIC"), "bad gaiji", decoded.text, decoded.spans)
     document = entry.document()
     html = render_html(document)
-    debug = render_html(document, profile=HtmlProfile.DEBUG)
+    debug = InspectorRenderer().render_html(document)
 
     assert "a1" not in html.lower()
     assert "unknown_byte" in debug
@@ -891,7 +899,7 @@ def test_lvcore_malformed_media_reference_is_diagnostic_and_friendly_safe() -> N
     entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, 3, "HONMON.DIC"), "bad media", decoded.text, decoded.spans)
     document = entry.document()
     html = render_html(document)
-    debug = render_html(document, profile=HtmlProfile.DEBUG)
+    debug = InspectorRenderer().render_html(document)
 
     assert "lvcore-resource://media-1" in html
     assert "1f4d" not in html.lower()
@@ -907,7 +915,7 @@ def test_lvcore_invalid_sqlite_sidecar_is_deferred_without_anchor_leak(tmp_path:
 
     source = package.body_source()
     hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
-    entry = package.entry_for_hit(hit, include_supplements=True)
+    entry = package.entry_for_hit(hit)
     html = package.render_entry_html(entry)
 
     assert source.ssed_kind == SsedBodySourceKind.DENSE_ANCHOR_TABLE
@@ -966,13 +974,13 @@ def test_lvcore_detects_and_reads_synthetic_ssed(tmp_path: Path) -> None:
 
     entries = list(package.iter_entries())
     assert len(entries) == 1
-    assert entries[0].headword == "alpha"
+    assert entries[0].headword is None
     assert "first entry" in entries[0].text
     assert package.titles() == ["alpha"]
     assert package.search_index("alpha")[0]["component"] == "FHINDEX.DIC"
     assert package.search_index("alpha", profile=SearchProfile.FORWARD)[0]["component"] == "FHINDEX.DIC"
     assert package.search_index("alpha", profile=SearchProfile.BACKWARD) == []
-    assert package.entry_at(package.search_entries("alpha")[0].address).headword == "alpha"
+    assert package.entry_at(package.search_entries("alpha")[0].address).headword is None
 
 
 def test_lvcore_titles_limit_streams_without_full_component_decode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -991,9 +999,9 @@ def test_lvcore_entries_limit_uses_index_boundaries_when_markers_are_absent(tmp_
     make_reader_workflow_package(tmp_path)
     package = open_package(tmp_path)
 
-    entries = list(package.iter_entries(limit=2, include_supplements=False))
+    entries = list(package.iter_entries(limit=2))
 
-    assert [entry.headword for entry in entries] == ["alpha", "alpine"]
+    assert [entry.headword for entry in entries] == [None, None]
     assert "third entry" not in "\n".join(entry.text for entry in entries)
 
 
@@ -1010,7 +1018,7 @@ def test_lvcore_direct_body_hit_dereference_does_not_require_body_source_scan(
 
     monkeypatch.setattr(package, "body_source", fail_body_source)
 
-    entry = package.entry_for_hit(hit, include_supplements=False)
+    entry = package.entry_for_hit(hit)
 
     assert entry.headword == "alpha"
     assert "first entry" in entry.text
@@ -1230,15 +1238,15 @@ def test_lvcore_index_parser_reports_malformed_and_unsupported_rows() -> None:
 
     unsupported = parse_index(leaf_page([direct_index_record("ignored")]), 1, 0x27)
     assert unsupported.rows == ()
-    assert unsupported.unsupported_component_type == 0x27
-    assert unsupported.unsupported_leaf_pages == 1
     assert unsupported.diagnostics[0].code == "unsupported_component_type"
+    assert unsupported.diagnostics[0].details["component_type"] == "27"
+    assert unsupported.diagnostics[0].page == 0
 
     unsupported_branch_only = parse_index(pad_block(be16(0x0002) + be16(1) + b"\x00" * 6), 1, 0x27)
     assert unsupported_branch_only.rows == ()
     assert unsupported_branch_only.internal_pages == 1
-    assert unsupported_branch_only.unsupported_component_type == 0x27
     assert unsupported_branch_only.diagnostics[0].code == "unsupported_component_type"
+    assert unsupported_branch_only.diagnostics[0].details["component_type"] == "27"
 
 
 def test_lvcore_index_parser_reports_partial_physical_tail_separately() -> None:
@@ -1491,7 +1499,7 @@ def test_lvcore_dense_anchor_without_sidecar_is_deferred_and_safe(tmp_path: Path
     assert source.ssed_kind == SsedBodySourceKind.DENSE_ANCHOR_TABLE
     assert source.support.value == "deferred"
     hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
-    entry = package.entry_for_hit(hit, include_supplements=True)
+    entry = package.entry_for_hit(hit)
     html = package.render_entry_html(entry)
     text = package.render_entry_text(entry)
 
@@ -1510,7 +1518,7 @@ def test_lvcore_dense_anchor_with_sqlite_sidecar_renders_body(tmp_path: Path) ->
     assert source.ssed_kind == SsedBodySourceKind.DENSE_ANCHOR_WITH_SIDECAR
     assert source.support.value == "partially_renderable"
     hit = package.search("beta", profile=SearchProfile.EXACT).hits[0]
-    entry = package.entry_for_hit(hit, include_supplements=True)
+    entry = package.entry_for_hit(hit)
 
     assert entry.headword == "beta"
     assert "beta sidecar body" in package.render_entry_text(entry)
@@ -1544,7 +1552,7 @@ def test_lvcore_dense_anchor_hit_dereference_does_not_depend_on_body_source_clas
 
     monkeypatch.setattr(package, "body_source", fail_body_source)
 
-    entry = package.entry_for_hit(hit, include_supplements=False)
+    entry = package.entry_for_hit(hit)
 
     assert entry.headword == "beta"
     assert "beta sidecar body" in entry.text
@@ -1600,7 +1608,7 @@ def test_lvcore_dense_anchor_with_unsupported_sqlite_sidecar_schema_is_precise(t
     assert source.sidecars[0].kind == "sqlite_unmapped"
     assert source.sidecar_kind == "sqlite_unmapped"
     hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
-    entry = package.entry_for_hit(hit, include_supplements=True)
+    entry = package.entry_for_hit(hit)
     html = package.render_entry_html(entry)
 
     assert "Entry body is not yet supported" in package.render_entry_text(entry)
@@ -1613,7 +1621,7 @@ def test_lvcore_example_idiom_sidecar_is_classified_and_address_mapped(tmp_path:
     add_example_idiom_sidecar(tmp_path)
     package = open_package(tmp_path)
 
-    summary = package.sidecar_role_summary()
+    summary = audit_sidecar_roles(package)
     assert summary["role_counts"]["examples_idioms"] == 1
     assert summary["supported_role_counts"]["examples_idioms"] == 1
     assert "examples_idioms" not in summary["unsupported_role_counts"]
@@ -1621,24 +1629,22 @@ def test_lvcore_example_idiom_sidecar_is_classified_and_address_mapped(tmp_path:
     assert summary["support_status_counts"]["supplement_resolver"] == 1
     assert summary["unsupported_sidecars"] == []
 
-    references = package.sidecar_references(Address(2, 0, "HONMON.DIC"), debug=True)
+    references = sidecar_matches(package, Address(2, 0, "HONMON.DIC"))
     assert {reference["table"] for reference in references} == {"D_Example", "D_Idiom"}
     assert all(reference["role"] == "examples_idioms" for reference in references)
     assert all(reference["match_count"] == 1 for reference in references)
     assert all("block_column" in reference for reference in references)
 
     hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
-    fast_entry = package.entry_for_hit(hit)
-    assert "alpha example title" not in package.render_entry_text(fast_entry)
-    entry = package.entry_for_hit(hit, include_supplements=True)
+    entry = package.entry_for_hit(hit)
     html = package.render_entry_html(entry)
     debug_document = entry.document().to_dict(debug=True)
-    assert "alpha example title" in package.render_entry_text(entry)
-    assert "alpha idiom title" in package.render_entry_text(entry)
-    assert "alpha example title" in html
+    assert "alpha example title" not in package.render_entry_text(entry)
+    assert "alpha idiom title" not in package.render_entry_text(entry)
+    assert "alpha example title" not in html
     assert "examples.db" not in html
     assert "row_id" not in html
-    assert debug_document["debug_metadata"]["sidecar_supplements"][0]["sidecar"] == "examples.db"
+    assert "sidecar_supplements" not in debug_document["debug_metadata"]
 
     report = validate_package(package, sample_entries=1, sample_search_hits=1)
     assert report["sidecar_references"]["matched"] == 2
@@ -1654,7 +1660,7 @@ def test_lvcore_media_sidecar_schema_is_compatibility_significant(tmp_path: Path
     package = open_package(tmp_path)
 
     body_source = package.body_source()
-    sidecar = package.sidecar_role_summary()
+    sidecar = audit_sidecar_roles(package)
     assert body_source.ssed_kind == SsedBodySourceKind.BODY_STREAM
     assert sidecar["role_counts"]["media_resource"] == 1
     assert sidecar["supported_role_counts"]["media_resource"] == 1
@@ -1695,7 +1701,7 @@ def test_lvcore_generic_sidecar_media_schema_resolves_without_table_name(tmp_pat
     add_generic_media_sidecar(tmp_path)
     package = open_package(tmp_path)
 
-    summary = package.sidecar_role_summary()
+    summary = audit_sidecar_roles(package)
     resources = package.sidecar_media_resources()
 
     assert summary["role_counts"]["media_resource"] == 1
@@ -1708,29 +1714,32 @@ def test_lvcore_generic_sidecar_media_schema_resolves_without_table_name(tmp_pat
     assert package.resource_bytes(resources[0]) == b"\x89PNG\r\n\x1a\ngeneric"
 
 
-def test_lvcore_link_reference_sidecar_attaches_safe_link_supplement(tmp_path: Path) -> None:
+def test_lvcore_link_reference_sidecar_is_classified_without_reader_supplement_pipeline(tmp_path: Path) -> None:
     make_synthetic_package(tmp_path)
     add_link_reference_sidecar(tmp_path)
     package = open_package(tmp_path)
 
-    summary = package.sidecar_role_summary()
+    summary = audit_sidecar_roles(package)
     assert summary["role_counts"]["link_reference"] == 1
     assert summary["supported_role_counts"]["link_reference"] == 1
     assert summary["support_status_counts"]["supplement_resolver"] == 1
+    references = sidecar_matches(package, Address(2, 0, "HONMON.DIC"))
+    assert references[0]["role"] == "link_reference"
+    assert references[0]["table"] == "LINKS"
 
     hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
-    entry = package.entry_for_hit(hit, include_supplements=True)
+    entry = package.entry_for_hit(hit)
     document = entry.document()
     dumped = json.dumps(document.to_dict(debug=False), ensure_ascii=False)
     debug_dumped = json.dumps(document.to_dict(debug=True), ensure_ascii=False)
     html = package.render_entry_html(entry)
 
-    assert "related entry" in package.render_entry_text(entry)
-    assert "lvcore-entry://ref-" in html
+    assert "related entry" not in package.render_entry_text(entry)
+    assert "lvcore-entry://ref-" not in html
     assert "links.db" not in dumped
     assert "row_id" not in dumped
-    assert "links.db" in debug_dumped
-    assert "row_id" in debug_dumped
+    assert "links.db" not in debug_dumped
+    assert "row_id" not in debug_dumped
 
 
 def test_lvcore_generic_example_sidecar_attaches_by_schema_without_table_name(tmp_path: Path) -> None:
@@ -1738,16 +1747,16 @@ def test_lvcore_generic_example_sidecar_attaches_by_schema_without_table_name(tm
     add_generic_example_sidecar(tmp_path)
     package = open_package(tmp_path)
 
-    summary = package.sidecar_role_summary()
-    references = package.sidecar_references(Address(2, 0, "HONMON.DIC"), debug=True)
+    summary = audit_sidecar_roles(package)
+    references = sidecar_matches(package, Address(2, 0, "HONMON.DIC"))
     hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
-    entry = package.entry_for_hit(hit, include_supplements=True)
+    entry = package.entry_for_hit(hit)
 
     assert summary["role_counts"]["examples_idioms"] == 1
     assert summary["supported_role_counts"]["examples_idioms"] == 1
     assert references[0]["table"] == "SupplementRows"
     assert references[0]["role"] == "examples_idioms"
-    assert "generic example title" in package.render_entry_text(entry)
+    assert "generic example title" not in package.render_entry_text(entry)
 
 
 def test_lvcore_search_metadata_sidecar_is_supported_but_not_native_search(tmp_path: Path) -> None:
@@ -1755,7 +1764,7 @@ def test_lvcore_search_metadata_sidecar_is_supported_but_not_native_search(tmp_p
     add_search_metadata_sidecar(tmp_path)
     package = open_package(tmp_path)
 
-    summary = package.sidecar_role_summary()
+    summary = audit_sidecar_roles(package)
     report = validate_package(package, sample_entries=0, sample_search_hits=1)
 
     assert summary["role_counts"]["search"] == 1
@@ -1774,7 +1783,7 @@ def test_lvcore_t_data_sidecar_is_ancillary_not_unknown(tmp_path: Path) -> None:
     add_ancillary_t_data_sidecar(tmp_path)
     package = open_package(tmp_path)
 
-    summary = package.sidecar_role_summary()
+    summary = audit_sidecar_roles(package)
 
     assert summary["role_counts"]["ancillary"] == 1
     assert "unknown" not in summary["role_counts"]
@@ -1947,23 +1956,23 @@ def test_lvcore_body_pointer_title_slot_is_heading_fallback_not_failure(tmp_path
     report = validate_package(package, sample_entries=0, sample_search_hits=1)
 
     assert hit.heading == "fallback"
-    assert hit.heading_source == "body_heading"
-    assert hit.title_status == "resolved"
+    assert hit.heading_source == "display_key"
+    assert hit.title_status == "fallback"
     assert hit.title_reason == "title_pointer_is_body_pointer"
     assert hit.diagnostics == ()
     friendly = hit.to_dict()
     debug = hit.to_dict(debug=True)
-    assert friendly["title_status"] == "resolved"
+    assert friendly["title_status"] == "fallback"
     assert "title" not in friendly
     assert "title_resolution" not in friendly
     assert debug["title"]["block"] == 2
     assert debug["title_resolution"]["row_title_equals_body"] is True
     assert debug["title_resolution"]["reason"] == "title_pointer_is_body_pointer"
     assert report["title_dereference"]["failed"] == 0
-    assert report["title_dereference"]["fallback"] == 0
-    assert report["title_dereference"]["resolved"] == 1
-    assert report["title_dereference"]["by_reason"] == {}
-    assert report["title_dereference"]["heading_source_counts"] == {"body_heading": 1}
+    assert report["title_dereference"]["fallback"] == 1
+    assert report["title_dereference"]["resolved"] == 0
+    assert report["title_dereference"]["by_reason"] == {"title_pointer_is_body_pointer": 1}
+    assert report["title_dereference"]["heading_source_counts"] == {"display_key": 1}
 
 
 def test_lvcore_body_pointer_title_slot_with_other_titles_still_falls_back(tmp_path: Path) -> None:
@@ -1973,8 +1982,8 @@ def test_lvcore_body_pointer_title_slot_with_other_titles_still_falls_back(tmp_p
     hit = package.search("fallback", profile=SearchProfile.EXACT).hits[0]
 
     assert hit.heading == "fallback"
-    assert hit.heading_source == "body_heading"
-    assert hit.title_status == "resolved"
+    assert hit.heading_source == "display_key"
+    assert hit.title_status == "fallback"
     assert hit.title_reason == "title_pointer_is_body_pointer"
     assert hit.diagnostics == ()
 
@@ -1998,12 +2007,12 @@ def test_lvcore_exact_search_flattens_query_and_displays_body_heading(tmp_path: 
     hit = package.search("Departure time", profile=SearchProfile.EXACT).hits[0]
 
     assert hit.display_key == "DEPARTURETIME"
-    assert hit.heading == "departure time"
-    assert hit.heading_source == "body_heading"
-    assert hit.title_status == "resolved"
+    assert hit.heading == "DEPARTURETIME"
+    assert hit.heading_source == "display_key"
+    assert hit.title_status == "fallback"
 
 
-def test_lvcore_search_falls_back_to_main_wordlist_sidecar(tmp_path: Path) -> None:
+def test_lvcore_search_does_not_use_main_wordlist_sidecar_as_native_fallback(tmp_path: Path) -> None:
     honmon_start = 2
     components = [("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00")]
     tmp_path.mkdir(exist_ok=True)
@@ -2018,17 +2027,15 @@ def test_lvcore_search_falls_back_to_main_wordlist_sidecar(tmp_path: Path) -> No
         con.close()
 
     package = open_package(tmp_path)
-    hit = package.search("機械式走査装置", profile=SearchProfile.EXACT).hits[0]
-    entry = package.entry_for_hit(hit)
+    results = package.search("機械式走査装置", profile=SearchProfile.EXACT)
+    sidecar_roles = audit_sidecar_roles(package)
 
-    assert hit.index_component == "sidecar:MAINWL:main"
-    assert hit.heading == "機械式走査装置"
-    assert hit.heading_source == "sidecar_wordlist"
-    assert "mechanical scanner" in package.render_entry_text(entry)
-    assert any(diagnostic.code == "sidecar_wordlist_entry_resolved" for diagnostic in entry.diagnostics())
+    assert results.hits == ()
+    assert sidecar_roles["role_counts"]["body_critical"] == 1
+    assert sidecar_roles["support_status_counts"]["body_resolver"] == 1
 
 
-def test_lvcore_search_falls_back_to_title_surface_form(tmp_path: Path) -> None:
+def test_lvcore_search_does_not_use_title_surface_as_native_fallback(tmp_path: Path) -> None:
     honmon_start = 2
     title_start = 3
     index_start = 4
@@ -2048,15 +2055,12 @@ def test_lvcore_search_falls_back_to_title_surface_form(tmp_path: Path) -> None:
     )
 
     package = open_package(tmp_path)
-    hit = package.search("食べる", profile=SearchProfile.EXACT).hits[0]
+    results = package.search("食べる", profile=SearchProfile.EXACT)
 
-    assert hit.display_key == "たべる"
-    assert hit.heading == "た・べる【食べる】"
-    assert hit.heading_source == "title_surface"
-    assert "body" in package.render_hit_text(hit)
+    assert results.hits == ()
 
 
-def test_lvcore_search_falls_back_to_body_surface_heading(tmp_path: Path) -> None:
+def test_lvcore_search_does_not_use_body_surface_heading_as_native_fallback(tmp_path: Path) -> None:
     honmon_start = 2
     index_start = 4
     first = b"\x1f\x09\x00\x01" + body_text("いへたか・し【家高し】") + b"\x1f\x0a" + body_text("compound") + b"\x1f\x0a"
@@ -2074,12 +2078,9 @@ def test_lvcore_search_falls_back_to_body_surface_heading(tmp_path: Path) -> Non
     )
 
     package = open_package(tmp_path)
-    hit = package.search("高し", profile=SearchProfile.EXACT).hits[0]
+    results = package.search("高し", profile=SearchProfile.EXACT)
 
-    assert hit.display_key == "たか・し【高し】"
-    assert hit.heading == "たか・し【高し】"
-    assert hit.heading_source == "body_surface"
-    assert "body" in package.render_hit_text(hit)
+    assert results.hits == ()
 
 
 def test_lvcore_fast_search_seeks_index_with_raw_key_order(tmp_path: Path) -> None:
@@ -2112,9 +2113,9 @@ def test_lvcore_fast_search_seeks_index_with_raw_key_order(tmp_path: Path) -> No
     second_hit = package.search("いーえぬ", profile=SearchProfile.EXACT).hits[0]
 
     assert hit.display_key == "あーいしゃ"
-    assert hit.heading == "アーイシャ"
+    assert hit.heading == "あーいしゃ"
     assert second_hit.display_key == "いーえぬ"
-    assert second_hit.heading == "イーエヌ"
+    assert second_hit.heading == "いーえぬ"
 
 
 def test_lvcore_fast_exact_search_tries_raw_and_normalized_index_keys(tmp_path: Path) -> None:
@@ -2291,7 +2292,7 @@ def test_lvcore_debug_render_exposes_unknown_control_but_friendly_hides_it() -> 
     document = entry.document()
 
     friendly = render_html(document)
-    debug = render_html(document, profile=HtmlProfile.DEBUG)
+    debug = InspectorRenderer().render_html(document)
 
     assert "visible" in friendly
     assert "unknown:99" not in friendly
@@ -2393,7 +2394,7 @@ def test_lvcore_internal_link_renders_semantic_target_without_raw_payload() -> N
     entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "HONMON.DIC"), "link", decoded.text, decoded.spans)
     document = entry.document()
     html = render_html(document)
-    debug = render_html(document, profile=HtmlProfile.DEBUG)
+    debug = InspectorRenderer().render_html(document)
 
     assert "see also" in html
     assert '<a class="lv-link lv-link-internal" href="lvcore-entry://ref-' in html
@@ -2430,7 +2431,7 @@ def test_lvcore_link_targets_are_typed_and_debuggable() -> None:
     assert link_nodes[2].attrs["link_target"]["end_address"] == {"block": 4, "offset": 40}
 
     friendly = render_html(document)
-    debug = render_html(document, profile=HtmlProfile.DEBUG)
+    debug = InspectorRenderer().render_html(document)
 
     assert "body ref" in friendly and "menu ref" in friendly and "sound ref" in friendly
     assert "000000020010" not in friendly
@@ -2446,7 +2447,7 @@ def test_lvcore_unresolved_link_is_diagnostic_and_friendly_safe() -> None:
     entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, len(raw), "HONMON.DIC"), "link", decoded.text, decoded.spans)
     document = entry.document()
     html = render_html(document)
-    debug = render_html(document, profile=HtmlProfile.DEBUG)
+    debug = InspectorRenderer().render_html(document)
 
     assert "unresolved" in html
     assert "lv-link-unresolved" in html
@@ -2468,7 +2469,7 @@ def test_lvcore_gaiji_document_nodes_and_render_policies() -> None:
     assert "é" in render_html(document, gaiji_policy=GaijiPolicy.BITMAP_PREFERRED)
     assert "lvcore-resource://gaiji-1" in render_html(document, gaiji_policy=GaijiPolicy.BITMAP_PREFERRED)
     assert "lvcore-resource://gaiji-2" in render_html(document, gaiji_policy=GaijiPolicy.BITMAP_ONLY)
-    assert "&lt;hA126&gt;" in render_html(document, profile=HtmlProfile.DEBUG)
+    assert "&lt;hA126&gt;" in InspectorRenderer().render_html(document)
     assert any(diagnostic.code == "unresolved_gaiji" for diagnostic in document.diagnostics)
 
 
@@ -2540,7 +2541,7 @@ def test_lvcore_blank_fullwidth_uni_record_is_formatting_helper_candidate(tmp_pa
     resource = next(item for item in document.resources if item.kind == ResourceKind.GAIJI)
     info = package.resource_info(resource)
     html = render_html(document)
-    debug = render_html(document, profile=HtmlProfile.DEBUG)
+    debug = InspectorRenderer().render_html(document)
     report = validate_package(package, sample_entries=1, sample_search_hits=1)
 
     assert resource.details["display_status"] == "formatting_helper"
@@ -2613,7 +2614,7 @@ def test_lvcore_renderer_entry_backed_gaiji_is_not_global_mapping() -> None:
     assert resource.details["reason"] == "renderer_contextual_required"
     assert not any(diagnostic.code == "unresolved_gaiji" for diagnostic in document.diagnostics)
     assert "A130" not in render_html(document)
-    assert "A130" in render_html(document, profile=HtmlProfile.DEBUG)
+    assert "A130" in InspectorRenderer().render_html(document)
 
 
 def test_lvcore_gaiji_cli_lists_display_readiness(tmp_path: Path) -> None:
@@ -2784,7 +2785,7 @@ def test_lvcore_image_and_audio_media_refs_are_first_class_resources() -> None:
     entry = Entry(Address(2, 0, "HONMON.DIC"), Address(2, 2, "HONMON.DIC"), "media", "", spans)
     document = entry.document()
     html = render_html(document)
-    debug = render_html(document, profile=HtmlProfile.DEBUG)
+    debug = InspectorRenderer().render_html(document)
     text = render_text(document)
 
     assert [resource.kind.value for resource in document.resources] == ["image", "audio"]
@@ -2851,7 +2852,7 @@ def test_lvcore_renderer_profiles_are_distinct_and_hide_or_show_raw_details() ->
     friendly = render_html(document)
     semantic = render_html(document, profile=HtmlProfile.SEMANTIC)
     logovista_like = render_html(document, profile=HtmlProfile.LOGOVISTA_LIKE)
-    debug = render_html(document, profile=HtmlProfile.DEBUG)
+    debug = InspectorRenderer().render_html(document)
 
     for html in (friendly, semantic, logovista_like):
         assert "head &lt;&amp;&gt;" in html
@@ -2940,7 +2941,7 @@ def test_lvcore_unresolved_body_source_placeholder_is_clean() -> None:
     )
 
     friendly = render_html(document)
-    debug = render_html(document, profile=HtmlProfile.DEBUG)
+    debug = InspectorRenderer().render_html(document)
     text = render_text(document)
 
     assert "Entry body is not yet supported" in friendly

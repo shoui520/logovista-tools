@@ -221,7 +221,7 @@
     "media_bytes_available": 10382,
     "pcmdata_ranges_resolved": 139,
     "resolved_gaiji": 57059,
-    "resolved_link": 37631,
+    "resolved_link": 37605,
     "resolved_media": 1263,
     "sidecar_media_resolved": 9119,
     "unresolved_gaiji": 0,
@@ -276,12 +276,12 @@
     "search": 3
   },
   "sidecar_supplement_counts": {
-    "entry_supplements_attached": 29,
+    "entry_supplements_attached": 8,
     "examples_idioms_rows_attached": 0,
     "examples_idioms_rows_seen": 765052,
-    "link_reference_rows_matched": 15,
+    "link_reference_rows_matched": 8,
     "link_reference_rows_seen": 374256,
-    "link_reference_targets_resolved": 15,
+    "link_reference_targets_resolved": 8,
     "sidecar_media_bytes_available": 9119,
     "sidecar_media_mime_counts": {
       "image/bmp": 381,
@@ -292,7 +292,7 @@
     "sidecar_media_rows_seen": 9119,
     "sidecar_search_rows_deferred": 0,
     "sidecar_search_rows_seen": 2211981,
-    "sidecar_search_rows_supported": 2211992
+    "sidecar_search_rows_supported": 2211981
   },
   "sidecar_support_status_counts": {
     "body_resolver": 19,
@@ -1017,7 +1017,7 @@
         "pcmdata_ranges_resolved": 3,
         "pcmdata_ranges_unresolved_by_reason": {},
         "resolved_gaiji": 77,
-        "resolved_link": 22,
+        "resolved_link": 7,
         "resolved_media": 3,
         "sidecar_media_resolved": 884,
         "sidecar_media_unresolved_by_reason": {},
@@ -1077,16 +1077,18 @@
           "link_reference": 1,
           "media_resource": 1
         },
-        "unsupported_role_counts": {},
+        "unsupported_role_counts": {
+          "non_sqlite_or_unknown": 2
+        },
         "unsupported_sidecars": []
       },
       "sidecar_supplements": {
-        "entry_supplements_attached": 15,
+        "entry_supplements_attached": 8,
         "examples_idioms_rows_attached": 0,
         "examples_idioms_rows_seen": 0,
-        "link_reference_rows_matched": 15,
+        "link_reference_rows_matched": 8,
         "link_reference_rows_seen": 40932,
-        "link_reference_targets_resolved": 15,
+        "link_reference_targets_resolved": 8,
         "sidecar_media_bytes_available": 884,
         "sidecar_media_mime_counts": {
           "image/bmp": 381,
@@ -1101,16 +1103,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -1290,16 +1294,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 5,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 5
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 5,
         "heading_source_counts": {
-          "body_heading": 5
+          "display_key": 5
         },
-        "resolved": 5,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 5
+          "fallback": 5
         }
       },
       "unsupported_family": false
@@ -1506,16 +1512,18 @@
       "title_components": 1,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -1743,16 +1751,18 @@
       "title_components": 1,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -1980,16 +1990,18 @@
       "title_components": 1,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -3061,19 +3073,17 @@
       "title_dereference": {
         "attempts": 8,
         "by_reason": {
-          "title_pointer_is_body_pointer": 2
+          "title_pointer_is_body_pointer": 8
         },
         "empty": 0,
         "failed": 0,
-        "fallback": 2,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 6,
-          "display_key": 2
+          "display_key": 8
         },
-        "resolved": 6,
+        "resolved": 0,
         "title_status_counts": {
-          "fallback": 2,
-          "resolved": 6
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -3454,16 +3464,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 5,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 5
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 5,
         "heading_source_counts": {
-          "body_heading": 5
+          "display_key": 5
         },
-        "resolved": 5,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 5
+          "fallback": 5
         }
       },
       "unsupported_family": false
@@ -3637,16 +3649,18 @@
       "title_components": 2,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -3822,16 +3836,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -4007,16 +4023,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -4192,16 +4210,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -4377,16 +4397,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -4571,16 +4593,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -4765,16 +4789,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -4956,16 +4982,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -5147,16 +5175,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -5342,16 +5372,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 7,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 7
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 7,
         "heading_source_counts": {
-          "body_heading": 7
+          "display_key": 7
         },
-        "resolved": 7,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 7
+          "fallback": 7
         }
       },
       "unsupported_family": false
@@ -5533,16 +5565,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -5747,16 +5781,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -6340,16 +6376,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 2,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 2
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 2,
         "heading_source_counts": {
-          "body_heading": 2
+          "display_key": 2
         },
-        "resolved": 2,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 2
+          "fallback": 2
         }
       },
       "unsupported_family": false
@@ -6531,16 +6569,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -7314,16 +7354,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -7495,16 +7537,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -7909,16 +7953,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -9102,16 +9148,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -9296,16 +9344,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -9664,7 +9714,7 @@
         "pcmdata_ranges_resolved": 1,
         "pcmdata_ranges_unresolved_by_reason": {},
         "resolved_gaiji": 130,
-        "resolved_link": 14,
+        "resolved_link": 3,
         "resolved_media": 1,
         "sidecar_media_resolved": 0,
         "sidecar_media_unresolved_by_reason": {},
@@ -9723,7 +9773,7 @@
         "unsupported_sidecars": []
       },
       "sidecar_supplements": {
-        "entry_supplements_attached": 11,
+        "entry_supplements_attached": 0,
         "examples_idioms_rows_attached": 0,
         "examples_idioms_rows_seen": 0,
         "link_reference_rows_matched": 0,
@@ -9735,21 +9785,23 @@
         "sidecar_media_rows_seen": 0,
         "sidecar_search_rows_deferred": 0,
         "sidecar_search_rows_seen": 80179,
-        "sidecar_search_rows_supported": 80190
+        "sidecar_search_rows_supported": 80179
       },
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -9970,16 +10022,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 1,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 1
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 1,
         "heading_source_counts": {
-          "body_heading": 1
+          "display_key": 1
         },
-        "resolved": 1,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 1
+          "fallback": 1
         }
       },
       "unsupported_family": false
@@ -12355,17 +12409,20 @@
       "title_components": 4,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 4
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 4,
         "heading_source_counts": {
-          "body_heading": 4,
+          "display_key": 4,
           "title": 4
         },
-        "resolved": 8,
+        "resolved": 4,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 4,
+          "resolved": 4
         }
       },
       "unsupported_family": false
@@ -12743,16 +12800,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -12965,16 +13024,18 @@
       "title_components": 2,
       "title_dereference": {
         "attempts": 1,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 1
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 1,
         "heading_source_counts": {
-          "body_heading": 1
+          "display_key": 1
         },
-        "resolved": 1,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 1
+          "fallback": 1
         }
       },
       "unsupported_family": false
@@ -13365,16 +13426,18 @@
       "title_components": 5,
       "title_dereference": {
         "attempts": 6,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 6
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 6,
         "heading_source_counts": {
-          "body_heading": 6
+          "display_key": 6
         },
-        "resolved": 6,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 6
+          "fallback": 6
         }
       },
       "unsupported_family": false
@@ -13934,7 +13997,9 @@
           "non_sqlite_or_unknown": 2
         },
         "supported_role_counts": {},
-        "unsupported_role_counts": {},
+        "unsupported_role_counts": {
+          "non_sqlite_or_unknown": 2
+        },
         "unsupported_sidecars": []
       },
       "sidecar_supplements": {
@@ -13955,16 +14020,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -14217,7 +14284,9 @@
         "supported_role_counts": {
           "body_critical": 1
         },
-        "unsupported_role_counts": {},
+        "unsupported_role_counts": {
+          "non_sqlite_or_unknown": 2
+        },
         "unsupported_sidecars": []
       },
       "sidecar_supplements": {
@@ -15078,16 +15147,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -16597,7 +16668,9 @@
           "body_critical": 1,
           "media_resource": 1
         },
-        "unsupported_role_counts": {},
+        "unsupported_role_counts": {
+          "non_sqlite_or_unknown": 2
+        },
         "unsupported_sidecars": []
       },
       "sidecar_supplements": {
@@ -16815,16 +16888,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 2,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 2
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 2,
         "heading_source_counts": {
-          "body_heading": 2
+          "display_key": 2
         },
-        "resolved": 2,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 2
+          "fallback": 2
         }
       },
       "unsupported_family": false
@@ -17416,16 +17491,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -17809,16 +17886,18 @@
       "title_components": 1,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -18993,16 +19072,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 1,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 1
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 1,
         "heading_source_counts": {
-          "body_heading": 1
+          "display_key": 1
         },
-        "resolved": 1,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 1
+          "fallback": 1
         }
       },
       "unsupported_family": false
@@ -19391,16 +19472,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -20970,16 +21053,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 2,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 2
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 2,
         "heading_source_counts": {
-          "body_heading": 2
+          "display_key": 2
         },
-        "resolved": 2,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 2
+          "fallback": 2
         }
       },
       "unsupported_family": false
@@ -21766,16 +21851,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -22396,16 +22483,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -22890,7 +22979,7 @@
         "unsupported_sidecars": []
       },
       "sidecar_supplements": {
-        "entry_supplements_attached": 3,
+        "entry_supplements_attached": 0,
         "examples_idioms_rows_attached": 0,
         "examples_idioms_rows_seen": 396832,
         "link_reference_rows_matched": 0,
@@ -23093,16 +23182,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -24366,16 +24457,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -31148,16 +31241,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 1,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 1
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 1,
         "heading_source_counts": {
-          "body_heading": 1
+          "display_key": 1
         },
-        "resolved": 1,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 1
+          "fallback": 1
         }
       },
       "unsupported_family": false
@@ -32233,7 +32328,9 @@
           "non_sqlite_or_unknown": 2
         },
         "supported_role_counts": {},
-        "unsupported_role_counts": {},
+        "unsupported_role_counts": {
+          "non_sqlite_or_unknown": 2
+        },
         "unsupported_sidecars": []
       },
       "sidecar_supplements": {
@@ -32254,16 +32351,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -32435,7 +32534,9 @@
         "supported_role_counts": {
           "link_reference": 1
         },
-        "unsupported_role_counts": {},
+        "unsupported_role_counts": {
+          "non_sqlite_or_unknown": 2
+        },
         "unsupported_sidecars": []
       },
       "sidecar_supplements": {
@@ -32456,16 +32557,18 @@
       "title_components": 0,
       "title_dereference": {
         "attempts": 8,
-        "by_reason": {},
+        "by_reason": {
+          "title_pointer_is_body_pointer": 8
+        },
         "empty": 0,
         "failed": 0,
-        "fallback": 0,
+        "fallback": 8,
         "heading_source_counts": {
-          "body_heading": 8
+          "display_key": 8
         },
-        "resolved": 8,
+        "resolved": 0,
         "title_status_counts": {
-          "resolved": 8
+          "fallback": 8
         }
       },
       "unsupported_family": false
@@ -32474,20 +32577,19 @@
   "title_dereference_counts": {
     "attempts": 549,
     "by_reason": {
-      "title_pointer_is_body_pointer": 2
+      "title_pointer_is_body_pointer": 317
     },
     "empty": 0,
     "failed": 0,
-    "fallback": 2,
+    "fallback": 317,
     "heading_source_counts": {
-      "body_heading": 315,
-      "display_key": 2,
+      "display_key": 317,
       "title": 232
     },
-    "resolved": 547,
+    "resolved": 232,
     "title_status_counts": {
-      "fallback": 2,
-      "resolved": 547
+      "fallback": 317,
+      "resolved": 232
     }
   },
   "top_blockers": [
@@ -32573,6 +32675,7 @@
   },
   "unsupported_sidecar_role_counts": {
     "ancillary": 4,
-    "kanji_support": 3
+    "kanji_support": 3,
+    "non_sqlite_or_unknown": 12
   }
 }

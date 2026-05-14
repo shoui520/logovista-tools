@@ -97,8 +97,6 @@ class IndexParse:
     leaf_pages: int
     internal_pages: int
     unknown_leaf_bytes: int
-    unsupported_component_type: int | None = None
-    unsupported_leaf_pages: int = 0
     malformed_leaf_rows: int = 0
     physical_tail_bytes: int = 0
     physical_tail_nonzero_bytes: int = 0
@@ -561,7 +559,6 @@ def parse_index(data: bytes, start_block: int, component_type: int, gaiji: dict[
     leaf_pages = 0
     internal_pages = 0
     unknown = 0
-    unsupported_leaf_pages = 0
     malformed_leaf_rows = 0
     physical_tail_bytes = 0
     physical_tail_nonzero_bytes = 0
@@ -602,7 +599,6 @@ def parse_index(data: bytes, start_block: int, component_type: int, gaiji: dict[
                 parsed = parse_tagged_leaf(page, page_index, gaiji, component_type=component_type, context=current_context)
                 current_context = parsed.context
             else:
-                unsupported_leaf_pages += 1
                 parsed = LeafParse(
                     rows=[],
                     unknown_leaf_bytes=0,
@@ -626,8 +622,9 @@ def parse_index(data: bytes, start_block: int, component_type: int, gaiji: dict[
         else:
             internal_pages += 1
             internal.extend(parse_internal_page(page, page_index, gaiji))
-    unsupported_component_type = component_type if component_type not in SUPPORTED_INDEX_TYPES and (leaf_pages or internal_pages or data.strip(b"\x00")) else None
-    if unsupported_component_type is not None and not any(diagnostic.code == "unsupported_component_type" for diagnostic in diagnostics):
+    if component_type not in SUPPORTED_INDEX_TYPES and (leaf_pages or internal_pages or data.strip(b"\x00")) and not any(
+        diagnostic.code == "unsupported_component_type" for diagnostic in diagnostics
+    ):
         diagnostics.append(
             IndexDiagnostic(
                 code="unsupported_component_type",
@@ -645,8 +642,6 @@ def parse_index(data: bytes, start_block: int, component_type: int, gaiji: dict[
         leaf_pages=leaf_pages,
         internal_pages=internal_pages,
         unknown_leaf_bytes=unknown,
-        unsupported_component_type=unsupported_component_type,
-        unsupported_leaf_pages=unsupported_leaf_pages,
         malformed_leaf_rows=malformed_leaf_rows,
         physical_tail_bytes=physical_tail_bytes,
         physical_tail_nonzero_bytes=physical_tail_nonzero_bytes,

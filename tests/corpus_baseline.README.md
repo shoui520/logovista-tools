@@ -10,6 +10,22 @@ This baseline is the Phase 0 audit-extraction baseline for
 - Corpus shape: 170 package directories, 161 detected SSED packages, 9 unknown
   resource/helper directories
 
+Latest intentional update:
+
+- Phase: Phase 1 reader-path cuts
+- Native title/body-heading heuristic: body bytes are no longer promoted to
+  resolved search headings. Title pointers that point at HONMON are now counted
+  as `title_pointer_is_body_pointer` fallback rows, with the native index
+  display key retained as the app-facing heading.
+- Sidecar supplements: reader-attached supplement blocks were removed from
+  `EntryDocument`; sidecar roles, address matches, and row counts are now audit
+  counters only. This intentionally lowers reader-rendered link counts that
+  previously came only from synthetic sidecar supplement blocks.
+- Sidecar candidates: non-SQLite sidecar candidates are now counted by the
+  audit harness rather than reader telemetry, so `non_sqlite_or_unknown`
+  appears under unsupported role counts as a non-compatibility-significant
+  category.
+
 Capture command:
 
 ```bash
