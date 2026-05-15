@@ -17,7 +17,7 @@ LVCORE_AUDIT_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-audit"
 sys.path.insert(0, str(LVCORE_SRC))
 sys.path.insert(0, str(LVCORE_AUDIT_SRC))
 
-from lvcore import Address, ColscrLocator, InspectorRenderer, Diagnostic, DiagnosticArea, Location, PackageFamily, PcmRangeLocator, SearchHit, SearchProfile, SearchResults, Severity, SidecarBlobLocator, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
+from lvcore import Address, ColscrLocator, InspectorRenderer, Diagnostic, DiagnosticArea, IndexRow, Location, PackageFamily, PcmRangeLocator, SearchHit, SearchProfile, SearchResults, Severity, SidecarBlobLocator, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
 from lvcore.body_source import SidecarRole, classify_sqlite_sidecar_role, quote_sql_identifier, sqlite_columns  # noqa: E402
 from lvcore.crypto import decrypt_logofont, decrypt_logofont_file_to_path, logofont_key_iv  # noqa: E402
 from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, LinkTargetKind, ResourceKind, ResourceRef, ResourceStatus, build_entry_document  # noqa: E402
@@ -1109,6 +1109,26 @@ def test_lvcore_search_models_and_native_profiles(tmp_path: Path) -> None:
 
     native = package.search("alp", profile=SearchProfile.NATIVE)
     assert [hit.heading for hit in native.hits] == ["alpha", "alpine"]
+
+
+def test_lvcore_exact_search_does_not_range_stop_before_later_candidate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+    late_nonmatch = IndexRow("omega", Address(2, 0, "HONMON.DIC"), Address(3, 0, "FHTITLE.DIC"), page=39, row=0)
+    exact_match = IndexRow("alpha", Address(2, 0, "HONMON.DIC"), Address(3, 0, "FHTITLE.DIC"), page=3, row=0)
+
+    def candidate_rows(_component, *, query=None, profile=None, budget=None, max_bytes=None, cancel=None):
+        assert query == "alpha"
+        assert profile == SearchProfile.EXACT
+        yield late_nonmatch
+        yield exact_match
+
+    monkeypatch.setattr(package._index_store, "_iter_index_rows_fast", candidate_rows)
+
+    result = package.search("alpha", profile=SearchProfile.EXACT)
+
+    assert [hit.matched_key for hit in result.hits] == ["alpha"]
+    assert result.hits[0].heading == "alpha"
 
 
 def test_lvcore_backward_only_index_supports_exact_and_suffix_search(tmp_path: Path) -> None:

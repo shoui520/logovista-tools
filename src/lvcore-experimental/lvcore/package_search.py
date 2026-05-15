@@ -699,7 +699,7 @@ class PackageSearchMixin:
                 )
                 if matched is not None:
                     yield component.name, component, row, matched
-                elif self._search_range_passed(
+                elif profile != SearchProfile.EXACT and self._search_range_passed(
                     stored_normalized=stored_normalized,
                     natural_normalized=natural_normalized,
                     normalized_query=normalized_query,

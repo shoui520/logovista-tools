@@ -11,7 +11,7 @@
     "hard_ssed_failures": 0,
     "ignored_package_integrity_residuals": [],
     "named_residuals": [],
-    "native_search_misses": 32,
+    "native_search_misses": 29,
     "partially_renderable": 16,
     "renderable": 145,
     "sample_search_skipped_empty_query": 2,
@@ -20,27 +20,33 @@
     "top_blockers": [
       {
         "code": "private_renderer_directive",
-        "count": 12414,
+        "count": 12422,
         "scope": "diagnostic",
         "subject": "private_renderer_directive"
       },
       {
         "code": "sample_search_miss",
-        "count": 32,
+        "count": 29,
         "scope": "diagnostic",
         "subject": "sample_search_miss"
+      },
+      {
+        "code": "scan_truncated",
+        "count": 29,
+        "scope": "diagnostic",
+        "subject": "scan_truncated"
+      },
+      {
+        "code": "entry_range_fallback",
+        "count": 10,
+        "scope": "diagnostic",
+        "subject": "entry_range_fallback"
       },
       {
         "code": "family_unknown",
         "count": 9,
         "scope": "package_family",
         "subject": "unknown"
-      },
-      {
-        "code": "entry_range_fallback",
-        "count": 8,
-        "scope": "diagnostic",
-        "subject": "entry_range_fallback"
       },
       {
         "code": "unsupported_sidecar_schema",
@@ -53,12 +59,6 @@
         "count": 2,
         "scope": "diagnostic",
         "subject": "sample_search_skipped_empty_query"
-      },
-      {
-        "code": "scan_truncated",
-        "count": 2,
-        "scope": "diagnostic",
-        "subject": "scan_truncated"
       },
       {
         "code": "sidecar_body_resolved",
@@ -87,25 +87,25 @@
   "dense_honmon_count": 2,
   "diagnostics": {
     "by_area": {
-      "body": 10,
-      "index": 36,
-      "opcode": 12414,
+      "body": 12,
+      "index": 60,
+      "opcode": 12422,
       "validation": 7
     },
     "by_code": {
-      "entry_range_fallback": 8,
-      "private_renderer_directive": 12414,
-      "sample_search_miss": 32,
+      "entry_range_fallback": 10,
+      "private_renderer_directive": 12422,
+      "sample_search_miss": 29,
       "sample_search_skipped_empty_query": 2,
-      "scan_truncated": 2,
+      "scan_truncated": 29,
       "sidecar_body_resolved": 1,
       "unclosed_style": 1,
       "unsupported_sidecar_schema": 7
     },
     "by_severity": {
       "error": 0,
-      "info": 12424,
-      "warning": 43
+      "info": 12432,
+      "warning": 69
     }
   },
   "failure_count": 0,
@@ -141,31 +141,31 @@
   },
   "media_resolution_counts": {
     "gaiji_by_source": {
-      "ga16_grid": 580,
+      "ga16_grid": 588,
       "ga16_record_order": 2095,
-      "image": 4678,
+      "image": 5002,
       "raw_fullwidth": 27,
-      "uni": 1384
+      "uni": 1385
     },
     "gaiji_by_status": {
-      "bitmap_backed": 2611,
+      "bitmap_backed": 2619,
       "formatting_helper": 97,
-      "image_backed": 4678,
-      "unicode_mapped": 1378
+      "image_backed": 5002,
+      "unicode_mapped": 1379
     },
     "media_kind_counts": {
       "audio": 9,
-      "media": 20
+      "media": 50
     },
     "media_mime_counts": {
       "audio/mpeg": 6,
       "audio/x-logovista-wave-chunks": 3,
       "image/bmp": 400,
-      "image/jpeg": 8699,
+      "image/jpeg": 8729,
       "image/png": 40
     },
     "media_store_kind_counts": {
-      "colscr": 20,
+      "colscr": 50,
       "pcmdata": 9,
       "sidecar_media": 9119
     }
@@ -176,9 +176,9 @@
     "sample_entries_checked": 141,
     "sample_entries_rendered": 141,
     "sample_index_rows_checked": 105,
-    "search_hits_dereferenced": 71,
-    "search_hits_rendered_html": 71,
-    "search_hits_rendered_text": 71
+    "search_hits_dereferenced": 74,
+    "search_hits_rendered_html": 74,
+    "search_hits_rendered_text": 74
   },
   "render_support_counts": {
     "partially_renderable": 16,
@@ -190,11 +190,11 @@
     "gaiji": {
       "blank_bitmap_formatting_helper": 64,
       "fullwidth_formatting_helper_candidate": 33,
-      "image_asset": 4678,
-      "jis_grid_ga16": 580,
+      "image_asset": 5002,
+      "jis_grid_ga16": 588,
       "uni_record_order_ga16": 2031,
       "unicode_fallback_mapping": 1,
-      "unicode_mapping": 1377
+      "unicode_mapping": 1378
     },
     "gaiji_resource_bytes_unavailable": {},
     "media_bytes_unavailable": {},
@@ -205,21 +205,21 @@
     "unresolved_media": {}
   },
   "resource_resolution_counts": {
-    "colscr_records_resolved": 20,
-    "gaiji_bitmap_backed": 2611,
+    "colscr_records_resolved": 50,
+    "gaiji_bitmap_backed": 2619,
     "gaiji_display_unresolved": 0,
     "gaiji_formatting_helper": 97,
-    "gaiji_image_backed": 4678,
-    "gaiji_occurrences": 8764,
+    "gaiji_image_backed": 5002,
+    "gaiji_occurrences": 9097,
     "gaiji_renderer_entry_backed": 0,
-    "gaiji_resource_bytes_available": 8731,
+    "gaiji_resource_bytes_available": 9064,
     "gaiji_search_fallback_missing": 0,
-    "gaiji_unicode_mapped": 1378,
-    "media_bytes_available": 9148,
+    "gaiji_unicode_mapped": 1379,
+    "media_bytes_available": 9178,
     "pcmdata_ranges_resolved": 9,
-    "resolved_gaiji": 8764,
-    "resolved_link": 8925,
-    "resolved_media": 29,
+    "resolved_gaiji": 9097,
+    "resolved_link": 9340,
+    "resolved_media": 59,
     "sidecar_media_resolved": 9119,
     "unresolved_gaiji": 0,
     "unresolved_link": 0,
@@ -236,7 +236,7 @@
   "schema": "lvcore.audit.corpus.v1",
   "sidecar_backed_count": 16,
   "sidecar_reference_counts": {
-    "addresses_checked": 198,
+    "addresses_checked": 201,
     "by_role": {
       "kanji_support": 1,
       "link_reference": 1,
@@ -1311,19 +1311,20 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1,
+          "index": 2,
           "opcode": 62,
           "validation": 1
         },
         "by_code": {
           "private_renderer_directive": 62,
           "sample_search_miss": 1,
+          "scan_truncated": 1,
           "unsupported_sidecar_schema": 1
         },
         "by_severity": {
           "error": 0,
           "info": 63,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -1549,19 +1550,20 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1,
+          "index": 2,
           "opcode": 614,
           "validation": 1
         },
         "by_code": {
           "private_renderer_directive": 614,
           "sample_search_miss": 1,
+          "scan_truncated": 1,
           "unsupported_sidecar_schema": 1
         },
         "by_severity": {
           "error": 0,
           "info": 615,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -3451,15 +3453,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -6538,17 +6541,18 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1,
+          "index": 2,
           "opcode": 2
         },
         "by_code": {
           "private_renderer_directive": 2,
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 2,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -8514,17 +8518,18 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1,
+          "index": 2,
           "opcode": 2
         },
         "by_code": {
           "private_renderer_directive": 2,
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 2,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -10127,20 +10132,18 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "opcode": 8
         },
         "by_code": {
-          "sample_search_miss": 1
+          "private_renderer_directive": 8
         },
         "by_severity": {
           "error": 0,
-          "info": 0,
-          "warning": 1
+          "info": 8,
+          "warning": 0
         },
         "entry_errors": [],
-        "search_errors": [
-          "no hit for sampled index key on page 1 row 2"
-        ]
+        "search_errors": []
       },
       "gaiji": {
         "ga16_resources": 2,
@@ -10186,18 +10189,24 @@
         "colscr_records_malformed_by_reason": {},
         "colscr_records_resolved": 0,
         "gaiji_bitmap_backed": 0,
-        "gaiji_by_reason": {},
-        "gaiji_by_source": {},
-        "gaiji_by_status": {},
+        "gaiji_by_reason": {
+          "unicode_mapping": 1
+        },
+        "gaiji_by_source": {
+          "uni": 1
+        },
+        "gaiji_by_status": {
+          "unicode_mapped": 1
+        },
         "gaiji_display_unresolved": 0,
         "gaiji_formatting_helper": 0,
         "gaiji_image_backed": 0,
-        "gaiji_occurrences": 0,
+        "gaiji_occurrences": 1,
         "gaiji_renderer_entry_backed": 0,
-        "gaiji_resource_bytes_available": 0,
+        "gaiji_resource_bytes_available": 1,
         "gaiji_resource_bytes_unavailable_by_reason": {},
         "gaiji_search_fallback_missing": 0,
-        "gaiji_unicode_mapped": 0,
+        "gaiji_unicode_mapped": 1,
         "media_bytes_available": 0,
         "media_bytes_unavailable_by_reason": {},
         "media_kind_counts": {},
@@ -10205,8 +10214,8 @@
         "media_store_kind_counts": {},
         "pcmdata_ranges_resolved": 0,
         "pcmdata_ranges_unresolved_by_reason": {},
-        "resolved_gaiji": 0,
-        "resolved_link": 0,
+        "resolved_gaiji": 1,
+        "resolved_link": 5,
         "resolved_media": 0,
         "sidecar_media_resolved": 0,
         "sidecar_media_unresolved_by_reason": {},
@@ -10225,11 +10234,11 @@
         "sample_entries": 1,
         "sample_search_hits": 1
       },
-      "sample_search_hits_dereferenced": 0,
-      "sample_search_hits_rendered_html": 0,
-      "sample_search_hits_rendered_text": 0,
+      "sample_search_hits_dereferenced": 1,
+      "sample_search_hits_rendered_html": 1,
+      "sample_search_hits_rendered_text": 1,
       "sidecar_references": {
-        "addresses_checked": 0,
+        "addresses_checked": 1,
         "by_role": {},
         "by_status": {},
         "by_table": {},
@@ -10270,14 +10279,18 @@
       },
       "title_components": 4,
       "title_dereference": {
-        "attempts": 0,
+        "attempts": 1,
         "by_reason": {},
         "empty": 0,
         "failed": 0,
         "fallback": 0,
-        "heading_source_counts": {},
-        "resolved": 0,
-        "title_status_counts": {}
+        "heading_source_counts": {
+          "title": 1
+        },
+        "resolved": 1,
+        "title_status_counts": {
+          "resolved": 1
+        }
       },
       "unsupported_family": false
     },
@@ -10710,10 +10723,10 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "body": 1
         },
         "by_code": {
-          "sample_search_miss": 1
+          "entry_range_fallback": 1
         },
         "by_severity": {
           "error": 0,
@@ -10721,9 +10734,7 @@
           "warning": 1
         },
         "entry_errors": [],
-        "search_errors": [
-          "no hit for sampled index key on page 6 row 2"
-        ]
+        "search_errors": []
       },
       "gaiji": {
         "ga16_resources": 2,
@@ -10768,30 +10779,42 @@
       "path": "<_DCT_HKDKSR14>",
       "resource_resolution": {
         "colscr_records_malformed_by_reason": {},
-        "colscr_records_resolved": 0,
+        "colscr_records_resolved": 14,
         "gaiji_bitmap_backed": 0,
-        "gaiji_by_reason": {},
-        "gaiji_by_source": {},
-        "gaiji_by_status": {},
+        "gaiji_by_reason": {
+          "image_asset": 158
+        },
+        "gaiji_by_source": {
+          "image": 158
+        },
+        "gaiji_by_status": {
+          "image_backed": 158
+        },
         "gaiji_display_unresolved": 0,
         "gaiji_formatting_helper": 0,
-        "gaiji_image_backed": 0,
-        "gaiji_occurrences": 0,
+        "gaiji_image_backed": 158,
+        "gaiji_occurrences": 158,
         "gaiji_renderer_entry_backed": 0,
-        "gaiji_resource_bytes_available": 0,
+        "gaiji_resource_bytes_available": 158,
         "gaiji_resource_bytes_unavailable_by_reason": {},
         "gaiji_search_fallback_missing": 0,
         "gaiji_unicode_mapped": 0,
-        "media_bytes_available": 0,
+        "media_bytes_available": 14,
         "media_bytes_unavailable_by_reason": {},
-        "media_kind_counts": {},
-        "media_mime_counts": {},
-        "media_store_kind_counts": {},
+        "media_kind_counts": {
+          "media": 14
+        },
+        "media_mime_counts": {
+          "image/jpeg": 14
+        },
+        "media_store_kind_counts": {
+          "colscr": 14
+        },
         "pcmdata_ranges_resolved": 0,
         "pcmdata_ranges_unresolved_by_reason": {},
-        "resolved_gaiji": 0,
-        "resolved_link": 2,
-        "resolved_media": 0,
+        "resolved_gaiji": 158,
+        "resolved_link": 214,
+        "resolved_media": 14,
         "sidecar_media_resolved": 0,
         "sidecar_media_unresolved_by_reason": {},
         "unresolved_gaiji": 0,
@@ -10809,11 +10832,11 @@
         "sample_entries": 1,
         "sample_search_hits": 1
       },
-      "sample_search_hits_dereferenced": 0,
-      "sample_search_hits_rendered_html": 0,
-      "sample_search_hits_rendered_text": 0,
+      "sample_search_hits_dereferenced": 1,
+      "sample_search_hits_rendered_html": 1,
+      "sample_search_hits_rendered_text": 1,
       "sidecar_references": {
-        "addresses_checked": 1,
+        "addresses_checked": 2,
         "by_role": {},
         "by_status": {},
         "by_table": {},
@@ -10854,14 +10877,18 @@
       },
       "title_components": 5,
       "title_dereference": {
-        "attempts": 0,
+        "attempts": 1,
         "by_reason": {},
         "empty": 0,
         "failed": 0,
         "fallback": 0,
-        "heading_source_counts": {},
-        "resolved": 0,
-        "title_status_counts": {}
+        "heading_source_counts": {
+          "title": 1
+        },
+        "resolved": 1,
+        "title_status_counts": {
+          "resolved": 1
+        }
       },
       "unsupported_family": false
     },
@@ -10897,10 +10924,10 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "body": 1
         },
         "by_code": {
-          "sample_search_miss": 1
+          "entry_range_fallback": 1
         },
         "by_severity": {
           "error": 0,
@@ -10908,9 +10935,7 @@
           "warning": 1
         },
         "entry_errors": [],
-        "search_errors": [
-          "no hit for sampled index key on page 6 row 2"
-        ]
+        "search_errors": []
       },
       "gaiji": {
         "ga16_resources": 2,
@@ -10955,30 +10980,42 @@
       "path": "<_DCT_HKDKSR29>",
       "resource_resolution": {
         "colscr_records_malformed_by_reason": {},
-        "colscr_records_resolved": 0,
+        "colscr_records_resolved": 15,
         "gaiji_bitmap_backed": 0,
-        "gaiji_by_reason": {},
-        "gaiji_by_source": {},
-        "gaiji_by_status": {},
+        "gaiji_by_reason": {
+          "image_asset": 161
+        },
+        "gaiji_by_source": {
+          "image": 161
+        },
+        "gaiji_by_status": {
+          "image_backed": 161
+        },
         "gaiji_display_unresolved": 0,
         "gaiji_formatting_helper": 0,
-        "gaiji_image_backed": 0,
-        "gaiji_occurrences": 0,
+        "gaiji_image_backed": 161,
+        "gaiji_occurrences": 161,
         "gaiji_renderer_entry_backed": 0,
-        "gaiji_resource_bytes_available": 0,
+        "gaiji_resource_bytes_available": 161,
         "gaiji_resource_bytes_unavailable_by_reason": {},
         "gaiji_search_fallback_missing": 0,
         "gaiji_unicode_mapped": 0,
-        "media_bytes_available": 0,
+        "media_bytes_available": 15,
         "media_bytes_unavailable_by_reason": {},
-        "media_kind_counts": {},
-        "media_mime_counts": {},
-        "media_store_kind_counts": {},
+        "media_kind_counts": {
+          "media": 15
+        },
+        "media_mime_counts": {
+          "image/jpeg": 15
+        },
+        "media_store_kind_counts": {
+          "colscr": 15
+        },
         "pcmdata_ranges_resolved": 0,
         "pcmdata_ranges_unresolved_by_reason": {},
-        "resolved_gaiji": 0,
-        "resolved_link": 2,
-        "resolved_media": 0,
+        "resolved_gaiji": 161,
+        "resolved_link": 199,
+        "resolved_media": 15,
         "sidecar_media_resolved": 0,
         "sidecar_media_unresolved_by_reason": {},
         "unresolved_gaiji": 0,
@@ -10996,11 +11033,11 @@
         "sample_entries": 1,
         "sample_search_hits": 1
       },
-      "sample_search_hits_dereferenced": 0,
-      "sample_search_hits_rendered_html": 0,
-      "sample_search_hits_rendered_text": 0,
+      "sample_search_hits_dereferenced": 1,
+      "sample_search_hits_rendered_html": 1,
+      "sample_search_hits_rendered_text": 1,
       "sidecar_references": {
-        "addresses_checked": 1,
+        "addresses_checked": 2,
         "by_role": {},
         "by_status": {},
         "by_table": {},
@@ -11041,14 +11078,18 @@
       },
       "title_components": 5,
       "title_dereference": {
-        "attempts": 0,
+        "attempts": 1,
         "by_reason": {},
         "empty": 0,
         "failed": 0,
         "fallback": 0,
-        "heading_source_counts": {},
-        "resolved": 0,
-        "title_status_counts": {}
+        "heading_source_counts": {
+          "title": 1
+        },
+        "resolved": 1,
+        "title_status_counts": {
+          "resolved": 1
+        }
       },
       "unsupported_family": false
     },
@@ -11084,22 +11125,18 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1,
           "opcode": 2
         },
         "by_code": {
-          "private_renderer_directive": 2,
-          "sample_search_miss": 1
+          "private_renderer_directive": 2
         },
         "by_severity": {
           "error": 0,
           "info": 2,
-          "warning": 1
+          "warning": 0
         },
         "entry_errors": [],
-        "search_errors": [
-          "no hit for sampled index key on page 6 row 2"
-        ]
+        "search_errors": []
       },
       "gaiji": {
         "ga16_resources": 2,
@@ -11144,30 +11181,42 @@
       "path": "<_DCT_HKDKSR30>",
       "resource_resolution": {
         "colscr_records_malformed_by_reason": {},
-        "colscr_records_resolved": 0,
+        "colscr_records_resolved": 1,
         "gaiji_bitmap_backed": 0,
-        "gaiji_by_reason": {},
-        "gaiji_by_source": {},
-        "gaiji_by_status": {},
+        "gaiji_by_reason": {
+          "image_asset": 6
+        },
+        "gaiji_by_source": {
+          "image": 6
+        },
+        "gaiji_by_status": {
+          "image_backed": 6
+        },
         "gaiji_display_unresolved": 0,
         "gaiji_formatting_helper": 0,
-        "gaiji_image_backed": 0,
-        "gaiji_occurrences": 0,
+        "gaiji_image_backed": 6,
+        "gaiji_occurrences": 6,
         "gaiji_renderer_entry_backed": 0,
-        "gaiji_resource_bytes_available": 0,
+        "gaiji_resource_bytes_available": 6,
         "gaiji_resource_bytes_unavailable_by_reason": {},
         "gaiji_search_fallback_missing": 0,
         "gaiji_unicode_mapped": 0,
-        "media_bytes_available": 0,
+        "media_bytes_available": 1,
         "media_bytes_unavailable_by_reason": {},
-        "media_kind_counts": {},
-        "media_mime_counts": {},
-        "media_store_kind_counts": {},
+        "media_kind_counts": {
+          "media": 1
+        },
+        "media_mime_counts": {
+          "image/jpeg": 1
+        },
+        "media_store_kind_counts": {
+          "colscr": 1
+        },
         "pcmdata_ranges_resolved": 0,
         "pcmdata_ranges_unresolved_by_reason": {},
-        "resolved_gaiji": 0,
-        "resolved_link": 2,
-        "resolved_media": 0,
+        "resolved_gaiji": 6,
+        "resolved_link": 7,
+        "resolved_media": 1,
         "sidecar_media_resolved": 0,
         "sidecar_media_unresolved_by_reason": {},
         "unresolved_gaiji": 0,
@@ -11185,11 +11234,11 @@
         "sample_entries": 1,
         "sample_search_hits": 1
       },
-      "sample_search_hits_dereferenced": 0,
-      "sample_search_hits_rendered_html": 0,
-      "sample_search_hits_rendered_text": 0,
+      "sample_search_hits_dereferenced": 1,
+      "sample_search_hits_rendered_html": 1,
+      "sample_search_hits_rendered_text": 1,
       "sidecar_references": {
-        "addresses_checked": 1,
+        "addresses_checked": 2,
         "by_role": {},
         "by_status": {},
         "by_table": {},
@@ -11230,14 +11279,18 @@
       },
       "title_components": 5,
       "title_dereference": {
-        "attempts": 0,
+        "attempts": 1,
         "by_reason": {},
         "empty": 0,
         "failed": 0,
         "fallback": 0,
-        "heading_source_counts": {},
-        "resolved": 0,
-        "title_status_counts": {}
+        "heading_source_counts": {
+          "title": 1
+        },
+        "resolved": 1,
+        "title_status_counts": {
+          "resolved": 1
+        }
       },
       "unsupported_family": false
     },
@@ -11463,15 +11516,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -11835,15 +11889,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -12799,15 +12854,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -13875,15 +13931,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -14912,21 +14969,15 @@
       },
       "deferred_family": false,
       "diagnostics": {
-        "by_area": {
-          "index": 1
-        },
-        "by_code": {
-          "sample_search_miss": 1
-        },
+        "by_area": {},
+        "by_code": {},
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 0
         },
         "entry_errors": [],
-        "search_errors": [
-          "no hit for sampled index key on page 1 row 1"
-        ]
+        "search_errors": []
       },
       "gaiji": {
         "ga16_resources": 1,
@@ -14968,22 +15019,22 @@
       "resource_resolution": {
         "colscr_records_malformed_by_reason": {},
         "colscr_records_resolved": 0,
-        "gaiji_bitmap_backed": 6,
+        "gaiji_bitmap_backed": 14,
         "gaiji_by_reason": {
-          "jis_grid_ga16": 6
+          "jis_grid_ga16": 14
         },
         "gaiji_by_source": {
-          "ga16_grid": 6
+          "ga16_grid": 14
         },
         "gaiji_by_status": {
-          "bitmap_backed": 6
+          "bitmap_backed": 14
         },
         "gaiji_display_unresolved": 0,
         "gaiji_formatting_helper": 0,
         "gaiji_image_backed": 0,
-        "gaiji_occurrences": 6,
+        "gaiji_occurrences": 14,
         "gaiji_renderer_entry_backed": 0,
-        "gaiji_resource_bytes_available": 6,
+        "gaiji_resource_bytes_available": 14,
         "gaiji_resource_bytes_unavailable_by_reason": {},
         "gaiji_search_fallback_missing": 0,
         "gaiji_unicode_mapped": 0,
@@ -14994,7 +15045,7 @@
         "media_store_kind_counts": {},
         "pcmdata_ranges_resolved": 0,
         "pcmdata_ranges_unresolved_by_reason": {},
-        "resolved_gaiji": 6,
+        "resolved_gaiji": 14,
         "resolved_link": 0,
         "resolved_media": 0,
         "sidecar_media_resolved": 0,
@@ -15014,11 +15065,11 @@
         "sample_entries": 1,
         "sample_search_hits": 1
       },
-      "sample_search_hits_dereferenced": 0,
-      "sample_search_hits_rendered_html": 0,
-      "sample_search_hits_rendered_text": 0,
+      "sample_search_hits_dereferenced": 1,
+      "sample_search_hits_rendered_html": 1,
+      "sample_search_hits_rendered_text": 1,
       "sidecar_references": {
-        "addresses_checked": 1,
+        "addresses_checked": 2,
         "by_role": {},
         "by_status": {},
         "by_table": {},
@@ -15059,14 +15110,18 @@
       },
       "title_components": 1,
       "title_dereference": {
-        "attempts": 0,
+        "attempts": 1,
         "by_reason": {},
         "empty": 0,
         "failed": 0,
         "fallback": 0,
-        "heading_source_counts": {},
-        "resolved": 0,
-        "title_status_counts": {}
+        "heading_source_counts": {
+          "title": 1
+        },
+        "resolved": 1,
+        "title_status_counts": {
+          "resolved": 1
+        }
       },
       "unsupported_family": false
     },
@@ -15102,15 +15157,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -15295,15 +15351,22 @@
       },
       "deferred_family": false,
       "diagnostics": {
-        "by_area": {},
-        "by_code": {},
+        "by_area": {
+          "index": 2
+        },
+        "by_code": {
+          "sample_search_miss": 1,
+          "scan_truncated": 1
+        },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 0
+          "warning": 2
         },
         "entry_errors": [],
-        "search_errors": []
+        "search_errors": [
+          "no hit for sampled index key on page 13 row 1"
+        ]
       },
       "gaiji": {
         "ga16_resources": 2,
@@ -15349,20 +15412,20 @@
         "colscr_records_resolved": 0,
         "gaiji_bitmap_backed": 0,
         "gaiji_by_reason": {
-          "image_asset": 2
+          "image_asset": 1
         },
         "gaiji_by_source": {
-          "image": 2
+          "image": 1
         },
         "gaiji_by_status": {
-          "image_backed": 2
+          "image_backed": 1
         },
         "gaiji_display_unresolved": 0,
         "gaiji_formatting_helper": 0,
-        "gaiji_image_backed": 2,
-        "gaiji_occurrences": 2,
+        "gaiji_image_backed": 1,
+        "gaiji_occurrences": 1,
         "gaiji_renderer_entry_backed": 0,
-        "gaiji_resource_bytes_available": 2,
+        "gaiji_resource_bytes_available": 1,
         "gaiji_resource_bytes_unavailable_by_reason": {},
         "gaiji_search_fallback_missing": 0,
         "gaiji_unicode_mapped": 0,
@@ -15373,8 +15436,8 @@
         "media_store_kind_counts": {},
         "pcmdata_ranges_resolved": 0,
         "pcmdata_ranges_unresolved_by_reason": {},
-        "resolved_gaiji": 2,
-        "resolved_link": 8,
+        "resolved_gaiji": 1,
+        "resolved_link": 4,
         "resolved_media": 0,
         "sidecar_media_resolved": 0,
         "sidecar_media_unresolved_by_reason": {},
@@ -15393,11 +15456,11 @@
         "sample_entries": 1,
         "sample_search_hits": 1
       },
-      "sample_search_hits_dereferenced": 1,
-      "sample_search_hits_rendered_html": 1,
-      "sample_search_hits_rendered_text": 1,
+      "sample_search_hits_dereferenced": 0,
+      "sample_search_hits_rendered_html": 0,
+      "sample_search_hits_rendered_text": 0,
       "sidecar_references": {
-        "addresses_checked": 2,
+        "addresses_checked": 1,
         "by_role": {},
         "by_status": {},
         "by_table": {},
@@ -15438,18 +15501,14 @@
       },
       "title_components": 3,
       "title_dereference": {
-        "attempts": 1,
+        "attempts": 0,
         "by_reason": {},
         "empty": 0,
         "failed": 0,
         "fallback": 0,
-        "heading_source_counts": {
-          "title": 1
-        },
-        "resolved": 1,
-        "title_status_counts": {
-          "resolved": 1
-        }
+        "heading_source_counts": {},
+        "resolved": 0,
+        "title_status_counts": {}
       },
       "unsupported_family": false
     },
@@ -15485,15 +15544,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -16209,15 +16269,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -16800,15 +16861,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -17208,15 +17270,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -17973,15 +18036,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -19287,15 +19351,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -19471,15 +19536,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -19655,15 +19721,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -20263,15 +20330,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -20638,15 +20706,22 @@
       },
       "deferred_family": false,
       "diagnostics": {
-        "by_area": {},
-        "by_code": {},
+        "by_area": {
+          "index": 2
+        },
+        "by_code": {
+          "sample_search_miss": 1,
+          "scan_truncated": 1
+        },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 0
+          "warning": 2
         },
         "entry_errors": [],
-        "search_errors": []
+        "search_errors": [
+          "no hit for sampled index key on page 24 row 1"
+        ]
       },
       "gaiji": {
         "ga16_resources": 2,
@@ -20731,11 +20806,11 @@
         "sample_entries": 1,
         "sample_search_hits": 1
       },
-      "sample_search_hits_dereferenced": 1,
-      "sample_search_hits_rendered_html": 1,
-      "sample_search_hits_rendered_text": 1,
+      "sample_search_hits_dereferenced": 0,
+      "sample_search_hits_rendered_html": 0,
+      "sample_search_hits_rendered_text": 0,
       "sidecar_references": {
-        "addresses_checked": 2,
+        "addresses_checked": 1,
         "by_role": {},
         "by_status": {},
         "by_table": {},
@@ -20776,18 +20851,14 @@
       },
       "title_components": 9,
       "title_dereference": {
-        "attempts": 1,
+        "attempts": 0,
         "by_reason": {},
         "empty": 0,
         "failed": 0,
         "fallback": 0,
-        "heading_source_counts": {
-          "title": 1
-        },
-        "resolved": 1,
-        "title_status_counts": {
-          "resolved": 1
-        }
+        "heading_source_counts": {},
+        "resolved": 0,
+        "title_status_counts": {}
       },
       "unsupported_family": false
     },
@@ -21647,15 +21718,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -23570,17 +23642,18 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1,
+          "index": 2,
           "validation": 1
         },
         "by_code": {
           "sample_search_miss": 1,
+          "scan_truncated": 1,
           "unsupported_sidecar_schema": 1
         },
         "by_severity": {
           "error": 0,
           "info": 1,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -30441,15 +30514,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -30879,15 +30953,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -31071,17 +31146,18 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1,
+          "index": 2,
           "opcode": 10
         },
         "by_code": {
           "private_renderer_directive": 10,
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 10,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -31521,15 +31597,16 @@
       "deferred_family": false,
       "diagnostics": {
         "by_area": {
-          "index": 1
+          "index": 2
         },
         "by_code": {
-          "sample_search_miss": 1
+          "sample_search_miss": 1,
+          "scan_truncated": 1
         },
         "by_severity": {
           "error": 0,
           "info": 0,
-          "warning": 1
+          "warning": 2
         },
         "entry_errors": [],
         "search_errors": [
@@ -32097,7 +32174,7 @@
     }
   ],
   "title_dereference_counts": {
-    "attempts": 71,
+    "attempts": 74,
     "by_reason": {
       "title_pointer_is_body_pointer": 41
     },
@@ -32106,38 +32183,44 @@
     "fallback": 41,
     "heading_source_counts": {
       "display_key": 41,
-      "title": 30
+      "title": 33
     },
-    "resolved": 30,
+    "resolved": 33,
     "title_status_counts": {
       "fallback": 41,
-      "resolved": 30
+      "resolved": 33
     }
   },
   "top_blockers": [
     {
       "code": "private_renderer_directive",
-      "count": 12414,
+      "count": 12422,
       "scope": "diagnostic",
       "subject": "private_renderer_directive"
     },
     {
       "code": "sample_search_miss",
-      "count": 32,
+      "count": 29,
       "scope": "diagnostic",
       "subject": "sample_search_miss"
+    },
+    {
+      "code": "scan_truncated",
+      "count": 29,
+      "scope": "diagnostic",
+      "subject": "scan_truncated"
+    },
+    {
+      "code": "entry_range_fallback",
+      "count": 10,
+      "scope": "diagnostic",
+      "subject": "entry_range_fallback"
     },
     {
       "code": "family_unknown",
       "count": 9,
       "scope": "package_family",
       "subject": "unknown"
-    },
-    {
-      "code": "entry_range_fallback",
-      "count": 8,
-      "scope": "diagnostic",
-      "subject": "entry_range_fallback"
     },
     {
       "code": "unsupported_sidecar_schema",
@@ -32150,12 +32233,6 @@
       "count": 2,
       "scope": "diagnostic",
       "subject": "sample_search_skipped_empty_query"
-    },
-    {
-      "code": "scan_truncated",
-      "count": 2,
-      "scope": "diagnostic",
-      "subject": "scan_truncated"
     },
     {
       "code": "sidecar_body_resolved",
@@ -32171,25 +32248,25 @@
     }
   ],
   "top_diagnostics_by_area": {
-    "body": 10,
-    "index": 36,
-    "opcode": 12414,
+    "body": 12,
+    "index": 60,
+    "opcode": 12422,
     "validation": 7
   },
   "top_diagnostics_by_code": {
-    "entry_range_fallback": 8,
-    "private_renderer_directive": 12414,
-    "sample_search_miss": 32,
+    "entry_range_fallback": 10,
+    "private_renderer_directive": 12422,
+    "sample_search_miss": 29,
     "sample_search_skipped_empty_query": 2,
-    "scan_truncated": 2,
+    "scan_truncated": 29,
     "sidecar_body_resolved": 1,
     "unclosed_style": 1,
     "unsupported_sidecar_schema": 7
   },
   "top_diagnostics_by_severity": {
     "error": 0,
-    "info": 12424,
-    "warning": 43
+    "info": 12432,
+    "warning": 69
   },
   "total_packages": 170,
   "unsupported_family_counts": {

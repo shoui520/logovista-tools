@@ -52,6 +52,25 @@ Latest intentional update:
   misses. It reserves `blocked_by_named_residuals` for actual named residual
   packages/sidecars. No counters or package classifications changed.
 
+Latest intentional update:
+
+- Phase: native exact-search candidate fix
+- Exact search no longer stops the whole component after an out-of-range row
+  from one byte-seek candidate. Real SSED exact probes can visit multiple
+  candidate leaf regions for raw, normalized, symbol, and kana-folded keys; a
+  later candidate may contain the matching native row.
+- `sample_search_miss` / `native_search_misses` dropped from 433 to 0. This is
+  an intentional compatibility improvement, not a sampling change.
+- Sampled search hits dereferenced/rendered rose from 549 to 982 because the
+  formerly missed native rows now resolve to entries. Secondary counters for
+  title resolution, gaiji/media/link resources, sidecar bodies, and opcode
+  diagnostics also rose because those entries are now actually rendered by the
+  audit.
+- The closure scorecard status changed from `blocked_by_diagnostics` to
+  `closure_ready_for_deeper_audit` because no sampled native search misses,
+  true display-unresolved gaiji, unresolved media/link, hard SSED failures, or
+  named residual blockers remain in this baseline.
+
 Capture command:
 
 ```bash

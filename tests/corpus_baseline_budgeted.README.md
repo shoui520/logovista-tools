@@ -16,6 +16,13 @@ This baseline exercises deterministic partial-scan behavior for the
   changing package counts or counters.
 - Body-source rows include `schema: lvcore.body_source.v1` and
   `model_version: 1`, matching the full baseline serialization contract.
+- Native exact-search candidate fix: budgeted sampled misses dropped from 32
+  to 29, while `scan_truncated` rose from 2 to 29. This is intentional for the
+  64 KiB budget path: exact search no longer range-stops after the first
+  out-of-range seek candidate, so a tiny audit budget may truncate additional
+  multi-candidate probes instead of accepting a premature miss. The unbudgeted
+  full baseline is the compatibility contract and now has zero sampled native
+  search misses.
 
 Capture command:
 
