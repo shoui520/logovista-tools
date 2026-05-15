@@ -9,6 +9,8 @@ import plistlib
 import re
 from typing import Any, Iterable
 
+from .ssed import CaseFoldedDirectory, is_metadata_noise_path
+
 
 UNI_MAGIC = b"Ver2  "
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".bmp"}
@@ -113,12 +115,17 @@ class Ga16Resource:
     def glyph_by_index(self, index: int) -> bytes | None:
         if index < 0 or index >= self.count:
             return None
-        data = self.path.read_bytes()
         start = self.data_offset + index * self.glyph_bytes
         end = start + self.glyph_bytes
-        if end > len(data):
+        try:
+            if end > self.path.stat().st_size:
+                return None
+            with self.path.open("rb") as fh:
+                fh.seek(start)
+                data = fh.read(self.glyph_bytes)
+        except OSError:
             return None
-        return data[start:end]
+        return data if len(data) == self.glyph_bytes else None
 
 
 @dataclass(frozen=True)
@@ -169,7 +176,11 @@ def gaiji_grid_index_for_code(start_code: int, code: int) -> int:
 
 
 def parse_ga16(path: Path) -> Ga16Resource | None:
-    data = path.read_bytes()
+    try:
+        with path.open("rb") as fh:
+            data = fh.read(16)
+    except OSError:
+        return None
     if len(data) < 16:
         return None
     width = data[8]
@@ -260,18 +271,7 @@ def parse_uni(path: Path) -> tuple[UniRecord, ...]:
 
 
 def _case_insensitive_child(parent: Path, name: str) -> Path | None:
-    candidate = parent / name
-    if candidate.exists():
-        return candidate
-    try:
-        children = sorted(parent.iterdir(), key=lambda item: item.name.lower())
-    except OSError:
-        return None
-    wanted = name.lower()
-    for child in children:
-        if child.name.lower() == wanted:
-            return child
-    return None
+    return CaseFoldedDirectory.from_path(parent).find(name)
 
 
 def _case_insensitive_path(root: Path, relative: str) -> Path | None:
@@ -309,6 +309,8 @@ def _iter_files_bounded(path: Path, *, max_depth: int = 4) -> Iterable[Path]:
     except OSError:
         return
     for child in children:
+        if is_metadata_noise_path(child):
+            continue
         if child.is_file():
             yield child
         elif child.is_dir() and max_depth > 0:
@@ -344,13 +346,13 @@ def resolve_gaiji_sources(
     component_paths: Iterable[Path] = (),
 ) -> GaijiSources:
     uni_candidates = [
-        root / f"{dict_id}.uni",
-        root / f"{dict_id}.UNI",
-        root / f"{dict_id.upper()}.uni",
-        root / f"{dict_id.upper()}.UNI",
+        *(
+            candidate
+            for name in (f"{dict_id}.uni", f"{dict_id}.UNI", f"{dict_id.upper()}.uni", f"{dict_id.upper()}.UNI")
+            if (candidate := _case_insensitive_child(root, name)) is not None
+        ),
         *_exinfo_uni_names(root),
-        *sorted(root.glob("*.uni"), key=lambda item: item.name.lower()),
-        *sorted(root.glob("*.UNI"), key=lambda item: item.name.lower()),
+        *CaseFoldedDirectory.from_path(root).files_with_suffix(".uni"),
     ]
 
     known_dirs: list[Path] = [root]
@@ -392,6 +394,8 @@ def resolve_gaiji_sources(
         except OSError:
             continue
         for child in children:
+            if is_metadata_noise_path(child):
+                continue
             upper = child.name.upper()
             if child.is_file() and upper.startswith(("GA16", "GAI16")):
                 ga16_candidates.append(child)

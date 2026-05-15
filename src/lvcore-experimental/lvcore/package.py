@@ -348,7 +348,7 @@ class LogoVistaPackage:
             replace(component, path=find_file_case_insensitive(idx_path.parent, component.name))
             for component in self.catalog.components
         )
-        self._component_by_name = {component.name.lower(): component for component in self.components}
+        self._component_by_name = {component.name.casefold(): component for component in self.components}
         self._data_cache: dict[str, SsedData] = {}
         self._closed = False
         self._gaiji_registry = GaijiRegistry(self)
@@ -392,7 +392,7 @@ class LogoVistaPackage:
 
     def component(self, name: str) -> Component | None:
         self._ensure_open()
-        return self._component_by_name.get(name.lower())
+        return self._component_by_name.get(name.casefold())
 
     def components_by_role(self, role: ComponentRole) -> tuple[Component, ...]:
         self._ensure_open()
@@ -412,7 +412,7 @@ class LogoVistaPackage:
     def data(self, component: str | Component) -> SsedData:
         self._ensure_open()
         name = component.name if isinstance(component, Component) else component
-        key = name.lower()
+        key = name.casefold()
         if key not in self._data_cache:
             item = self.component(name)
             if item is None:

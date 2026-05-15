@@ -29,7 +29,7 @@ from lvcore.model import Component, ComponentRole, Entry, Span  # noqa: E402
 from lvcore.opcodes import OpcodeCategory, behavior_for  # noqa: E402
 from lvcore.render import GaijiPolicy, HtmlProfile, render_html, render_text  # noqa: E402
 from lvcore.resources import ColscrLocator, PcmRangeLocator, SidecarBlobLocator  # noqa: E402
-from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE, SsedData, expand_sseddata, parse_catalog  # noqa: E402
+from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE, CaseFoldedDirectory, SsedData, expand_sseddata, parse_catalog  # noqa: E402
 from lvcore.text import decode_text_stream  # noqa: E402
 from lvcore_audit import sidecar_role_summary, validate_package  # noqa: E402
 
@@ -878,6 +878,26 @@ def test_lvcore_reads_macos_honmon_din_package(tmp_path: Path) -> None:
     assert "first entry" in entry.text
 
 
+def test_lvcore_encrypted_ssed_data_does_not_read_full_component_with_read_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    make_macos_synthetic_package(tmp_path)
+    original_read_bytes = Path.read_bytes
+
+    def fail_honmon_read_bytes(path: Path) -> bytes:
+        if path.name == "HONMON.DIN":
+            raise AssertionError("encrypted SSED random access must not read the full component into memory")
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", fail_honmon_read_bytes)
+
+    package = open_package(tmp_path)
+    honmon = package.honmon_component()
+    assert honmon is not None
+    assert package.data(honmon).read(0, 64).startswith(b"\x1f\x09")
+
+
 def test_lvcore_invalid_chunk_header_fails_with_format_error() -> None:
     data = bytearray(68)
     data[:8] = b"SSEDDATA"
@@ -1077,6 +1097,36 @@ def test_lvcore_package_lookup_is_case_insensitive(tmp_path: Path) -> None:
     assert package.search("alpha", profile=SearchProfile.EXACT).hits
 
 
+def test_lvcore_casefolded_lookup_preserves_disk_casing_on_case_insensitive_mounts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    disk_path = tmp_path / "honmon.dic"
+    disk_path.write_bytes(b"body")
+    original_exists = Path.exists
+
+    def fake_exists(path: Path) -> bool:
+        if path == tmp_path / "HONMON.DIC":
+            return True
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", fake_exists)
+
+    found = CaseFoldedDirectory.from_path(tmp_path).find("HONMON.DIC")
+
+    assert found == disk_path
+    assert found is not None and found.name == "honmon.dic"
+
+
+def test_lvcore_casefolded_lookup_reports_ambiguous_collisions(tmp_path: Path) -> None:
+    (tmp_path / "HONMON.DIC").write_bytes(b"upper")
+    (tmp_path / "honmon.dic").write_bytes(b"lower")
+    lookup = CaseFoldedDirectory.from_path(tmp_path)
+
+    assert lookup.find("HONMON.DIC") is None
+    assert lookup.collisions() == {"honmon.dic": ("HONMON.DIC", "honmon.dic")}
+
+
 def test_lvcore_titles_limit_streams_without_full_component_decode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make_reader_workflow_package(tmp_path)
     package = open_package(tmp_path)
@@ -1173,7 +1223,8 @@ def test_lvcore_plain_sseddata_uses_file_backed_random_reads(tmp_path: Path) -> 
 
     reader = SsedData(path)
 
-    assert reader.data is None
+    assert reader.header.storage == "plain"
+    assert reader._source.__class__.__name__ == "_PlainSsedSource"
     assert reader.read(0, 5) == b"alpha"
     assert reader.read(CHUNK_SIZE + 37, 5) == b"omega"
 
@@ -3494,4 +3545,24 @@ def test_lvcore_parses_ga16_resources(tmp_path: Path) -> None:
     assert resource.width == 16
     assert resource.height == 16
     assert resource.glyph_bytes == ga16_glyph_size(16, 16)
+    assert resource.glyph(0xB121) == glyph
+
+
+def test_lvcore_ga16_header_and_glyph_reads_are_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "GA16FULL"
+    header = bytearray(BLOCK_SIZE)
+    header[8] = 16
+    header[9] = 16
+    header[10:12] = bytes.fromhex("b121")
+    header[12:14] = be16(1)
+    glyph = bytes([0xAA, 0x55] * 16)
+    path.write_bytes(bytes(header) + glyph)
+
+    def fail_read_bytes(path: Path) -> bytes:
+        raise AssertionError("GA16 parsing and glyph lookup should not read the full file")
+
+    monkeypatch.setattr(Path, "read_bytes", fail_read_bytes)
+
+    resource = parse_ga16(path)
+    assert resource is not None
     assert resource.glyph(0xB121) == glyph

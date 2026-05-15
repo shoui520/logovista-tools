@@ -158,7 +158,7 @@ class PackageEntryMixin:
         return offsets
 
     def _markers_for_component(self, component: Component, *, limit: int | None = None, budget: ScanBudget | None = None) -> list[int]:
-        key = component.name.lower()
+        key = component.name.casefold()
         if limit is not None and key not in self._marker_cache:
             return self._marker_offsets(self.data(component), limit=limit, budget=budget)
         if key not in self._marker_cache:
@@ -280,7 +280,7 @@ class PackageEntryMixin:
         for index_component in self._index_components_for_entry_boundaries():
             for row in self._iter_index_rows_fast(index_component, budget=budget):
                 target = self.component_for_address(row.body, role=ComponentRole.HONMON)
-                if target is None or target.name.lower() != component.name.lower():
+                if target is None or target.name.casefold() != component.name.casefold():
                     continue
                 offset = self._relative_offset(target, row.body)
                 if offset < 0 or offset >= reader.expanded_size or offset in seen:
@@ -401,7 +401,7 @@ class PackageEntryMixin:
             )
 
     def _body_pointer_offsets(self, component: Component) -> list[int]:
-        key = component.name.lower()
+        key = component.name.casefold()
         if key in self._body_pointer_cache:
             return self._body_pointer_cache[key]
         offsets: set[int] = set()

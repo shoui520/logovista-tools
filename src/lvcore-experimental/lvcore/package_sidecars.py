@@ -21,11 +21,11 @@ from .body_source import (
     resolve_sqlite_sidecar_columns,
     sqlite_columns,
 )
-from .crypto import decrypt_logofont_file, decrypt_logofont_file_to_path, decrypt_logofont_prefix
+from .crypto import decrypt_logofont_file_to_path, decrypt_logofont_prefix
 from .document import ResourceKind, ResourceRef
 from .model import Address
 from .package_utils import _media_mime_and_format
-from .ssed import read_file_prefix
+from .ssed import is_metadata_noise_path, read_file_prefix
 
 
 class PackageSidecarMixin:
@@ -42,6 +42,8 @@ class PackageSidecarMixin:
             return candidates
         dict_id = (self.info.dict_id or "").lower()
         for child in children:
+            if is_metadata_noise_path(child):
+                continue
             if not child.is_file():
                 continue
             lower = child.name.lower()
@@ -110,13 +112,8 @@ class PackageSidecarMixin:
         cached = self._sqlite_connection_cache.get(key)
         if isinstance(cached, sqlite3.Connection):
             return cached
-        if storage == "logofont_cipher" and hasattr(sqlite3.Connection, "deserialize"):
-            data = decrypt_logofont_file(path)
-            con = sqlite3.connect(":memory:")
-            con.deserialize(data)
-        else:
-            sqlite_path = self._sqlite_path_for_sidecar(path, storage)
-            con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+        sqlite_path = self._sqlite_path_for_sidecar(path, storage)
+        con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
         con.row_factory = sqlite3.Row
         self._sqlite_connection_cache[key] = con
         return con

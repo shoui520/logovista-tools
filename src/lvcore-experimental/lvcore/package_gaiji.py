@@ -137,7 +137,9 @@ class PackageGaijiMixin:
             self._gaiji_image_info_cache[code] = None
             return None
         try:
-            payload = image.path.read_bytes()
+            byte_length = image.path.stat().st_size
+            with image.path.open("rb") as fh:
+                prefix = fh.read(256)
         except OSError:
             info = {
                 "display_status": GaijiDisplayStatus.UNRESOLVED.value,
@@ -147,7 +149,7 @@ class PackageGaijiMixin:
             }
             self._gaiji_image_info_cache[code] = info
             return dict(info)
-        mime_type, format_hint, container_kind = _media_mime_and_format(payload[:256], store_kind="gaiji_image")
+        mime_type, format_hint, container_kind = _media_mime_and_format(prefix, store_kind="gaiji_image")
         if mime_type == "application/octet-stream":
             suffix = image.path.suffix.lower()
             mime_type = {
@@ -168,7 +170,7 @@ class PackageGaijiMixin:
             "mime_type": mime_type,
             "format_hint": format_hint,
             "container_kind": container_kind,
-            "byte_length": len(payload),
+            "byte_length": byte_length,
             "image_path": str(image.path),
             "image_source": image.source,
             "image_key": image.key,

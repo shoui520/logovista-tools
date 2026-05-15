@@ -5,13 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from .model import PackageFamily, PackageInfo
-from .ssed import CaseFoldedDirectory, candidate_idx_files, find_file_case_insensitive, is_ssedinfo, parse_catalog
+from .ssed import CaseFoldedDirectory, candidate_idx_files, find_file_case_insensitive, is_metadata_noise_path, is_ssedinfo, parse_catalog
 
 
 def _multiview_markers(root: Path) -> bool:
     if not root.is_dir():
         return False
-    names = {child.name.lower() for child in root.iterdir()}
+    names = {child.name.casefold() for child in root.iterdir() if not is_metadata_noise_path(child)}
     return "vlpljbl.exe" in names and bool({"blvbat", "blvdat", "hlvbat", "ilvbat", "jlvbat", "nlvbat"} & names)
 
 

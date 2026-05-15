@@ -381,7 +381,7 @@ class PackageResourceMixin:
                 "range_end": original_end,
             }
             return info
-        if start_component.name.lower() != end_component.name.lower():
+        if start_component.name.casefold() != end_component.name.casefold():
             info["status"] = "unsupported"
             info["details"] = {
                 "reason": "range_crosses_unsupported_components",

@@ -6,10 +6,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .crypto import (
+    aes_cbc_plaintext_size,
+    decrypt_aes_cbc_file_range,
     decrypt_logofont,
     decrypt_logofont_prefix,
     decrypt_macos_logofont,
     decrypt_macos_logofont_prefix,
+    logofont_key_iv,
+    macos_logofont_key_iv,
 )
 from .errors import FormatError
 from .model import Component, ComponentRole
@@ -103,18 +107,19 @@ class CaseFoldedDirectory:
         )
 
     def find(self, name: str) -> Path | None:
-        direct = self.root / name
-        if direct.exists():
-            return direct
         matches = self.entries_by_key.get(name.casefold(), ())
-        return matches[0] if matches else None
+        if len(matches) == 1:
+            return matches[0]
+        if matches:
+            return None
+        return None
 
     def files_with_suffix(self, suffix: str) -> tuple[Path, ...]:
         folded = suffix.casefold()
         return tuple(
             sorted(
                 (path for paths in self.entries_by_key.values() for path in paths if path.is_file() and path.suffix.casefold() == folded),
-                key=lambda path: path.name.casefold(),
+                key=lambda path: (path.name.casefold(), path.name),
             )
         )
 
@@ -128,7 +133,9 @@ class CaseFoldedDirectory:
 
 def candidate_idx_files(path: Path) -> list[Path]:
     if path.is_file():
-        return [path] if path.suffix.lower() == ".idx" and not is_metadata_noise_path(path) else []
+        actual = CaseFoldedDirectory.from_path(path.parent).find(path.name)
+        candidate = actual if actual is not None else path
+        return [candidate] if candidate.suffix.casefold() == ".idx" and not is_metadata_noise_path(candidate) else []
     return list(CaseFoldedDirectory.from_path(path).files_with_suffix(".idx"))
 
 
@@ -158,9 +165,9 @@ class Catalog:
         return self.path.stem
 
     def component_named(self, name: str) -> Component | None:
-        folded = name.lower()
+        folded = name.casefold()
         for component in self.components:
-            if component.name.lower() == folded:
+            if component.name.casefold() == folded:
                 return component
         return None
 
@@ -330,22 +337,62 @@ def expand_sseddata(data: bytes) -> bytes:
     return bytes(out)
 
 
+class _PlainSsedSource:
+    def __init__(self, path: Path):
+        self.path = path
+        self.size = path.stat().st_size
+
+    def read(self, offset: int, size: int) -> bytes:
+        if size <= 0:
+            return b""
+        with self.path.open("rb") as fh:
+            fh.seek(offset)
+            return fh.read(size)
+
+
+class _EncryptedSsedSource:
+    def __init__(self, path: Path, *, key: bytes, iv: bytes):
+        self.path = path
+        self.key = key
+        self.iv = iv
+        self.size = aes_cbc_plaintext_size(path, key=key, iv=iv)
+
+    def read(self, offset: int, size: int) -> bytes:
+        return decrypt_aes_cbc_file_range(self.path, key=self.key, iv=self.iv, offset=offset, size=size, plaintext_size=self.size)
+
+
 class SsedData:
     """Random-readable expanded view of one SSED component."""
 
     def __init__(self, path: Path):
         self.path = path
         prefix = read_file_prefix(path, 64)
-        self.file_size = path.stat().st_size
-        self.data: bytes | None
+        self._source: _PlainSsedSource | _EncryptedSsedSource
         if prefix[:8] == SSEDDATA:
             storage = "plain"
-            chunk_count = be16(prefix, 0x16)
-            header_bytes = read_file_prefix(path, 64 + chunk_count * 4)
-            self.data = None
+            self._source = _PlainSsedSource(path)
         else:
-            self.data, storage = load_sseddata_bytes(path.read_bytes())
-            header_bytes = self.data
+            storage = ""
+            source = None
+            for candidate_storage, prefix_decrypt, key_iv in (
+                ("logofont_cipher", decrypt_logofont_prefix, logofont_key_iv),
+                ("macos_logofont_cipher", decrypt_macos_logofont_prefix, macos_logofont_key_iv),
+            ):
+                try:
+                    if prefix_decrypt(prefix, size=64).startswith(SSEDDATA):
+                        key, iv = key_iv()
+                        storage = candidate_storage
+                        source = _EncryptedSsedSource(path, key=key, iv=iv)
+                        break
+                except Exception:
+                    continue
+            if source is None:
+                raise FormatError("not SSEDDATA")
+            self._source = source
+        header_prefix = self._source.read(0, 64)
+        chunk_count = be16(header_prefix, 0x16)
+        header_bytes = self._source.read(0, 64 + chunk_count * 4)
+        self.file_size = self._source.size
         self.header = parse_data_header(header_bytes, storage)
         self.offsets = chunk_offsets(header_bytes)
         self._cache: dict[int, bytes] = {}
@@ -359,15 +406,10 @@ class SsedData:
             return b""
         if index not in self._cache:
             offset = self.offsets[index]
-            if self.data is None:
-                next_offset = self.offsets[index + 1] if index + 1 < len(self.offsets) else self.file_size
-                if next_offset <= offset:
-                    next_offset = self.file_size
-                with self.path.open("rb") as fh:
-                    fh.seek(offset)
-                    self._cache[index] = expand_chunk(fh.read(max(0, next_offset - offset)), 0)
-            else:
-                self._cache[index] = expand_chunk(self.data, offset)
+            next_offset = self.offsets[index + 1] if index + 1 < len(self.offsets) else self.file_size
+            if next_offset <= offset:
+                next_offset = self.file_size
+            self._cache[index] = expand_chunk(self._source.read(offset, max(0, next_offset - offset)), 0)
         return self._cache[index]
 
     def read(self, offset: int, size: int) -> bytes:

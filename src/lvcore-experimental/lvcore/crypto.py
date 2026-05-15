@@ -33,6 +33,86 @@ def _cipher_modules():
     return Cipher, algorithms, modes, padding
 
 
+def _decrypt_aes_cbc_blocks(data: bytes, *, key: bytes, iv: bytes) -> bytes:
+    if len(data) % AES_BLOCK:
+        raise CryptoError("encrypted block range length is not a multiple of 16 bytes")
+    Cipher, algorithms, modes, _padding = _cipher_modules()
+    decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
+    return decryptor.update(data) + decryptor.finalize()
+
+
+def aes_cbc_plaintext_size(path: Path, *, key: bytes, iv: bytes) -> int:
+    """Return the unpadded plaintext size for an AES-CBC file.
+
+    The observed LogoVista AES-CBC payloads are whole-file CBC streams. The
+    last plaintext block is enough to identify PKCS#7 padding, so callers can
+    know the logical plaintext length without decrypting the whole file.
+    """
+
+    cipher_size = path.stat().st_size
+    if cipher_size % AES_BLOCK:
+        raise CryptoError("encrypted payload length is not a multiple of 16 bytes")
+    if cipher_size == 0:
+        return 0
+    with path.open("rb") as fh:
+        if cipher_size == AES_BLOCK:
+            block_iv = iv
+            fh.seek(0)
+        else:
+            fh.seek(cipher_size - (AES_BLOCK * 2))
+            block_iv = fh.read(AES_BLOCK)
+        block = fh.read(AES_BLOCK)
+    plain = _decrypt_aes_cbc_blocks(block, key=key, iv=block_iv)
+    pad = plain[-1]
+    if 1 <= pad <= AES_BLOCK and plain.endswith(bytes([pad]) * pad):
+        return cipher_size - pad
+    return cipher_size
+
+
+def decrypt_aes_cbc_file_range(
+    path: Path,
+    *,
+    key: bytes,
+    iv: bytes,
+    offset: int,
+    size: int,
+    plaintext_size: int | None = None,
+) -> bytes:
+    """Decrypt one plaintext byte range from an AES-CBC file.
+
+    This is intentionally range-oriented for SSED random access: a caller can
+    read the header/table or one compressed chunk without materializing a full
+    decrypted component.
+    """
+
+    if offset < 0:
+        raise ValueError("offset must be non-negative")
+    if size <= 0:
+        return b""
+    plain_size = plaintext_size if plaintext_size is not None else aes_cbc_plaintext_size(path, key=key, iv=iv)
+    if offset >= plain_size:
+        return b""
+    end = min(offset + size, plain_size)
+    block_start = (offset // AES_BLOCK) * AES_BLOCK
+    block_end = ((end + AES_BLOCK - 1) // AES_BLOCK) * AES_BLOCK
+    cipher_size = path.stat().st_size
+    block_end = min(block_end, cipher_size)
+
+    with path.open("rb") as fh:
+        if block_start == 0:
+            range_iv = iv
+        else:
+            fh.seek(block_start - AES_BLOCK)
+            range_iv = fh.read(AES_BLOCK)
+        fh.seek(block_start)
+        encrypted = fh.read(block_end - block_start)
+    if len(encrypted) % AES_BLOCK:
+        raise CryptoError("encrypted range length is not a multiple of 16 bytes")
+    decrypted = _decrypt_aes_cbc_blocks(encrypted, key=key, iv=range_iv)
+    start_in_block = offset - block_start
+    return decrypted[start_in_block : start_in_block + (end - offset)]
+
+
 def decrypt_logofont_prefix(data: bytes, *, size: int = AES_BLOCK) -> bytes:
     if len(data) < AES_BLOCK:
         return b""
