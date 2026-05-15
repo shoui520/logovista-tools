@@ -10,7 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Iterable, TYPE_CHECKING
 
-from .json_types import JsonObject
 from .model import Component, Entry, SearchProfile
 from .render import HtmlProfile
 from .search import SearchHit, SearchResults
@@ -64,15 +63,6 @@ class Dictionary:
             max_bytes=max_bytes,
             cancel=cancel,
         )
-
-    def search_index(
-        self,
-        term: str,
-        *,
-        limit: int = 20,
-        profile: SearchProfile | str = SearchProfile.NATIVE,
-    ) -> list[JsonObject]:
-        return self.package._index_store.search_index(term, limit=limit, profile=profile)
 
     def search_entries(
         self,

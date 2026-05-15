@@ -156,9 +156,6 @@ class _PackageServiceBase:
     def entry_at(self, address: Address, *, max_bytes: int = 64 * 1024) -> Entry:
         return self._package._entry_store.entry_at(address, max_bytes=max_bytes)
 
-    def _try_entry_from_dense_sidecar(self, hit: SearchHit, source: BodySourceInfo | None = None) -> Entry | None:
-        return self._package._entry_store._try_entry_from_dense_sidecar(hit, source)
-
     def _entry_from_sidecar(self, hit: SearchHit, sidecar: SidecarInfo, inspection: BodyPointerInspection) -> Entry:
         return self._package._entry_store._entry_from_sidecar(hit, sidecar, inspection)
 
@@ -583,9 +580,6 @@ class LogoVistaPackage:
     ) -> SearchResults:
         return self.dictionary().search(query, limit=limit, profile=profile, debug=debug, max_bytes=max_bytes, cancel=cancel)
 
-    def search_index(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[JsonObject]:
-        return self.dictionary().search_index(term, limit=limit, profile=profile)
-
     def search_entries(
         self,
         term: str,
@@ -648,9 +642,6 @@ class LogoVistaPackage:
 
     def _entry_from_body_stream_pointer(self, hit: SearchHit) -> Entry:
         return self._index_store._entry_from_body_stream_pointer(hit)
-
-    def _try_entry_from_dense_sidecar(self, hit: SearchHit, source: BodySourceInfo | None = None) -> Entry | None:
-        return self._entry_store._try_entry_from_dense_sidecar(hit, source)
 
     def _entry_from_sidecar(self, hit: SearchHit, sidecar: SidecarInfo, inspection: BodyPointerInspection) -> Entry:
         return self._entry_store._entry_from_sidecar(hit, sidecar, inspection)

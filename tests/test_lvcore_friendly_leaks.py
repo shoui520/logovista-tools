@@ -55,7 +55,12 @@ def test_public_reader_dicts_do_not_leak_debug_fields(tmp_path: Path) -> None:
     _assert_friendly(hit.to_dict())
     _assert_friendly(package.resource_info(resource).to_dict())
     _assert_friendly(package.gaiji_info(resource).to_dict())
-    _assert_friendly(package.body_source().to_dict())
+    body_source = package.body_source().to_dict()
+    _assert_friendly(body_source)
+    body_source_text = json.dumps(body_source, ensure_ascii=False, sort_keys=True)
+    assert '"table"' not in body_source_text
+    assert '"columns"' not in body_source_text
+    assert '"row_count"' not in body_source_text
 
     friendly_html = render_html(document, gaiji_policy=GaijiPolicy.BITMAP_ONLY)
     assert f"lvcore-resource://{resource.id}" in friendly_html

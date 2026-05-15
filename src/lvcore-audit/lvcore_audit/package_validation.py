@@ -5,13 +5,11 @@ from __future__ import annotations
 from lvcore import (
     Address,
     BlockNode,
-    ComponentRole,
     Diagnostic,
     DiagnosticArea,
     DiagnosticCode,
     Entry,
     GaijiDisplayStatus,
-    IndexRow,
     InlineKind,
     InlineNode,
     ResourceKind,
@@ -25,6 +23,8 @@ from lvcore import (
     render_html,
     render_text,
 )
+from lvcore.index import IndexRow
+from lvcore.model import ComponentRole
 
 TEXT_LIKE_INDEX_OUTLIER_TYPES = {0x27}
 

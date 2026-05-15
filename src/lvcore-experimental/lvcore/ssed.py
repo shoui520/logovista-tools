@@ -64,10 +64,56 @@ def is_ssedinfo(path: Path) -> bool:
         return False
 
 
+@dataclass(frozen=True)
+class CaseFoldedDirectory:
+    root: Path
+    entries_by_key: dict[str, tuple[Path, ...]]
+
+    @classmethod
+    def from_path(cls, root: Path) -> "CaseFoldedDirectory":
+        entries: dict[str, list[Path]] = {}
+        try:
+            children = list(root.iterdir())
+        except OSError:
+            children = []
+        for child in children:
+            entries.setdefault(child.name.casefold(), []).append(child)
+        return cls(
+            root=root,
+            entries_by_key={
+                key: tuple(sorted(paths, key=lambda path: path.name))
+                for key, paths in sorted(entries.items())
+            },
+        )
+
+    def find(self, name: str) -> Path | None:
+        direct = self.root / name
+        if direct.exists():
+            return direct
+        matches = self.entries_by_key.get(name.casefold(), ())
+        return matches[0] if matches else None
+
+    def files_with_suffix(self, suffix: str) -> tuple[Path, ...]:
+        folded = suffix.casefold()
+        return tuple(
+            sorted(
+                (path for paths in self.entries_by_key.values() for path in paths if path.is_file() and path.suffix.casefold() == folded),
+                key=lambda path: path.name.casefold(),
+            )
+        )
+
+    def collisions(self) -> dict[str, tuple[str, ...]]:
+        return {
+            key: tuple(path.name for path in paths)
+            for key, paths in self.entries_by_key.items()
+            if len(paths) > 1
+        }
+
+
 def candidate_idx_files(path: Path) -> list[Path]:
     if path.is_file():
         return [path] if path.suffix.lower() == ".idx" else []
-    return sorted(file for file in path.glob("*.IDX")) + sorted(file for file in path.glob("*.idx"))
+    return list(CaseFoldedDirectory.from_path(path).files_with_suffix(".idx"))
 
 
 def _filename_from_record(record: bytes) -> tuple[str, bool]:
@@ -156,17 +202,7 @@ def parse_catalog(path: Path) -> Catalog:
 
 
 def find_file_case_insensitive(root: Path, name: str) -> Path | None:
-    direct = root / name
-    if direct.exists():
-        return direct
-    target = name.lower()
-    try:
-        for child in root.iterdir():
-            if child.name.lower() == target:
-                return child
-    except OSError:
-        return None
-    return None
+    return CaseFoldedDirectory.from_path(root).find(name)
 
 
 @dataclass(frozen=True)

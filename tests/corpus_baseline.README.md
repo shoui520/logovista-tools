@@ -71,6 +71,16 @@ Latest intentional update:
   true display-unresolved gaiji, unresolved media/link, hard SSED failures, or
   named residual blockers remain in this baseline.
 
+Latest intentional update:
+
+- Phase: reader/audit boundary hardening
+- Public `BodySourceInfo.to_dict(debug=False)` no longer serializes sidecar
+  table names, column names, row counts, or per-table summaries. It keeps only
+  sidecar name/kind/storage/role/support status plus a table count. Full
+  sidecar schema remains available through explicit debug output.
+- The corpus counters did not change. The baseline diff is a schema narrowing
+  in per-target `body_source.sidecars[]` rows only.
+
 Capture command:
 
 ```bash

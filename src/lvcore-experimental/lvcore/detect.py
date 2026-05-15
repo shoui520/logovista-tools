@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .model import PackageFamily, PackageInfo
-from .ssed import candidate_idx_files, is_ssedinfo, parse_catalog
+from .ssed import CaseFoldedDirectory, candidate_idx_files, find_file_case_insensitive, is_ssedinfo, parse_catalog
 
 
 def _multiview_markers(root: Path) -> bool:
@@ -19,6 +19,10 @@ def detect_family(path: Path) -> PackageInfo:
     path = path.resolve()
     root = path.parent if path.is_file() else path
     multiview = _multiview_markers(root)
+    lookup = CaseFoldedDirectory.from_path(root) if root.is_dir() else None
+    collision_notes = (
+        tuple(f"case-insensitive filename collision: {', '.join(names)}" for names in (lookup.collisions().values() if lookup else ()))
+    )
 
     for idx in candidate_idx_files(path):
         if is_ssedinfo(idx):
@@ -26,7 +30,7 @@ def detect_family(path: Path) -> PackageInfo:
             missing_declared = [
                 component.name
                 for component in catalog.components
-                if component.name and component.start_block and not (idx.parent / component.name).exists()
+                if component.name and component.start_block and find_file_case_insensitive(idx.parent, component.name) is None
             ]
             if multiview and missing_declared:
                 return PackageInfo(
@@ -35,9 +39,9 @@ def detect_family(path: Path) -> PackageInfo:
                     idx_path=idx,
                     dict_id=idx.stem,
                     title=catalog.title,
-                    notes=("LVLMultiView sidecar payload detected; SSEDINFO catalog is not self-contained",),
+                    notes=("LVLMultiView sidecar payload detected; SSEDINFO catalog is not self-contained",) + collision_notes,
                 )
-            notes = ("SSED package with LVLMultiView sidecars",) if multiview else ()
+            notes = (("SSED package with LVLMultiView sidecars",) if multiview else ()) + collision_notes
             return PackageInfo(
                 family=PackageFamily.SSED,
                 root=idx.parent,
@@ -47,12 +51,16 @@ def detect_family(path: Path) -> PackageInfo:
                 notes=notes,
             )
 
-    if (root / "main.data").is_file():
+    lved_payload = lookup.find("main.data") if lookup is not None else None
+    if lved_payload is None and lookup is not None:
+        dbc_files = lookup.files_with_suffix(".dbc")
+        lved_payload = dbc_files[0] if dbc_files else None
+    if lved_payload is not None and lved_payload.is_file():
         return PackageInfo(
             family=PackageFamily.LVED,
             root=root,
-            dict_id=root.name.removeprefix("_DCT_"),
-            notes=("LVED SQLCipher/SQLite package detected; reader implementation deferred",),
+            dict_id=(lved_payload.stem if lved_payload.suffix.casefold() == ".dbc" else root.name.removeprefix("_DCT_")),
+            notes=("LVED SQLCipher/SQLite package detected; reader implementation deferred",) + collision_notes,
         )
 
     if multiview:
@@ -60,7 +68,7 @@ def detect_family(path: Path) -> PackageInfo:
             family=PackageFamily.LVLMULTI,
             root=root,
             dict_id=root.name.removeprefix("_DCT_"),
-            notes=("LVLMultiView package detected; reader implementation deferred",),
+            notes=("LVLMultiView package detected; reader implementation deferred",) + collision_notes,
         )
 
-    return PackageInfo(family=PackageFamily.UNKNOWN, root=root, dict_id=root.name.removeprefix("_DCT_"))
+    return PackageInfo(family=PackageFamily.UNKNOWN, root=root, dict_id=root.name.removeprefix("_DCT_"), notes=collision_notes)

@@ -357,7 +357,9 @@ deferred; the reader does not fake a body by decoding anchor records.
 `lvcore-audit` package owns validation and corpus scorecards, using public
 reader APIs rather than reader-private helpers. Debug output may include anchor
 IDs, raw pointers, sidecar names, and mapping status, including attempted query
-values and selected table/column names. Friendly output must not. Audit reports
+values and selected table/column names. Public body-source JSON must not include
+sidecar table names, column names, row counts, or per-table schema summaries;
+it exposes only reader-facing role/support/status information. Audit reports
 sampled sidecar resolution counters so corpus runs can distinguish resolved
 rows, missing rows, missing anchor IDs, and unsupported body-source
 placeholders.

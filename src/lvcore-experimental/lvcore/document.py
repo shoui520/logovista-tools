@@ -8,7 +8,7 @@ import hashlib
 from typing import Any, Iterable
 
 from .diagnostics import Diagnostic, DiagnosticArea, DiagnosticBag, Location, Severity
-from .json_types import JsonObject
+from .json_types import JsonObject, JsonValue
 from .model import Address, Entry, Span
 from .opcodes import KNOWN_NEUTRAL_OPS, OpcodeCategory, behavior_for
 
@@ -16,32 +16,12 @@ from .opcodes import KNOWN_NEUTRAL_OPS, OpcodeCategory, behavior_for
 DOCUMENT_SCHEMA = "lvcore.entry_document.v1"
 DOCUMENT_MODEL_VERSION = 1
 
-DEBUG_ATTR_KEYS = {
-    "address",
-    "anchor_raw",
-    "block_column",
-    "end_address",
-    "end_payload",
-    "details",
-    "offset_column",
-    "payload",
-    "payload_hex",
-    "raw",
-    "raw_payload",
-    "raw_spans",
-    "raw_text",
-    "row_id",
-    "sidecar",
-    "source_address",
-    "source_sidecar",
-    "source_table",
-    "end_op",
-    "span_offset",
-    "start_op",
-    "start_payload",
-    "storage",
-    "table",
-}
+PUBLIC_METADATA_KEYS = {"headword"}
+PUBLIC_DIAGNOSTIC_DETAIL_KEYS = {"kind", "reason", "resource_id", "status"}
+PUBLIC_BLOCK_ATTR_KEYS = {"label"}
+PUBLIC_GAIJI_ATTR_KEYS = {"gaiji_display_status", "gaiji_reason", "resolved"}
+PUBLIC_MEDIA_ATTR_KEYS = {"label", "resource_kind", "resource_status"}
+PUBLIC_LINK_TARGET_KEYS = {"kind", "href", "status", "label", "resource_id", "reason"}
 
 
 class BlockKind(str, Enum):
@@ -114,26 +94,79 @@ def _stable_private_ref(value: str) -> str:
     return f"lvcore-entry://ref-{digest}"
 
 
-def _public_mapping(value: Any, *, debug: bool) -> Any:
+def _debug_mapping(value: Any) -> Any:
     if isinstance(value, dict):
         out: JsonObject = {}
         for key, item in value.items():
-            if not debug and key in DEBUG_ATTR_KEYS:
-                continue
-            if not debug and key == "href" and isinstance(item, str) and item.startswith("lvcore-entry://"):
-                out[key] = _stable_private_ref(item)
-                continue
-            out[key] = _public_mapping(item, debug=debug)
+            out[key] = _debug_mapping(item)
         return out
     if isinstance(value, (list, tuple)):
-        return [_public_mapping(item, debug=debug) for item in value]
+        return [_debug_mapping(item) for item in value]
     return value
+
+
+def _safe_json(value: Any) -> JsonValue:
+    if isinstance(value, Enum):
+        return value.value
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_safe_json(item) for item in value]
+    if isinstance(value, dict):
+        out: JsonObject = {}
+        for key, item in value.items():
+            if isinstance(key, str):
+                out[key] = _safe_json(item)
+        return out
+    return str(value)
+
+
+def _public_link_target(value: Any) -> JsonObject:
+    if isinstance(value, LinkTarget):
+        return value.to_dict(debug=False)
+    if not isinstance(value, dict):
+        return {}
+    out: JsonObject = {}
+    for key in PUBLIC_LINK_TARGET_KEYS:
+        if key not in value:
+            continue
+        item = value[key]
+        if key == "href" and isinstance(item, str) and item.startswith("lvcore-entry://"):
+            out[key] = _stable_private_ref(item)
+        else:
+            out[key] = _safe_json(item)
+    return out
+
+
+def _public_inline_attrs(kind: InlineKind, attrs: JsonObject) -> JsonObject:
+    if kind == InlineKind.GAIJI:
+        return {key: _safe_json(attrs[key]) for key in PUBLIC_GAIJI_ATTR_KEYS if key in attrs}
+    if kind == InlineKind.MEDIA_REF:
+        return {key: _safe_json(attrs[key]) for key in PUBLIC_MEDIA_ATTR_KEYS if key in attrs}
+    if kind == InlineKind.LINK:
+        target = _public_link_target(attrs.get("link_target"))
+        return {"link_target": target} if target else {}
+    return {}
+
+
+def _public_block_attrs(attrs: JsonObject) -> JsonObject:
+    return {key: _safe_json(attrs[key]) for key in PUBLIC_BLOCK_ATTR_KEYS if key in attrs}
+
+
+def _public_metadata(metadata: JsonObject) -> JsonObject:
+    return {key: _safe_json(metadata[key]) for key in PUBLIC_METADATA_KEYS if key in metadata}
+
+
+def _public_diagnostic_details(details: JsonObject) -> JsonObject:
+    return {key: _safe_json(details[key]) for key in PUBLIC_DIAGNOSTIC_DETAIL_KEYS if key in details}
 
 
 def _diagnostic_to_dict(diagnostic: Diagnostic, *, debug: bool) -> JsonObject:
     data = diagnostic.to_dict()
     if not debug:
-        data["details"] = _public_mapping(data.get("details", {}), debug=False)
+        data["location"] = {}
+        details = data.get("details", {})
+        data["details"] = _public_diagnostic_details(details if isinstance(details, dict) else {})
     return data
 
 
@@ -201,7 +234,7 @@ class ResourceRef:
             data["source_path"] = self.source_path
             data["component"] = self.component
             data["source_offset"] = self.source_offset
-            data["details"] = _public_mapping(self.details, debug=True)
+            data["details"] = _debug_mapping(self.details)
         else:
             public_details = {key: value for key, value in self.details.items() if key in {"resolved", "reason"}}
             if public_details:
@@ -245,7 +278,7 @@ class LinkTarget:
             data["end_op"] = self.end_op
             data["start_payload"] = self.start_payload
             data["end_payload"] = self.end_payload
-            data["details"] = _public_mapping(self.details, debug=True)
+            data["details"] = _debug_mapping(self.details)
         return data
 
 
@@ -267,7 +300,7 @@ class InlineNode:
         }
         if debug:
             data["code"] = self.code
-        attrs = _public_mapping(self.attrs, debug=debug)
+        attrs = _debug_mapping(self.attrs) if debug else _public_inline_attrs(self.kind, self.attrs)
         if attrs:
             data["attrs"] = attrs
         return data
@@ -283,7 +316,7 @@ class BlockNode:
         return {
             "kind": self.kind.value,
             "inlines": [node.to_dict(debug=debug) for node in self.inlines],
-            "attrs": _public_mapping(self.attrs, debug=debug),
+            "attrs": _debug_mapping(self.attrs) if debug else _public_block_attrs(self.attrs),
         }
 
 
@@ -311,10 +344,10 @@ class EntryDocument:
             "blocks": [block.to_dict(debug=debug) for block in self.blocks],
             "resources": [resource.to_dict(debug=debug) for resource in self.resources],
             "diagnostics": [_diagnostic_to_dict(diagnostic, debug=debug) for diagnostic in self.diagnostics],
-            "metadata": _public_mapping(self.metadata, debug=debug),
+            "metadata": _debug_mapping(self.metadata) if debug else _public_metadata(self.metadata),
         }
         if debug:
-            data["debug_metadata"] = _public_mapping(self.debug_metadata, debug=True)
+            data["debug_metadata"] = _debug_mapping(self.debug_metadata)
         return data
 
     def to_debug_dict(self) -> JsonObject:

@@ -23,6 +23,10 @@ This baseline exercises deterministic partial-scan behavior for the
   multi-candidate probes instead of accepting a premature miss. The unbudgeted
   full baseline is the compatibility contract and now has zero sampled native
   search misses.
+- Reader/audit boundary hardening: public body-source JSON no longer includes
+  sidecar table names, column names, row counts, or per-table summaries.
+  Budgeted counters are unchanged; only the per-target body-source schema was
+  narrowed.
 
 Capture command:
 

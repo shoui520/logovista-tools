@@ -123,10 +123,13 @@ for hit in results.hits:
 Raw inspection is a separate, explicit path:
 
 ```python
+from lvcore.inspect import InspectorRenderer
+
 hit_debug = results.hits[0].inspect()
 entry = package.entry_for_hit(results.hits[0])
 entry_debug = entry.inspect()
 document_debug = entry.document().to_dict(debug=True)
+debug_html = InspectorRenderer().render_html(entry.document())
 ```
 
 Inspection output is bounded by default. It exposes useful fields such as
@@ -134,6 +137,11 @@ component names, body/title pointers, index page/row numbers, opcode IDs,
 diagnostics, body-source details, and span summaries. It does not emit large raw
 body-byte dumps unless a future explicit low-level API is added for that
 purpose.
+
+The top-level `lvcore` import surface is intentionally reader-facing. Raw parser
+types such as index rows, component records, opcode helpers, span-debug records,
+resource locators, and inspector renderers live in explicit submodules for
+audit/inspection use.
 
 Search profiles are native reader profiles:
 
@@ -148,6 +156,10 @@ Friendly search JSON exposes the reader-facing heading, heading source, and
 title status. It hides raw page/pointer internals by default. Add `--debug`
 when inspecting component names, page/row positions, body/title pointers,
 title-resolution details, and raw parsed rows.
+
+`search_index()` was removed from the reader-facing package API because it
+serialized parsed native rows. Use `search(..., debug=True)` or the audit/index
+inspection paths when raw row details are required.
 
 Known SSED index component families are either parsed or explicitly diagnosed.
 The current parser handles `0x30`, `0x60`, `0x70`, `0x71`, `0x72`, `0x80`,

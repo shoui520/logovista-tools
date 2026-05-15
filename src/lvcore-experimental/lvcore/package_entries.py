@@ -923,24 +923,3 @@ class PackageEntryMixin:
                 details=self._sidecar_debug_details(sidecar, anchor_id),
             )
         return self._entry_from_sidecar_body(hit, body, sidecar=sidecar, anchor_id=anchor_id)
-
-    def _try_entry_from_dense_sidecar(
-        self,
-        hit: SearchHit,
-        inspection: BodyPointerInspection,
-    ) -> Entry | None:
-        anchor_id = inspection.anchor_id
-        if not anchor_id:
-            return None
-        sidecar = select_body_sidecar(self._body_sidecars(stop_after_body_resolver=True))
-        if sidecar is None:
-            return None
-        body = self._fetch_sidecar_body(sidecar, anchor_id)
-        if body is None:
-            return None
-        return self._entry_from_sidecar_body(
-            hit,
-            body,
-            sidecar=sidecar,
-            anchor_id=anchor_id,
-        )

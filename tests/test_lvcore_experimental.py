@@ -17,16 +17,18 @@ LVCORE_AUDIT_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-audit"
 sys.path.insert(0, str(LVCORE_SRC))
 sys.path.insert(0, str(LVCORE_AUDIT_SRC))
 
-from lvcore import Address, ColscrLocator, InspectorRenderer, Diagnostic, DiagnosticArea, IndexRow, Location, PackageFamily, PcmRangeLocator, SearchHit, SearchProfile, SearchResults, Severity, SidecarBlobLocator, Span, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
+from lvcore import Address, Diagnostic, DiagnosticArea, Location, PackageFamily, SearchHit, SearchProfile, SearchResults, Severity, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
 from lvcore.body_source import SidecarRole, classify_sqlite_sidecar_role, quote_sql_identifier, sqlite_columns  # noqa: E402
 from lvcore.crypto import decrypt_logofont, decrypt_logofont_file_to_path, logofont_key_iv  # noqa: E402
 from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, LinkTargetKind, ResourceKind, ResourceRef, ResourceStatus, build_entry_document  # noqa: E402
 from lvcore.errors import FormatError  # noqa: E402
 from lvcore.gaiji import ga16_glyph_size, gaiji_grid_code_for_index, parse_ga16  # noqa: E402
-from lvcore.index import parse_index  # noqa: E402
-from lvcore.model import Component, ComponentRole, Entry  # noqa: E402
+from lvcore.index import IndexRow, parse_index  # noqa: E402
+from lvcore.inspect import InspectorRenderer  # noqa: E402
+from lvcore.model import Component, ComponentRole, Entry, Span  # noqa: E402
 from lvcore.opcodes import OpcodeCategory, behavior_for  # noqa: E402
 from lvcore.render import GaijiPolicy, HtmlProfile, render_html, render_text  # noqa: E402
+from lvcore.resources import ColscrLocator, PcmRangeLocator, SidecarBlobLocator  # noqa: E402
 from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE, SsedData, expand_sseddata, parse_catalog  # noqa: E402
 from lvcore.text import decode_text_stream  # noqa: E402
 from lvcore_audit import sidecar_role_summary, validate_package  # noqa: E402
@@ -60,6 +62,28 @@ def test_lvcore_source_stays_independent_from_toolkit() -> None:
                     offenders.append(f"{path}:{node.lineno}: from subprocess import ...")
 
     assert offenders == []
+
+
+def test_lvcore_top_level_exports_reader_facing_api_only() -> None:
+    import lvcore
+
+    raw_exports = {
+        "Component",
+        "ComponentRole",
+        "IndexRow",
+        "InspectorRenderer",
+        "OpcodeBehavior",
+        "OpcodeCategory",
+        "Span",
+        "SpanDebug",
+        "behavior_for",
+        "ColscrLocator",
+        "PcmRangeLocator",
+        "SidecarBlobLocator",
+        "UnresolvedAddress",
+    }
+
+    assert raw_exports.isdisjoint(set(lvcore.__all__))
 
 
 def test_lvcore_sidecar_role_classification_is_structural() -> None:
@@ -977,10 +1001,28 @@ def test_lvcore_detects_and_reads_synthetic_ssed(tmp_path: Path) -> None:
     assert entries[0].headword is None
     assert "first entry" in entries[0].text
     assert package.titles() == ["alpha"]
-    assert package.search_index("alpha")[0]["component"] == "FHINDEX.DIC"
-    assert package.search_index("alpha", profile=SearchProfile.FORWARD)[0]["component"] == "FHINDEX.DIC"
-    assert package.search_index("alpha", profile=SearchProfile.BACKWARD) == []
+    assert [hit.display_key for hit in package.search("alpha", profile=SearchProfile.EXACT).hits] == ["alpha"]
+    assert [hit.display_key for hit in package.search("alpha", profile=SearchProfile.FORWARD).hits] == ["alpha"]
+    assert package.search("alpha", profile=SearchProfile.BACKWARD).hits == ()
     assert package.entry_at(package.search_entries("alpha")[0].address).headword is None
+
+
+def test_lvcore_package_lookup_is_case_insensitive(tmp_path: Path) -> None:
+    make_synthetic_package(tmp_path)
+    for path in tuple(tmp_path.iterdir()):
+        path.rename(tmp_path / path.name.lower())
+
+    info = detect_family(tmp_path)
+    package = open_package(tmp_path)
+
+    assert info.family == PackageFamily.SSED
+    assert info.idx_path is not None and info.idx_path.name == "test.idx"
+    assert [component.path.name for component in package.components if component.path is not None] == [
+        "honmon.dic",
+        "fhtitle.dic",
+        "fhindex.dic",
+    ]
+    assert package.search("alpha", profile=SearchProfile.EXACT).hits
 
 
 def test_lvcore_titles_limit_streams_without_full_component_decode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1109,6 +1151,16 @@ def test_lvcore_search_models_and_native_profiles(tmp_path: Path) -> None:
 
     native = package.search("alp", profile=SearchProfile.NATIVE)
     assert [hit.heading for hit in native.hits] == ["alpha", "alpine"]
+
+
+def test_lvcore_native_search_continues_after_exact_hits_until_limit(tmp_path: Path) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+
+    native = package.search("alpha", profile=SearchProfile.NATIVE, limit=2)
+
+    assert native.hits[0].search_profile == SearchProfile.EXACT
+    assert any(hit.search_profile != SearchProfile.EXACT for hit in native.hits)
 
 
 def test_lvcore_exact_search_does_not_range_stop_before_later_candidate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3344,8 +3396,15 @@ def test_lvcore_cli_body_source_validate_and_corpus_validate(tmp_path: Path) -> 
 def test_lvcore_detects_deferred_families(tmp_path: Path) -> None:
     lved = tmp_path / "_DCT_FAKE_LVED"
     lved.mkdir()
-    (lved / "main.data").write_bytes(b"not real")
+    (lved / "MAIN.DATA").write_bytes(b"not real")
     assert detect_family(lved).family == PackageFamily.LVED
+
+    lved_dbc = tmp_path / "_DCT_FAKE_DBC"
+    lved_dbc.mkdir()
+    (lved_dbc / "OXFPEU4.DBC").write_bytes(b"not real")
+    detected_dbc = detect_family(lved_dbc)
+    assert detected_dbc.family == PackageFamily.LVED
+    assert detected_dbc.dict_id == "OXFPEU4"
 
     multi = tmp_path / "_DCT_FAKE_MULTI"
     multi.mkdir()

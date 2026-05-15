@@ -89,6 +89,13 @@ class SidecarTableInfo:
 
     def to_dict(self, *, debug: bool = False) -> JsonObject:
         role = self.role.value if isinstance(self.role, SidecarRole) else str(self.role)
+        if not debug:
+            return {
+                "role": role,
+                "has_body_text": bool(self.html_column or self.plain_column),
+                "has_blob": bool(self.blob_column),
+                "has_address_mapping": bool(self.block_column and self.offset_column),
+            }
         data: JsonObject = {
             "table": self.table,
             "row_count": self.row_count,
@@ -136,12 +143,24 @@ class SidecarInfo:
 
     def to_dict(self, *, debug: bool = False) -> JsonObject:
         support_status = self.support_status.value if isinstance(self.support_status, SidecarSupportStatus) else str(self.support_status)
+        role = self.role.value if isinstance(self.role, SidecarRole) else str(self.role)
+        if not debug:
+            data: JsonObject = {
+                "name": self.path.name,
+                "kind": self.kind,
+                "storage": self.storage,
+                "role": role,
+                "support_status": support_status,
+                "table_count": len(self.tables),
+                "notes": list(self.notes),
+            }
+            return data
         data = {
             "path": str(self.path),
             "name": self.path.name,
             "kind": self.kind,
             "storage": self.storage,
-            "role": self.role.value if isinstance(self.role, SidecarRole) else str(self.role),
+            "role": role,
             "support_status": support_status,
             "table": self.table,
             "id_column": self.id_column,
@@ -154,8 +173,6 @@ class SidecarInfo:
             "tables": [table.to_dict(debug=debug) for table in self.tables],
             "notes": list(self.notes),
         }
-        if not debug:
-            data.pop("path", None)
         return data
 
 

@@ -126,7 +126,7 @@ class SearchHitDebug:
             "page": self.page,
             "row": self.row,
             "raw_row": self.raw_row.to_dict() if self.raw_row else None,
-            "body_source": self.body_source.to_dict(debug=False) if hasattr(self.body_source, "to_dict") else None,
+            "body_source": self.body_source.to_dict(debug=True) if hasattr(self.body_source, "to_dict") else None,
             "title_resolution": self.title_resolution.to_dict(debug=True) if self.title_resolution else None,
         }
 

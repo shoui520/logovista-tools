@@ -2037,46 +2037,13 @@
         ],
         "sidecars": [
           {
-            "blob_column": null,
-            "html_column": "f_contents",
-            "id_column": "f_data_id",
             "kind": "t_contents",
             "name": "vlpljblF",
-            "name_column": null,
             "notes": [],
-            "plain_column": null,
             "role": "body_critical",
-            "row_count": null,
             "storage": "logofont_cipher",
             "support_status": "body_resolver",
-            "table": "t_contents",
-            "tables": [
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_contents"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": true,
-                "has_body_text": false,
-                "role": "media_resource",
-                "row_count": null,
-                "table": "t_media"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_zenbun"
-              }
-            ],
-            "title_column": "f_midashi"
+            "table_count": 3
           }
         ],
         "ssed_kind": "renderer_sqlite_sidecar",
@@ -2267,30 +2234,13 @@
         ],
         "sidecars": [
           {
-            "blob_column": null,
-            "html_column": null,
-            "id_column": "ID",
             "kind": "main_wordlist",
             "name": "CJJC160",
-            "name_column": null,
             "notes": [],
-            "plain_column": "J_text",
             "role": "body_critical",
-            "row_count": null,
             "storage": "logofont_cipher",
             "support_status": "body_resolver",
-            "table": "main",
-            "tables": [
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "main"
-              }
-            ],
-            "title_column": "C_text"
+            "table_count": 1
           }
         ],
         "ssed_kind": "dense_anchor_with_sidecar",
@@ -2476,46 +2426,13 @@
         ],
         "sidecars": [
           {
-            "blob_column": null,
-            "html_column": "f_Html",
-            "id_column": "f_DataId",
             "kind": "t_contents",
             "name": "vlpljblb",
-            "name_column": null,
             "notes": [],
-            "plain_column": "f_Plane",
             "role": "body_critical",
-            "row_count": null,
             "storage": "logofont_cipher",
             "support_status": "body_resolver",
-            "table": "t_contents",
-            "tables": [
-              {
-                "has_address_mapping": false,
-                "has_blob": true,
-                "has_body_text": false,
-                "role": "media_resource",
-                "row_count": null,
-                "table": "media"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "search",
-                "row_count": null,
-                "table": "t_bunya"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_contents"
-              }
-            ],
-            "title_column": "f_Title"
+            "table_count": 3
           }
         ],
         "ssed_kind": "renderer_sqlite_sidecar",
@@ -9385,38 +9302,13 @@
         ],
         "sidecars": [
           {
-            "blob_column": null,
-            "html_column": "f_Html",
-            "id_column": "f_DataId",
             "kind": "t_contents",
             "name": "vlpljblF",
-            "name_column": null,
             "notes": [],
-            "plain_column": "f_Plane",
             "role": "body_critical",
-            "row_count": null,
             "storage": "logofont_cipher",
             "support_status": "body_resolver",
-            "table": "t_contents",
-            "tables": [
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "unknown",
-                "row_count": null,
-                "table": "kisoku"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_contents"
-              }
-            ],
-            "title_column": "f_Title"
+            "table_count": 2
           }
         ],
         "ssed_kind": "renderer_sqlite_sidecar",
@@ -9832,30 +9724,13 @@
         ],
         "sidecars": [
           {
-            "blob_column": null,
-            "html_column": "f_Html",
-            "id_column": "f_DataId",
             "kind": "t_contents",
             "name": "vlpljblF",
-            "name_column": null,
             "notes": [],
-            "plain_column": "f_Plane",
             "role": "body_critical",
-            "row_count": null,
             "storage": "logofont_cipher",
             "support_status": "body_resolver",
-            "table": "t_contents",
-            "tables": [
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_contents"
-              }
-            ],
-            "title_column": "f_Title"
+            "table_count": 1
           }
         ],
         "ssed_kind": "renderer_sqlite_sidecar",
@@ -14046,38 +13921,13 @@
         ],
         "sidecars": [
           {
-            "blob_column": null,
-            "html_column": "f_Html",
-            "id_column": "f_DataId",
             "kind": "t_contents",
             "name": "vlpljblh",
-            "name_column": null,
             "notes": [],
-            "plain_column": "f_Plane",
             "role": "body_critical",
-            "row_count": null,
             "storage": "logofont_cipher",
             "support_status": "body_resolver",
-            "table": "t_contents",
-            "tables": [
-              {
-                "has_address_mapping": false,
-                "has_blob": true,
-                "has_body_text": false,
-                "role": "media_resource",
-                "row_count": null,
-                "table": "media"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_contents"
-              }
-            ],
-            "title_column": "f_Title"
+            "table_count": 2
           }
         ],
         "ssed_kind": "renderer_sqlite_sidecar",
@@ -14463,46 +14313,13 @@
         ],
         "sidecars": [
           {
-            "blob_column": null,
-            "html_column": "f_Html",
-            "id_column": "f_DataId",
             "kind": "t_contents",
             "name": "vlpljblF",
-            "name_column": null,
             "notes": [],
-            "plain_column": "f_Plane",
             "role": "body_critical",
-            "row_count": null,
             "storage": "logofont_cipher",
             "support_status": "body_resolver",
-            "table": "t_contents",
-            "tables": [
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_contents"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "unknown",
-                "row_count": null,
-                "table": "t_dummy"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "search",
-                "row_count": null,
-                "table": "t_goi"
-              }
-            ],
-            "title_column": "f_Title"
+            "table_count": 3
           }
         ],
         "ssed_kind": "renderer_sqlite_sidecar",
@@ -15906,38 +15723,13 @@
         ],
         "sidecars": [
           {
-            "blob_column": null,
-            "html_column": "f_Html",
-            "id_column": "f_DataID",
             "kind": "t_contents",
             "name": "vlpljblF",
-            "name_column": null,
             "notes": [],
-            "plain_column": "f_Plane",
             "role": "body_critical",
-            "row_count": null,
             "storage": "logofont_cipher",
             "support_status": "body_resolver",
-            "table": "t_contents",
-            "tables": [
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_contents"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "search",
-                "row_count": null,
-                "table": "t_seikuyourei"
-              }
-            ],
-            "title_column": "f_Title"
+            "table_count": 2
           }
         ],
         "ssed_kind": "renderer_sqlite_sidecar",
@@ -16136,30 +15928,13 @@
         ],
         "sidecars": [
           {
-            "blob_column": null,
-            "html_column": null,
-            "id_column": "ID",
             "kind": "main_wordlist",
             "name": "KJJK100",
-            "name_column": null,
             "notes": [],
-            "plain_column": "J_text",
             "role": "body_critical",
-            "row_count": null,
             "storage": "logofont_cipher",
             "support_status": "body_resolver",
-            "table": "main",
-            "tables": [
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "main"
-              }
-            ],
-            "title_column": "K_text"
+            "table_count": 1
           }
         ],
         "ssed_kind": "dense_anchor_with_sidecar",
@@ -16353,78 +16128,13 @@
         ],
         "sidecars": [
           {
-            "blob_column": null,
-            "html_column": "f_Html",
-            "id_column": "f_DataId",
             "kind": "t_contents",
             "name": "vlpljblF",
-            "name_column": null,
             "notes": [],
-            "plain_column": "f_Plane",
             "role": "body_critical",
-            "row_count": null,
             "storage": "logofont_cipher",
             "support_status": "body_resolver",
-            "table": "t_contents",
-            "tables": [
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "search",
-                "row_count": null,
-                "table": "t_chimei"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_contents"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "search",
-                "row_count": null,
-                "table": "t_jinmei"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "search",
-                "row_count": null,
-                "table": "t_kanyoku"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "search",
-                "row_count": null,
-                "table": "t_kigo"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "search",
-                "row_count": null,
-                "table": "t_sakuhin"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_yourei"
-              }
-            ],
-            "title_column": "f_Title"
+            "table_count": 7
           }
         ],
         "ssed_kind": "renderer_sqlite_sidecar",
@@ -20326,38 +20036,13 @@
         ],
         "sidecars": [
           {
-            "blob_column": null,
-            "html_column": "f_contents",
-            "id_column": "f_data_id",
             "kind": "t_contents",
             "name": "vlpljblF",
-            "name_column": null,
             "notes": [],
-            "plain_column": null,
             "role": "body_critical",
-            "row_count": null,
             "storage": "logofont_cipher",
             "support_status": "body_resolver",
-            "table": "t_contents",
-            "tables": [
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_contents"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_zenbun"
-              }
-            ],
-            "title_column": "f_midashi"
+            "table_count": 2
           }
         ],
         "ssed_kind": "renderer_sqlite_sidecar",
@@ -21921,38 +21606,13 @@
         ],
         "sidecars": [
           {
-            "blob_column": null,
-            "html_column": "f_html_text",
-            "id_column": "f_contents_id",
             "kind": "t_contents",
             "name": "vlpljblF",
-            "name_column": null,
             "notes": [],
-            "plain_column": "f_plane_text",
             "role": "body_critical",
-            "row_count": null,
             "storage": "logofont_cipher",
             "support_status": "body_resolver",
-            "table": "t_contents",
-            "tables": [
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_contents"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "search",
-                "row_count": null,
-                "table": "t_keywords"
-              }
-            ],
-            "title_column": "f_title"
+            "table_count": 2
           }
         ],
         "ssed_kind": "renderer_sqlite_sidecar",
@@ -22364,70 +22024,13 @@
         ],
         "sidecars": [
           {
-            "blob_column": null,
-            "html_column": "f_html",
-            "id_column": "f_dataid",
             "kind": "t_contents",
             "name": "vlpljblF",
-            "name_column": null,
             "notes": [],
-            "plain_column": "f_plane",
             "role": "body_critical",
-            "row_count": null,
             "storage": "logofont_cipher",
             "support_status": "body_resolver",
-            "table": "t_contents",
-            "tables": [
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_contents"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "search",
-                "row_count": null,
-                "table": "t_english"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "search",
-                "row_count": null,
-                "table": "t_fjseikuyourei"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "search",
-                "row_count": null,
-                "table": "t_jfseikuyourei"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "unknown",
-                "row_count": null,
-                "table": "t_katsuyou"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": true,
-                "has_body_text": false,
-                "role": "media_resource",
-                "row_count": null,
-                "table": "t_media"
-              }
-            ],
-            "title_column": "f_title"
+            "table_count": 6
           }
         ],
         "ssed_kind": "renderer_sqlite_sidecar",
@@ -23862,62 +23465,13 @@
         ],
         "sidecars": [
           {
-            "blob_column": null,
-            "html_column": "f_Html",
-            "id_column": "f_DataId",
             "kind": "t_contents",
             "name": "vlpljblb",
-            "name_column": null,
             "notes": [],
-            "plain_column": "f_Plane",
             "role": "body_critical",
-            "row_count": null,
             "storage": "logofont_cipher",
             "support_status": "body_resolver",
-            "table": "t_contents",
-            "tables": [
-              {
-                "has_address_mapping": false,
-                "has_blob": true,
-                "has_body_text": false,
-                "role": "media_resource",
-                "row_count": null,
-                "table": "media"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_contents"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "ancillary",
-                "row_count": null,
-                "table": "t_data"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "unknown",
-                "row_count": null,
-                "table": "t_dummy"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "search",
-                "row_count": null,
-                "table": "t_kanji"
-              }
-            ],
-            "title_column": "f_Title"
+            "table_count": 5
           }
         ],
         "ssed_kind": "renderer_sqlite_sidecar",
@@ -31175,54 +30729,13 @@
         ],
         "sidecars": [
           {
-            "blob_column": null,
-            "html_column": "f_contents",
-            "id_column": "f_order_id",
             "kind": "t_contents",
             "name": "vlpljblb",
-            "name_column": null,
             "notes": [],
-            "plain_column": null,
             "role": "body_critical",
-            "row_count": null,
             "storage": "logofont_cipher",
             "support_status": "body_resolver",
-            "table": "t_contents",
-            "tables": [
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_contents"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": true,
-                "has_body_text": false,
-                "role": "media_resource",
-                "row_count": null,
-                "table": "t_media"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "search",
-                "row_count": null,
-                "table": "t_search"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_zenbun"
-              }
-            ],
-            "title_column": "f_midashi"
+            "table_count": 4
           }
         ],
         "ssed_kind": "renderer_sqlite_sidecar",
@@ -31817,62 +31330,13 @@
         ],
         "sidecars": [
           {
-            "blob_column": null,
-            "html_column": "f_contents",
-            "id_column": "f_order_id",
             "kind": "t_contents",
             "name": "vlpljblb",
-            "name_column": null,
             "notes": [],
-            "plain_column": null,
             "role": "body_critical",
-            "row_count": null,
             "storage": "logofont_cipher",
             "support_status": "body_resolver",
-            "table": "t_contents",
-            "tables": [
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_contents"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "search",
-                "row_count": null,
-                "table": "t_list"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": true,
-                "has_body_text": false,
-                "role": "media_resource",
-                "row_count": null,
-                "table": "t_media"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": false,
-                "role": "search",
-                "row_count": null,
-                "table": "t_search"
-              },
-              {
-                "has_address_mapping": false,
-                "has_blob": false,
-                "has_body_text": true,
-                "role": "body_critical",
-                "row_count": null,
-                "table": "t_zenbun"
-              }
-            ],
-            "title_column": "f_midashi"
+            "table_count": 5
           }
         ],
         "ssed_kind": "renderer_sqlite_sidecar",

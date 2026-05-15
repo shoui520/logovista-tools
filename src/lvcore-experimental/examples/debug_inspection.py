@@ -16,7 +16,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from lvcore import InspectorRenderer, SearchProfile, open_package
+from lvcore import SearchProfile, open_package
+from lvcore.inspect import InspectorRenderer
 
 
 def inspect_first_hit(package_path: str | Path, query: str, *, profile: str = "native") -> dict[str, Any]:

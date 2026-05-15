@@ -28,7 +28,6 @@ from .index import (
     parse_simple_leaf,
     parse_tagged_leaf,
 )
-from .json_types import JsonObject
 from .model import Address, Component, ComponentRole, Entry, SearchProfile, Span
 from .package_utils import (
     EXACT_INDEX_PROBE_PAGES,
@@ -875,7 +874,6 @@ class PackageSearchMixin:
             return added
 
         for effective_profile in profiles:
-            before_profile = len(hits)
             if effective_profile == SearchProfile.EXACT:
                 found_primary = add_row_matches(
                     self._iter_matching_rows(
@@ -908,20 +906,7 @@ class PackageSearchMixin:
                 add_row_matches(self._iter_matching_rows(query, effective_profile, budget=budget), effective_profile)
             if len(hits) >= limit:
                 return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits), diagnostics=self._scan_budget_diagnostics(budget))
-            if profile == SearchProfile.NATIVE and len(hits) > before_profile:
-                return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits), diagnostics=self._scan_budget_diagnostics(budget))
         return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits), diagnostics=self._scan_budget_diagnostics(budget))
-
-    def search_index(self, term: str, *, limit: int = 20, profile: SearchProfile | str = SearchProfile.NATIVE) -> list[JsonObject]:
-        return [
-            {
-                "component": hit.debug_info.index_component,
-                **(hit.debug_info.raw_row.to_dict() if hit.debug_info.raw_row is not None else {}),
-                "heading": hit.heading,
-                "display_key": hit.display_key,
-            }
-            for hit in self.search(term, limit=limit, profile=profile).hits
-        ]
 
     def search_entries(
         self,
