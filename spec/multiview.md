@@ -12,8 +12,8 @@ Observed subfamilies:
 
 | Subfamily | Examples | Viewer | Main package traits |
 |---|---|---|---|
-| Law packages | MOROKU21-26, YROPPO02/03/04/5/06/07/08 | shared `LOGOVISTAMULTIVIEW/LVLMultiView.exe` | `_DCT_*`, `*.IDX`, `menuData.xml`, `blvbat`, `hlvbat`, index/metadata payloads |
-| Content/search package | ESPRANT2 | dedicated `LV_Viwer_ESPRANT2/LVEDESPRANT2.exe` | `_DCT_ESPRANT2`, `ESPRANT2.IDX`, `menuData.xml`, `blvdat`, `HANREI/` static HTML |
+| Law packages | MOROKU21-26, YROPPO02/03/04/5/06/07/08 | shared viewer-resource layout | `_DCT_*`, `*.IDX`, `menuData.xml`, `blvbat`, `hlvbat`, index/metadata payloads |
+| Content/search package | ESPRANT2 | dedicated viewer-resource layout | `_DCT_ESPRANT2`, `ESPRANT2.IDX`, `menuData.xml`, `blvdat`, `HANREI/` static HTML |
 
 ## Classification
 
@@ -76,7 +76,8 @@ encryption.
 
 ## Payload Roles
 
-The law viewer binary contains UTF-16 strings that name decrypted cache files:
+Observed package resources and runtime cache naming evidence identify these
+payload roles:
 
 ```text
 blvbat   -> hore_body.db
@@ -88,9 +89,9 @@ ilvdat   -> index.db
 jlvbat   -> jiko_sakuin.db
 ```
 
-The ESPRANT2 viewer contains product-specific strings and SQL that target
-`blvdat`, `t_contents`, and `t_search`. It also contains shared law-viewer
-strings, so schema classification is more reliable than string matching alone.
+The ESPRANT2 payload exposes product-specific `blvdat`, `t_contents`, and
+`t_search` structures. Schema classification is more reliable than filename or
+string matching alone.
 
 Observed schema roles:
 

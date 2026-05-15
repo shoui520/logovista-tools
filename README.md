@@ -42,13 +42,13 @@ This table is about `src/lvcore-experimental`, not the toolkit.
 
 | Family / Layer | lvcore status |
 |---|---|
-| SSED reader path | Active compatibility target. The current proof of concept opens, searches, dereferences, renders, and validates known SSED reader cases with diagnostics. |
+| SSED reader path | Active compatibility target. The current proof of concept opens, searches, dereferences, and renders known SSED reader cases with diagnostics. The sibling `lvcore-audit` package owns corpus validation and scorecards. |
 | Dense/sidecar SSED | Treated as SSED body-source variants, not as LVED or LVLMultiView. |
 | LVED/WebView2 | Detected/classified only in lvcore; not implemented as a lvcore reader path. |
 | LVLMultiView | Detected/classified only in lvcore; not implemented as a lvcore reader path. |
 | Writer/importer behavior | Out of scope for lvcore. |
 
-The detailed lvcore status table, current counters, boundaries, and validation
+The detailed lvcore status table, current counters, boundaries, and audit
 commands live in [docs/lvcore-status.md](docs/lvcore-status.md).
 
 ## Install
@@ -120,12 +120,12 @@ Inspect one package model:
 logovista-tools dump-package-model /path/to/_DCT_HAESPJPN --out-dir out/package-model
 ```
 
-Run the lvcore reader validator:
+Run the lvcore reader audit:
 
 ```bash
-PYTHONPATH=src/lvcore-experimental python3 -m lvcore corpus-validate \
+PYTHONPATH=src/lvcore-experimental:src/lvcore-audit python3 -m lvcore_audit corpus \
   /path/to/LogoVista \
-  --json --jobs 0 --progress --output-dir out/lvcore-corpus
+  --full --jobs 0 --progress --output-dir out/lvcore-corpus
 ```
 
 The full command reference is in [docs/commands.md](docs/commands.md).
@@ -134,9 +134,9 @@ The full command reference is in [docs/commands.md](docs/commands.md).
 
 | Page | Purpose |
 |---|---|
-| [CLI Command Reference](docs/commands.md) | All current toolkit and lvcore command examples. |
+| [CLI Command Reference](docs/commands.md) | Toolkit CLI commands plus pointers to the separate lvcore and lvcore-audit CLIs. |
 | [Project Status and Roadmap](docs/status.md) | `logovista-tools` capability status and roadmap. |
-| [lvcore Status](docs/lvcore-status.md) | Reader-core status table, boundaries, and validation counters. |
+| [lvcore Status](docs/lvcore-status.md) | Reader-core status table, boundaries, and audit counters. |
 | [Package Families](docs/package-families.md) | SSED, LVED, LVLMultiView, SIZK, wrappers, and file lookup behavior. |
 | [Corpus Findings](docs/corpus-findings.md) | Observed behavior from real dictionaries and platform comparisons. |
 | [Legal and Data Policy](docs/legal.md) | Repository scope and data-handling policy. |

@@ -585,8 +585,10 @@ accented Latin gaiji in HAESPJPN display correctly from `.uni`, but many lack
 ASCII fallback text such as `e` for `é`.
 
 The experimental lvcore reader uses the same display-readiness vocabulary for
-entry diagnostics and resource APIs. `resource_info()` reports Unicode,
-GA16/GAI16 grid, `.uni` record-order, plist/image, formatting-helper, or
+entry diagnostics and resource APIs. `gaiji_info()` returns a typed
+`GaijiResolution`; `resource_info()` returns a typed `ResourceLocation` for an
+addressable gaiji/media resource. These reports distinguish Unicode,
+GA16/GAI16 grid, `.uni` record-order, plist/image, formatting-helper, and
 renderer-contextual evidence. `resource_bytes()` returns original GA16 glyph
 bytes or original image-backed gaiji bytes only when the exact resource is
 known and the caller explicitly asks for bytes. Friendly rendering prefers

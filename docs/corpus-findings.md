@@ -125,19 +125,17 @@ page tails, text-like index outliers, unsupported component types, and
 grouped-continuation rows; body decode telemetry records unknown control and
 byte totals from sampled entries without exposing entry text.
 
-The latest lvcore reader validation also reports gaiji display-readiness
-buckets instead of treating every non-Unicode code as unresolved. A full local
-SSED validation sampled 12,413 gaiji occurrences: 2,713 Unicode-mapped, 2,758
-bitmap-backed, 6,348 image-backed, 594 formatting-helper, and 0 true
-display-unresolved. Resource-byte availability is counted separately; bitmap
-and image-backed gaiji remain original package bytes and are available only via
-explicit resource APIs. The same closure sprint reported 162 SSED packages:
-146 renderable, 15 partially renderable, and 1 ignored local
-package-integrity residual where a declared readable body component is absent.
-The broken local package copy is counted separately from SSED reader
-compatibility blockers. Compatibility-significant unsupported sidecars, sampled
-native search misses, unresolved media, and unresolved links were all zero in
-that run.
+The latest committed lvcore audit baseline reports gaiji display-readiness
+buckets instead of treating every non-Unicode code as unresolved. The full
+baseline covers 161 detected SSED packages and counts 67,372 gaiji
+occurrences: 12,035 Unicode-mapped, 20,394 bitmap-backed, 33,912 image-backed,
+1,031 formatting-helper, and 0 true display-unresolved. Resource-byte
+availability is counted separately; bitmap and image-backed gaiji remain
+original package bytes and are available only via explicit resource APIs. The
+same baseline reports 145 renderable and 16 partially renderable SSED packages.
+Compatibility-significant unsupported sidecars, sampled native search misses,
+unresolved media, and true display-unresolved gaiji are all zero. Three sampled
+unresolved link-target diagnostics remain as nonblocking diagnostics.
 
 ## Windows SSED Corpus Profile
 
@@ -442,12 +440,13 @@ singleton title-stream vendor anomaly:
 25IGAKU / FHTITLE.DIC / offset 4980735 / raw 1f1f
 ```
 
-The surrounding title stream is:
+The surrounding title stream contains two ordinary title lines with the
+singleton control between them:
 
 ```text
-closed ecological system (n)【基医
+<title line>
 <1f1f>
-closed ecosystem (n)【基医】
+<title line>
 ```
 
 The `1f1f` sequence is only observed once. It is between title line breaks, has
@@ -877,12 +876,11 @@ content rows:              64,517
 search rows:              135,317
 ```
 
-The Windows viewer ships WebView2 and SQLCipher. Static .NET inspection shows a
-direct `sqlite3_open_v2` -> metadata-derived key -> `sqlite3_key` path. The
-validated database key path uses dictionary id/code metadata, not the product
-serial. The local LVEDVIEWER memory dump also contains plaintext SQLite headers,
-SQL statements, and live key material; this confirms the runtime model, but
-memory dumps and recovered keys are not repository artifacts.
+Observed LVED packages ship WebView2 and SQLCipher runtime components. Private
+runtime evidence confirms a metadata-derived `sqlite3_key` path, and independent
+key validation shows the database key path uses dictionary id/code metadata, not
+the product serial. Memory dumps and recovered keys are private local evidence,
+not repository artifacts.
 
 The toolkit therefore treats LVED payloads as a distinct package layer:
 
@@ -939,11 +937,11 @@ with `t_contents(f_ID, f_Title, f_Body)` and `t_search(...)` tables, plus
 rows. Its `menuData.xml` hrefs are six-digit numeric content IDs such as
 `000001`, all resolving to `t_contents.f_ID`.
 
-The bundled ESPRANT2 viewer is dedicated to this product rather than the shared
-law viewer: `LV_Viwer_ESPRANT2/LVEDESPRANT2.exe` is a .NET/MSHTML/System.Data
-SQLite application. Its UTF-16 strings include `blvdat`, `lved.dataid:`, and
-SQL against `t_contents` and `t_search`. ESPRANT2 also ships a `HANREI/` static
-HTML directory with 15 HTML files; this appears to be a browsable
+ESPRANT2 is packaged with a dedicated viewer-resource layout rather than the
+shared law-package layout. Private runtime/resource evidence and the decrypted
+payload schema identify `blvdat`, `t_contents`, and `t_search` as the relevant
+content/search layer. ESPRANT2 also ships a `HANREI/` static HTML directory
+with 15 HTML files; this appears to be a browsable
 example/help-style appendix rather than the primary body store.
 
 Across all 14 packages, `menuData.xml` is a real navigation tree. Current menu

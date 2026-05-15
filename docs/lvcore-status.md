@@ -26,16 +26,24 @@ implemented as reader paths.
 The latest local SSED closure audit reported:
 
 ```text
-SSED packages:                         162
+package directories audited:            170
+SSED packages:                         161
 hard SSED reader compatibility blockers: 0
 native sampled search misses:            0
-unresolved gaiji/media/link:             0
+true display-unresolved gaiji:           0
+unresolved media:                        0
+sampled unresolved link targets:         3
+renderable / partially renderable:       145 / 16
 ```
 
-One local package copy is treated as a broken package/component-integrity
-residual, not a format-support blocker. Do not describe SSED as universally
-closed outside the audited corpus; the correct claim is closure-ready for the
-current known SSED reader targets.
+The committed audit baseline marks the reader as
+`closure_ready_for_deeper_audit`: there are no hard SSED failures, no
+compatibility-significant unsupported sidecars, no sampled native search misses,
+no unresolved media, and no true display-unresolved gaiji. The three sampled
+unresolved link-target diagnostics remain nonblocking diagnostics, not hard
+reader blockers. Do not describe SSED as universally closed outside the audited
+corpus; the correct claim is closure-ready for the current known SSED reader
+targets.
 
 ## Reader Features
 
@@ -44,8 +52,8 @@ Current lvcore SSED coverage includes:
 - package-family detection for SSED, LVED, and LVLMultiView;
 - SSEDINFO/SSEDDATA parsing, component reads, Windows LogoFontCipher handling,
   and observed Mac OS X `HONMON.DIN` decryption;
-- text-span parsing with friendly, semantic, LogoVista-like, and debug render
-  profiles;
+- text-span parsing with friendly, semantic, and LogoVista-like reader render
+  profiles plus explicit inspector/debug output;
 - native exact/forward/backward index lookup;
 - title-pointer heading resolution and safe fallback headings;
 - direct body-stream, dense-anchor, dense-marker, renderer-sidecar, and

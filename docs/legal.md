@@ -7,7 +7,7 @@ The repository contains code and reverse-engineering notes only. It does not inc
 This repository contains code and public reverse-engineering notes only. Do not
 commit proprietary dictionary data, expanded book images, generated JSONL
 extractions, private corpus reports, rendered private HTML, gaiji image assets,
-decrypted SQLCipher databases, LVEDVIEWER memory dumps, vendor binaries,
+decrypted SQLCipher databases, memory dumps, vendor binaries,
 product serials, recovered keys, or local key material.
 
 You are responsible for ensuring that any dictionary extraction or conversion

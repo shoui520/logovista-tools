@@ -1,11 +1,13 @@
 # Text Streams and Body Storage
 
-Expanded `HONMON.DIC`, entry slicing, dense HONMON tables, database-backed body payloads, and outliers.
+Expanded `HONMON.DIC` / `HONMON.DIN`, entry slicing, dense HONMON tables, database-backed body payloads, and outliers.
 
-## Expanded `HONMON.DIC`
+## Expanded `HONMON.DIC` / `HONMON.DIN`
 
-After SSED expansion, `HONMON.DIC` is not Shift-JIS and not UTF-8. It is an
-EPWING/JIS-like stream.
+After SSED expansion, the main body component is not Shift-JIS and not UTF-8.
+Windows packages normally name it `HONMON.DIC`; the observed Mac OS X SSED
+package names the same type of component `HONMON.DIN`. The expanded payload is
+an EPWING/JIS-like stream.
 
 Text is mostly JIS X 0208 pairs:
 
@@ -140,9 +142,8 @@ context, pair behavior, examples, and confidence labels. The current full pass
 over the Windows corpus scanned 7,026,978,819 expanded text-stream bytes and
 observed 713,941,069 `0x1f` controls across 40 distinct opcodes. The only
 singleton anomaly is `25IGAKU` `FHTITLE.DIC` `1f1f`: it appears once, by itself,
-between title line breaks around `closed ecological system (n)【基医`. It is
-treated as a vendor title-stream defect, not as evidence for a global
-zero-argument opcode.
+between two title lines. It is treated as a vendor title-stream defect, not as
+evidence for a global zero-argument opcode.
 
 A bare `0x0a` byte, not introduced by `0x1f`, appears once in the current
 corpus (`NANDOKU1`). It is handled as a legacy line break byte.
@@ -193,11 +194,11 @@ Many body streams use this marker near many entry boundaries:
 A marker-only strategy is insufficient for some body streams. OUKOKU11 real
 entries can begin with other `1f09` section codes, including `0008`, `0003`,
 `0004`, `0002`, and `1001`. For example, the first two raw body entries in
-OUKOKU11 start at:
+one observed package start at:
 
 ```text
-block 2 offset 2    1f09 0008  あ ア
-block 2 offset 146  1f09 0003  あ【亜】【亞】
+block 2 offset 2    1f09 0008  <readable title text>
+block 2 offset 146  1f09 0003  <readable title text>
 ```
 
 Those entries are discoverable from raw `*INDEX.DIC` body pointers, not from
@@ -237,9 +238,9 @@ Decoded as text, the ID span can be:
 Those IDs correspond to `DictFULLDB` body rows such as:
 
 ```text
-00000755 -> アイ‐アイ 【aye-aye】
-00197570 -> か・ける 【掛ける・懸ける】
-00851665 -> にほん 【日本】
+00000755 -> <headword/title text>
+00197570 -> <headword/title text>
+00851665 -> <headword/title text>
 ```
 
 The model for these dictionaries is:
@@ -264,7 +265,7 @@ Observed non-body HONMON dictionaries in the local corpus include:
 | `HABGESPA` | Numeric ID table | No title components; Spanish keys are visible in `FHINDEX.DIC` / `BHINDEX.DIC`. |
 | `HAFRAN` | Numeric ID table | No title components; French keys are visible in `FHINDEX.DIC` / `BHINDEX.DIC`. |
 | `HOUGAKU5` | Opaque token table | Index/title linkage exists, but sampled HONMON slices are not definitions. |
-| `IWKOKUG8` | Numeric ID table | `*TITLE.DIC` streams expose Japanese lookup titles such as `ああ【嗚呼】`. |
+| `IWKOKUG8` | Numeric ID table | `*TITLE.DIC` streams expose Japanese lookup titles. |
 | `JSSAURU2` | Numeric ID table | Index/title linkage exists; sampled HONMON slices are not definitions. |
 | `KENROWA` | Numeric ID table | `*TITLE.DIC` streams expose Russian/Japanese lookup titles. |
 | `KOJIEN7` | Numeric ID table | `*TITLE.DIC` streams expose Japanese lookup titles; HONMON IDs resolve to `DictFULLDB`. |

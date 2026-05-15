@@ -91,23 +91,25 @@ The scanner uses the shared package-target discovery layer. It detects:
   classification,
 - LVLMultiView packages by `menuData.xml` plus `*lvdat` / `*lvbat` payloads.
 
-SSED rows include `HONMON.DIC` readiness where available. LVED rows are
+SSED rows include `HONMON.DIC` / `HONMON.DIN` readiness where available. LVED rows are
 classified structurally; encrypted payload detection does not imply decryption.
 Use `profile` when you need a redacted inventory that also records incomplete
-packages with missing `HONMON.DIC` or missing declared components.
+packages with missing body components or missing declared components.
 
 ### `info`
 
-Print metadata for either an `.IDX` or `.DIC`.
+Print metadata for either an `.IDX`, `.DIC`, or `.DIN`.
 
 ```bash
 logovista-tools info DICT.IDX --all
 logovista-tools info HONMON.DIC
+logovista-tools info HONMON.DIN --try-decrypt
 ```
 
 For `.IDX`, this lists component records, block ranges, component types, and
-filenames. For `.DIC`, this prints the SSED chunk count, declared logical block
-range, and storage mode (`plain` or `logofont_cipher`).
+filenames. For `.DIC` / `.DIN`, this prints the SSED chunk count, declared
+logical block range, and storage mode (`plain`, `logofont_cipher`, or the
+observed Mac `macos_logofont_cipher` variant).
 
 ### `expand`
 
@@ -121,16 +123,18 @@ The output is the expanded EPWING/JIS-style byte stream for that component.
 
 ### `decrypt`
 
-Decrypt an observed Windows LogoFontCipher file without SSED expansion:
+Decrypt an observed LogoFontCipher file without SSED expansion:
 
 ```bash
 logovista-tools decrypt HONMON.DIC honmon.ssed
+logovista-tools decrypt HONMON.DIN honmon.ssed
 logovista-tools decrypt vlpljblF vlpljblF.sqlite
 ```
 
-Use this for sidecars that decrypt to another container such as SQLite. For
-encrypted `HONMON.DIC`, `info`, `expand`, `entries`, and `audit-honmon` already
-decrypt transparently when the optional crypto dependency is installed.
+Use this for sidecars that decrypt to another container such as SQLite or for
+manual inspection of encrypted SSED components. For encrypted `HONMON.DIC` /
+`HONMON.DIN`, `info`, `expand`, `entries`, and `audit-honmon` already decrypt
+transparently when the optional crypto dependency is installed.
 The command streams input to output, so large sidecars such as DAIJIRN4's
 610 MB `vlpljblb` do not need to be loaded into memory.
 
@@ -286,7 +290,7 @@ Useful options:
 --dict-id N                         numeric dictionary id used by the viewer metadata path
 --dict-code CODE                    product/dictionary code when it cannot be inferred
 --key-file PATH                     read an explicit local SQLCipher key; never print it
---memory-dump PATH                  count/test LVEDVIEWER dump key candidates without printing them
+--memory-dump PATH                  count/test local memory-dump key candidates without printing them
 --write-decrypted PATH              write one plaintext SQLite copy for local analysis
 --json                              emit machine-readable JSON
 ```
@@ -367,7 +371,7 @@ logovista-tools extract /path/to/_DCT_DICT --yes --entries --formats json,txt
 
 ### `entries`
 
-Extract readable body entries from expanded `HONMON.DIC`.
+Extract readable body entries from expanded `HONMON.DIC` / `HONMON.DIN`.
 
 ```bash
 logovista-tools entries /path/to/LogoVista --out-dir bodies
@@ -389,14 +393,14 @@ Each JSONL row looks like:
 
 ```json
 {
-  "dict_id": "GENIUSEB",
-  "dict_title": "ジーニアス英和大辞典",
+  "dict_id": "SYNTH",
+  "dict_title": "Synthetic Dictionary",
   "entry_index": 2,
   "block": 25769,
   "offset": 158,
   "length": 3048,
-  "heading": "a, A <hA235>ei<hA235>【名】(複 →[語法])",
-  "body": "a, A <hA235>ei<hA235>【名】...\n1英語アルファベットの第1字."
+  "heading": "sample headword",
+  "body": "sample headword\nsample definition line"
 }
 ```
 
@@ -417,7 +421,6 @@ Useful options:
 --section-image CODE=IMAGE_KEY      insert a named image at a section marker in HTML output
 --index-boundaries                  also use parsed index body pointers as entry boundaries
 --full-scan                         use full HONMON expansion and forensic boundary accounting
---debug                             deprecated alias for --full-scan on entries
 --no-skip-dense-marker-honmon       force extraction on placeholder HONMON
 ```
 
@@ -616,9 +619,9 @@ classification family and confidence
 The current full corpus pass scanned 547 text-stream components and
 7,026,978,819 expanded bytes. It observed 713,941,069 controls and 40 distinct
 `0x1f` opcodes. The only singleton anomaly is `25IGAKU` `FHTITLE.DIC` `1f1f`,
-which appears as a malformed standalone title-stream sequence around the title
-`closed ecological system`. It is treated as a vendor data defect rather than a
-global opcode model gap.
+which appears as a malformed standalone title-stream sequence between two title
+lines. It is treated as a vendor data defect rather than a global opcode model
+gap.
 
 ### `component-forensics`
 
@@ -1435,11 +1438,11 @@ Each JSONL row looks like:
 
 ```json
 {
-  "dict_id": "KOJIEN7",
-  "dict_title": "広辞苑 第七版",
+  "dict_id": "SYNTH",
+  "dict_title": "Synthetic Dictionary",
   "component": "FKTITLE.DIC",
   "line_index": 2,
-  "text": "はこべ‐じお【塩】"
+  "text": "sample title"
 }
 ```
 
@@ -1476,17 +1479,17 @@ Each JSONL row looks like:
 
 ```json
 {
-  "dict_id": "GENIUSEB",
-  "dict_title": "ジーニアス英和大辞典",
+  "dict_id": "SYNTH",
+  "dict_title": "Synthetic Dictionary",
   "component": "MENU.DIC",
   "line_index": 1,
   "section_code": null,
   "depth": 1,
-  "path": ["はしがき"],
-  "text": "はしがき",
+  "path": ["sample menu"],
+  "text": "sample menu",
   "links": [
     {
-      "label": "はしがき",
+      "label": "sample link",
       "destination": {
         "payload": "000256780002",
         "encoding": "bcd",
@@ -1567,8 +1570,8 @@ Each leaf row looks like:
 
 ```json
 {
-  "dict_id": "KOJIEN7",
-  "dict_title": "広辞苑 第七版",
+  "dict_id": "SYNTH",
+  "dict_title": "Synthetic Dictionary",
   "kind": "leaf",
   "component": "FHINDEX.DIC",
   "page_index": 98,
@@ -1704,15 +1707,15 @@ Each JSONL row looks like:
 
 ```json
 {
-  "dict_id": "KOJIEN7",
-  "dict_title": "広辞苑 第七版",
+  "dict_id": "SYNTH",
+  "dict_title": "Synthetic Dictionary",
   "data_id": 755,
   "record_index": 754,
   "block": 13,
   "offset": 1602,
   "type": 2,
-  "title": "アイ‐アイ 【aye-aye】",
+  "title": "sample title",
   "html": "<rn></rn><a name=\"000007550000\"></a><div class=\"midashi\">...",
-  "plain": "アイ‐アイ 【aye-aye】（啼なき声に由来。一説に..."
+  "plain": "sample plain text..."
 }
 ```

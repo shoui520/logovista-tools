@@ -34,6 +34,8 @@ Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, sibling *_GAIJI/, *.chm, vlp
           eight-hex-digit 00000xxx.idx sidecar trees, sometimes standalone
           auxiliary SPINDEX.DIC and sibling *_Sound_Files/ ziptomedia audio;
           some packages also carry DICPROF.INI and Panel/ or Panels.xml
+Mac OS X  EXINFO.INI, help `.localized` bundles, AppleDouble `._*` metadata,
+          and encrypted `HONMON.DIN` inside an otherwise normal SSED catalog
 SIZK      classic SSED catalog plus HC0190.dll, HTMLs/b121-b124 templates,
           Templates/honbun.html, shizuku.mp3, shizuku_honbun/time sidecars
 LVED      main.data or *.dbc, WebView2 viewer files, sqlcipher.dll,

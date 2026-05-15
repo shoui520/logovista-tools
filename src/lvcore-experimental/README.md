@@ -27,9 +27,10 @@ Current scope:
   friendly dictionary bodies;
 - resolve structurally understood dense-anchor SQLite sidecars such as
   `t_contents`, `HONBUN`, and dict-code-named `main` payloads;
-- classify supplemental SQLite sidecars by role and attach structurally clear
-  examples/idioms, link-reference, sidecar-search metadata, and sidecar BLOB
-  media resources without transforming their contents;
+- classify supplemental SQLite sidecars by role, use structurally clear
+  body-critical sidecars for entry bodies, expose clear sidecar BLOB media as
+  resources, and leave example/idiom, link-reference, and sidecar-search rows
+  as audit/metadata evidence rather than friendly entry-body content;
 - expose a small CLI for inspection and lookup experiments;
 - expose reader-facing `SearchResults` / `SearchHit` objects instead of
   requiring callers to consume raw index rows;
@@ -37,7 +38,8 @@ Current scope:
   index search over parsed LogoVista index rows;
 - dereference search hits through body/title pointers into entries;
 - build `EntryDocument` trees from decoded spans;
-- render friendly/semantic/LogoVista-like/debug HTML and plain text;
+- render friendly/semantic/LogoVista-like HTML, explicit debug/inspection HTML,
+  and plain text;
 - collect recoverable diagnostics instead of leaking raw failures into
   friendly output;
 - keep raw inspection/debug output explicit.
@@ -50,8 +52,11 @@ Run directly from the repo:
 ```bash
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore info /path/to/_DCT_DICT
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore info /path/to/_DCT_DICT --debug
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore identify /path/to/_DCT_DICT
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore body-source /path/to/_DCT_DICT --json
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore entries /path/to/_DCT_DICT --limit 5
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore titles /path/to/_DCT_DICT --limit 5
+PYTHONPATH=src/lvcore-experimental python3 -m lvcore indexes /path/to/_DCT_DICT --limit 5
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore search /path/to/_DCT_DICT term --search-profile forward --json
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore search /path/to/_DCT_DICT term --json --debug
 PYTHONPATH=src/lvcore-experimental python3 -m lvcore render /path/to/_DCT_DICT term --search-profile native --format html --profile friendly
@@ -204,7 +209,7 @@ Gaiji, media, and links are app-facing document concepts:
   target can be recovered. Unresolved link targets keep visible label text and
   record diagnostics; friendly output does not expose raw pointer bytes.
 
-HTML rendering has four explicit profiles:
+HTML rendering has three reader profiles plus one explicit inspector output:
 
 - `friendly`: default reader-facing HTML. It favors readable, escaped,
   resolved output and hides raw opcodes, offsets, dense-anchor bytes, pointer
@@ -215,10 +220,11 @@ HTML rendering has four explicit profiles:
 - `logovista-like`: conservative visual-intent profile. It preserves currently
   understood LogoVista-like structure with `lv-lvlike-*` classes, but it is not
   a pixel-perfect renderer contract.
-- `debug`: inspection HTML. It may expose control IDs, raw span metadata,
-  body-source diagnostics, gaiji codes, media IDs, link payloads, and diagnostic
-  details. Use this profile for reverse-engineering and tests, not normal
-  reader output.
+- `debug`: CLI/API inspection HTML produced through `InspectorRenderer`, not a
+  normal `HtmlProfile` reader renderer. It may expose control IDs, raw span
+  metadata, body-source diagnostics, gaiji codes, media IDs, link payloads, and
+  diagnostic details. Use this path for reverse-engineering and tests, not
+  normal reader output.
 
 Plain text rendering is separate from HTML profiles. It keeps readable entry
 text, uses Unicode gaiji where available, and does not expose raw controls or
@@ -235,7 +241,7 @@ SSED body-source kinds are distinct from package families:
 - `sidecar_unknown`: dense anchors and one or more SQLite-like sidecars were
   detected, but no supported body table schema was identified;
 - `missing_body_component`: the catalog declares no readable `HONMON.DIC`
-  body component in the local package copy, so validation reports a local
+  body component in the local package copy, so audit reports a local
   package/component integrity residual rather than an unknown body format. Full
   corpus closure scorecards can ignore this class when the local package copy
   is known broken;
@@ -253,24 +259,27 @@ Observed dense-anchor SQLite schemas currently recognized by lvcore include
 `main` tables keyed by `ID`. These are treated as SSED sidecar body sources,
 not LVED.
 
-Reader-side validation includes sidecar-resolution counters for sampled search
-hits: resolved rows, missing anchor IDs, missing sidecar rows, and unsupported
-body-source placeholders. It also reports gaiji display-readiness buckets,
-reason/source/status counts, resource-byte availability, media, link, and
-title-dereference counters plus body decode telemetry for unknown controls and
-bytes so private corpus audits can separate safe fallback behavior from real
-compatibility gaps. The corpus summary includes a closure scorecard for hard
-SSED failures, compatibility-significant sidecars, native sampled search
-misses, and true display-unresolved gaiji. Sidecar reports also classify sibling
-SQLite and non-SQLite files by observed role, such as body-critical,
-media/resource, examples/idioms, search, kanji-support, ancillary, or unknown.
-For sidecars with visible block/offset columns, validation records whether
-sampled entry addresses are referenced by supplemental tables. Those
-supplemental sidecar rows are audit evidence only; the reader no longer attaches
-them to `EntryDocument`. Structurally clear sidecar BLOB media tables are
-exposed as package-level `ResourceRef` records with explicit `resource_bytes()`
-access to the untouched BLOB payload. Remaining ambiguous schemas stay
-diagnosed and counted.
+The sibling `lvcore-audit` package includes sidecar-resolution counters for
+sampled search hits: resolved rows, missing anchor IDs, missing sidecar rows,
+and unsupported body-source placeholders. It also reports gaiji
+display-readiness buckets, reason/source/status counts, resource-byte
+availability, media, link, and title-dereference counters plus body decode
+telemetry for unknown controls and bytes so private corpus audits can separate
+safe fallback behavior from real compatibility gaps. The corpus summary
+includes a closure scorecard for hard SSED failures, compatibility-significant
+sidecars, native sampled search misses, and true display-unresolved gaiji.
+Sidecar reports also classify sibling SQLite and non-SQLite files by observed
+role, such as body-critical, media/resource, examples/idioms, search,
+kanji-support, ancillary, or unknown. For sidecars with visible block/offset
+columns, audit records whether sampled entry addresses are referenced by
+supplemental tables. Those supplemental sidecar rows are audit evidence only;
+the reader no longer attaches example/idiom/navigation supplement blocks to
+`EntryDocument`. The historical audit counter name
+`entry_supplements_attached` means address-matched supplemental rows, not
+reader-rendered document supplements. Structurally clear sidecar BLOB media
+tables are exposed as package-level `ResourceRef` records with explicit
+`resource_bytes()` access to the untouched BLOB payload. Remaining ambiguous
+schemas stay diagnosed and counted.
 
 `lvcore_audit corpus` is the private full-corpus audit entry point. Its JSON summary
 uses the `lvcore.audit.corpus.v1` schema and reports package-family counts,

@@ -68,8 +68,9 @@ Latest intentional update:
   audit.
 - The closure scorecard status changed from `blocked_by_diagnostics` to
   `closure_ready_for_deeper_audit` because no sampled native search misses,
-  true display-unresolved gaiji, unresolved media/link, hard SSED failures, or
-  named residual blockers remain in this baseline.
+  true display-unresolved gaiji, unresolved media, hard SSED failures, or
+  named residual blockers remain in this baseline. A small number of sampled
+  unresolved link-target diagnostics remains nonblocking audit telemetry.
 
 Latest intentional update:
 

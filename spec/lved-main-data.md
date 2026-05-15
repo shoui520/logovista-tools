@@ -134,7 +134,7 @@ can write a plaintext SQLite copy for local analysis:
 
 ```bash
 logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 --json
-logovista-tools lved /path/to/OXFPEU4 --memory-dump LVEDVIEWER.dmp --json
+logovista-tools lved /path/to/OXFPEU4 --memory-dump viewer-memory.dmp --json
 logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 \
   --write-decrypted /tmp/oxfpeu4.sqlite
 ```
@@ -149,7 +149,7 @@ strings are not emitted.
 |---|---|
 | OXFPEU4 Windows `main.data` and observed iOS `.dbc` are identical | Proven for local files |
 | OXFPEU4/KQCMPROS are SQLCipher 4 page databases | Proven for local files |
-| The observed viewer derives DB keys from dictionary id/code metadata | Proven from viewer IL and validation |
+| The observed payload key path derives DB keys from dictionary id/code metadata | Proven for local packages through independent key validation |
 | Product serial is not part of the SQLCipher database key path | Strong for observed viewer path |
 | This package family is separate from SSED/HONMON | Proven for observed OXFPEU4/KQCMPROS packages |
 

@@ -11,9 +11,10 @@ that the current Python proof of concept already provides every behavior below.
 It should be a low-level format library with a friendly dictionary-reader API on
 top. Applications should be able to open packages, detect package families,
 search native indexes, dereference entries, render reader-facing output, fetch
-resources, inspect diagnostics, and validate packages without understanding
-SSED component tables, compressed chunk layout, HONMON offsets, body opcodes,
-gaiji code spaces, index pages, or sidecar body stores.
+resources, inspect diagnostics, and provide stable public data for a sibling
+audit harness without requiring applications to understand SSED component
+tables, compressed chunk layout, HONMON offsets, body opcodes, gaiji code
+spaces, index pages, or sidecar body stores.
 
 `lvcore` is not:
 
@@ -41,7 +42,7 @@ made the important boundaries boring:
 - entry document structure;
 - gaiji/media/resource behavior;
 - renderer profiles;
-- diagnostics and validation;
+- diagnostics and audit/inspection separation;
 - debug/inspection separation.
 
 Rust should then reimplement the stable model cleanly. It should not inherit
@@ -73,8 +74,9 @@ Python classes, but the conceptual boundaries should remain stable.
 ### Package
 
 `Package` owns the opened dictionary directory or package root. It should
-detect the package family, expose dictionaries, hold component/resource access,
-and coordinate validation.
+detect the package family, expose dictionaries, and hold component/resource
+access. Corpus validation and scorecards should remain outside the reader
+package, using public package/dictionary APIs.
 
 Package-family detection and SSED body-source classification must remain
 separate. LVED and LVLMultiView are package families. Dense or sidecar-backed
@@ -91,7 +93,6 @@ The reader-facing API should prefer dictionary-level operations:
 ```text
 dictionary.search(...)
 dictionary.entry(...)
-dictionary.validate(...)
 ```
 
 Package-level convenience wrappers are acceptable, but app developers should
@@ -197,8 +198,8 @@ A diagnostic should have:
 - recoverable flag;
 - structured details.
 
-Friendly APIs should continue through recoverable diagnostics. Debug and
-validation APIs should make diagnostics easy to enumerate.
+Friendly APIs should continue through recoverable diagnostics. Debug and audit
+APIs should make diagnostics easy to enumerate.
 
 ### BodySource
 
@@ -212,7 +213,7 @@ validation APIs should make diagnostics easy to enumerate.
 - deferred non-SSED package family.
 
 The body-source model should be explicit because it affects search-hit
-dereferencing, rendering, validation, diagnostics, and compatibility reporting.
+dereferencing, rendering, audit diagnostics, and compatibility reporting.
 
 ### Inspector
 
@@ -242,7 +243,7 @@ Important goals:
 - memory-map or lazily read large component stores where practical;
 - avoid expanding entire multi-gigabyte body stores unless explicitly requested;
 - cache parsed index pages or row summaries only when useful;
-- stream validation and corpus audits;
+- support streaming corpus audits through public lazy APIs;
 - keep resource payload loading lazy;
 - keep entry rendering lazy and per-entry;
 - expose cancellation or bounded iteration points where long scans are likely.
@@ -281,12 +282,13 @@ The resolver should:
 
 ## Rendering Profiles
 
-The Rust renderer should preserve the current profile separation:
+The Rust renderer should preserve the current reader/inspection separation:
 
 - `friendly`: default reader-facing HTML; safe, readable, no raw internals;
 - `semantic`: app-neutral HTML with stable classes and structure;
 - `logovista_like`: conservative visual-intent profile, not a parity claim;
-- `debug`: explicit inspection output with raw useful details.
+- explicit debug/inspection output with raw useful details, kept outside the
+  normal reader HTML profile enum.
 
 Plain text rendering should remain separate from HTML profiles. It should
 prefer readable text and Unicode gaiji, not raw controls or offsets.
@@ -311,9 +313,10 @@ Links should be semantic nodes where possible:
 - unresolved targets as visible label text plus diagnostics;
 - raw pointer payloads only in debug output.
 
-## Validation
+## Audit / Validation Harness
 
-Validation is reader-safety validation. It answers:
+Validation is reader-safety validation, but it should live in a sibling audit
+crate or package rather than in the reader engine. It answers:
 
 ```text
 Can this package be opened, searched, dereferenced, decoded, rendered, and
@@ -331,7 +334,9 @@ Validation should report:
 - unresolved gaiji/media/link counts;
 - unsupported or deferred body sources.
 
-Validation is not writer verification and not authoring validation.
+Validation is not writer verification and not authoring validation. The reader
+must expose the typed data needed for audit; the audit harness owns sampling,
+scorecards, baselines, and corpus-diff policy.
 
 ## Future C ABI
 

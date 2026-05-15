@@ -11,7 +11,7 @@ from platform packaging observations and product-specific behavior.
 | [Package Layers](package-layers.md) | Raw core files and iOS/Android/Windows wrappers. |
 | [Decoded LogoVista Model v0](decoded-model-v0.md) | Draft package-level model for components, addresses, entries, spans, gaiji, media, indexes, titles, menus, sidecars, and issues. |
 | [SSED Container](ssed-container.md) | `SSEDINFO`, `SSEDDATA`, compression, encryption, and component composition. |
-| [Text Streams and Body Storage](text-streams.md) | Expanded `HONMON.DIC`, controls, body boundaries, dense HONMON, and database-backed bodies. |
+| [Text Streams and Body Storage](text-streams.md) | Expanded `HONMON.DIC` / `HONMON.DIN`, controls, body boundaries, dense HONMON, and database-backed bodies. |
 | [Menus, Titles, and Indexes](menus-titles-indexes.md) | `MENU.DIC`, `*TITLE.DIC`, `*INDEX.DIC`, branch pages, and leaf rows. |
 | [Gaiji, Images, and Media](gaiji-media.md) | `.uni`, `GA16HALF`, `GA16FULL`, image resources, `COLSCR.DIC`, and `PCMDATA.DIC`. |
 | [LVED SQLCipher Packages](lved-main-data.md) | Modern WebView2 `main.data` / `.dbc` payloads that are not SSED/HONMON dictionaries. |

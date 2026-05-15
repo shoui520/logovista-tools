@@ -24,7 +24,7 @@ dictionary operations are exposed through a `Dictionary` handle, with
 package-level wrappers kept as convenience delegates for current
 single-dictionary SSED packages. This is the intended Rust shape: an owning
 package handle, dictionary handles, and focused sub-stores rather than
-mixin-style inheritance.
+a package-level mixin graph.
 
 ## Layering
 
@@ -43,7 +43,7 @@ raw HONMON/body bytes
 Friendly output is the default. Raw offsets, raw opcodes, raw bytes, component
 internals, and index page internals are explicit inspection/debug features.
 
-HTML rendering is profile-driven:
+HTML rendering has reader profiles plus explicit inspection output:
 
 - `friendly` is the default reader profile. It emits safe, readable HTML and
   hides raw opcodes, offsets, pointer payloads, dense-anchor bytes, hidden
@@ -55,7 +55,8 @@ HTML rendering is profile-driven:
 - `logovista-like` is a conservative visual-intent profile. It uses
   `lv-lvlike-*` classes for behavior we currently understand, while avoiding
   claims of exact renderer parity.
-- `debug` is explicit inspection output. It may expose control IDs, raw span
+- `debug` is explicit inspection output produced through the inspector path,
+  not a normal reader `HtmlProfile`. It may expose control IDs, raw span
   metadata, body-source details, gaiji codes, media IDs, link payloads, and full
   diagnostics.
 
@@ -117,9 +118,9 @@ Node records deliberately use simple enum-like strings plus tuples/lists of
 children. This maps cleanly to Rust enums and to a future opaque C ABI where
 callers enumerate blocks, inlines, resources, and diagnostics through handles.
 Open-ended `attrs` and resource `details` remain an escape hatch for research
-fields, but friendly/public serialization filters debug-only keys. New stable
-fields should become typed node/resource fields before they are treated as
-reader API contract.
+fields, but friendly/public serialization uses allowlisted public keys. New
+stable fields should become typed node/resource fields before they are treated
+as reader API contract.
 
 Resources are document-level records with stable IDs. Inline gaiji and media
 nodes refer to those IDs rather than embedding payloads. Applications can use
@@ -285,15 +286,15 @@ fallback:
 - MULTI selector rows: `0xa1`.
 
 The observed type-`0x27` `INDEX.DIC` outlier is not treated as a native index.
-It is classified as a text-like resource component and reported through
-validation counters. Partial physical page tails after complete index pages are
+It is classified as a text-like resource component and reported through audit
+counters. Partial physical page tails after complete index pages are
 reported separately from malformed rows so valid rows remain usable.
 
 Grouped tagged, keyword, cross-reference, and MULTI selector indexes may carry
 their active group key, count hint, and inherited title pointer across leaf page
 boundaries. Parser output keeps that context in debug row metadata while
 friendly search hits expose only reader-facing headings and status. Unknown or
-malformed index rows become diagnostics and validation counters rather than
+malformed index rows become diagnostics and audit counters rather than
 silent empty results.
 
 Entry dereferencing uses body pointers, known body-pointer tables, marker
@@ -307,14 +308,14 @@ hold the same body pointer used for the entry itself. lvcore records that as a
 `fallback` title status and derives the friendly heading from the native index
 display key instead of warning that no title component contains the pointer.
 
-Reader-side validation samples both marker-discovered entries and
-search-hit-to-entry-to-render paths. It reports sampled index rows, dereference
-counts, render counts, diagnostic counts, sidecar resolution, reason-level
-gaiji/media/link status, title status counts, heading-source counts, and
-title-dereference reason counters. Corpus validation also emits a closure
-scorecard that separates hard SSED body-source failures, compatibility-significant
-sidecar gaps, sampled native search misses, and true display-unresolved gaiji.
-It is reader-safety validation, not writer verification.
+The sibling `lvcore-audit` package samples both marker-discovered entries and
+search-hit-to-entry-to-render paths through public reader APIs. It reports
+sampled index rows, dereference counts, render counts, diagnostic counts,
+sidecar resolution, reason-level gaiji/media/link status, title status counts,
+heading-source counts, and title-dereference reason counters. Corpus audit also
+emits a closure scorecard that separates hard SSED body-source failures,
+compatibility-significant sidecar gaps, sampled native search misses, and true
+display-unresolved gaiji. It is reader-safety audit, not writer verification.
 
 ## Body Sources
 
@@ -369,13 +370,14 @@ current role vocabulary separates body-critical stores from media/resource
 stores, examples/idioms stores, native/full-text search stores, kanji-support
 stores, ancillary databases, non-SQLite payloads, and unknown schemas. Only
 body-critical schemas with understood anchor mapping are used for body
-replacement. Other roles remain visible to validation and debug tooling without
+replacement. Other roles remain visible to audit and debug tooling without
 being treated as missing body support. Address-mapped supplemental tables, such
 as observed example/idiom, usage, search, or navigation schemas with
-block/offset columns, can attach experimental supplement blocks or typed link
-metadata to `EntryDocument` when the mapping is structurally clear. Sidecar BLOB
-media tables with clear name/blob columns are exposed as package-level
-`ResourceRef` resources with explicit byte access to the untouched BLOB.
+block/offset columns, are counted as audit-side address matches. The reader no
+longer attaches example/idiom/navigation supplement blocks to `EntryDocument`.
+Sidecar BLOB media tables with clear name/blob columns are exposed as
+package-level `ResourceRef` resources with explicit byte access to the untouched
+BLOB.
 Ambiguous schemas remain classified, diagnosed, and counted rather than
 fake-rendered.
 
