@@ -26,6 +26,8 @@ from .ssed import (
     expand_sseddata_file,
     expand_sseddata_file_with_storage,
     find_case_insensitive,
+    honmon_component,
+    is_honmon_component,
     parse_sseddata_header,
     parse_ssedinfo,
     sseddata_storage_for_file,
@@ -86,7 +88,7 @@ def _profile_target_from_idx(idx: Path) -> ProfileTarget | None:
 
 def component_role(element: SsedInfoElement) -> str:
     upper = element.filename.upper()
-    if upper == "HONMON.DIC":
+    if is_honmon_component(element):
         return ComponentRole.HONMON.value
     if element.type in TITLE_TYPES:
         return ComponentRole.TITLE.value
@@ -322,7 +324,7 @@ def skipped_indexes_for_profile(target: ProfileTarget) -> tuple[dict[str, Any], 
 
 def honmon_profile(target: ProfileTarget, args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
     skip_index_scan = bool(getattr(args, "skip_index_scan", False))
-    honmon_element = next((e for e in target.elements if e.filename.upper() == "HONMON.DIC"), None)
+    honmon_element = honmon_component(target.elements)
     if honmon_element is None:
         if skip_index_scan:
             indexes, _boundaries, _index_error = skipped_indexes_for_profile(target)

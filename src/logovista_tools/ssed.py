@@ -14,6 +14,8 @@ from pathlib import Path
 from .lvcrypto import (
     LogoVistaCryptoError,
     LogoVistaCryptoUnavailable,
+    decrypt_macos_logofont_cipher_bytes,
+    decrypt_macos_logofont_cipher_prefix,
     decrypt_logofont_cipher_bytes,
     decrypt_logofont_cipher_prefix,
 )
@@ -24,6 +26,8 @@ CHUNK_SIZE = 0x8000
 WINDOW_SIZE = 0xFF0
 SSEDDATA_MAGIC = b"SSEDDATA"
 SSEDINFO_MAGIC = b"SSEDINFO"
+
+HONMON_COMPONENT_NAMES = {"HONMON.DIC", "HONMON.DIN"}
 
 
 def read_file_prefix(path: Path, size: int) -> bytes:
@@ -55,6 +59,26 @@ class SsedInfoLayout:
     record_size: int
     component_count: int
     trailing_bytes: int
+
+
+def is_metadata_noise_path(path: Path) -> bool:
+    """Return true for platform metadata files that are not dictionary files."""
+
+    return (
+        path.name.startswith("._")
+        or path.name.endswith(":Zone.Identifier")
+        or "__MACOSX" in path.parts
+    )
+
+
+def is_honmon_component(element: SsedInfoElement) -> bool:
+    """Return true for the SSED body component across Windows and Mac packages."""
+
+    return element.type == 0x00 or element.filename.upper() in HONMON_COMPONENT_NAMES
+
+
+def honmon_component(elements: list[SsedInfoElement]) -> SsedInfoElement | None:
+    return next((element for element in elements if is_honmon_component(element)), None)
 
 
 def be16(data: bytes, offset: int) -> int:
@@ -182,6 +206,8 @@ def sseddata_storage_for_bytes(data: bytes) -> str:
     try:
         if decrypt_logofont_cipher_prefix(data).startswith(SSEDDATA_MAGIC):
             return "logofont_cipher"
+        if decrypt_macos_logofont_cipher_prefix(data).startswith(SSEDDATA_MAGIC):
+            return "macos_logofont_cipher"
     except (LogoVistaCryptoError, LogoVistaCryptoUnavailable):
         return "unknown"
     return "unknown"
@@ -195,13 +221,17 @@ def load_sseddata_bytes(data: bytes) -> tuple[bytes, str]:
     if is_sseddata_bytes(data):
         return data, "plain"
     try:
-        decrypted = decrypt_logofont_cipher_bytes(data)
+        for storage, decrypt in (
+            ("logofont_cipher", decrypt_logofont_cipher_bytes),
+            ("macos_logofont_cipher", decrypt_macos_logofont_cipher_bytes),
+        ):
+            decrypted = decrypt(data)
+            if is_sseddata_bytes(decrypted):
+                return decrypted, storage
     except LogoVistaCryptoUnavailable as exc:
         raise ValueError(f"not SSEDDATA and encrypted support is unavailable: {exc}") from exc
     except LogoVistaCryptoError as exc:
         raise ValueError(f"not SSEDDATA: {exc}") from exc
-    if is_sseddata_bytes(decrypted):
-        return decrypted, "logofont_cipher"
     raise ValueError("not SSEDDATA")
 
 
@@ -217,9 +247,12 @@ def parse_sseddata_header(path: Path) -> dict[str, int | bytes | str]:
     storage = "plain"
     if not is_sseddata_bytes(data):
         storage = sseddata_storage_for_bytes(data)
-        if storage != "logofont_cipher":
+        if storage == "logofont_cipher":
+            data = decrypt_logofont_cipher_prefix(data, size=64)
+        elif storage == "macos_logofont_cipher":
+            data = decrypt_macos_logofont_cipher_prefix(data, size=64)
+        else:
             raise ValueError(f"not SSEDDATA: {path}")
-        data = decrypt_logofont_cipher_prefix(data, size=64)
     return {
         "magic": data[:8],
         "storage": storage,

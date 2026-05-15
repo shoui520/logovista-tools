@@ -54,6 +54,8 @@ from .titles import TITLE_TYPES
 
 def component_role(filename: str, component_type: int) -> str | None:
     upper = filename.upper()
+    if component_type == 0x00 or upper in {"HONMON.DIC", "HONMON.DIN"}:
+        return "honmon"
     if component_type == MENU_TYPE or upper == "MENU.DIC":
         return "menu"
     if component_type in TITLE_TYPES or upper.endswith("TITLE.DIC"):

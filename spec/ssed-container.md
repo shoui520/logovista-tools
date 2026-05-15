@@ -45,7 +45,7 @@ readable data in LogoFontCipher-encrypted SQLite payloads; see
 Component types observed so far:
 
 ```text
-0x00  HONMON.DIC body/main text component
+0x00  HONMON.DIC / HONMON.DIN body/main text component
 0x01  MENU.DIC
 0x03  KWTITLE.DIC
 0x04  FKTITLE.DIC
@@ -89,7 +89,9 @@ not yet decoded, not as a body stream or as a bitmap format.
 
 The exact semantic names vary by dictionary, but the broad pattern is stable:
 title components store readable headword/title streams, index components store
-binary search data and pointers, and `HONMON.DIC` often stores bodies.
+binary search data and pointers, and the type-`0x00` HONMON component often
+stores bodies. Windows packages normally name this component `HONMON.DIC`;
+observed Mac OS X SSED packages can name the same component `HONMON.DIN`.
 
 Some catalogs declare optional resources with start/end block `0`. Observed
 Windows renderer packages can list `GA16FULL` / `GA16HALF` this way while
@@ -103,9 +105,9 @@ should prefer exact matches, then a single casefolded match, and should report
 casefold collisions as ambiguous. The original on-disk casing remains useful in
 diagnostics and reports.
 
-## `SSEDDATA` `.DIC`
+## `SSEDDATA` `.DIC` / `.DIN`
 
-Every compressed `.DIC` component starts with:
+Plain compressed components start with:
 
 ```text
 offset  size  meaning
@@ -158,3 +160,17 @@ For every command:
    command of a short final chunk.
 
 This reproduces known expanded `HONMON.DIC` bytes for tested dictionaries.
+
+Observed encrypted component payloads do not start with `SSEDDATA` on disk but
+decrypt to the same `SSEDDATA` bytes before normal expansion. Two AES-CBC
+variants are currently documented:
+
+- the Windows LogoFontCipher variant uses the first 16 SHA-256 digest bytes of
+  `LogoFontCipher` as the AES-128 key and the remaining 16 digest bytes as the
+  IV;
+- the observed Mac OS X SSED `HONMON.DIN` variant uses the first 16 ASCII bytes
+  of the SHA-256 hex digest as the AES-128 key and a zero IV.
+
+Both variants use PKCS#7 padding when padding is present. Readers should
+validate that decrypted bytes start with `SSEDDATA` before treating the payload
+as a component.

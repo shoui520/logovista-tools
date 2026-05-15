@@ -13,7 +13,7 @@ collision if two distinct files normalize to the same lookup key.
 
 This applies to core files and auxiliary resources, including:
 
-- `SSEDINFO`, `SSEDDATA`, `HONMON.DIC`, title/index/menu components, and
+- `SSEDINFO`, `SSEDDATA`, `HONMON.DIC` / `HONMON.DIN`, title/index/menu components, and
   `EXINFO.INI` / `DICPROF.INI`;
 - `.idx`, `.IDX`, `.uni`, `.UNI`, `GA16*`, `GAI16*`, and eight-hex resource
   names;
@@ -28,6 +28,7 @@ Classic SSED packages are block-addressed packages built around `SSEDINFO` /
 ```text
 DICT.IDX
 HONMON.DIC
+HONMON.DIN
 MENU.DIC
 KWTITLE.DIC / KWINDEX.DIC
 FKTITLE.DIC / FKINDEX.DIC
@@ -41,8 +42,10 @@ DICT.uni / DICT.UNI
 ```
 
 Dense-HONMON and sidecar-backed SSED packages remain SSED packages. Their raw
-`HONMON.DIC` may be an anchor, marker, or dereference layer rather than a
-self-contained body stream, but that does not make them LVED or LVLMultiView.
+type-`0x00` HONMON component may be named `HONMON.DIC` or, in observed Mac OS X
+packages, `HONMON.DIN`. It may be an anchor, marker, or dereference layer rather
+than a self-contained body stream, but that does not make the package LVED or
+LVLMultiView.
 
 ## Platform Wrappers
 
@@ -55,6 +58,8 @@ iOS       DictList.plist, Gaiji.plist, GaijiS.plist, img/, html/, *.sql
 Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
 Windows   EXINFO.INI, DICPROF.INI, HC*.dll, Templates/, HANREI/, vlpljbl*,
           00000xxx.idx / 00000xxx_n.idx auxiliary text indexes
+Mac OS X  EXINFO.INI, help `.localized` bundles, AppleDouble `._*` metadata,
+          and encrypted `HONMON.DIN` in otherwise normal SSED catalogs
 SIZK      EXINFO.INI, HC0190.dll, HTMLs/b12*.html, Templates/honbun.html,
           shizuku.mp3, shizuku_honbun.txt, shizuku_time.txt, shizuku.uni
 LVED      main.data / *.dbc, WebView2 viewer files, SQLCipher runtime

@@ -19,7 +19,7 @@ sys.path.insert(0, str(LVCORE_AUDIT_SRC))
 
 from lvcore import Address, Diagnostic, DiagnosticArea, Location, PackageFamily, SearchHit, SearchProfile, SearchResults, Severity, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
 from lvcore.body_source import SidecarRole, classify_sqlite_sidecar_role, quote_sql_identifier, sqlite_columns  # noqa: E402
-from lvcore.crypto import decrypt_logofont, decrypt_logofont_file_to_path, logofont_key_iv  # noqa: E402
+from lvcore.crypto import decrypt_logofont, decrypt_logofont_file_to_path, logofont_key_iv, macos_logofont_key_iv  # noqa: E402
 from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, LinkTargetKind, ResourceKind, ResourceRef, ResourceStatus, build_entry_document  # noqa: E402
 from lvcore.errors import FormatError  # noqa: E402
 from lvcore.gaiji import ga16_glyph_size, gaiji_grid_code_for_index, parse_ga16  # noqa: E402
@@ -156,6 +156,18 @@ def test_lvcore_logofont_stream_decrypt_matches_memory_decrypt(tmp_path: Path) -
     assert out.read_bytes() == decrypt_logofont(encrypted)
 
 
+def encrypt_macos_logofont(plaintext: bytes) -> bytes:
+    pytest.importorskip("cryptography")
+    from cryptography.hazmat.primitives import padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    key, iv = macos_logofont_key_iv()
+    padder = padding.PKCS7(128).padder()
+    padded = padder.update(plaintext) + padder.finalize()
+    encryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).encryptor()
+    return encryptor.update(padded) + encryptor.finalize()
+
+
 def be16(value: int) -> bytes:
     return value.to_bytes(2, "big")
 
@@ -269,6 +281,30 @@ def make_synthetic_package(root: Path) -> None:
     root.mkdir(exist_ok=True)
     (root / "TEST.IDX").write_bytes(ssedinfo("Synthetic", components))
     (root / "HONMON.DIC").write_bytes(literal_sseddata(entry, start_block=honmon_start, kind=0))
+    (root / "FHTITLE.DIC").write_bytes(literal_sseddata(title, start_block=title_start, kind=5))
+    (root / "FHINDEX.DIC").write_bytes(literal_sseddata(index, start_block=index_start, kind=0x91))
+
+
+def make_macos_synthetic_package(root: Path) -> None:
+    honmon_start = 2
+    title_start = 3
+    index_start = 4
+
+    entry = b"\x1f\x09\x00\x01\x1f\x41\x00\x00" + body_text("alpha") + b"\x1f\x61\x1f\x0a" + body_text("first entry")
+    title = body_text("alpha") + b"\x1f\x0a"
+    key = index_key("alpha")
+    row = bytes([len(key)]) + key + be32(honmon_start) + be16(0) + be32(title_start) + be16(0)
+    index = be16(0x8000) + be16(1) + row
+
+    components = [
+        ("HONMON.DIN", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("FHTITLE.DIC", 0x05, title_start, title_start, b"\x01\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start, b"\x02\x01\x55\x40"),
+    ]
+    root.mkdir(exist_ok=True)
+    (root / "MACDICT.IDX").write_bytes(ssedinfo("Mac Synthetic", components))
+    (root / "._MACDICT.IDX").write_bytes(b"\x00\x05\x16\x07")
+    (root / "HONMON.DIN").write_bytes(encrypt_macos_logofont(literal_sseddata(entry, start_block=honmon_start, kind=0)))
     (root / "FHTITLE.DIC").write_bytes(literal_sseddata(title, start_block=title_start, kind=5))
     (root / "FHINDEX.DIC").write_bytes(literal_sseddata(index, start_block=index_start, kind=0x91))
 
@@ -824,6 +860,22 @@ def test_lvcore_truncated_sseddata_component_fails_with_format_error(tmp_path: P
 
     with pytest.raises(FormatError, match="SSEDDATA header truncated"):
         package.expanded("HONMON.DIC")
+
+
+def test_lvcore_reads_macos_honmon_din_package(tmp_path: Path) -> None:
+    make_macos_synthetic_package(tmp_path)
+
+    package = open_package(tmp_path)
+    honmon = package.honmon_component()
+    assert honmon is not None
+    assert honmon.name == "HONMON.DIN"
+    assert package.data(honmon).header.storage == "macos_logofont_cipher"
+
+    results = package.search("alpha", limit=1)
+    assert len(results.hits) == 1
+    entry = package.entry_for_hit(results.hits[0])
+    assert entry.address.component == "HONMON.DIN"
+    assert "first entry" in entry.text
 
 
 def test_lvcore_invalid_chunk_header_fails_with_format_error() -> None:

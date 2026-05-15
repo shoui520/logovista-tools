@@ -40,7 +40,7 @@ from .gaiji import (
 from .parallel import parallel_map_ordered, worker_args
 from .profiles import ProfileTarget, discover_profile_targets
 from .resources import load_image_resource_profile
-from .ssed import expand_sseddata_file, find_case_insensitive
+from .ssed import expand_sseddata_file, find_case_insensitive, honmon_component
 from .rendererdb import honbun_columns, html_to_plain, prepare_sidecar_database, quote_identifier, table_exists
 from .windows import discover_renderer_sidecars, load_exinfo_for_idx
 
@@ -283,7 +283,8 @@ def bitmap_gaiji_codes(idx: Path) -> dict[str, Any]:
 
 
 def count_honmon_entry_slices(target: ProfileTarget) -> int:
-    honmon = find_case_insensitive(target.idx.parent, "HONMON.DIC")
+    element = honmon_component(target.elements)
+    honmon = find_case_insensitive(target.idx.parent, element.filename) if element is not None else None
     if honmon is None:
         return 0
     expanded = expand_sseddata_file(honmon)
@@ -321,7 +322,8 @@ def infer_renderer_contextual_chars(target: ProfileTarget, db_path: Path, *, lim
     characters in different entry families.
     """
 
-    honmon = find_case_insensitive(target.idx.parent, "HONMON.DIC")
+    element = honmon_component(target.elements)
+    honmon = find_case_insensitive(target.idx.parent, element.filename) if element is not None else None
     if honmon is None:
         return {}
     expanded = expand_sseddata_file(honmon)

@@ -27,7 +27,7 @@ This table is about `logovista-tools`, not lvcore.
 | Family / Layer | Toolkit status |
 |---|---|
 | SSED `SSEDINFO` / `SSEDDATA` / component block mapping | High confidence for observed package families. |
-| Body-stream and dense/sidecar `HONMON.DIC` variants | Classified and modeled; supported extractors vary by body-source shape. |
+| Body-stream and dense/sidecar `HONMON.DIC` / `HONMON.DIN` variants | Classified and modeled; supported extractors vary by body-source shape. |
 | `*INDEX.DIC` / `*TITLE.DIC` / `MENU.DIC` | High structural coverage for the current SSED corpus. |
 | `.uni`, `GA16*`, image gaiji, `COLSCR.DIC`, `PCMDATA.DIC` | Parsed or modeled for observed SSED resource variants. |
 | Windows / Android / iOS wrappers | Supported per observed package family. |

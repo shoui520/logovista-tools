@@ -31,6 +31,18 @@ def logofont_cipher_key_iv() -> tuple[bytes, bytes]:
     return digest[:16], digest[16:]
 
 
+def macos_logofont_cipher_key_iv() -> tuple[bytes, bytes]:
+    """Return the AES-128-CBC key/IV used by observed Mac OS X SSED payloads.
+
+    Mac SSED ``HONMON.DIN`` payloads use the same obfuscated passphrase string
+    as LogoFontCipher, but the AES key is the first 16 ASCII bytes of the
+    SHA-256 hex digest and the IV is all zeroes.
+    """
+
+    key = hashlib.sha256(LOGOFONT_CIPHER_PASSPHRASE).hexdigest().encode("ascii")[:16]
+    return key, b"\x00" * BLOCK_SIZE
+
+
 def _cryptography_modules():
     try:
         from cryptography.hazmat.primitives import padding
@@ -74,6 +86,37 @@ def decrypt_logofont_cipher_bytes(data: bytes) -> bytes:
         raise LogoVistaCryptoError("encrypted payload length is not a multiple of 16 bytes")
     Cipher, algorithms, modes, padding = _cryptography_modules()
     key, iv = logofont_cipher_key_iv()
+    decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
+    plaintext = decryptor.update(data) + decryptor.finalize()
+
+    unpadder = padding.PKCS7(BLOCK_SIZE * 8).unpadder()
+    try:
+        return unpadder.update(plaintext) + unpadder.finalize()
+    except ValueError:
+        return plaintext
+
+
+def decrypt_macos_logofont_cipher_prefix(data: bytes, *, size: int = BLOCK_SIZE) -> bytes:
+    """Decrypt a prefix of the Mac OS X SSED AES-CBC variant."""
+
+    if len(data) < BLOCK_SIZE:
+        return b""
+    size = max(BLOCK_SIZE, size)
+    size -= size % BLOCK_SIZE
+    chunk = data[:size]
+    Cipher, algorithms, modes, _padding = _cryptography_modules()
+    key, iv = macos_logofont_cipher_key_iv()
+    decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
+    return decryptor.update(chunk) + decryptor.finalize()
+
+
+def decrypt_macos_logofont_cipher_bytes(data: bytes) -> bytes:
+    """Decrypt a full Mac OS X SSED AES-CBC payload."""
+
+    if len(data) % BLOCK_SIZE:
+        raise LogoVistaCryptoError("encrypted payload length is not a multiple of 16 bytes")
+    Cipher, algorithms, modes, padding = _cryptography_modules()
+    key, iv = macos_logofont_cipher_key_iv()
     decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
     plaintext = decryptor.update(data) + decryptor.finalize()
 
@@ -135,3 +178,62 @@ def decrypt_logofont_cipher_file_to_path(path: Path, out: Path, *, chunk_size: i
 
     with path.open("rb") as infile, out.open("wb") as outfile:
         return decrypt_logofont_cipher_stream(infile, outfile, chunk_size=chunk_size)
+
+
+def decrypt_macos_logofont_cipher_stream(infile: BinaryIO, outfile: BinaryIO, *, chunk_size: int = 1024 * 1024) -> int:
+    """Decrypt the Mac OS X SSED AES-CBC variant from one binary stream."""
+
+    if chunk_size < BLOCK_SIZE:
+        chunk_size = BLOCK_SIZE
+    chunk_size -= chunk_size % BLOCK_SIZE
+
+    Cipher, algorithms, modes, padding = _cryptography_modules()
+    key, iv = macos_logofont_cipher_key_iv()
+    decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
+    unpadder = padding.PKCS7(BLOCK_SIZE * 8).unpadder()
+    written = 0
+    pending = b""
+
+    while True:
+        chunk = infile.read(chunk_size)
+        if not chunk:
+            break
+        pending += chunk
+        process_len = len(pending) - (len(pending) % BLOCK_SIZE)
+        if not process_len:
+            continue
+        plaintext = decryptor.update(pending[:process_len])
+        pending = pending[process_len:]
+        out = unpadder.update(plaintext)
+        outfile.write(out)
+        written += len(out)
+
+    if pending:
+        raise LogoVistaCryptoError("encrypted payload length is not a multiple of 16 bytes")
+
+    out = unpadder.update(decryptor.finalize()) + unpadder.finalize()
+    outfile.write(out)
+    written += len(out)
+    return written
+
+
+def decrypt_macos_logofont_cipher_file_to_path(path: Path, out: Path, *, chunk_size: int = 1024 * 1024) -> int:
+    """Decrypt a Mac OS X SSED AES-CBC payload to *out*."""
+
+    with path.open("rb") as infile, out.open("wb") as outfile:
+        return decrypt_macos_logofont_cipher_stream(infile, outfile, chunk_size=chunk_size)
+
+
+def decrypt_logofont_cipher_auto_file_to_path(path: Path, out: Path, *, chunk_size: int = 1024 * 1024) -> tuple[int, str]:
+    """Decrypt an observed LogoVista AES-CBC payload, auto-selecting known variants."""
+
+    with path.open("rb") as infile:
+        prefix = infile.read(4096)
+    try:
+        if decrypt_macos_logofont_cipher_prefix(prefix, size=min(len(prefix), 4096)).startswith(b"SSEDDATA"):
+            written = decrypt_macos_logofont_cipher_file_to_path(path, out, chunk_size=chunk_size)
+            return written, "macos_logofont_cipher"
+    except LogoVistaCryptoError:
+        pass
+    written = decrypt_logofont_cipher_file_to_path(path, out, chunk_size=chunk_size)
+    return written, "logofont_cipher"

@@ -17,6 +17,13 @@ def logofont_key_iv() -> tuple[bytes, bytes]:
     return digest[:16], digest[16:]
 
 
+def macos_logofont_key_iv() -> tuple[bytes, bytes]:
+    """Return the AES key/IV used by observed Mac OS X SSED payloads."""
+
+    key = hashlib.sha256(LOGOFONT_PASSPHRASE).hexdigest().encode("ascii")[:16]
+    return key, b"\x00" * AES_BLOCK
+
+
 def _cipher_modules():
     try:
         from cryptography.hazmat.primitives import padding
@@ -42,6 +49,32 @@ def decrypt_logofont(data: bytes) -> bytes:
         raise CryptoError("encrypted payload length is not a multiple of 16 bytes")
     Cipher, algorithms, modes, padding = _cipher_modules()
     key, iv = logofont_key_iv()
+    decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
+    plaintext = decryptor.update(data) + decryptor.finalize()
+
+    unpadder = padding.PKCS7(AES_BLOCK * 8).unpadder()
+    try:
+        return unpadder.update(plaintext) + unpadder.finalize()
+    except ValueError:
+        return plaintext
+
+
+def decrypt_macos_logofont_prefix(data: bytes, *, size: int = AES_BLOCK) -> bytes:
+    if len(data) < AES_BLOCK:
+        return b""
+    size = max(AES_BLOCK, size)
+    size -= size % AES_BLOCK
+    Cipher, algorithms, modes, _padding = _cipher_modules()
+    key, iv = macos_logofont_key_iv()
+    decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
+    return decryptor.update(data[:size]) + decryptor.finalize()
+
+
+def decrypt_macos_logofont(data: bytes) -> bytes:
+    if len(data) % AES_BLOCK:
+        raise CryptoError("encrypted payload length is not a multiple of 16 bytes")
+    Cipher, algorithms, modes, padding = _cipher_modules()
+    key, iv = macos_logofont_key_iv()
     decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
     plaintext = decryptor.update(data) + decryptor.finalize()
 

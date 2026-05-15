@@ -28,6 +28,8 @@ from .ssed import (
     SsedRandomReader,
     expand_sseddata_file_with_storage,
     find_case_insensitive,
+    honmon_component,
+    is_metadata_noise_path,
     parse_ssedinfo,
     sseddata_storage_for_file,
 )
@@ -631,7 +633,7 @@ def _dictionary_source_from_idx(payload: Path | tuple[Path, bool, bool]) -> Dict
         title, elements = parse_ssedinfo(idx)
     except Exception:
         return None
-    honmon_element = next((e for e in elements if e.filename.upper() == "HONMON.DIC"), None)
+    honmon_element = honmon_component(elements)
     if honmon_element is None:
         return None
     honmon = find_case_insensitive(idx.parent, honmon_element.filename)
@@ -685,11 +687,11 @@ def discover_dictionaries(
     candidates: list[Path] = []
     seen: set[Path] = set()
     for root in roots:
-        if root.is_file() and root.suffix.upper() == ".IDX":
+        if root.is_file() and root.suffix.upper() == ".IDX" and not is_metadata_noise_path(root):
             candidates.append(root)
         elif root.is_dir():
-            candidates.extend(root.rglob("*.IDX"))
-            candidates.extend(root.rglob("*.idx"))
+            candidates.extend(path for path in root.rglob("*.IDX") if not is_metadata_noise_path(path))
+            candidates.extend(path for path in root.rglob("*.idx") if not is_metadata_noise_path(path))
 
     unique_candidates: list[Path] = []
     for idx in sorted(candidates):

@@ -12,6 +12,7 @@ from logovista_tools.colscr import (
 )
 from logovista_tools.entries import (
     decode_tokens,
+    discover_dictionaries,
     iter_entry_slices_reader,
     iter_entry_slices_with_boundaries,
     is_useless_body,
@@ -80,9 +81,12 @@ from logovista_tools.rendererdb import (
 from logovista_tools.decoded_model import static_package_resources_for_idx
 from logovista_tools.resources import load_image_resource_profile, relative_image_source
 from logovista_tools.lvcrypto import (
+    decrypt_macos_logofont_cipher_bytes,
+    decrypt_logofont_cipher_auto_file_to_path,
     decrypt_logofont_cipher_bytes,
     decrypt_logofont_cipher_file_to_path,
     logofont_cipher_key_iv,
+    macos_logofont_cipher_key_iv,
 )
 from logovista_tools.ssed import (
     SsedInfoElement,
@@ -131,6 +135,29 @@ def test_logofont_cipher_decrypts_pkcs7_payload() -> None:
     assert decrypt_logofont_cipher_bytes(encrypted) == plaintext
     assert sseddata_storage_for_bytes(encrypted) == "logofont_cipher"
     assert load_sseddata_bytes(encrypted) == (plaintext, "logofont_cipher")
+
+
+def test_macos_logofont_cipher_decrypts_pkcs7_payload() -> None:
+    plaintext = b"SSEDDATA" + bytes(range(24))
+    encrypted = _encrypt_macos_logofont(plaintext)
+
+    assert decrypt_macos_logofont_cipher_bytes(encrypted) == plaintext
+    assert sseddata_storage_for_bytes(encrypted) == "macos_logofont_cipher"
+    assert load_sseddata_bytes(encrypted) == (plaintext, "macos_logofont_cipher")
+
+
+def test_auto_decrypt_selects_macos_logofont_cipher(tmp_path) -> None:
+    plaintext = _minimal_sseddata(b"body")
+    encrypted = _encrypt_macos_logofont(plaintext)
+    source = tmp_path / "HONMON.DIN"
+    out = tmp_path / "HONMON.DIC"
+    source.write_bytes(encrypted)
+
+    written, storage = decrypt_logofont_cipher_auto_file_to_path(source, out)
+
+    assert storage == "macos_logofont_cipher"
+    assert written == len(plaintext)
+    assert out.read_bytes() == plaintext
 
 
 def test_logofont_cipher_stream_decrypts_to_path(tmp_path) -> None:
@@ -189,6 +216,18 @@ def _minimal_sseddata(payload: bytes) -> bytes:
     return bytes(data)
 
 
+def _encrypt_macos_logofont(payload: bytes) -> bytes:
+    pytest.importorskip("cryptography")
+    from cryptography.hazmat.primitives import padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    key, iv = macos_logofont_cipher_key_iv()
+    padder = padding.PKCS7(128).padder()
+    padded = padder.update(payload) + padder.finalize()
+    encryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).encryptor()
+    return encryptor.update(padded) + encryptor.finalize()
+
+
 def test_parse_ssedinfo_supports_shifted_multiview_catalog(tmp_path) -> None:
     title = "模範六法".encode("cp932")
     header = bytearray(0x7F)
@@ -211,6 +250,24 @@ def test_parse_ssedinfo_supports_shifted_multiview_catalog(tmp_path) -> None:
     assert layout.trailing_bytes == 4
     assert [element.filename for element in elements] == ["HONMON.DIC", "FKINDEX.DIC"]
     assert parse_ssedinfo(path)[1][1].type == 0x90
+
+
+def test_discover_dictionaries_accepts_macos_honmon_din(tmp_path) -> None:
+    header = bytearray(0x80)
+    header[:8] = b"SSEDINFO"
+    header[0x4D] = 1
+    data = bytes(header)
+    data += _ssedinfo_record(type_byte=0x00, start=2, end=2, data=b"\x02\x00\x00\x00", filename=b"HONMON.DIN")
+    idx = tmp_path / "MACDICT.IDX"
+    idx.write_bytes(data)
+    (tmp_path / "._MACDICT.IDX").write_bytes(b"\x00\x05\x16\x07")
+    (tmp_path / "HONMON.DIN").write_bytes(_encrypt_macos_logofont(_minimal_sseddata(b"\x1f\x09\x00\x01body")))
+
+    sources = discover_dictionaries([tmp_path], include_gaiji=False, include_images=False)
+
+    assert len(sources) == 1
+    assert sources[0].honmon.name == "HONMON.DIN"
+    assert sources[0].honmon_storage == "macos_logofont_cipher"
 
 
 def test_profile_ignores_missing_zero_block_components(tmp_path) -> None:

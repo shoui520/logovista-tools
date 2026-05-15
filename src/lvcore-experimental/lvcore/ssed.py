@@ -5,7 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .crypto import decrypt_logofont, decrypt_logofont_prefix
+from .crypto import (
+    decrypt_logofont,
+    decrypt_logofont_prefix,
+    decrypt_macos_logofont,
+    decrypt_macos_logofont_prefix,
+)
 from .errors import FormatError
 from .model import Component, ComponentRole
 
@@ -23,11 +28,20 @@ MENU_TYPES = {0x01}
 GAIJI_TYPES = {0xF1, 0xF2}
 MEDIA_NAMES = {"COLSCR.DIC", "PCMDATA.DIC"}
 TEXT_LIKE_INDEX_OUTLIER_TYPES = {0x27}
+HONMON_NAMES = {"HONMON.DIC", "HONMON.DIN"}
 
 
 def read_file_prefix(path: Path, size: int) -> bytes:
     with path.open("rb") as fh:
         return fh.read(size)
+
+
+def is_metadata_noise_path(path: Path) -> bool:
+    return (
+        path.name.startswith("._")
+        or path.name.endswith(":Zone.Identifier")
+        or "__MACOSX" in path.parts
+    )
 
 
 def be16(data: bytes, offset: int) -> int:
@@ -40,7 +54,7 @@ def be32(data: bytes, offset: int) -> int:
 
 def component_role(name: str, typ: int) -> ComponentRole:
     upper = name.upper()
-    if upper == "HONMON.DIC" or typ == 0x00:
+    if upper in HONMON_NAMES or typ == 0x00:
         return ComponentRole.HONMON
     if typ in TITLE_TYPES or upper.endswith("TITLE.DIC"):
         return ComponentRole.TITLE
@@ -77,6 +91,8 @@ class CaseFoldedDirectory:
         except OSError:
             children = []
         for child in children:
+            if is_metadata_noise_path(child):
+                continue
             entries.setdefault(child.name.casefold(), []).append(child)
         return cls(
             root=root,
@@ -112,7 +128,7 @@ class CaseFoldedDirectory:
 
 def candidate_idx_files(path: Path) -> list[Path]:
     if path.is_file():
-        return [path] if path.suffix.lower() == ".idx" else []
+        return [path] if path.suffix.lower() == ".idx" and not is_metadata_noise_path(path) else []
     return list(CaseFoldedDirectory.from_path(path).files_with_suffix(".idx"))
 
 
@@ -223,16 +239,24 @@ class SsedHeader:
 def load_sseddata_bytes(raw: bytes) -> tuple[bytes, str]:
     if raw[:8] == SSEDDATA:
         return raw, "plain"
-    try:
-        prefix = decrypt_logofont_prefix(raw[:BLOCK_SIZE], size=64)
-    except Exception as exc:
-        raise FormatError(f"not SSEDDATA and LogoFontCipher detection failed: {exc}") from exc
-    if prefix[:8] != SSEDDATA:
-        raise FormatError("not SSEDDATA")
-    data = decrypt_logofont(raw)
-    if data[:8] != SSEDDATA:
-        raise FormatError("LogoFontCipher plaintext is not SSEDDATA")
-    return data, "logofont_cipher"
+    errors: list[str] = []
+    for storage, prefix_decrypt, decrypt in (
+        ("logofont_cipher", decrypt_logofont_prefix, decrypt_logofont),
+        ("macos_logofont_cipher", decrypt_macos_logofont_prefix, decrypt_macos_logofont),
+    ):
+        try:
+            prefix = prefix_decrypt(raw[:BLOCK_SIZE], size=64)
+        except Exception as exc:
+            errors.append(f"{storage}: {exc}")
+            continue
+        if prefix[:8] != SSEDDATA:
+            continue
+        data = decrypt(raw)
+        if data[:8] != SSEDDATA:
+            raise FormatError(f"{storage} plaintext is not SSEDDATA")
+        return data, storage
+    suffix = f" ({'; '.join(errors)})" if errors else ""
+    raise FormatError(f"not SSEDDATA{suffix}")
 
 
 def parse_data_header(data: bytes, storage: str = "plain") -> SsedHeader:

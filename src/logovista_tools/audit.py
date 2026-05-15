@@ -28,6 +28,8 @@ from .ssed import (
     expand_sseddata_file,
     expand_sseddata_file_with_storage,
     find_case_insensitive,
+    honmon_component,
+    is_metadata_noise_path,
     parse_ssedinfo,
 )
 from .titles import TITLE_TYPES
@@ -69,11 +71,11 @@ def discover_audit_sources(roots: list[Path], *, jobs: int | None = 1) -> list[A
     candidates: list[Path] = []
     seen: set[Path] = set()
     for root in roots:
-        if root.is_file() and root.suffix.upper() == ".IDX":
+        if root.is_file() and root.suffix.upper() == ".IDX" and not is_metadata_noise_path(root):
             candidates.append(root)
         elif root.is_dir():
-            candidates.extend(root.rglob("*.IDX"))
-            candidates.extend(root.rglob("*.idx"))
+            candidates.extend(path for path in root.rglob("*.IDX") if not is_metadata_noise_path(path))
+            candidates.extend(path for path in root.rglob("*.idx") if not is_metadata_noise_path(path))
     unique_candidates: list[Path] = []
     for idx in sorted(candidates):
         resolved = idx.resolve()
@@ -260,7 +262,7 @@ def audit_source(source: AuditSource, args: argparse.Namespace) -> dict[str, Any
             "dictlist": dictlist,
         }
 
-    honmon = next((e for e in source.elements if e.filename.upper() == "HONMON.DIC"), None)
+    honmon = honmon_component(source.elements)
     if honmon is None:
         return {
             "dict_id": source.dict_id,

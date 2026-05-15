@@ -12,7 +12,8 @@ Current scope:
 
 - detect SSED / LVED SQLCipher / LVLMultiView SQLite package families;
 - parse SSEDINFO catalogs;
-- load plain and LogoFontCipher-encrypted SSEDDATA components;
+- load plain, LogoFontCipher-encrypted, and observed Mac OS X
+  `HONMON.DIN`-encrypted SSEDDATA components;
 - expand SSED chunks and read component slices;
 - parse dictionary-local `.uni` / `.UNI` gaiji mappings, plist fallback
   metadata, GA16/GAI16 bitmap resources, and image-backed gaiji assets;
@@ -21,7 +22,7 @@ Current scope:
 - parse title streams and native index rows, including simple, tagged,
   body-only, keyword, cross-reference, and MULTI selector index families;
 - classify SSED body sources separately from package families;
-- slice readable direct `HONMON.DIC` body-stream entries;
+- slice readable direct `HONMON.DIC` / `HONMON.DIN` body-stream entries;
 - detect dense HONMON anchor tables and avoid rendering anchor records as
   friendly dictionary bodies;
 - resolve structurally understood dense-anchor SQLite sidecars such as

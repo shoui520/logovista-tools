@@ -104,7 +104,7 @@ def _find_idx_hint(directory: Path) -> Path | None:
     if not directory.is_dir():
         return None
     for pattern in ("*.IDX", "*.idx"):
-        matches = sorted(directory.glob(pattern))
+        matches = sorted(path for path in directory.glob(pattern) if not path.name.startswith("._"))
         if matches:
             return matches[0]
     return None

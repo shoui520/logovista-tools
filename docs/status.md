@@ -26,7 +26,7 @@ and non-SSED reader status are tracked separately in
 - JIS X 0208 text decoding.
 - CP932 / Shift_JIS-2004 extension cell fallback for observed JIS-row symbols
   such as circled numbers, unit glyphs, and dingbat-like markers.
-- Body-stream `HONMON.DIC` extraction for supported dictionaries.
+- Body-stream `HONMON.DIC` / `HONMON.DIN` extraction for supported dictionaries.
 - Streaming body-entry extraction by default, with index-derived body
   boundaries available for forensic/debug extraction.
 - Common `*TITLE.DIC` extraction.
@@ -54,6 +54,9 @@ and non-SSED reader status are tracked separately in
   dereference paths.
 - Observed Windows LogoFontCipher AES-CBC decryption for encrypted
   `HONMON.DIC` and sidecars, including large streaming sidecars.
+- Observed Mac OS X SSED `HONMON.DIN` AES-CBC decryption. The payload decrypts
+  to normal `SSEDDATA` and then uses the same component expansion path as
+  `HONMON.DIC`.
 - Corpus-wide `vlpljbl*` classification by suffix, raw/decrypted magic,
   SQLite schema, and inferred role. Observed roles include decryptor binaries,
   fonts, renderer body DBs, media stores, search indexes, row-ordered `HONBUN`,

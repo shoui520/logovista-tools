@@ -42,8 +42,8 @@ current known SSED reader targets.
 Current lvcore SSED coverage includes:
 
 - package-family detection for SSED, LVED, and LVLMultiView;
-- SSEDINFO/SSEDDATA parsing, component reads, and LogoFontCipher handling where
-  implemented;
+- SSEDINFO/SSEDDATA parsing, component reads, Windows LogoFontCipher handling,
+  and observed Mac OS X `HONMON.DIN` decryption;
 - text-span parsing with friendly, semantic, LogoVista-like, and debug render
   profiles;
 - native exact/forward/backward index lookup;

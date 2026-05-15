@@ -68,7 +68,7 @@ from .lved import (
     infer_lved_dict_code,
     inspect_lved_roots,
 )
-from .lvcrypto import decrypt_logofont_cipher_file_to_path
+from .lvcrypto import decrypt_logofont_cipher_auto_file_to_path
 from .model_types import PackageFamily
 from .menus import extract_menus_for_idx
 from .multiview import (
@@ -321,8 +321,9 @@ def cmd_expand(args: argparse.Namespace) -> int:
 def cmd_decrypt(args: argparse.Namespace) -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     status(args, f"decrypt: decrypting {args.file}")
-    written = decrypt_logofont_cipher_file_to_path(args.file, args.out)
+    written, storage = decrypt_logofont_cipher_auto_file_to_path(args.file, args.out)
     print(f"decrypted {args.file} -> {args.out}")
+    print(f"storage: {storage}")
     print(f"bytes: {written}")
     return 0
 
@@ -1836,7 +1837,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_expand.add_argument("out", type=Path)
     p_expand.set_defaults(func=cmd_expand)
 
-    p_decrypt = sub.add_parser("decrypt", help="Decrypt a LogoFontCipher AES-CBC sidecar or encrypted .DIC.")
+    p_decrypt = sub.add_parser("decrypt", help="Decrypt a LogoVista AES-CBC sidecar or encrypted SSED component.")
     p_decrypt.add_argument("file", type=Path)
     p_decrypt.add_argument("out", type=Path)
     p_decrypt.set_defaults(func=cmd_decrypt)
