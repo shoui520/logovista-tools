@@ -32,26 +32,17 @@ iOS       DictList.plist, Gaiji.plist, GaijiS.plist, resourcesCopy.plist,
           gaijiicon.plist, img/, html/, OTHER/, *.sql; can also carry
           eight-hex auxiliary .idx trees
 Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
-Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, sibling *_GAIJI/, *.chm, vlpljbl*;
-          some packages also carry DICPROF.INI and Panel/ or Panels.xml
+Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, SPINDEX.DIC,
+          sibling *_GAIJI/, *.chm, vlpljbl*; some packages also carry
+          DICPROF.INI
 Mac OS X  EXINFO.INI, help `.localized` bundles, AppleDouble `._*` metadata,
           encrypted `HONMON.DIN`, and observed HANREI/SPINDEX-style auxiliary
           resources inside an otherwise normal SSED catalog
-SIZK      SSED read-aloud set bundle: HC0190.dll, HTMLs/b121-b124 templates,
-          Templates/honbun.html, shizuku.mp3, shizuku_honbun/time sidecars
-Numeric   00000xxx.idx / 00000xxx_n.idx CP932 auxiliary text trees; observed
-          in Windows and iOS packages and not sufficient platform evidence
 ```
 
 `NoPlatform` is not an observed retail LogoVista wrapper. It is the model value
 for stripped core-SSED packages and for future SSED writer output that should
-not depend on a specific LogoVista reader implementation. Numeric auxiliary
-`00000xxx.idx` files can still be present in this layout; they are SSED sidecar
-indexes/resources, not sufficient Windows evidence without `EXINFO.INI`,
-`HC????.dll`, or `vlpljbl*`.
-
-SIZK is SSED plus a read-aloud product bundle. It is not a platform wrapper and
-not a separate core format.
+not depend on a specific LogoVista reader implementation.
 
 Separate non-SSED package families include:
 
@@ -209,10 +200,12 @@ the display glyph mapping. Reader impact is search/headword normalization:
 these tables provide roman/ASCII fallback strings for custom characters. They
 should not be merged into entry body rendering.
 
-## Windows Panel Subsystem
+## Panel Subsystem
 
-Some Windows SSED packages include a Panel UI/navigation layer alongside the raw
-dictionary core. A complete observed Panel set uses:
+Some SSED packages include a Panel UI/navigation subsystem alongside the raw
+dictionary core. The decoded Panel samples currently come from Windows package
+copies, but Panel is not a Windows platform marker. A complete observed Panel
+set uses:
 
 ```text
 Panels.dtd
@@ -326,23 +319,3 @@ SQLite payloads. The observed law subfamily uses payloads such as `blvbat`,
 `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`, and `nlvbat`/`nlvdat`; ESPRANT2 uses a
 single `blvdat` content/search payload. See
 [LVLMultiView Packages](multiview.md).
-
-The SIZK / NHK 文学のしずく packages are a small SSED read-aloud set-sale
-subfamily, not a platform wrapper. Their `.IDX` catalog declares `HONMON.DIC`,
-`GA16FULL`, and `GA16HALF`, but the package is driven by renderer templates
-rather than by normal search indexes. `HONMON.DIC` is a tiny body stream with
-four entries.
-Each entry begins with a full-width gaiji selector (`b121` through `b124`) that
-chooses a sibling HTML template in `HTMLs/`:
-
-```text
-b121  overview
-b122  author introduction
-b123  narrator introduction
-b124  read-aloud playback
-```
-
-`EXINFO.INI` declares `HTMLDLL=HC0190.dll`, `MP3NAME=shizuku.mp3`, and
-`GAIJI=shizuku.uni`. The actual playback transcript is stored outside SSED as
-UTF-16 text/time files plus `Templates/honbun.html`; all 30 observed packages
-have synchronized time/text/template rows.

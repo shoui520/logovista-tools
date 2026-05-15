@@ -17,8 +17,7 @@ This applies to core files and auxiliary resources, including:
   `EXINFO.INI` / `DICPROF.INI`;
 - `.idx`, `.IDX`, `.uni`, `.UNI`, `GA16*`, `GAI16*`, and eight-hex resource
   names;
-- Panel assets, sidecars, media/resource files, templates, and package-layer
-  wrapper files.
+- Panel assets, sidecars, media/resource files, templates, and packaging files.
 
 ## SSED Core
 
@@ -57,23 +56,12 @@ NoPlatform raw SSED core plus portable resource dirs such as res/, resources/,
           templates/, img/; no reader-specific EXINFO/HC/vlpljbl/plist sidecars
 iOS       DictList.plist, Gaiji.plist, GaijiS.plist, img/, html/, *.sql
 Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
-Windows   EXINFO.INI, DICPROF.INI, HC*.dll, Templates/, HANREI/, vlpljbl*,
-          Panel/, Panels.xml, *.chm
+Windows   EXINFO.INI, DICPROF.INI, HC*.dll, Templates/, HANREI/,
+          SPINDEX.DIC, vlpljbl*, *.chm
 Mac OS X  EXINFO.INI, help `.localized` bundles, AppleDouble `._*` metadata,
           encrypted `HONMON.DIN`, and observed HANREI/SPINDEX-style auxiliary
           resources in otherwise normal SSED catalogs
-SIZK      SSED read-aloud set bundle with EXINFO.INI, HC0190.dll,
-          HTMLs/b12*.html, Templates/honbun.html,
-          shizuku.mp3, shizuku_honbun.txt, shizuku_time.txt, shizuku.uni
-Panel     Panels.dtd, Panels.xml, Panel.html, Cell.html, and fixed-record
-          external .bin label-to-address tables
-Numeric   00000xxx.idx / 00000xxx_n.idx CP932 auxiliary text trees; observed
-          in Windows and iOS packages and not sufficient evidence for platform
-          classification
 ```
-
-SIZK is listed here because it is an SSED product bundle. It is not a platform
-wrapper and not a separate core format.
 
 Separate non-SSED package families include:
 
@@ -102,14 +90,6 @@ subfamily uses `blvbat`, `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`, and
 `nlvbat`/`nlvdat`; ESPRANT2 uses `blvdat` with a content/search schema and
 numeric `menuData.xml` targets. See [LVLMultiView Packages](../spec/multiview.md).
 
-## SIZK Read-Aloud Packages
-
-The SIZK / NHK read-aloud set is SSED-backed, but the raw core is a tiny
-selector stream. The substantial read-aloud content lives in loose sidecars:
-HTML body files, a template, an MP3, synchronized text/time sidecars, and a
-dictionary-local `.uni` mapping. `logovista-tools sizk` resolves those pieces
-into structured reports.
-
 ## Metadata and Auxiliary Resources
 
 `EXINFO.INI` and `DICPROF.INI` are package metadata, not body streams.
@@ -127,7 +107,13 @@ suffixes such as `_0`, `_1`, `_2`, and `_3`. These are still auxiliary index
 trees; they are not additional SSED catalogs.
 
 `SPINDEX.DIC` and `HANREI/` are auxiliary resource families rather than
-Windows-only markers. They can appear in Mac OS X package layouts too.
+Windows-only markers. They are observed in Windows package layouts, and they can
+appear in Mac OS X package layouts too.
+
+Panels are an optional LogoVista navigation/UI subsystem, not a package family
+and not a Windows platform marker. The observed corpus work decoded Panel XML
+and BIN structures from Windows packages, but the subsystem itself is just
+package-local resource data.
 
 `FIGURE.DIC` is observed as a compressed type-`0xd0` SSED resource component.
 It is not the same media store as `COLSCR.DIC`, and current public evidence does

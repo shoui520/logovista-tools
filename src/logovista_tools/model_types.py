@@ -21,7 +21,6 @@ class ModelEnum(str, Enum):
 
 class PackageFamily(ModelEnum):
     SSED = "ssed"
-    SSED_SIZK_READ_ALOUD = "ssed-sizk-read-aloud"
     LVED_SQLCIPHER = "lved_sqlcipher"
     MULTIVIEW_SQLITE = "multiview_sqlite"
     MIXED = "mixed"
@@ -31,11 +30,8 @@ class PackageFamily(ModelEnum):
 class PlatformWrapper(ModelEnum):
     NOPLATFORM = "noplatform"
     WINDOWS = "windows"
-    WINDOWS_SIZK = "windows-sizk"
     IOS = "ios"
     ANDROID = "android"
-    LVED_WINDOWS = "lved-windows"
-    MULTIVIEW_WINDOWS = "multiview-windows"
     UNKNOWN = "unknown"
 
 
@@ -177,10 +173,24 @@ def normalize_enum(enum_type: type[ModelEnum], value: Any, default: ModelEnum) -
 
 
 def normalize_package_family(value: Any) -> str:
+    legacy = {
+        "ssed-sizk-read-aloud": PackageFamily.SSED.value,
+    }
+    raw = enum_value(value)
+    if raw in legacy:
+        return legacy[raw]
     return normalize_enum(PackageFamily, value, PackageFamily.UNKNOWN)
 
 
 def normalize_platform(value: Any) -> str:
+    legacy = {
+        "windows-sizk": PlatformWrapper.WINDOWS.value,
+        "lved-windows": PlatformWrapper.WINDOWS.value,
+        "multiview-windows": PlatformWrapper.WINDOWS.value,
+    }
+    raw = enum_value(value)
+    if raw in legacy:
+        return legacy[raw]
     return normalize_enum(PlatformWrapper, value, PlatformWrapper.UNKNOWN)
 
 

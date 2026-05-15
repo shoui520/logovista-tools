@@ -33,7 +33,7 @@ This table is about `logovista-tools`, not lvcore.
 | Windows / Android / iOS / Mac OS X SSED packaging layers | Supported per observed package family. These are package layouts around SSED, not separate core formats. |
 | LVED/WebView2 `main.data` / `.dbc` SQLCipher packages | Handled as a separate non-SSED format family by toolkit classification/model reports and LVED inspection code. |
 | LVLMultiView SQLite packages | Handled as a separate package family by toolkit classification/model reports and MultiView inspection code. |
-| SIZK read-aloud SSED bundle | Inspected and reported for the observed NHK read-aloud set-sale package set. It is SSED with loose audio/template sidecars, not a platform wrapper. |
+| SIZK read-aloud dictionaries | Focused inspection/reporting for the observed NHK read-aloud dictionary family. These are SSED dictionaries with loose audio/template sidecars, not a package family. |
 | Plain-SSED writer proof of concept | Experimental author-core primitives for clean generated SSED packages. |
 
 ## lvcore Reader Status
@@ -137,7 +137,7 @@ The full command reference is in [docs/commands.md](docs/commands.md).
 | [CLI Command Reference](docs/commands.md) | Toolkit CLI commands plus pointers to the separate lvcore and lvcore-audit CLIs. |
 | [Project Status and Roadmap](docs/status.md) | `logovista-tools` capability status and roadmap. |
 | [lvcore Status](docs/lvcore-status.md) | Reader-core status table, boundaries, and audit counters. |
-| [Package Families](docs/package-families.md) | SSED package layers, non-SSED families, SIZK, and file lookup behavior. |
+| [Package Families](docs/package-families.md) | SSED package layers, non-SSED families, and file lookup behavior. |
 | [Corpus Findings](docs/corpus-findings.md) | Observed behavior from real dictionaries and platform comparisons. |
 | [Legal and Data Policy](docs/legal.md) | Repository scope and data-handling policy. |
 | [Format Notes Index](spec/README.md) | Spec-style notes for containers, text streams, indexes, media, gaiji, LVED, and LVLMultiView. |

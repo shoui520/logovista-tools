@@ -95,8 +95,8 @@ and non-SSED reader status are tracked separately in
 - Raw-resource gaiji readiness reports that separate Unicode mappings,
   bitmap-backed glyphs, image-backed glyphs, probable formatting helpers,
   missing search fallbacks, and true display-unresolved codes.
-- Standalone `SPINDEX.DIC` inspection for observed auxiliary suffix-index
-  resources.
+- Standalone `SPINDEX.DIC` inspection for observed Windows and Mac OS X
+  auxiliary suffix-index resources.
 - `FIGURE.DIC` is recognized as a compressed type-`0xd0` figure/resource
   component. Its generic record grammar is still unresolved, so toolkit output
   should report it as a named resource stream rather than inventing raster
@@ -108,10 +108,10 @@ and non-SSED reader status are tracked separately in
   packages, including SSEDINFO facade parsing, LogoFontCipher SQLite payload
   roles, `menuData.xml` href resolution, static HTML/viewer-file reporting,
   and encrypted PDF resource detection where present.
-- SIZK / NHK 文学のしずく read-aloud SSED package inspection for the observed
-  30 package set, including EXINFO-declared `shizuku.uni`, `HTMLs/b121`-`b124`
-  template selectors, tiny four-entry HONMON streams, loose MP3 files, and
-  synchronized UTF-16 text/time sidecars.
+- SIZK / NHK 文学のしずく focused dictionary-family inspection for the observed
+  30 Windows-corpus dictionaries, including EXINFO-declared `shizuku.uni`,
+  `HTMLs/b121`-`b124` template selectors, tiny four-entry HONMON streams,
+  loose MP3 files, and synchronized UTF-16 text/time sidecars.
 - `--jobs` process-level parallelism for corpus-scale scanning, extraction,
   audit, gaiji/media reports, LVED inspection, and GA16 rendering.
 - Redacted SSED package profiles with component metadata, wrapper/resource
@@ -263,7 +263,7 @@ and non-SSED reader status are tracked separately in
   dictionary-global `code -> Unicode` map.
 - Current lvcore reader-side counters and SSED closure status are tracked in
   [lvcore Status](lvcore-status.md), not in this toolkit status page.
-- The Windows Panel subsystem has a decoded package-layer model. Complete
+- The Panel subsystem has a decoded optional-navigation model. Complete
   Panel packages use `Panels.dtd`, `Panels.xml`, `Panel.html`, `Cell.html`, and
   external `.bin` tables. The `.bin` files are fixed-width little-endian
   label-to-address tables, and the observed complete Panel corpus decodes
@@ -329,9 +329,10 @@ Next priorities:
 1. **Decoded model consistency.** Keep `dump-package-model` and
    `capability-matrix --model-dir` aligned with shared enum/status vocabulary
    so research, exporter planning, and writer planning do not drift.
-2. **Package-family classification.** Keep SSED package layers, SIZK SSED
-   bundles, LVED, LVLMultiView, Panels, and wrapper/resource families explicit
-   instead of forcing unrelated payloads into the wrong model.
+2. **Package-family classification.** Keep SSED package layers, LVED,
+   LVLMultiView, and wrapper/resource families explicit. Keep dictionary-family
+   reports such as SIZK, subsystems such as Panels, and auxiliary resources
+   such as numeric `.idx` trees out of the package-family taxonomy.
 3. **Renderer/control semantics.** Expand synthetic tests for structurally known
    controls, gaiji/media/link behavior, and conservative LogoVista-like output
    without claiming pixel-perfect renderer parity.

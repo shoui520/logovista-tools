@@ -199,8 +199,8 @@ def detect_platform_wrapper_for_idx(idx: Path) -> dict[str, Any]:
         "sizk": is_sizk_package(package),
     }
     if markers["sizk"]:
-        platform = "windows-sizk"
-        family = "ssed-sizk-read-aloud"
+        platform = "windows"
+        family = "ssed"
     elif markers["android_conf"]:
         platform = "android"
         family = "ssed"
@@ -1578,7 +1578,7 @@ def dump_lved_deferred_model(payload: Path, args: argparse.Namespace) -> dict[st
         title="",
         package_path=package,
         package_family=PackageFamily.LVED_SQLCIPHER,
-        platform=PlatformWrapper.LVED_WINDOWS,
+        platform=PlatformWrapper.WINDOWS,
         body_source=BodySource.LVED_SQLCIPHER,
         markers=markers,
         families={"lved": report},
@@ -1636,7 +1636,7 @@ def dump_multiview_deferred_model(package: Path, args: argparse.Namespace) -> di
         title=str((report.get("idx") or {}).get("title") or ""),
         package_path=package,
         package_family=PackageFamily.MULTIVIEW_SQLITE,
-        platform=PlatformWrapper.MULTIVIEW_WINDOWS,
+        platform=PlatformWrapper.WINDOWS,
         body_source=BodySource.MULTIVIEW_SQLITE,
         markers=markers,
         families={"multiview": report},

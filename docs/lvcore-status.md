@@ -97,8 +97,9 @@ entry, render, and resource APIs.
 ## Boundary With Toolkit Status
 
 - `logovista-tools` package classification/model generation can cover SSED
-  package layers, SIZK SSED bundles, LVED, LVLMultiView, and wrapper/resource
-  files.
+  package layers, LVED, LVLMultiView, and wrapper/resource files. Focused
+  dictionary-family/subsystem reports such as SIZK and Panels are toolkit
+  features, not lvcore package-family targets.
 - lvcore reader compatibility currently targets SSED.
 - LVED/LVLMultiView being unimplemented in lvcore does not mean the toolkit
   cannot classify or inspect those families.

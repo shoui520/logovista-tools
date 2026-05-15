@@ -8,7 +8,7 @@ reverse-engineering notes live in [`../spec`](../spec/README.md).
 | [CLI Command Reference](commands.md) | All current commands and options. |
 | [Project Status and Roadmap](status.md) | `logovista-tools` capability status and project direction. |
 | [lvcore Status](lvcore-status.md) | Reader-core status, boundaries, and audit counters. |
-| [Package Families](package-families.md) | SSED package layers, non-SSED families, Panels, and lookup rules. |
+| [Package Families](package-families.md) | SSED package layers, non-SSED families, and lookup rules. |
 | [Corpus Findings](corpus-findings.md) | Observed behavior from real dictionaries. |
 | [Legal and Data Policy](legal.md) | Repository and data-handling boundaries. |
 

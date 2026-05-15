@@ -1127,10 +1127,11 @@ This is enough for toolkit parsers to consume the correct byte lengths and
 preserve renderer intent. It is not a claim of pixel-perfect reproduction of
 every product-specific HC HTML template or SQL/search hook.
 
-### Windows Panel Subsystem
+### Panel Subsystem
 
-The Panel subsystem is now decoded as a Windows SSED navigation/UI layer rather
-than a generic file-family inventory item.
+The Panel subsystem is now decoded as an optional SSED navigation/UI subsystem
+rather than a generic file-family inventory item. The decoded samples currently
+come from Windows package copies, but Panel is not a Windows platform marker.
 
 Complete Panel packages have `Panels.dtd`, `Panels.xml`, `Panel.html`,
 `Cell.html`, and external `.bin` payloads. The DTD schema is stable across the

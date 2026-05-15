@@ -113,7 +113,6 @@ target inside a larger collection.
 
 ```text
 ssed              SSEDINFO/SSEDDATA package with HONMON-style components
-ssed-sizk-read-aloud  SIZK SSED package with loose read-aloud sidecars
 lved_sqlcipher    modern LVED/WebView2 SQLCipher payload family
 multiview_sqlite      LVLMultiView package with SSEDINFO facade + SQLite bodies
 mixed             package has both raw SSED anchors and renderer/database bodies
@@ -125,19 +124,16 @@ unknown           classified enough to report, not enough to decode
 ```text
 noplatform
 windows
-windows-sizk
 ios
 android
-lved-windows
-multiview-windows
 unknown
 ```
 
 The `platform` field records observed package-layer evidence, not the core
-format family. `windows-sizk` is a legacy model value for the SIZK
-Windows-distributed SSED read-aloud bundle; SIZK is not a separate platform or
-core format. `lved-windows` and `multiview-windows` identify observed Windows
-distributions of separate non-SSED package families.
+format family. SIZK is not a package-family or platform value; it is reported
+through dictionary-family notes/markers while keeping `package_family=ssed`.
+LVED and LVLMultiView use their own `package_family` values and ordinary
+platform evidence such as `windows`.
 
 `honmon_shape` values observed so far:
 
@@ -173,10 +169,10 @@ unknown
 Wrapper markers are evidence, not mutually exclusive identities. For example,
 some iOS and Mac OS X package copies can contain files also used by Windows
 packages, such as `EXINFO.INI`, numeric auxiliary indexes, `SPINDEX.DIC`, or
-`HANREI/`. Current package classification treats SIZK as an SSED read-aloud
-bundle, Android `resource/conf.ini` and iOS plist evidence as platform-package
-evidence, and LVED/LVLMultiView as separate non-SSED package families rather
-than platform wrappers.
+`HANREI/`. Current package classification treats Android `resource/conf.ini`
+and iOS plist evidence as platform-package evidence, SIZK as dictionary-family
+metadata on top of `package_family=ssed`, and LVED/LVLMultiView as separate
+non-SSED package families rather than platform wrappers.
 
 ## Address
 

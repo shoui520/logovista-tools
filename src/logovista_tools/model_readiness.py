@@ -20,7 +20,6 @@ CAPABILITY_FIELDS = [
 
 SSED_PACKAGE_FAMILIES = {
     PackageFamily.SSED.value,
-    PackageFamily.SSED_SIZK_READ_ALOUD.value,
     PackageFamily.MIXED.value,
 }
 
