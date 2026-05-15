@@ -1,8 +1,8 @@
 # CLI Command Reference
 
 This page documents the `logovista-tools` command-line interface. Commands are
-grouped by task: discovery, expansion, extraction, resources, platform
-sidecars, writing, and validation.
+grouped by task: discovery, expansion, extraction, resources, package sidecars,
+writing, and validation.
 
 `src/lvcore-experimental` has its own separate reader-core CLI. It is
 reader-only, does not import `logovista_tools`, and targets real LogoVista
@@ -64,7 +64,8 @@ This applies to commands that operate across many dictionaries or resources:
 `spindex`, `audit-honmon`, `gaiji-report`, `gaiji-readiness`, `ga16`,
 `titles`, `indexes`, `menus`, `fulldb`, `profile`, `honmon-bytes`,
 `opcode-atlas`, `component-forensics`, `dump-ir`, `dump-package-models`, LVED
-payload inspection, and LVLMultiView/SIZK package inspection.
+payload inspection, LVLMultiView inspection, and SIZK SSED read-aloud
+inspection.
 `capability-matrix` is also corpus-oriented, but it reads already-generated
 report directories rather than re-scanning raw dictionary files.
 
@@ -251,9 +252,10 @@ logovista-tools sizk /path/to/_DCT_SIZK0101 --write-playback-jsonl --out-dir siz
 logovista-tools sizk /path/to/_DCT_SIZK0101 --json
 ```
 
-The observed SIZK packages are SSED-backed, but they are not normal
-headword-index dictionaries. Each package has a tiny `HONMON.DIC` with four
-entries. The first gaiji in each entry selects one of four HTML templates:
+The observed SIZK packages are SSED packages sold as a read-aloud set, not a
+separate platform wrapper. They are not normal headword-index dictionaries.
+Each package has a tiny `HONMON.DIC` with four entries. The first gaiji in each
+entry selects one of four HTML templates:
 
 ```text
 b121  overview page
@@ -1098,7 +1100,7 @@ the component-level `fmt ` parameters.
 
 ### `extras`
 
-Parse Windows `EXINFO.INI` metadata and auxiliary side-panel files.
+Parse `EXINFO.INI` metadata and auxiliary side-panel files.
 
 ```bash
 logovista-tools extras /path/to/DICT --out-dir extras
@@ -1106,16 +1108,19 @@ logovista-tools extras /path/to/LogoVista --dict DAIJIRN4 --json
 ```
 
 Windows packages often declare side UI through fields such as `IDXCOUNT`,
-`IDXNAME0`, and `IDXINFO0`. HTML entries are reported as HTML files. Text
-auxiliary indexes such as DAIJIRN4's `0000015E.IDX` are parsed as CP932 tab
-trees whose first two columns are eight-digit hexadecimal block/offset
-pointers. Rows are resolved against the `.IDX` component ranges when possible.
+`IDXNAME0`, and `IDXINFO0`, but `EXINFO.INI` is not Windows-only in the
+observed corpus. Text auxiliary indexes such as DAIJIRN4's `0000015E.IDX` are
+parsed as CP932 tab trees whose first two columns are eight-digit hexadecimal
+block/offset pointers. Rows are resolved against the `.IDX` component ranges
+when possible.
 
 The command also scans for sibling eight-hex-digit `*.idx` files such as
-`00000152.idx`, even when `EXINFO.INI` does not reference them. Sharded
-variants such as `00000151_0.idx` use the same CP932 tab-tree grammar and are
-included in the same numeric auxiliary index scan. These are reported
-separately as `numeric_indexes` and written as `numeric_*.jsonl`.
+`00000152.idx`, even when `EXINFO.INI` does not reference them. These numeric
+auxiliary trees are SSED-side resources, not Windows-only files; original iOS
+packages can carry them too. Sharded variants such as `00000151_0.idx` use the
+same CP932 tab-tree grammar and are included in the same numeric auxiliary
+index scan. These are reported separately as `numeric_indexes` and written as
+`numeric_*.jsonl`.
 
 Output layout:
 
@@ -1187,11 +1192,11 @@ renderer `ID`, raw HONMON entry offset, title, plain body text, and HTML unless
 using magic bytes to choose `.gif`, `.png`, `.jpg`, `.bmp`, or `.bin`;
 filenames are preserved when the renderer HTML already references the original
 media name. Two-column `t_media(f_name, f_blob)` stores are treated as untyped
-media and still exported by filename/magic. Some Windows
-packages also use `lved.ziptomedia:NAME.wav` links. `--write-ziptomedia`
-discovers a sibling sound directory such as `_DCT_NAME_Sound_Files`, decrypts
-LogoFontCipher-wrapped loose sound files, and writes portable `.wav` / `.mp3`
-assets for the references that are physically present.
+media and still exported by filename/magic. PROYAL53 also uses
+`lved.ziptomedia:NAME.wav` links. `--write-ziptomedia` discovers a sibling
+sound directory such as `_DCT_NAME_Sound_Files`, decrypts LogoFontCipher-wrapped
+loose sound files, and writes portable `.wav` / `.mp3` assets for the
+references that are physically present.
 
 ### `spindex`
 
@@ -1203,10 +1208,12 @@ logovista-tools spindex /path/to/LogoVista --limit 200 --json
 ```
 
 The observed `SPINDEX.DIC` files are not listed in product `SSEDINFO`
-component tables, so this command handles them as separate SSED containers. It
-expands only the compressed chunks that are physically present, parses the
-internal reversed-key index pages, and reports whether child pages are present,
-missing from the physical file, or outside the declared logical range.
+component tables, so this command handles them as separate SSED containers.
+They are auxiliary SSED resources rather than Windows-only files; Mac OS X
+package layouts can use this family too. The command expands only the
+compressed chunks that are physically present, parses the internal reversed-key
+index pages, and reports whether child pages are present, missing from the
+physical file, or outside the declared logical range.
 
 Output layout:
 

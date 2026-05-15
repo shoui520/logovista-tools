@@ -9,7 +9,7 @@ versioned public format.
 | Proven | Directly verified from bytes and covered by parser/tests or repeated corpus evidence. |
 | Strongly inferred | Fits multiple dictionaries and has a clear structural explanation, but still lacks full renderer parity or exhaustive samples. |
 | Corpus-inferred | True for currently observed products; should not be treated as universal. |
-| Dictionary-specific | Known to be tied to one product, product family, or platform wrapper. |
+| Dictionary-specific | Known to be tied to one product, product family, or package layer. |
 | Unknown / opaque | Classified enough to avoid corrupting nearby data, but the semantics or dereference path is not understood. |
 
 Recommended documentation style:

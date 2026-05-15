@@ -1432,7 +1432,7 @@ The differences are packaging and fallback assets:
   Windows `.UNI` count of 60 to 97 combined mappings.
 
 This is the cleanest current example of high raw-core compatibility with
-platform-specific resource wrappers.
+package-specific resource layers.
 
 ### IWKOKUG8 iOS vs Android vs Windows
 
@@ -1933,10 +1933,12 @@ contains the missing ziptomedia files.
 
 ### SPINDEX.DIC
 
-`SPINDEX.DIC` is a standalone Windows auxiliary file, not a component declared
-inside the product `.IDX`. The local corpus currently contains four copies:
-EJJE200, HAESPJPN Windows, SINMEI7 Windows, and the official Windows browser's
-EJJE200 install copy. All four are byte-identical:
+`SPINDEX.DIC` is a standalone auxiliary SSED container, not a component declared
+inside the product `.IDX` catalog and not a Windows-only marker. Mac OS X
+package layouts can use SPINDEX-style auxiliary resources too. The local
+Windows corpus currently contains four copies: EJJE200, HAESPJPN Windows,
+SINMEI7 Windows, and the companion browser install copy. All four are
+byte-identical:
 
 ```text
 sha256 aabd6d909fb7bed5d446192fbbf757d18367ca28fb6d72ad69984a842b1a85b9

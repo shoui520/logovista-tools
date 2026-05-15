@@ -1,6 +1,6 @@
 # Package Layers
 
-High-level package model and platform wrapper differences.
+High-level package model, SSED package layers, and separate non-SSED families.
 
 ## Big Picture
 
@@ -22,26 +22,25 @@ GA16FULL
 DICT.uni
 ```
 
-That core is the stable part. Platform packages wrap it differently:
+That core is the stable part. Retail packages add application, platform, or
+product-bundle layers around it:
 
 ```text
 NoPlatform raw SSED core plus portable resource dirs such as res/, resources/,
           templates/, img/; no EXINFO/HC/vlpljbl/plist/application sidecars
 iOS       DictList.plist, Gaiji.plist, GaijiS.plist, resourcesCopy.plist,
-          gaijiicon.plist, img/, html/, OTHER/, *.sql
+          gaijiicon.plist, img/, html/, OTHER/, *.sql; can also carry
+          eight-hex auxiliary .idx trees
 Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
-Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, sibling *_GAIJI/, *.chm, vlpljbl*,
-          eight-hex-digit 00000xxx.idx sidecar trees, sometimes standalone
-          auxiliary SPINDEX.DIC and sibling *_Sound_Files/ ziptomedia audio;
+Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, sibling *_GAIJI/, *.chm, vlpljbl*;
           some packages also carry DICPROF.INI and Panel/ or Panels.xml
 Mac OS X  EXINFO.INI, help `.localized` bundles, AppleDouble `._*` metadata,
-          and encrypted `HONMON.DIN` inside an otherwise normal SSED catalog
-SIZK      classic SSED catalog plus HC0190.dll, HTMLs/b121-b124 templates,
+          encrypted `HONMON.DIN`, and observed HANREI/SPINDEX-style auxiliary
+          resources inside an otherwise normal SSED catalog
+SIZK      SSED read-aloud set bundle: HC0190.dll, HTMLs/b121-b124 templates,
           Templates/honbun.html, shizuku.mp3, shizuku_honbun/time sidecars
-LVED      main.data or *.dbc, WebView2 viewer files, sqlcipher.dll,
-          plugin DLL/assembly resources
-MultiView SSEDINFO-like *.IDX facade, menuData.xml, LOGOVISTAMULTIVIEW,
-          *lvbat/*lvdat LogoFontCipher SQLite payloads, Templates/, Resources/
+Numeric   00000xxx.idx / 00000xxx_n.idx CP932 auxiliary text trees; observed
+          in Windows and iOS packages and not sufficient platform evidence
 ```
 
 `NoPlatform` is not an observed retail LogoVista wrapper. It is the model value
@@ -50,6 +49,18 @@ not depend on a specific LogoVista reader implementation. Numeric auxiliary
 `00000xxx.idx` files can still be present in this layout; they are SSED sidecar
 indexes/resources, not sufficient Windows evidence without `EXINFO.INI`,
 `HC????.dll`, or `vlpljbl*`.
+
+SIZK is SSED plus a read-aloud product bundle. It is not a platform wrapper and
+not a separate core format.
+
+Separate non-SSED package families include:
+
+```text
+LVED      main.data or *.dbc SQLCipher payloads, WebView2 viewer files,
+          sqlcipher.dll and plugin DLL/assembly resources
+MultiView SSEDINFO-like *.IDX facade, menuData.xml, LOGOVISTAMULTIVIEW,
+          *lvbat/*lvdat LogoFontCipher SQLite payloads, Templates/, Resources/
+```
 
 ## Windows HC Renderer Plugins
 
@@ -78,7 +89,7 @@ execDicZenbunSearch           full-text search UI
 initializePanel/finalizePanel panel UI
 pluginFunction*               product-specific bridge hooks
 openUserData/closeUserData    sidecar/user-data lifecycle
-createMediaFileFromZip        ziptomedia extraction, observed in PROYAL53
+createMediaFileFromZip        PROYAL53 ziptomedia extraction hook
 ```
 
 HC plugins import raw dictionary services for body, picture, gaiji, menu,
@@ -106,10 +117,12 @@ Numeric sidecar names often share the HC product code
 `HTMLDLL` is the authoritative renderer link; some HC-bearing packages have no
 numeric index and a few have a numeric index whose code differs from the HC DLL.
 
-## Windows Metadata and Auxiliary Indexes
+## Metadata and Auxiliary Indexes
 
-Windows packages commonly include `EXINFO.INI`, and some also include
-`DICPROF.INI`. Both are CP932 INI-style metadata files, not SSED components.
+Packages commonly include `EXINFO.INI`, and some also include `DICPROF.INI`.
+Both are CP932 INI-style metadata files, not SSED components. `EXINFO.INI` is
+not Windows-only in the observed corpus; Mac OS X packages and some mobile
+package copies reuse much of the same metadata behavior.
 
 `EXINFO.INI` is the reader-side feature declaration. Observed keys include:
 
@@ -159,9 +172,10 @@ selector when the high nibble of the block is nonzero and the offset is
 The common auxiliary index filename is eight hexadecimal digits, such as
 `0000013A.idx`. Some large auxiliary sets are sharded with a decimal suffix,
 such as `00000151_0.idx` through `00000151_3.idx`; these use the same CP932
-tab-tree row grammar. A same-code `.uni` file can be declared by `EXINFO.INI`
-for the auxiliary/renderer layer, so the gaiji basename is not guaranteed to
-match the main dictionary `.IDX` stem.
+tab-tree row grammar. These files are not Windows-only; original iOS package
+copies can carry them too. A same-code `.uni` file can be declared by
+`EXINFO.INI` for the auxiliary/renderer layer, so the gaiji basename is not
+guaranteed to match the main dictionary `.IDX` stem.
 
 ## CCALTSTR Alternate-String Tables
 
@@ -313,10 +327,11 @@ SQLite payloads. The observed law subfamily uses payloads such as `blvbat`,
 single `blvdat` content/search payload. See
 [LVLMultiView Packages](multiview.md).
 
-The SIZK / NHK 文学のしずく packages are a small SSED-backed read-aloud
-subfamily. Their `.IDX` catalog declares `HONMON.DIC`, `GA16FULL`, and
-`GA16HALF`, but the package is driven by renderer templates rather than by
-normal search indexes. `HONMON.DIC` is a tiny body stream with four entries.
+The SIZK / NHK 文学のしずく packages are a small SSED read-aloud set-sale
+subfamily, not a platform wrapper. Their `.IDX` catalog declares `HONMON.DIC`,
+`GA16FULL`, and `GA16HALF`, but the package is driven by renderer templates
+rather than by normal search indexes. `HONMON.DIC` is a tiny body stream with
+four entries.
 Each entry begins with a full-width gaiji selector (`b121` through `b124`) that
 chooses a sibling HTML template in `HTMLs/`:
 

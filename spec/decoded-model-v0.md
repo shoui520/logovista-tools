@@ -133,6 +133,12 @@ multiview-windows
 unknown
 ```
 
+The `platform` field records observed package-layer evidence, not the core
+format family. `windows-sizk` is a legacy model value for the SIZK
+Windows-distributed SSED read-aloud bundle; SIZK is not a separate platform or
+core format. `lved-windows` and `multiview-windows` identify observed Windows
+distributions of separate non-SSED package families.
+
 `honmon_shape` values observed so far:
 
 ```text
@@ -165,10 +171,12 @@ unknown
 ```
 
 Wrapper markers are evidence, not mutually exclusive identities. For example,
-some iOS packages also contain Windows-looking files such as `EXINFO.INI`.
-Current package classification gives SIZK, Android `resource/conf.ini`, and
-iOS plist evidence precedence over generic Windows markers such as `EXINFO.INI`,
-HC DLLs, `vlpljbl*`, or numeric auxiliary indexes.
+some iOS and Mac OS X package copies can contain files also used by Windows
+packages, such as `EXINFO.INI`, numeric auxiliary indexes, `SPINDEX.DIC`, or
+`HANREI/`. Current package classification treats SIZK as an SSED read-aloud
+bundle, Android `resource/conf.ini` and iOS plist evidence as platform-package
+evidence, and LVED/LVLMultiView as separate non-SSED package families rather
+than platform wrappers.
 
 ## Address
 

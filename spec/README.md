@@ -8,7 +8,7 @@ from platform packaging observations and product-specific behavior.
 
 | Page | Layer |
 |---|---|
-| [Package Layers](package-layers.md) | Raw core files and iOS/Android/Windows wrappers. |
+| [Package Layers](package-layers.md) | Raw SSED core files, platform packaging layers, product bundles, and separate non-SSED format families. |
 | [Decoded LogoVista Model v0](decoded-model-v0.md) | Draft package-level model for components, addresses, entries, spans, gaiji, media, indexes, titles, menus, sidecars, and issues. |
 | [SSED Container](ssed-container.md) | `SSEDINFO`, `SSEDDATA`, compression, encryption, and component composition. |
 | [Text Streams and Body Storage](text-streams.md) | Expanded `HONMON.DIC` / `HONMON.DIN`, controls, body boundaries, dense HONMON, and database-backed bodies. |

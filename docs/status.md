@@ -61,9 +61,10 @@ and non-SSED reader status are tracked separately in
   SQLite schema, and inferred role. Observed roles include decryptor binaries,
   fonts, renderer body DBs, media stores, search indexes, row-ordered `HONBUN`,
   and block/offset body DBs.
-- Windows `EXINFO.INI` parsing and CP932 auxiliary text-index extraction,
-  including sibling eight-hex-digit `00000xxx.idx` sidecar trees and sharded
-  `00000xxx_n.idx` variants.
+- `EXINFO.INI` parsing and CP932 auxiliary text-index extraction, including
+  sibling eight-hex-digit `00000xxx.idx` sidecar trees and sharded
+  `00000xxx_n.idx` variants. `EXINFO.INI` and numeric auxiliary indexes are not
+  Windows-only in the observed corpus.
 - Windows `DICPROF.INI` profile/manifest classification as package metadata,
   including declared dictionary directory/catalog names and required-file
   lists.
@@ -94,7 +95,7 @@ and non-SSED reader status are tracked separately in
 - Raw-resource gaiji readiness reports that separate Unicode mappings,
   bitmap-backed glyphs, image-backed glyphs, probable formatting helpers,
   missing search fallbacks, and true display-unresolved codes.
-- Standalone `SPINDEX.DIC` inspection for observed Windows suffix-index
+- Standalone `SPINDEX.DIC` inspection for observed auxiliary suffix-index
   resources.
 - `FIGURE.DIC` is recognized as a compressed type-`0xd0` figure/resource
   component. Its generic record grammar is still unresolved, so toolkit output
@@ -107,8 +108,8 @@ and non-SSED reader status are tracked separately in
   packages, including SSEDINFO facade parsing, LogoFontCipher SQLite payload
   roles, `menuData.xml` href resolution, static HTML/viewer-file reporting,
   and encrypted PDF resource detection where present.
-- SIZK / NHK 文学のしずく read-aloud package inspection for the observed 30
-  package set, including EXINFO-declared `shizuku.uni`, `HTMLs/b121`-`b124`
+- SIZK / NHK 文学のしずく read-aloud SSED package inspection for the observed
+  30 package set, including EXINFO-declared `shizuku.uni`, `HTMLs/b121`-`b124`
   template selectors, tiny four-entry HONMON streams, loose MP3 files, and
   synchronized UTF-16 text/time sidecars.
 - `--jobs` process-level parallelism for corpus-scale scanning, extraction,
@@ -279,7 +280,7 @@ and non-SSED reader status are tracked separately in
   streaming internally.
 - `dump-package-model` now emits a shared `readiness` object and top-level
   `writer_readiness`. `capability-matrix --model-dir` consumes those decoded
-  model reports directly, adds path/family/platform identity columns, and
+  model reports directly, adds path/family/package-layer identity columns, and
   splits readiness into `read_existing`, `export_existing`,
   `author_core_ssed_v0`, and `lossless_repack_existing`. Menu destination
   readiness treats packed `000000000000` payloads as null/sentinel
@@ -328,9 +329,9 @@ Next priorities:
 1. **Decoded model consistency.** Keep `dump-package-model` and
    `capability-matrix --model-dir` aligned with shared enum/status vocabulary
    so research, exporter planning, and writer planning do not drift.
-2. **Package-family classification.** Keep SSED, LVED, LVLMultiView, SIZK,
-   Panels, and wrapper/resource families explicit instead of forcing unrelated
-   payloads into the SSED model.
+2. **Package-family classification.** Keep SSED package layers, SIZK SSED
+   bundles, LVED, LVLMultiView, Panels, and wrapper/resource families explicit
+   instead of forcing unrelated payloads into the wrong model.
 3. **Renderer/control semantics.** Expand synthetic tests for structurally known
    controls, gaiji/media/link behavior, and conservative LogoVista-like output
    without claiming pixel-perfect renderer parity.
