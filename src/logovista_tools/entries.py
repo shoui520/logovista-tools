@@ -29,7 +29,7 @@ from .ssed import (
     expand_sseddata_file_with_storage,
     find_case_insensitive,
     honmon_component,
-    is_metadata_noise_path,
+    iter_files_with_suffix,
     parse_ssedinfo,
     sseddata_storage_for_file,
 )
@@ -687,11 +687,7 @@ def discover_dictionaries(
     candidates: list[Path] = []
     seen: set[Path] = set()
     for root in roots:
-        if root.is_file() and root.suffix.upper() == ".IDX" and not is_metadata_noise_path(root):
-            candidates.append(root)
-        elif root.is_dir():
-            candidates.extend(path for path in root.rglob("*.IDX") if not is_metadata_noise_path(path))
-            candidates.extend(path for path in root.rglob("*.idx") if not is_metadata_noise_path(path))
+        candidates.extend(iter_files_with_suffix(root, ".idx", recursive=root.is_dir()))
 
     unique_candidates: list[Path] = []
     for idx in sorted(candidates):

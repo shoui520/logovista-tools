@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
 
 from .lvcrypto import (
     LogoVistaCryptoError,
@@ -69,6 +70,99 @@ def is_metadata_noise_path(path: Path) -> bool:
         or path.name.endswith(":Zone.Identifier")
         or "__MACOSX" in path.parts
     )
+
+
+@dataclass(frozen=True)
+class CaseFoldedDirectory:
+    """One-directory, casefolded lookup preserving actual on-disk names."""
+
+    root: Path
+    entries_by_key: dict[str, tuple[Path, ...]]
+
+    @classmethod
+    def from_path(cls, root: Path) -> "CaseFoldedDirectory":
+        entries: dict[str, list[Path]] = {}
+        try:
+            children = list(root.iterdir())
+        except OSError:
+            children = []
+        for child in children:
+            if is_metadata_noise_path(child):
+                continue
+            entries.setdefault(child.name.casefold(), []).append(child)
+        return cls(
+            root=root,
+            entries_by_key={
+                key: tuple(sorted(paths, key=lambda path: path.name))
+                for key, paths in sorted(entries.items())
+            },
+        )
+
+    def find(self, name: str) -> Path | None:
+        matches = self.entries_by_key.get(name.casefold(), ())
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
+    def files_with_suffix(self, suffix: str) -> tuple[Path, ...]:
+        folded = suffix.casefold()
+        return tuple(
+            sorted(
+                (path for paths in self.entries_by_key.values() for path in paths if path.is_file() and path.suffix.casefold() == folded),
+                key=lambda path: (path.name.casefold(), path.name),
+            )
+        )
+
+    def collisions(self) -> dict[str, tuple[str, ...]]:
+        return {
+            key: tuple(path.name for path in paths)
+            for key, paths in self.entries_by_key.items()
+            if len(paths) > 1
+        }
+
+
+def iter_files_with_suffix(root: Path, suffix: str, *, recursive: bool = False) -> Iterator[Path]:
+    """Yield files with *suffix* using casefolded suffix comparison."""
+
+    if root.is_file():
+        actual = CaseFoldedDirectory.from_path(root.parent).find(root.name)
+        candidate = actual if actual is not None else root
+        if candidate.suffix.casefold() == suffix.casefold() and not is_metadata_noise_path(candidate):
+            yield candidate
+        return
+    if not root.is_dir():
+        return
+    if not recursive:
+        yield from CaseFoldedDirectory.from_path(root).files_with_suffix(suffix)
+        return
+    try:
+        children = sorted(root.iterdir(), key=lambda path: (path.name.casefold(), path.name))
+    except OSError:
+        return
+    for child in children:
+        if is_metadata_noise_path(child):
+            continue
+        if child.is_dir():
+            yield from iter_files_with_suffix(child, suffix, recursive=True)
+        elif child.is_file() and child.suffix.casefold() == suffix.casefold():
+            yield child
+
+
+def resolve_case_insensitive_path(root: Path, relative: str | Path) -> Path | None:
+    """Resolve a package-local path without trusting caller/catalog casing."""
+
+    candidate = Path(relative)
+    if candidate.is_absolute():
+        if not candidate.exists():
+            return None
+        return CaseFoldedDirectory.from_path(candidate.parent).find(candidate.name) or candidate
+    current = root
+    for part in Path(str(relative).replace("\\", "/")).parts:
+        child = CaseFoldedDirectory.from_path(current).find(part)
+        if child is None:
+            return None
+        current = child
+    return current
 
 
 def is_honmon_component(element: SsedInfoElement) -> bool:
@@ -438,14 +532,7 @@ def command_expand(args: argparse.Namespace) -> None:
 
 
 def find_case_insensitive(directory: Path, name: str) -> Path | None:
-    direct = directory / name
-    if direct.exists():
-        return direct
-    lower = name.lower()
-    for child in directory.iterdir():
-        if child.name.lower() == lower:
-            return child
-    return None
+    return CaseFoldedDirectory.from_path(directory).find(name)
 
 
 def write_epwing_catalog_header(out, elements: list[SsedInfoElement]) -> None:

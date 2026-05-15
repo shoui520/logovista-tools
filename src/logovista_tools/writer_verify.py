@@ -24,6 +24,7 @@ from .ssed import (
     SSEDINFO_MAGIC,
     expand_sseddata_file,
     find_case_insensitive,
+    iter_files_with_suffix,
     parse_sseddata_header,
     parse_ssedinfo,
     read_file_prefix,
@@ -119,7 +120,7 @@ def find_ssedinfo_path(path: Path) -> Path:
             raise ValueError(f"not SSEDINFO: {path}")
         return path
 
-    candidates = sorted([*path.glob("*.IDX"), *path.glob("*.idx")], key=lambda p: (p.name.startswith("00000"), p.name.lower()))
+    candidates = sorted(iter_files_with_suffix(path, ".idx"), key=lambda p: (p.name.startswith("00000"), p.name.casefold(), p.name))
     for candidate in candidates:
         try:
             if read_file_prefix(candidate, 8) == SSEDINFO_MAGIC:
@@ -535,7 +536,7 @@ def _verify_index_rows(
 def _verify_gaiji(idx_path: Path, elements: list[Any], issues: list[VerifyIssue]) -> dict[str, Any]:
     idx_dir = idx_path.parent
     uni_resources: list[UniResource] = []
-    for path in sorted(idx_dir.glob("*.uni")) + sorted(idx_dir.glob("*.UNI")):
+    for path in iter_files_with_suffix(idx_dir, ".uni"):
         parsed = parse_uni_resource(path)
         if parsed is None:
             issues.append(VerifyIssue("error", "uni_parse_failed", "could not parse .uni resource", path.name))

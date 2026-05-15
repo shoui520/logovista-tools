@@ -19,7 +19,7 @@ from .lvcrypto import (
     decrypt_logofont_cipher_file_to_path,
     decrypt_logofont_cipher_prefix,
 )
-from .ssed import parse_ssedinfo_with_layout, read_file_prefix
+from .ssed import is_metadata_noise_path, iter_files_with_suffix, parse_ssedinfo_with_layout, read_file_prefix
 from .windows import file_magic_kind, quote_identifier
 
 
@@ -60,7 +60,7 @@ def sha256_file(path: Path) -> str:
 def is_multiview_payload_path(path: Path) -> bool:
     return (
         path.is_file()
-        and not path.name.endswith(":Zone.Identifier")
+        and not is_metadata_noise_path(path)
         and MULTIVIEW_PAYLOAD_RE.fullmatch(path.name) is not None
     )
 
@@ -351,7 +351,7 @@ def inspect_multiview_package(
     decrypted_dir: Path | None = None,
     write_resources: bool = False,
 ) -> dict[str, Any]:
-    idx_paths = sorted(package_dir.glob("*.IDX")) + sorted(package_dir.glob("*.idx"))
+    idx_paths = sorted(iter_files_with_suffix(package_dir, ".idx"), key=lambda path: (path.name.casefold(), path.name))
     idx_report: dict[str, Any] | None = None
     if idx_paths:
         title, elements, layout = parse_ssedinfo_with_layout(idx_paths[0])
@@ -404,7 +404,7 @@ def inspect_multiview_package(
             [
                 classify_resource(path, resource_out)
                 for path in sorted(resource_dir.iterdir())
-                if path.is_file() and not path.name.endswith(":Zone.Identifier")
+                if path.is_file() and not is_metadata_noise_path(path)
             ]
             if resource_dir.is_dir()
             else []
@@ -441,7 +441,7 @@ def _file_listing(path: Path, *, with_kind: bool) -> list[dict[str, Any]]:
         return []
     rows: list[dict[str, Any]] = []
     for child in sorted(path.iterdir()):
-        if not child.is_file() or child.name.endswith(":Zone.Identifier"):
+        if not child.is_file() or is_metadata_noise_path(child):
             continue
         row: dict[str, Any] = {"name": child.name, "path": str(child), "size": child.stat().st_size}
         if with_kind:
@@ -458,7 +458,7 @@ def _html_directory_summaries(package_dir: Path) -> list[dict[str, Any]]:
         html_files = sorted(
             path
             for path in child.rglob("*")
-            if path.is_file() and not path.name.endswith(":Zone.Identifier") and path.suffix.lower() in {".html", ".htm"}
+            if path.is_file() and not is_metadata_noise_path(path) and path.suffix.lower() in {".html", ".htm"}
         )
         if not html_files and not (child / "index.html").is_file():
             continue
@@ -471,7 +471,7 @@ def _html_directory_summaries(package_dir: Path) -> list[dict[str, Any]]:
                 "root_files": [
                     grandchild.name
                     for grandchild in sorted(child.iterdir())
-                    if grandchild.is_file() and not grandchild.name.endswith(":Zone.Identifier")
+                    if grandchild.is_file() and not is_metadata_noise_path(grandchild)
                 ][:40],
                 "sample_html_files": [str(path.relative_to(child)) for path in html_files[:40]],
             }
@@ -482,7 +482,7 @@ def _html_directory_summaries(package_dir: Path) -> list[dict[str, Any]]:
 def _viewer_file_listing(package_dir: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for path in sorted(package_dir.rglob("*")):
-        if not path.is_file() or path.name.endswith(":Zone.Identifier") or path.suffix.lower() not in {".exe", ".dll"}:
+        if not path.is_file() or is_metadata_noise_path(path) or path.suffix.lower() not in {".exe", ".dll"}:
             continue
         rows.append(
             {

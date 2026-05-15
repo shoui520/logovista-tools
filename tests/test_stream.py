@@ -1,6 +1,7 @@
 import plistlib
 import sqlite3
 from argparse import Namespace
+from pathlib import Path
 
 import pytest
 
@@ -89,7 +90,10 @@ from logovista_tools.lvcrypto import (
     macos_logofont_cipher_key_iv,
 )
 from logovista_tools.ssed import (
+    CaseFoldedDirectory,
     SsedInfoElement,
+    find_case_insensitive,
+    iter_files_with_suffix,
     load_sseddata_bytes,
     parse_ssedinfo,
     parse_ssedinfo_with_layout,
@@ -268,6 +272,47 @@ def test_discover_dictionaries_accepts_macos_honmon_din(tmp_path) -> None:
     assert len(sources) == 1
     assert sources[0].honmon.name == "HONMON.DIN"
     assert sources[0].honmon_storage == "macos_logofont_cipher"
+
+
+def test_toolkit_casefolded_lookup_preserves_disk_casing_on_case_insensitive_mounts(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    disk_path = tmp_path / "honmon.dic"
+    disk_path.write_bytes(b"body")
+    original_exists = Path.exists
+
+    def fake_exists(path: Path) -> bool:
+        if path == tmp_path / "HONMON.DIC":
+            return True
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", fake_exists)
+
+    assert find_case_insensitive(tmp_path, "HONMON.DIC") == disk_path
+    assert CaseFoldedDirectory.from_path(tmp_path).find("HONMON.DIC") == disk_path
+
+
+def test_toolkit_casefolded_lookup_reports_collision(tmp_path) -> None:
+    (tmp_path / "HONMON.DIC").write_bytes(b"upper")
+    (tmp_path / "honmon.dic").write_bytes(b"lower")
+    lookup = CaseFoldedDirectory.from_path(tmp_path)
+
+    assert lookup.find("HONMON.DIC") is None
+    assert lookup.collisions() == {"honmon.dic": ("HONMON.DIC", "honmon.dic")}
+
+
+def test_discover_dictionaries_accepts_mixed_case_idx_suffix(tmp_path) -> None:
+    header = bytearray(0x80)
+    header[:8] = b"SSEDINFO"
+    header[0x4D] = 1
+    data = bytes(header)
+    data += _ssedinfo_record(type_byte=0x00, start=2, end=2, data=b"\x02\x00\x00\x00", filename=b"HONMON.DIC")
+    idx = tmp_path / "MIXED.IdX"
+    idx.write_bytes(data)
+    (tmp_path / "HONMON.DIC").write_bytes(_minimal_sseddata(b"\x1f\x09\x00\x01body"))
+
+    assert list(iter_files_with_suffix(tmp_path, ".idx")) == [idx]
+    sources = discover_dictionaries([tmp_path], include_gaiji=False, include_images=False)
+
+    assert [source.idx for source in sources] == [idx.resolve()]
 
 
 def test_profile_ignores_missing_zero_block_components(tmp_path) -> None:

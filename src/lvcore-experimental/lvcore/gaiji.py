@@ -476,7 +476,7 @@ def _find_unique_named_file(sources: GaijiSources, name: str) -> Path | None:
         path
         for directory in sources.image_directories
         for path in _iter_files_bounded(directory, max_depth=4)
-        if path.name.lower() == name.lower()
+        if path.name.casefold() == name.casefold()
     ]
     matches = [match for match in matches if match.suffix.lower() in IMAGE_SUFFIXES]
     unique = _dedupe_existing(matches)
@@ -499,10 +499,12 @@ def load_image_gaiji_resources(root: Path, sources: GaijiSources | None = None) 
             if code is None:
                 continue
             candidate = Path(value.replace("\\", "/"))
-            full_path = candidate if candidate.is_absolute() else root / candidate
-            if not full_path.exists():
+            if candidate.is_absolute():
+                resolved = CaseFoldedDirectory.from_path(candidate.parent).find(candidate.name)
+                full_path = resolved if resolved is not None else candidate
+            else:
                 resolved = _case_insensitive_path(root, value)
-                full_path = resolved if resolved is not None else full_path
+                full_path = resolved if resolved is not None else root / candidate
             if not full_path.exists():
                 found = _find_unique_named_file(sources, candidate.name)
                 if found is None:
@@ -515,7 +517,7 @@ def load_image_gaiji_resources(root: Path, sources: GaijiSources | None = None) 
         for path in _iter_files_bounded(directory, max_depth=4)
         if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES
     ]
-    for path in sorted(image_paths, key=lambda item: str(item).lower()):
+    for path in sorted(image_paths, key=lambda item: str(item).casefold()):
         code = _looks_like_code(path.stem)
         if code is None:
             continue

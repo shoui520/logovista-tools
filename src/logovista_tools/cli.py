@@ -87,9 +87,11 @@ from .spindex import discover_spindex_files, inspect_spindex
 from .sizk import discover_sizk_packages, inspect_sizk_package, write_sizk_report
 from .ssed import (
     BLOCK_SIZE,
+    CaseFoldedDirectory,
     expand_sseddata_file,
     expand_sseddata_file_with_storage,
     find_case_insensitive,
+    iter_files_with_suffix,
     parse_sseddata_header,
     parse_ssedinfo,
     parse_ssedinfo_with_layout,
@@ -642,7 +644,9 @@ def is_ga16_resource_path(path: Path) -> bool:
 
 
 def discover_ga16_resources(path: Path) -> list[Path]:
-    if not path.exists():
+    if path.exists():
+        path = CaseFoldedDirectory.from_path(path.parent).find(path.name) or path
+    else:
         return []
     if path.is_file():
         if path.suffix.lower() == ".idx":
@@ -671,15 +675,14 @@ def ga16_prefix_for_path(path: Path, override: str) -> str:
 
 def ga16_sidecar_uni_resource(path: Path):
     seen: set[Any] = set()
-    for pattern in ("*.uni", "*.UNI"):
-        for candidate in sorted(path.parent.glob(pattern)):
-            identity = file_identity(candidate)
-            if identity in seen:
-                continue
-            seen.add(identity)
-            resource = parse_uni_resource(candidate)
-            if resource is not None:
-                return resource
+    for candidate in CaseFoldedDirectory.from_path(path.parent).files_with_suffix(".uni"):
+        identity = file_identity(candidate)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        resource = parse_uni_resource(candidate)
+        if resource is not None:
+            return resource
     return None
 
 
@@ -1385,8 +1388,7 @@ def cmd_sizk(args: argparse.Namespace) -> int:
             for package in packages
             if package.name in selected
             or package.name.removeprefix("_DCT_") in selected
-            or any(child.stem in selected for child in package.glob("*.IDX"))
-            or any(child.stem in selected for child in package.glob("*.idx"))
+            or any(child.stem in selected for child in iter_files_with_suffix(package, ".idx"))
         ]
     if not packages:
         print("no SIZK read-aloud packages found", file=sys.stderr)

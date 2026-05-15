@@ -64,6 +64,8 @@ from .ssed import (
     SsedInfoElement,
     expand_sseddata_file_with_storage,
     find_case_insensitive,
+    is_metadata_noise_path,
+    iter_files_with_suffix,
     parse_ssedinfo_with_layout,
 )
 from .titles import TITLE_TYPES, extract_titles_for_idx
@@ -98,10 +100,6 @@ class PackageModelTarget:
             "path": str(self.path),
             "family_hint": self.family_hint,
         }
-
-
-def is_metadata_noise_path(path: Path) -> bool:
-    return path.name.endswith(":Zone.Identifier")
 
 
 def read_jsonl_samples(path: Path, limit: int) -> list[dict[str, Any]]:
@@ -163,12 +161,7 @@ def dict_id_for_idx(idx: Path) -> str:
 
 
 def select_single_idx(root: Path, dict_id: str | None = None) -> Path:
-    candidates: list[Path] = []
-    if root.is_file() and root.suffix.lower() == ".idx":
-        candidates.append(root)
-    elif root.is_dir():
-        candidates.extend(path for path in root.rglob("*.IDX") if not is_metadata_noise_path(path))
-        candidates.extend(path for path in root.rglob("*.idx") if not is_metadata_noise_path(path))
+    candidates = list(iter_files_with_suffix(root, ".idx", recursive=root.is_dir()))
     valid: list[Path] = []
     for idx in sorted({path.resolve() for path in candidates}):
         try:
@@ -406,18 +399,9 @@ def select_single_multiview_package(root: Path, dict_id: str | None = None) -> P
 
 
 def _candidate_idx_paths(root: Path) -> list[Path]:
-    if root.is_file() and root.suffix.lower() == ".idx" and not is_metadata_noise_path(root):
-        return [root]
     if not root.is_dir():
-        return []
-    return sorted(
-        {
-            path.resolve()
-            for pattern in ("*.IDX", "*.idx")
-            for path in root.rglob(pattern)
-            if path.is_file() and not is_metadata_noise_path(path)
-        }
-    )
+        return [path.resolve() for path in iter_files_with_suffix(root, ".idx")]
+    return sorted({path.resolve() for path in iter_files_with_suffix(root, ".idx", recursive=True)})
 
 
 def discover_package_model_targets(roots: list[Path], dict_ids: set[str] | None = None) -> list[PackageModelTarget]:

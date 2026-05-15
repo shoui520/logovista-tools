@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import plistlib
 from collections import Counter
 from dataclasses import dataclass
@@ -27,6 +26,7 @@ from .ssed import (
     expand_sseddata_file_with_storage,
     find_case_insensitive,
     honmon_component,
+    iter_files_with_suffix,
     is_honmon_component,
     parse_sseddata_header,
     parse_ssedinfo,
@@ -61,12 +61,7 @@ def discover_profile_targets(roots: list[Path], *, jobs: int | None = 1) -> list
     candidates: list[Path] = []
     seen: set[Path] = set()
     for root in roots:
-        if root.is_file() and root.suffix.upper() == ".IDX":
-            candidates.append(root)
-        elif root.is_dir():
-            for dirpath, _dirnames, filenames in os.walk(root):
-                base = Path(dirpath)
-                candidates.extend(base / name for name in filenames if name.lower().endswith(".idx"))
+        candidates.extend(iter_files_with_suffix(root, ".idx", recursive=root.is_dir()))
     unique_candidates: list[Path] = []
     for idx in sorted(candidates):
         resolved = idx.resolve()

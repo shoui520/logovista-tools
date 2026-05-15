@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Hashable, Iterable
 
+from .ssed import CaseFoldedDirectory, resolve_case_insensitive_path
+
 
 GAIJI_CODE_RE = re.compile(r"[A-Fa-f0-9]{4}")
 UNI_MAGIC = b"Ver2  "
@@ -163,16 +165,20 @@ def candidate_gaiji_paths(idx: Path) -> tuple[list[Path], list[Path]]:
 
     stem = idx.stem
     uni_candidates = [
-        idx.parent / f"{stem}.uni",
-        idx.parent / f"{stem}.UNI",
-        idx.parent.parent / f"{stem}.uni",
-        idx.parent.parent / f"{stem}.UNI",
+        *(
+            path
+            for root in (idx.parent, idx.parent.parent)
+            for name in (f"{stem}.uni", f"{stem}.UNI")
+            if (path := CaseFoldedDirectory.from_path(root).find(name)) is not None
+        ),
     ]
     plist_candidates = [
-        idx.parent / "GaijiS.plist",
-        idx.parent / "Gaiji.plist",
-        idx.parent.parent / "GaijiS.plist",
-        idx.parent.parent / "Gaiji.plist",
+        *(
+            path
+            for root in (idx.parent, idx.parent.parent)
+            for name in ("GaijiS.plist", "Gaiji.plist")
+            if (path := CaseFoldedDirectory.from_path(root).find(name)) is not None
+        ),
     ]
     uni_candidates.extend(exinfo_gaiji_paths(idx))
     return uni_candidates, plist_candidates
@@ -208,7 +214,12 @@ def exinfo_gaiji_paths(idx: Path) -> list[Path]:
         relative = Path(normalized)
         if relative.suffix.lower() != ".uni":
             continue
-        paths.append(relative if relative.is_absolute() else idx.parent / relative)
+        if relative.is_absolute():
+            resolved = CaseFoldedDirectory.from_path(relative.parent).find(relative.name)
+            paths.append(resolved or relative)
+        else:
+            resolved = resolve_case_insensitive_path(idx.parent, relative)
+            paths.append(resolved if resolved is not None else idx.parent / relative)
     return paths
 
 
@@ -216,7 +227,7 @@ def file_identity(path: Path) -> Hashable:
     try:
         stat = path.stat()
     except OSError:
-        return str(path).lower()
+        return str(path).casefold()
     return (stat.st_dev, stat.st_ino, stat.st_size)
 
 

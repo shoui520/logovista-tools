@@ -292,9 +292,9 @@ class YomitanMediaResolver:
         normalized = path.strip().replace("\\", "/").lstrip("./")
         if normalized in self._names:
             return normalized
-        lowered = normalized.lower()
+        lowered = normalized.casefold()
         for name in self._names:
-            if name.lower() == lowered:
+            if name.casefold() == lowered:
                 return name
         return None
 

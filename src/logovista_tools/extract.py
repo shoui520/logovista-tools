@@ -31,6 +31,7 @@ from .parallel import add_jobs_argument
 from .pcmdata import extract_pcmdata_for_source
 from .rendererdb import discover_android_body_databases, extract_rendererdb_dictionary
 from .resources import load_image_resource_profile, relative_image_source
+from .ssed import iter_files_with_suffix
 from .titles import extract_titles_for_idx
 from .windows import (
     classify_vlpljbl_file,
@@ -534,7 +535,7 @@ def extract_gaiji(source: DictionarySource, plan: ExtractPlan) -> dict[str, Any]
         if resource is None:
             continue
         uni_resource = None
-        for candidate in sorted(path.parent.glob("*.uni")) + sorted(path.parent.glob("*.UNI")):
+        for candidate in iter_files_with_suffix(path.parent, ".uni"):
             uni_resource = parse_uni_resource(candidate)
             if uni_resource is not None:
                 break

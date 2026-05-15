@@ -22,7 +22,7 @@ from .entries import (
     tokens_to_text,
 )
 from .gaiji import load_gaiji_profile, parse_uni_resource
-from .ssed import expand_sseddata_file_with_storage, find_case_insensitive, parse_ssedinfo_with_layout
+from .ssed import expand_sseddata_file_with_storage, find_case_insensitive, is_metadata_noise_path, parse_ssedinfo_with_layout
 from .windows import Exinfo, parse_exinfo
 
 
@@ -147,10 +147,13 @@ def discover_sizk_packages(roots: Iterable[Path]) -> list[Path]:
         if root.is_file():
             candidates.append(root.parent)
         elif root.is_dir():
-            if (root / "EXINFO.INI").exists() or (root / "exinfo.ini").exists():
+            if find_case_insensitive(root, "EXINFO.INI") is not None:
                 candidates.append(root)
-            candidates.extend(path.parent for path in root.rglob("EXINFO.INI"))
-            candidates.extend(path.parent for path in root.rglob("exinfo.ini"))
+            candidates.extend(
+                path.parent
+                for path in root.rglob("*")
+                if path.is_file() and not is_metadata_noise_path(path) and path.name.casefold() == "exinfo.ini"
+            )
         for candidate in candidates:
             try:
                 resolved = candidate.resolve()

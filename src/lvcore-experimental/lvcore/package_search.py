@@ -319,7 +319,7 @@ class PackageSearchMixin:
             item = self.component(comp) if isinstance(comp, str) else comp
             if item is None or item.path is None:
                 continue
-            key = item.name.lower()
+            key = item.name.casefold()
             if key not in self._index_cache:
                 self._index_cache[key] = parse_index(self.expanded(item), item.start_block, item.type, self.gaiji.mapping)
             out[item.name] = self._index_cache[key]

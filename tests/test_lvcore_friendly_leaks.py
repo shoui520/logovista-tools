@@ -31,6 +31,7 @@ def _assert_friendly(value: object) -> None:
     assert "/tmp/" not in text
     assert "/mnt/" not in text
     assert "/home/" not in text
+    assert re.search(r"[A-Za-z]:\\\\", text) is None
 
 
 def test_public_reader_dicts_do_not_leak_debug_fields(tmp_path: Path) -> None:

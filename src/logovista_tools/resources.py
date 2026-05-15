@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Hashable
 
+from .ssed import CaseFoldedDirectory, find_case_insensitive, resolve_case_insensitive_path
+
 
 IMAGE_SUFFIX_RE = re.compile(r"^(?P<key>.+)_(?P<theme>n|w|m|1|3|1_1)$", re.IGNORECASE)
 GAIJI_IMAGE_KEY_RE = re.compile(r"[A-Fa-f][0-9A-Fa-f]{3}")
@@ -44,7 +46,7 @@ def file_identity(path: Path) -> Hashable:
     try:
         stat = path.stat()
     except OSError:
-        return str(path).lower()
+        return str(path).casefold()
     return (stat.st_dev, stat.st_ino, stat.st_size)
 
 
@@ -126,6 +128,14 @@ def candidate_image_dirs(root: Path) -> list[Path]:
     return package_specific
 
 
+def _actual_candidate_path(root: Path, candidate: Path) -> Path | None:
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError:
+        return find_case_insensitive(candidate.parent, candidate.name)
+    return resolve_case_insensitive_path(root, relative)
+
+
 def relative_image_source(path: Path, package_hint: Path) -> str:
     for root in candidate_package_roots(package_hint):
         try:
@@ -152,6 +162,9 @@ def load_image_resource_profile(path: Path) -> ImageResourceProfile:
     seen_dirs: set[Hashable] = set()
     for root in roots:
         for image_dir in candidate_image_dirs(root):
+            actual = _actual_candidate_path(root, image_dir)
+            if actual is not None:
+                image_dir = actual
             if not image_dir.is_dir():
                 continue
             identity = file_identity(image_dir)
@@ -161,9 +174,11 @@ def load_image_resource_profile(path: Path) -> ImageResourceProfile:
             image_dirs.append(image_dir)
 
     resources_copy_entries, resources_copy_paths = load_string_list_plists(
-        [root / "resourcesCopy.plist" for root in roots]
+        [path for root in roots if (path := CaseFoldedDirectory.from_path(root).find("resourcesCopy.plist")) is not None]
     )
-    gaijiicon_entries, gaijiicon_paths = load_string_list_plists([root / "gaijiicon.plist" for root in roots])
+    gaijiicon_entries, gaijiicon_paths = load_string_list_plists(
+        [path for root in roots if (path := CaseFoldedDirectory.from_path(root).find("gaijiicon.plist")) is not None]
+    )
 
     listed_resources = {image_key_and_theme(Path(name))[0] for name in resources_copy_entries}
     listed_gaijiicons = {name.lower() for name in gaijiicon_entries}

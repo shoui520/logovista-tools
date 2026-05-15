@@ -409,7 +409,7 @@ class PackageEntryMixin:
             for row in parsed.rows:
                 for address in (row.body,):
                     target = self.component_for_address(address, role=ComponentRole.HONMON)
-                    if target is None or target.name.lower() != key:
+                    if target is None or target.name.casefold() != key:
                         continue
                     offset = self._relative_offset(target, address)
                     if 0 <= offset < self.data(target).expanded_size:
