@@ -1041,25 +1041,25 @@ rules from one-off product behavior.
 
 Windows SSED packages usually set `HTML=1` and declare a product renderer in
 `EXINFO.INI` with `HTMLDLL=HC????.dll`. The `HC` suffix is a four-hex product or
-plugin code. The official viewer also ships replacement renderers under
-`fix/<eight-hex-id>/HC????.dll`; for example the OXFPEU4/EJJE200 install has
-`fix/00000020/HC0020.dll` and other legacy renderers alongside the product
-`DIC/EJJE200/HC014F.dll`.
+plugin code. Windows installs can also carry replacement renderers under
+`fix/<eight-hex-id>/HC????.dll`; those replacement files are renderer
+alternatives, not dictionary components.
 
-The Windows SSED corpus HC renderer audit found:
+The combined Windows SSED corpus plus recovered GEN-family package pass found:
 
 ```text
-HC files:                         145
-unique SHA-256 binaries:          105
-EXINFO HTMLDLL exact declarations: 137
+HC files:                         158
+unique SHA-256 binaries:          109
+EXINFO HTMLDLL exact declarations: 158
 PE architecture:                  all PE32 / Intel i386 DLLs
 imports shared by every HC DLL:   dictionary bridge, MSVCP60.dll, MSVCRT.dll, KERNEL32.dll
 exports shared by every HC DLL:   epwing2HtmlBodydata
 ```
 
-The missing `EXINFO` cases in this corpus are incomplete/shared GEN2002-GEN2009
-copies that still carry `HC009B.dll`. Every `EXINFO.INI` that declares
-`HTMLDLL` in the corpus points at the sibling HC DLL exactly.
+One recovered GEN2010 package copy contains an unrelated `SESGRASS.IDX`.
+That IDX is package contamination, not evidence that HC renderers support
+cross-dictionary SSEDINFO catalogs. `EXINFO.INI` `HTMLDLL` remains the
+authoritative renderer link.
 
 The HC DLL is not the raw dictionary container. It is a product-specific HTML
 renderer plugin loaded by the Windows browser through dynamic library calls and
@@ -1069,23 +1069,23 @@ menu/search, SQL, and plugin operations.
 Observed HC plugin feature counts:
 
 ```text
-html_body_renderer             145   epwing2HtmlBodydata
-vertical_renderer              115   epwing2HtmlBodydataVertical
-uses_gaiji_unicode_api         124   SDicGetCustomCharacterUincode
-uses_gaiji_bitmap_api          120   SDicGetCustomCharacterBitmap
-uses_body_api                   96   SDicGetBodyData
-uses_picture_api                87   SDicGetPictureData
-headword_modifier               68   modifyHeadword / modifyHeadwordEx / modifyHeadwordAddr
-custom_gaiji_dib                66   getCustomCharacterDIB
-sql_hooks                       44   initializeSQL/finalizeSQL or SQL search API imports
-dictionary_original_search      29   execDicOrgSearch / execDicOrgSearchEx
+html_body_renderer             158   epwing2HtmlBodydata
+vertical_renderer              127   epwing2HtmlBodydataVertical
+uses_gaiji_unicode_api         137   SDicGetCustomCharacterUincode
+uses_gaiji_bitmap_api          133   SDicGetCustomCharacterBitmap
+uses_body_api                  109   SDicGetBodyData
+uses_picture_api               100   SDicGetPictureData
+headword_modifier               75   modifyHeadword / modifyHeadwordEx / modifyHeadwordAddr
+custom_gaiji_dib                72   getCustomCharacterDIB
+sql_hooks                       45   initializeSQL/finalizeSQL or SQL search API imports
+dictionary_original_search      30   execDicOrgSearch / execDicOrgSearchEx
 plugin_hooks                    22   pluginFunction* exports
 user_data_hooks                 22   openUserData/closeUserData
 fulltext_search                 16   execDicZenbunSearch
-panel_hooks                     12   initializePanel/finalizePanel
+panel_hooks                     13   initializePanel/finalizePanel
 uses_menu_api                    2   SDicGetMenuData
 zip_media_export                 1   createMediaFileFromZip, observed in PROYAL53
-lvelib_renderer                  1   epwing2HtmlBodydataLVELib, observed in GENIUSEB
+lvelib_renderer                  2   epwing2HtmlBodydataLVELib
 ```
 
 Shared binaries are real. The largest duplicate groups are:
@@ -1097,52 +1097,35 @@ Shared binaries are real. The largest duplicate groups are:
 | 2 | `HC00A0.dll` | Shared by `GKBUSINE` and `GKTRAVEL`. |
 | 2 | `HC0048.dll` | Shared by `SPEECH` and `TEGAMI`. |
 
-Observed export signature variants:
+The most common export signatures are:
 
-| Count | Export signature | Representative dictionaries |
-|---:|---|---|
-| 54 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical` | `BMANNER`, `GEN2001`, `GEN2002`, `GEN2003`, `GEN2004`, `GEN2005`, `GEN2006`, `GEN2007`, ... (54 total) |
-| 17 | `epwing2HtmlBodydata` | `GKCEREMO`, `GKGOGEN`, `GKKEIGO`, `GKSAHOU`, `GKTISIKI`, `HKDKSR10`, `HKEBMBOK`, `HKKIGAKU`, ... (17 total) |
-| 15 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`getCustomCharacterDIB`<br>`modifyHeadword` | `GEN2015`, `GEN2016`, `GEN2018`, `GEN2019`, `GEN2020`, `GEN2021`, `GENMEM1`, `GENMEM2`, ... (15 total) |
-| 5 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearchEx`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`getDicOrgFontEx`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction2nd` | `DAIJIRN4`, `IWKOKUG8`, `SINJIGEN`, `YHOUGO5`, `YUPSYCHO` |
-| 4 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadword` | `KQEBHOU`, `NKGORIN2`, `Readers3`, `SINMEI7` |
-| 4 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`getCustomCharacterDIB` | `Dconci87`, `GKKANAN3`, `GKKANYOK`, `KANJIGN5` |
-| 2 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction` | `HAFRAN`, `NANMED20` |
-| 2 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearchEx`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`getDicOrgFont`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction2nd` | `KENROWA`, `KOJIEN7` |
-| 2 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction2nd` | `CJJC160`, `KJJK100` |
-| 2 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`openUserData`<br>`pluginFunction` | `GKBUSINE`, `GKTRAVEL` |
-| 2 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx` | `RDRSP2`, `RPLUSREV` |
-| 2 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearchEx`<br>`finalizePanel`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializePanel`<br>`initializeSQL`<br>`modifyHeadwordEx` | `HAESPJPN`, `PROYAL43` |
-| 2 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`finalizePanel`<br>`getCustomCharacterDIB`<br>`initializePanel`<br>`modifyHeadword` | `YUCOGPSY`, `YUECONO5` |
-| 2 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`finalizePanel`<br>`getCustomCharacterDIB`<br>`initializePanel`<br>`modifyHeadwordEx` | `KQCOLEXP`, `KQJCOLLO` |
-| 2 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`getCustomCharacterDIB`<br>`modifyHeadwordEx` | `DCONCI98`, `STEDMAN6` |
-| 2 | `epwing2HtmlBodydata`<br>`modifyHeadwordEx` | `KENE7J5`, `KQNEWJE5` |
-| 1 | `closeUserData`<br>`createMediaFileFromZip`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearchEx`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`getDicOrgFont`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction2nd` | `PROYAL53` |
-| 1 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData` | `HOUGAKU5` |
-| 1 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction` | `BRINEN15` |
-| 1 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearchEx`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData` | `HABGESPA` |
-| 1 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearchEx`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction2nd` | `JSSAURU2` |
-| 1 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearchEx`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction2nd`<br>`pluginFunction3rd` | `ISUGAKU4` |
-| 1 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction` | `PRMEDAB7` |
-| 1 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadword`<br>`openUserData`<br>`pluginFunction` | `GKKNJPZL` |
-| 1 | `closeUserData`<br>`epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`openUserData`<br>`pluginFunction` | `NGYOKTUK` |
-| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataLVELib`<br>`execDicOrgSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx` | `GENIUSEB` |
-| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`finalizePanel`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializePanel`<br>`initializeSQL`<br>`modifyHeadword` | `KQDENTAL` |
-| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`finalizePanel`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializePanel`<br>`initializeSQL`<br>`modifyHeadwordEx` | `KQLATINO` |
-| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`getDicOrgFont`<br>`initializeSQL`<br>`modifyHeadwordEx` | `ARCHSIC4` |
-| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicOrgSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadword`<br>`pluginFunction` | `MEIKYOU2` |
-| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`execDicZenbunSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx` | `GENKANA5` |
-| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`finalizePanel`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`getDicOrgFont`<br>`initializePanel`<br>`initializeSQL`<br>`modifyHeadwordEx` | `ZYAKUKOG` |
-| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`getDicOrgFont`<br>`initializeSQL`<br>`modifyHeadword` | `IWKOKU7N` |
-| 1 | `epwing2HtmlBodydata`<br>`epwing2HtmlBodydataVertical`<br>`modifyHeadword` | `Gen2014` |
-| 1 | `epwing2HtmlBodydata`<br>`execDicOrgSearch`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadword` | `GENIUS43` |
-| 1 | `epwing2HtmlBodydata`<br>`finalizePanel`<br>`getCustomCharacterDIB`<br>`initializePanel`<br>`modifyHeadwordEx` | `BRI2019P` |
-| 1 | `epwing2HtmlBodydata`<br>`finalizePanel`<br>`initializePanel`<br>`modifyHeadword` | `BRI2014` |
-| 1 | `epwing2HtmlBodydata`<br>`finalizePanel`<br>`initializePanel`<br>`modifyHeadwordEx` | `BRI2016` |
-| 1 | `epwing2HtmlBodydata`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`getDicOrgFont`<br>`initializeSQL`<br>`modifyHeadwordEx` | `ZUKAIHO4` |
-| 1 | `epwing2HtmlBodydata`<br>`finalizeSQL`<br>`getCustomCharacterDIB`<br>`initializeSQL`<br>`modifyHeadwordEx`<br>`pluginFunction` | `EJJE200` |
-| 1 | `epwing2HtmlBodydata`<br>`getCustomCharacterDIB`<br>`modifyHeadwordEx` | `IBIO5` |
-| 1 | `epwing2HtmlBodydata`<br>`modifyHeadwordAddr` | `KQSYNONM` |
+| Count | Export signature |
+|---:|---|
+| 60 | `epwing2HtmlBodydata`; `epwing2HtmlBodydataVertical` |
+| 20 | `epwing2HtmlBodydata`; `epwing2HtmlBodydataVertical`; `getCustomCharacterDIB`; `modifyHeadword` |
+| 17 | `epwing2HtmlBodydata` |
+| 5 | SQL/search/plugin renderer signature with `closeUserData`, `execDicOrgSearchEx`, `execDicZenbunSearch`, `initializeSQL`, and `pluginFunction2nd` |
+
+The decompiled renderer loops confirm that the standard HC body renderer is a
+JIS/control-byte to HTML transducer around raw SSED body bytes. Common behavior:
+
+- `epwing2HtmlBodydata` calls the dictionary bridge to fetch body bytes and
+  emits HTML directly; `epwing2HtmlBodydataVertical` is the vertical-writing
+  variant when present.
+- Gaiji rendering asks for Unicode first when the Unicode bridge import is
+  present, then falls back to bitmap/DIB glyph data where available.
+- `1f42`/`1f62` and `1f43`/`1f63` produce internal address links.
+- `1f3c`, `1f4d`, and picture-capable `1f44` paths invoke picture extraction
+  and produce image links/placeholders. This is a renderer effect; the wire
+  grammar still treats `1f44` as the 10-byte start of the `1f44`/`1f64` pair.
+- `1f4a`/`1f6a` produces sound links for addressed PCMDATA-style ranges.
+- `1f36`, `1f37`, `1f48`, `1f49`, `1f4b`, `1f4c`, `1f4e`, `1f4f`, and
+  `1fe0`..`1fe6` are renderer-private/layout controls. They carry structured
+  payloads or state changes and should not be emitted as literal body text.
+
+This is enough for toolkit parsers to consume the correct byte lengths and
+preserve renderer intent. It is not a claim of pixel-perfect reproduction of
+every product-specific HC HTML template or SQL/search hook.
 
 ### Windows Panel Subsystem
 
@@ -1341,14 +1324,13 @@ Pointer semantics:
   `動詞活用表`.
 
 The filename often matches the product/plugin code used by the Windows renderer
-DLL, but this is a convention rather than a requirement. In the current Windows
-SSED corpus, 82 of 145 HC-bearing packages have at least one sibling numeric
-index and 78 have the exact expected name, computed as the HC code padded to
-eight hex digits (`HC013A.dll` -> `0000013A.idx`). Four packages carry a numeric
-index whose code differs from the HC DLL (`GEN2001`, `GEN2009`, `GKBUSINE`, and
-`SPEECH`), and 63 packages have no numeric sidecar at all. `EXINFO.INI`
-`HTMLDLL`, not the numeric index filename, is the authoritative HC renderer
-link.
+DLL, but this is a convention rather than a requirement. In the combined
+HC-bearing pass, 103 of 158 renderer rows have at least one sibling numeric
+index and 89 have the exact unsharded expected name, computed as the HC code
+padded to eight hex digits (`HC013A.dll` -> `0000013A.idx`). Some packages use
+sharded same-code numeric trees such as `00000151_0.idx`; others carry numeric
+indexes whose code differs from the HC DLL. `EXINFO.INI` `HTMLDLL`, not the
+numeric index filename, is the authoritative HC renderer link.
 
 Observed corpus examples:
 

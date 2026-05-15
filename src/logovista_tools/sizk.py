@@ -8,10 +8,10 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
+from .controls import control_arg_length
 from .entries import (
     BLOCK_SIZE,
     Break,
-    CONTROL_ARG_LENGTHS,
     Image,
     Media,
     Section,
@@ -326,8 +326,7 @@ def raw_gaiji_codes(data: bytes) -> list[str]:
     i = 0
     while i < len(data):
         if data[i] == 0x1F and i + 1 < len(data):
-            op = data[i + 1]
-            i += 2 + CONTROL_ARG_LENGTHS.get(op, 0)
+            i += 2 + control_arg_length(data, i)
             continue
         if i + 1 < len(data) and 0xA1 <= data[i] <= 0xFE:
             codes.append(f"{data[i]:02x}{data[i + 1]:02x}")

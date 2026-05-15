@@ -442,6 +442,50 @@ def test_link_start_uses_16_byte_payload_then_visible_text() -> None:
     assert stats["links"] == 1
 
 
+def test_hc_picture_control_uses_18_byte_payload() -> None:
+    payload = bytes(range(18))
+    tokens, stats = decode_tokens(b"\x1f\x3c" + payload + bytes.fromhex("2422"), preserve_media=True)
+
+    assert tokens_to_text(tokens) == f"<media:{payload.hex()}>あ"
+    assert stats["media"] == 1
+    assert stats["unknown_controls"] == 0
+
+
+def test_hc_renderer_skip_controls_do_not_leak_payload() -> None:
+    payload = bytes(range(12))
+    tokens, stats = decode_tokens(b"\x1f\x36" + payload + bytes.fromhex("2422"))
+
+    assert tokens_to_text(tokens) == "あ"
+    assert stats["unknown_controls"] == 0
+
+
+def test_hc_sound_control_mode_zero_uses_14_byte_payload() -> None:
+    payload = bytes.fromhex("0000") + bytes(range(12))
+    tokens, stats = decode_tokens(b"\x1f\x4a" + payload + bytes.fromhex("2422") + b"\x1f\x6a")
+
+    assert tokens_to_text(tokens) == "あ"
+    assert stats["links"] == 1
+    assert stats["unknown_controls"] == 0
+
+
+def test_hc_variable_renderer_controls_consume_payloads() -> None:
+    tokens, stats = decode_tokens(b"\x1f\x4e\x00\x00" + (b"\xaa" * 36) + bytes.fromhex("2422"))
+    assert tokens_to_text(tokens) == "あ"
+    assert stats["unknown_controls"] == 0
+
+    tokens, stats = decode_tokens(b"\x1f\x4e\x01\x00" + (b"\xaa" * 38) + bytes.fromhex("2422"))
+    assert tokens_to_text(tokens) == "あ"
+    assert stats["unknown_controls"] == 0
+
+    tokens, stats = decode_tokens(b"\x1f\x4f\x00\x00" + (b"\xaa" * 32) + bytes.fromhex("2422"))
+    assert tokens_to_text(tokens) == "あ"
+    assert stats["unknown_controls"] == 0
+
+    tokens, stats = decode_tokens(b"\x1f\x4f\x1f\x6f" + (b"\xaa" * 46) + bytes.fromhex("2422"))
+    assert tokens_to_text(tokens) == "あ"
+    assert stats["unknown_controls"] == 0
+
+
 def test_menu_link_end_uses_6_byte_destination_payload() -> None:
     payload = bytes.fromhex("000000020002")
     tokens, stats = decode_tokens(b"\x1f\x43" + bytes.fromhex("2422") + b"\x1f\x63" + payload + bytes.fromhex("2424"))

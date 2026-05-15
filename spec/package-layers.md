@@ -81,11 +81,25 @@ openUserData/closeUserData    sidecar/user-data lifecycle
 createMediaFileFromZip        ziptomedia extraction, observed in PROYAL53
 ```
 
-HC plugins import raw dictionary services for body, picture, gaiji, and package
-path access. This makes them useful renderer-behavior evidence: embedded
-strings reveal HTML/CSS/image templates, and imports show which raw service
-families a product needed. They are not, however, a substitute for parsing
-HONMON/INDEX/TITLE resources.
+HC plugins import raw dictionary services for body, picture, gaiji, menu,
+search, SQL, package-path, and plugin lifecycle access. Code-level analysis of
+the renderer loops shows the same basic model across products:
+
+- `epwing2HtmlBodydata` obtains body bytes, decodes JIS pairs and `0x1f`
+  controls, and writes HTML directly.
+- `1f42/1f62` and `1f43/1f63` become `lved.addr` links.
+- `1f3c`, `1f4d`, and in picture-capable products `1f44` call the picture
+  extraction path and produce generated image links/placeholders.
+- `1f4a/1f6a` becomes an `lved.sond` sound link when the sound range is active.
+- Gaiji rendering is Unicode-first where the Unicode bridge is imported, with
+  bitmap fallback through the custom-character bitmap bridge.
+- Private renderer controls such as `1fe0`..`1fe6` mutate layout/style state
+  and should not appear literally in friendly output.
+
+Embedded strings still provide useful HTML/CSS/image template evidence, and
+imports show which raw service families a product needed. The HC DLLs are not a
+substitute for parsing HONMON/INDEX/TITLE resources; they are renderer semantic
+evidence for controls and bridge behavior.
 
 Numeric sidecar names often share the HC product code
 (`HC013A.dll` -> `0000013A.idx`), but this is a convention. `EXINFO.INI`

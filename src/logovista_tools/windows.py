@@ -670,6 +670,68 @@ def _hc_features(pe: PeSummary, sidecar_strings: dict[str, tuple[str, ...]]) -> 
     }
 
 
+def hc_renderer_effects(row: HcRendererClassification) -> dict[str, Any]:
+    """Return renderer behavior inferred from exports/imports and decoded code.
+
+    The HC binaries all expose small C entrypoints and call the dictionary
+    bridge DLL for body bytes, gaiji, pictures, menus, and SQL search.  This is
+    not a file inventory; it is the app-facing behavior the renderer can
+    perform when those entrypoints/imports are present.
+    """
+
+    exports = set(row.pe.exports)
+    bridge_imports = _imported_function_names(row.pe, DICTIONARY_BRIDGE_DLL)
+    body_renderer = "epwing2HtmlBodydata" in exports
+    vertical_renderer = "epwing2HtmlBodydataVertical" in exports
+    lvelib_renderer = "epwing2HtmlBodydataLVELib" in exports
+    uses_picture = "SDicGetPictureData" in bridge_imports
+    uses_body = "SDicGetBodyData" in bridge_imports
+    uses_unicode_gaiji = "SDicGetCustomCharacterUincode" in bridge_imports
+    uses_bitmap_gaiji = "SDicGetCustomCharacterBitmap" in bridge_imports
+    return {
+        "entrypoints": sorted(exports),
+        "body_renderer": body_renderer,
+        "vertical_renderer": vertical_renderer,
+        "lvelib_renderer": lvelib_renderer,
+        "body_source": "SDicGetBodyData" if uses_body else None,
+        "gaiji_strategy": {
+            "unicode_first": uses_unicode_gaiji,
+            "bitmap_fallback": uses_bitmap_gaiji,
+            "bitmap_api": "SDicGetCustomCharacterBitmap" if uses_bitmap_gaiji else None,
+        },
+        "picture_strategy": {
+            "bridge_api": "SDicGetPictureData" if uses_picture else None,
+            "inline_picture_controls": ["1f3c", "1f4d"] + (["1f44"] if uses_picture else []),
+            "output_uri_shape": "lved.imag / generated image paths" if uses_picture else None,
+        },
+        "audio_strategy": {
+            "sound_range_controls": ["1f4a", "1f6a"] if body_renderer else [],
+            "output_uri_shape": "lved.sond" if body_renderer else None,
+        },
+        "link_strategy": {
+            "address_controls": ["1f42/1f62", "1f43/1f63"] if body_renderer else [],
+            "extended_image_link_controls": ["1f44/1f64"] if uses_picture else [],
+            "output_uri_shape": "lved.addr" if body_renderer else None,
+        },
+        "layout_strategy": {
+            "section_indent_control": "1f09",
+            "body_break_control": "1f0a",
+            "heading_control": "1f41",
+            "private_renderer_directives": ["1fe0", "1fe1", "1fe2", "1fe4", "1fe6"] if body_renderer else [],
+        },
+        "search_strategy": {
+            "dictionary_original_search": any(name.startswith("execDicOrgSearch") for name in exports),
+            "fulltext_search": "execDicZenbunSearch" in exports,
+            "sql_search": bool({"initializeSQL", "finalizeSQL"} & exports)
+            or bool({"SDicSQLSearchAndHtml", "SDicSQLSearchAndHtmlEx", "SDicExecSQLSearch"} & bridge_imports),
+        },
+        "panel_strategy": {
+            "panel_hooks": bool({"initializePanel", "finalizePanel"} & exports),
+            "menu_api": "SDicGetMenuData" if "SDicGetMenuData" in bridge_imports else None,
+        },
+    }
+
+
 def discover_hc_renderer_files(roots: list[Path]) -> list[Path]:
     if not roots:
         roots = [Path(".")]
@@ -760,6 +822,7 @@ def hc_renderer_classification_to_json(row: HcRendererClassification) -> dict[st
         "sql_snippets": list(row.sql_snippets),
         "image_templates": list(row.image_templates),
         "features": row.features,
+        "renderer_effects": hc_renderer_effects(row),
     }
 
 

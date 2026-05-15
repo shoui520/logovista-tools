@@ -19,6 +19,7 @@ from typing import Any, Iterable
 
 from .cli_args import add_entries_args
 from .cli_ux import status
+from .controls import CONTROL_ARG_LENGTHS, KNOWN_NONPRINTING_CONTROLS, control_arg_length
 from .gaiji import load_gaiji_map, load_gaiji_profile
 from .parallel import parallel_map_ordered
 from .resources import load_image_resource_profile, relative_image_source
@@ -37,24 +38,6 @@ from .ssed import (
 
 ENTRY_MARKER = b"\x1f\x09\x00\x01"
 SPACE_RE = re.compile(r"[ \t\r\f\v]+")
-CONTROL_ARG_LENGTHS = {
-    0x09: 2,
-    0x1A: 2,
-    0x1C: 2,
-    0x41: 2,
-    0x42: 0,
-    0x43: 0,
-    0x44: 10,
-    0x49: 10,
-    0x4A: 16,
-    0x4D: 18,
-    0x62: 6,
-    0x63: 6,
-    0x64: 6,
-    0x69: 0,
-    0xE0: 2,
-    0xE2: 2,
-}
 
 
 @dataclass(frozen=True)
@@ -183,6 +166,7 @@ def control_tag_for_start(op: int) -> str | None:
         0x10: "italic",
         0x12: "em",
         0x3B: "url",
+        0x3C: "media",
         0x41: "head",
         0x42: "link",
         0x43: "link",
@@ -204,6 +188,7 @@ def control_tag_for_end(op: int) -> str | None:
         0x11: "italic",
         0x13: "em",
         0x5B: "url",
+        0x5C: "media",
         0x61: "head",
         0x62: "link",
         0x63: "link",
@@ -263,21 +248,21 @@ def decode_tokens(
 
         if b == 0x1F and i + 1 < len(data):
             op = data[i + 1]
+            arg_len = control_arg_length(data, i)
             stats["controls"] += 1
             if op == 0x09:
                 payload = data[i + 2 : i + 4]
                 stats["sections"] += 1
                 if preserve_sections and len(payload) == 2 and not private_depth:
                     tokens.append(Section(payload.hex()))
-                i += 2 + CONTROL_ARG_LENGTHS[op]
+                i += 2 + arg_len
                 continue
             if op == 0x0A:
                 if not private_depth:
                     tokens.append(Break())
                 i += 2
                 continue
-            if op == 0x4D:
-                arg_len = CONTROL_ARG_LENGTHS[op]
+            if op in {0x3C, 0x4D}:
                 payload = data[i + 2 : i + 2 + arg_len]
                 stats["media"] += 1
                 if private_depth:
@@ -308,9 +293,9 @@ def decode_tokens(
                         private_depth -= 1
                 elif not private_depth:
                     tokens.append(EndTag(end_tag))
-            elif op not in (0x02, 0x03, 0x04, 0x05, 0x00, 0x1A, 0x1C):
+            elif op not in (0x04, 0x05) and op not in KNOWN_NONPRINTING_CONTROLS:
                 stats["unknown_controls"] += 1
-            i += 2 + CONTROL_ARG_LENGTHS.get(op, 0)
+            i += 2 + arg_len
             continue
 
         if i + 1 < len(data) and 0x21 <= b <= 0x7E and 0x21 <= data[i + 1] <= 0x7E:

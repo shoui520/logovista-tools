@@ -65,6 +65,25 @@ def test_observed_layout_controls_keep_semantic_tags() -> None:
     ]
 
 
+def test_hc_renderer_controls_are_known_spans() -> None:
+    decoded = decode_lossless_spans(
+        b"\x1f\x3c" + bytes(range(18))
+        + b"\x1f\x36" + bytes(range(12))
+        + b"\x1f\x4b" + bytes(range(6))
+        + b"\x1f\x4c\x00\x01"
+    )
+
+    assert decoded.stats["unknown_controls"] == 0
+    assert decoded.stats["media"] == 1
+    assert decoded.control_ops == {"3c": 1, "36": 1, "4b": 1, "4c": 1}
+    assert [(span.kind, span.op, span.tag) for span in decoded.spans] == [
+        ("media_ref", "3c", None),
+        ("control", "36", "renderer_skip"),
+        ("control", "4b", "renderer_skip"),
+        ("control", "4c", "renderer_skip"),
+    ]
+
+
 def test_cp932_extension_jis_cells_decode_as_text() -> None:
     decoded = decode_lossless_spans(b"\x2d\x21\x2d\x54\x2c\x29\x23\x3f")
 

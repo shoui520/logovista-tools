@@ -45,30 +45,48 @@ The stream also contains `0x1f` control opcodes. Important controls observed:
 1f 12 / 1f 13     emphasis-ish start/end
 1f 1a xx xx       tab/column position control
 1f 1c xx xx       media block layout control; observed before media refs
+1f 36 ...         HC renderer image/link descriptor; 12-byte payload
+1f 37 ...         HC renderer internal link descriptor; 10-byte payload
 1f 3b / 1f 5b     URL span start/end
+1f 3c ...         HC renderer inline picture reference; 18-byte payload
+1f 5c             HC renderer picture/reference end
 1f 41 xx xx       headword span start
 1f 61             headword span end
 1f 42             body/cross-reference link start
 1f 62 ...         body/cross-reference link end with payload
 1f 43             menu/navigation link start
 1f 63 ...         menu/navigation link end with payload
-1f 44 ...         extended link start with a 10-byte payload
+1f 44 ...         extended link start with a 10-byte payload; HC renderers
+                  can route this through the picture extraction path
+1f 48 ...         HC renderer internal link descriptor; 10-byte payload
 1f 49 ...         TOC/internal link start with a 10-byte payload
 1f 64 ...         extended link end with a 6-byte payload
 1f 69             TOC/internal link end
-1f 4a ...         jump/audio range start with a 16-byte payload
+1f 4a ...         jump/audio range start; usually 16-byte payload, with a
+                  renderer-observed 14-byte mode-0 form
+1f 4b ...         HC renderer link descriptor end/skip; 6-byte payload
+1f 4c xx xx       HC renderer layout/control directive
 1f 6a             jump/audio range end
 1f 4d ...         inline media/reference start with an 18-byte payload
 1f 6d             media/reference end
+1f 4e ...         HC renderer variable descriptor; 38- or 40-byte payload
+1f 4f ...         HC renderer variable descriptor; 34- or 48-byte payload
 1f e0 xx xx       bold-ish start
 1f e1             bold-ish end
 1f e2 xx xx       private renderer directive start
 1f e3             private renderer directive end
+1f e4/e6 xx xx    HC renderer-private directives
 ```
 
 The current extractor does not claim full semantic knowledge of every control.
 It uses enough structure to preserve line breaks and avoid mixing payload bytes
 into visible text.
+
+The HC renderer entries above come from code-level analysis of the Windows
+`HC????.dll` renderer loops. They describe how the renderers skip payload bytes
+and which controls trigger link, picture, sound, and private-layout behavior.
+They should not be interpreted as a claim that every dictionary uses every
+renderer-private control.
 
 Renderer-compatible behavior is treated as evidence only when it matches
 controls observed in LogoVista/SSED expanded streams. Electronic Book-family

@@ -11,13 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from .entries import (
-    CONTROL_ARG_LENGTHS,
-    DictionarySource,
-    discover_dictionaries,
-    iter_entry_slices,
-    iter_entry_slices_with_boundaries,
-)
+from .controls import control_arg_length
+from .entries import DictionarySource, discover_dictionaries, iter_entry_slices, iter_entry_slices_with_boundaries
 from .fulldb import find_fulldb
 from .gaiji import (
     candidate_gaiji_paths,
@@ -218,8 +213,7 @@ def iter_gaiji_codes_in_stream(data: bytes) -> Iterable[str]:
     while i < len(data):
         b = data[i]
         if b == 0x1F and i + 1 < len(data):
-            op = data[i + 1]
-            i += 2 + CONTROL_ARG_LENGTHS.get(op, 0)
+            i += 2 + control_arg_length(data, i)
             continue
         if i + 1 < len(data) and 0x21 <= b <= 0x7E and 0x21 <= data[i + 1] <= 0x7E:
             i += 2

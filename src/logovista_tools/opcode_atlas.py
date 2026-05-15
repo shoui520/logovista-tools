@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from .component_forensics import component_role
-from .entries import CONTROL_ARG_LENGTHS, control_tag_for_end, control_tag_for_start, decode_jis_pair, gaiji_text
+from .controls import CONTROL_ARG_LENGTHS, control_arg_length
+from .entries import control_tag_for_end, control_tag_for_start, decode_jis_pair, gaiji_text
 from .gaiji import load_gaiji_profile
 from .parallel import parallel_map_ordered, worker_args
 from .profiles import ProfileTarget, discover_profile_targets, safe_relative
@@ -104,8 +105,36 @@ CONTROL_SPECS: dict[int, ControlSpec] = {
             "treat as a nonprinting media/layout directive."
         ),
     ),
+    0x36: ControlSpec(
+        "36",
+        12,
+        "renderer-media-link",
+        "HC renderer image/link descriptor",
+        structural_confidence="high",
+        semantic_confidence="medium",
+        notes="Windows HC renderers consume this as a nonprinting descriptor related to image/link handling.",
+    ),
+    0x37: ControlSpec(
+        "37",
+        10,
+        "renderer-link",
+        "HC renderer internal link descriptor",
+        structural_confidence="high",
+        semantic_confidence="medium",
+    ),
     0x3B: ControlSpec("3b", 0, "link", "URL span start", pair_role="start", pair="5b"),
+    0x3C: ControlSpec(
+        "3c",
+        18,
+        "media",
+        "HC renderer inline picture reference",
+        pair_role="start",
+        pair="5c",
+        semantic_confidence="high",
+        notes="HC renderers emit an image element and call the picture extraction path for this control.",
+    ),
     0x5B: ControlSpec("5b", 0, "link", "URL span end", pair_role="end", pair="3b"),
+    0x5C: ControlSpec("5c", 0, "media", "HC renderer picture/reference end", pair_role="end", pair="3c"),
     0x41: ControlSpec("41", 2, "heading", "headword/title span start", pair_role="start", pair="61", semantic_confidence="high"),
     0x61: ControlSpec("61", 0, "heading", "headword/title span end", pair_role="end", pair="41", semantic_confidence="high"),
     0x42: ControlSpec("42", 0, "link", "body/cross-reference link start", pair_role="start", pair="62"),
@@ -113,6 +142,14 @@ CONTROL_SPECS: dict[int, ControlSpec] = {
     0x43: ControlSpec("43", 0, "navigation-link", "menu/navigation link start", pair_role="start", pair="63"),
     0x63: ControlSpec("63", 6, "navigation-link", "menu/navigation link end with pointer payload", pair_role="end", pair="43"),
     0x44: ControlSpec("44", 10, "link", "extended link start", pair_role="start", pair="64"),
+    0x48: ControlSpec(
+        "48",
+        10,
+        "renderer-link",
+        "HC renderer internal link descriptor",
+        structural_confidence="high",
+        semantic_confidence="medium",
+    ),
     0x64: ControlSpec("64", 6, "link", "extended link end with pointer payload", pair_role="end", pair="44"),
     0x49: ControlSpec(
         "49",
@@ -133,6 +170,8 @@ CONTROL_SPECS: dict[int, ControlSpec] = {
         pair="6a",
         notes="Used for visible jump ranges and PCMDATA-style sound/playback ranges.",
     ),
+    0x4B: ControlSpec("4b", 6, "renderer-link", "HC renderer link descriptor end/skip", structural_confidence="high"),
+    0x4C: ControlSpec("4c", 2, "renderer-layout", "HC renderer layout/control directive", structural_confidence="high"),
     0x6A: ControlSpec("6a", 0, "link-media", "jump/audio range end", pair_role="end", pair="4a"),
     0x4D: ControlSpec(
         "4d",
@@ -144,6 +183,24 @@ CONTROL_SPECS: dict[int, ControlSpec] = {
         notes="Payload carries the media/reference descriptor; visible fallback text may appear before 1f6d.",
     ),
     0x6D: ControlSpec("6d", 0, "media", "media/reference end", pair_role="end", pair="4d"),
+    0x4E: ControlSpec(
+        "4e",
+        38,
+        "renderer-private",
+        "HC renderer variable descriptor",
+        structural_confidence="high",
+        semantic_confidence="low",
+        notes="HC renderers skip 38 or 40 payload bytes depending on the first payload word.",
+    ),
+    0x4F: ControlSpec(
+        "4f",
+        34,
+        "renderer-private",
+        "HC renderer variable descriptor",
+        structural_confidence="high",
+        semantic_confidence="low",
+        notes="HC renderers skip 34 or 48 payload bytes depending on whether the descriptor starts with 1f6f.",
+    ),
     0xE0: ControlSpec("e0", 2, "style", "bold-ish start", pair_role="start", pair="e1"),
     0xE1: ControlSpec("e1", 0, "style", "bold-ish end", pair_role="end", pair="e0"),
     0xE2: ControlSpec(
@@ -197,7 +254,7 @@ def decode_context(data: bytes, *, gaiji_map: dict[str, str], max_chars: int = 8
             continue
         if b == 0x1F and i + 1 < len(data):
             op = data[i + 1]
-            arg_len = CONTROL_ARG_LENGTHS.get(op, 0)
+            arg_len = control_arg_length(data, i)
             raw = data[i : min(len(data), i + 2 + arg_len)]
             payload = raw[2:].hex()
             parts.append(f"<1f{op:02x}{':' + payload if payload else ''}>")
@@ -297,7 +354,7 @@ def scan_text_stream(
             op = data[i + 1]
             op_hex = f"{op:02x}"
             spec = spec_for_op(op)
-            arg_len = CONTROL_ARG_LENGTHS.get(op, 0)
+            arg_len = control_arg_length(data, i)
             length = 2 + arg_len
             raw = data[start : min(len(data), start + length)]
             payload = raw[2:]

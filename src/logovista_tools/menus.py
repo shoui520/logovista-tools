@@ -11,8 +11,8 @@ from typing import Any
 
 from .cli_args import add_menus_args
 from .colscr import decode_bcd_decimal
+from .controls import KNOWN_NONPRINTING_CONTROLS, control_arg_length
 from .entries import (
-    CONTROL_ARG_LENGTHS,
     SPACE_RE,
     decode_jis_pair,
     discover_dictionaries,
@@ -362,16 +362,17 @@ def parse_menu_stream(
                 continue
 
             if op == 0x4A:
+                arg_len = control_arg_length(data, i)
                 if private_depth:
-                    i += 18
+                    i += 2 + arg_len
                     continue
-                payload = data[i + 2 : i + 18]
+                payload = data[i + 2 : i + 2 + arg_len]
                 line.active_link = _ActiveLink(
                     control="1f4a",
                     start_offset=i,
                     start_payload=payload.hex() if len(payload) == 16 else None,
                 )
-                i += 18
+                i += 2 + arg_len
                 continue
 
             if op in (0x62, 0x63):
@@ -417,8 +418,9 @@ def parse_menu_stream(
                 i += 2
                 continue
 
-            stats["unknown_controls"] += 1
-            i += 2 + CONTROL_ARG_LENGTHS.get(op, 0)
+            if op not in KNOWN_NONPRINTING_CONTROLS:
+                stats["unknown_controls"] += 1
+            i += 2 + control_arg_length(data, i)
             continue
 
         if i + 1 < len(data) and 0x21 <= b <= 0x7E and 0x21 <= data[i + 1] <= 0x7E:

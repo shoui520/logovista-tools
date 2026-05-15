@@ -67,10 +67,12 @@ and non-SSED reader status are tracked separately in
 - Windows `DICPROF.INI` profile/manifest classification as package metadata,
   including declared dictionary directory/catalog names and required-file
   lists.
-- Windows `HC????.dll` renderer plugin classification, including PE
-  import/export extraction, renderer bridge evidence, `EXINFO` `HTMLDLL`
-  correlation, numeric-index correlation, `vlpljbl*` companion names, and
-  embedded SQL/HTML/image template strings.
+- Windows `HC????.dll` renderer plugin classification and code-level behavior
+  modeling, including PE import/export extraction, renderer bridge evidence,
+  `EXINFO` `HTMLDLL` correlation, numeric-index correlation, `vlpljbl*`
+  companion names, embedded SQL/HTML/image template strings, and observed
+  control effects for body, gaiji, picture, link, audio, and private layout
+  directives.
 - Windows renderer SQLite extraction through raw HONMON ID anchors and
   `t_contents` rows, with optional `media` BLOB export.
 - Windows renderer SQLite extraction for the `BRINEN15` dense-anchor variant:

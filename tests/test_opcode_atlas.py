@@ -41,6 +41,40 @@ def test_opcode_atlas_records_payload_lengths_and_unknowns() -> None:
     assert report["unknowns"] == {"99": 1}
 
 
+def test_opcode_atlas_uses_hc_variable_control_lengths() -> None:
+    target = ProfileTarget(
+        dict_id="TEST",
+        idx=Path("TEST.IDX"),
+        title="Test",
+        elements=[],
+    )
+    element = SsedInfoElement(
+        index=0,
+        multi=0,
+        type=0,
+        start=1,
+        end=1,
+        data=b"\x00\x00\x00\x00",
+        filename="HONMON.DIC",
+    )
+    data = b"\x1f\x4a\x00\x00" + (b"\xaa" * 12) + b"\x1f\x4f\x1f\x6f" + (b"\xbb" * 46)
+
+    report = scan_text_stream(
+        target=target,
+        roots=[Path(".")],
+        element=element,
+        data=data,
+        role="honmon",
+        gaiji_map={},
+        max_examples_per_opcode=4,
+        context_bytes=16,
+    )
+
+    assert report["opcodes"]["4a"]["payload_lengths"] == {14: 1}
+    assert report["opcodes"]["4f"]["payload_lengths"] == {48: 1}
+    assert report["unknowns"] == {}
+
+
 def test_opcode_atlas_merge_classifies_known_and_unknown_controls() -> None:
     merged = merge_opcode_rows(
         [

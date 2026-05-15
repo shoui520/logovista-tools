@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from .colscr import iter_media_references, parse_colscr_image_header, read_colscr_record
-from .entries import CONTROL_ARG_LENGTHS, control_tag_for_end, control_tag_for_start
+from .controls import control_arg_length
+from .entries import control_tag_for_end, control_tag_for_start
 from .gaiji import (
     candidate_gaiji_paths,
     file_identity,
@@ -363,7 +364,7 @@ def span_text_report(
                 break
             op = data[i + 1]
             op_hex = f"{op:02x}"
-            arg_len = CONTROL_ARG_LENGTHS.get(op, 0)
+            arg_len = control_arg_length(data, i)
             length = 2 + arg_len
             raw = data[start : min(len(data), start + length)]
             stats["controls"] += 1

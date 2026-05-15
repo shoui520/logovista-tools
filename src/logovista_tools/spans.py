@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from .controls import KNOWN_NONPRINTING_CONTROLS, control_arg_length
 from .entries import (
-    CONTROL_ARG_LENGTHS,
     control_tag_for_end,
     control_tag_for_start,
     decode_jis_pair,
@@ -237,7 +237,7 @@ def decode_lossless_spans(
 
             op = data[i + 1]
             op_hex = f"{op:02x}"
-            arg_len = CONTROL_ARG_LENGTHS.get(op, 0)
+            arg_len = control_arg_length(data, i)
             length = 2 + arg_len
             raw = data[start : min(len(data), start + length)]
             result.stats["controls"] += 1
@@ -278,7 +278,7 @@ def decode_lossless_spans(
                 i += length
                 continue
 
-            if op == 0x4D:
+            if op in {0x3C, 0x4D}:
                 result.stats["known_controls"] += 1
                 result.stats["media"] += 1
                 _add_span(
@@ -301,14 +301,17 @@ def decode_lossless_spans(
             semantic_tag = {
                 0x1A: "tab_column",
                 0x1C: "media_layout",
+                0x36: "renderer_skip",
+                0x37: "renderer_skip",
+                0x48: "renderer_skip",
+                0x4B: "renderer_skip",
+                0x4C: "renderer_skip",
+                0x4E: "renderer_skip",
+                0x4F: "renderer_skip",
+                0xE4: "renderer_private",
+                0xE6: "renderer_private",
             }.get(op)
-            if start_tag is not None or end_tag is not None or op in (
-                0x00,
-                0x02,
-                0x03,
-                0x1A,
-                0x1C,
-            ):
+            if start_tag is not None or end_tag is not None or op in KNOWN_NONPRINTING_CONTROLS:
                 tag = start_tag or end_tag or semantic_tag
                 if op == 0x04:
                     halfwidth_depth += 1

@@ -3,8 +3,13 @@ import sqlite3
 
 from logovista_tools.multiview import discover_multiview_packages, inspect_multiview_package
 from logovista_tools.windows import (
+    HcRendererClassification,
+    PeImport,
+    PeImportDll,
+    PeSummary,
     classify_hc_renderer_file,
     expected_numeric_index_for_hc_code,
+    hc_renderer_classification_to_json,
     hc_code_from_name,
     parse_pe_summary,
 )
@@ -32,6 +37,56 @@ def test_hc_classification_uses_exinfo_and_numeric_sidecar(tmp_path) -> None:
     assert row.vlpljbl_siblings == ("vlpljblF",)
     assert row.pe.kind == "unknown"
     assert row.sha256 is None
+    assert hc_renderer_classification_to_json(row)["renderer_effects"]["body_renderer"] is False
+
+
+def test_hc_renderer_effects_describe_bridge_behavior() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0001.dll"),
+        code="0001",
+        expected_numeric_index="00000001.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(
+            kind="pe",
+            exports=(
+                "epwing2HtmlBodydata",
+                "epwing2HtmlBodydataVertical",
+                "execDicZenbunSearch",
+                "initializeSQL",
+            ),
+            imports=(
+                PeImportDll(
+                    dll="SS" "Dic" "Lib.dll",
+                    functions=(
+                        PeImport("SDicGetBodyData"),
+                        PeImport("SDicGetPictureData"),
+                        PeImport("SDicGetCustomCharacterUincode"),
+                        PeImport("SDicGetCustomCharacterBitmap"),
+                    ),
+                ),
+            ),
+        ),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=(),
+        features={},
+    )
+
+    effects = hc_renderer_classification_to_json(row)["renderer_effects"]
+
+    assert effects["body_source"] == "SDicGetBodyData"
+    assert effects["gaiji_strategy"]["unicode_first"] is True
+    assert effects["picture_strategy"]["inline_picture_controls"] == ["1f3c", "1f4d", "1f44"]
+    assert effects["audio_strategy"]["output_uri_shape"] == "lved.sond"
+    assert effects["search_strategy"]["fulltext_search"] is True
 
 
 def test_parse_pe_summary_reports_non_pe_kind(tmp_path) -> None:

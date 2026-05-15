@@ -26,7 +26,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .component_forensics import component_role
-from .entries import CONTROL_ARG_LENGTHS, decode_tokens, iter_entry_slices_with_boundaries, tokens_to_text
+from .controls import control_arg_length
+from .entries import decode_tokens, iter_entry_slices_with_boundaries, tokens_to_text
 from .gaiji import (
     UniRecord,
     candidate_gaiji_paths,
@@ -108,8 +109,7 @@ def iter_gaiji_codes_in_stream(data: bytes) -> Iterable[str]:
     while i < len(data):
         byte = data[i]
         if byte == 0x1F and i + 1 < len(data):
-            op = data[i + 1]
-            i += 2 + CONTROL_ARG_LENGTHS.get(op, 0)
+            i += 2 + control_arg_length(data, i)
             continue
         if i + 1 < len(data) and 0x21 <= byte <= 0x7E and 0x21 <= data[i + 1] <= 0x7E:
             i += 2

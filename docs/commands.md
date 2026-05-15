@@ -187,6 +187,10 @@ report:
 - sibling `vlpljbl*` resources;
 - embedded renderer evidence such as `DIC????` tokens, `vlpljbl*` sidecar
   names, SQL snippets, HTML path templates, and image templates.
+- `renderer_effects`, a behavior-level summary of the decoded entrypoints and
+  bridge imports: body-byte access, Unicode-first/bitmap-fallback gaiji,
+  picture controls, sound ranges, internal address links, Panel hooks, SQL
+  search hooks, and private layout directives.
 
 `hc` emits discovery and per-file progress to stderr. Its JSON output is
 redacted: it includes names, hashes, import/export names, and short embedded
