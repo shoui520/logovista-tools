@@ -212,7 +212,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
         rows.append(
             HcHookBehavior(
                 name="haespjpn_example_section_badge",
-                status="implemented",
+                status="branch_subset_implemented",
                 evidence=("HC013A exam.png template", "1f09 section 0011 example block branch"),
                 implementation="raw HONMON section 0011 inserts the discovered exam image once per contiguous examples block",
                 notes="HC013A decodes the 0011 section payload as decimal 11 and keeps the example block active across sections 0010, 0011, and 0012.",
@@ -222,7 +222,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
         rows.append(
             HcHookBehavior(
                 name="proyal43_inline_marker_gaiji",
-                status="implemented",
+                status="branch_subset_implemented",
                 evidence=(
                     "HC0146 epwing2HtmlBodydataVertical B232/B233 color-font branches",
                     "HC0146 B157-B159, B25A-B351, B23B, and B357-B424 image-template branches",
@@ -239,7 +239,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
         rows.append(
             HcHookBehavior(
                 name="archsic4_inline_style_gaiji",
-                status="implemented",
+                status="branch_subset_implemented",
                 evidence=("HC0158 epwing2HtmlBodydata B353-B37E branches", "00000158.css span classes"),
                 implementation="B3xx formatting-marker gaiji map to HC0158 CSS spans; normal B253/B347 image gaiji stay resource-backed",
                 notes="B379 is conditional: labels before translation/usage/figure text select waku_red/back_red/waku variants from the next JIS pair.",
@@ -248,7 +248,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
         rows.append(
             HcHookBehavior(
                 name="archsic4_sound_icon_audio_link",
-                status="implemented",
+                status="branch_subset_implemented",
                 evidence=("HC0158 lved.sond template", "Templates/sound.png"),
                 implementation="PCMDATA audio ranges render as sound.png links for HC0158",
                 notes="The href remains the toolkit resource address rather than claiming exact viewer URL parity.",
@@ -258,7 +258,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
         rows.append(
             HcHookBehavior(
                 name="dconci98_inline_style_gaiji",
-                status="implemented",
+                status="branch_subset_implemented",
                 evidence=(
                     "HC0157 epwing2HtmlBodydataVertical A14D/A14E accent branches",
                     "HC0157 B156-B241 CSS span branch ladder",
@@ -274,7 +274,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
         rows.append(
             HcHookBehavior(
                 name="dconci98_sound_icon_audio_link",
-                status="implemented",
+                status="branch_subset_implemented",
                 evidence=("HC0157 lved.sond template", "sound.png/img_mark2 template strings", "1f4a/1f6a body loop branches"),
                 implementation="PCMDATA audio ranges render as sound.png links for HC0157",
                 notes="The href remains the toolkit resource address rather than claiming exact viewer URL parity.",
@@ -394,12 +394,18 @@ def build_hc_behavior_profile(
         )
 
     raw_gap_names = tuple(sorted(str(key) for key in (raw_gaps or {}).keys()))
-    hook_gap_names = tuple(sorted(hook.name for hook in hooks if not hook.status.startswith("implemented")))
+    non_gap_status_prefixes = ("implemented", "branch_subset_implemented")
+    hook_gap_names = tuple(sorted(hook.name for hook in hooks if not hook.status.startswith(non_gap_status_prefixes)))
+    branch_subset_names = tuple(sorted(hook.name for hook in hooks if hook.status.startswith("branch_subset_implemented")))
     notes: list[str] = []
     if rendererdb_ok:
         notes.append("Entry body HTML is taken from the renderer/app sidecar, not reconstructed from raw HONMON controls.")
+    if branch_subset_names:
+        notes.append("Decoded branch subsets are implemented, but product visual parity is still unverified/incomplete.")
     if hook_gap_names:
         notes.append("Remaining hook gaps are named; exact HC parity is not claimed while these remain.")
+
+    profile_gap_names = raw_gap_names + hook_gap_names + (("visual_parity_unverified",) if branch_subset_names else ())
 
     return HcBehaviorProfile(
         renderer_code=code,
@@ -412,6 +418,6 @@ def build_hc_behavior_profile(
         implemented_semantics=tuple(sorted(implemented)),
         hook_behaviors=tuple(sorted(hooks, key=lambda row: row.name)),
         schema_sidecar_roles=roles,
-        named_gaps=tuple(sorted(set(raw_gap_names + hook_gap_names))),
+        named_gaps=tuple(sorted(set(profile_gap_names))),
         notes=tuple(notes),
     )

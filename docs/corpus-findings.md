@@ -1146,9 +1146,9 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-implemented product profiles:        4   HC013A, HC0146, HC0157, HC0158
+decoded branch subsets:              4   HC013A, HC0146, HC0157, HC0158
 common semantics plus named gaps:   105
-decompiled marker table deferred:     0
+full product visual parity:           0
 ```
 
 Named unresolved hook families in the exact-SHA pass include custom gaiji DIB
@@ -1156,22 +1156,25 @@ hooks, `modifyHeadword*` callbacks, Panel lifecycle hooks, and SQL/search
 helper hooks. These are tracked as explicit gaps unless the relevant branch
 table and data path are understood.
 
-The first product-specific HC rendering rule implemented is `HC013A.dll` for
+The first product-specific HC rendering branch subset implemented is
+`HC013A.dll` for
 HAESPJPN-style entries. The renderer decodes `1f09` section payloads as packed
 decimal section numbers. Section `0011` enters an example block and emits the
 `exam.png` template; sections `0010`, `0011`, and `0012` keep that block active,
 so the badge is emitted once per contiguous examples region rather than before
 every example/translation line.
 
-The second product-specific proof case is `HC0158.dll`. Its body loop treats a
+The second branch-subset proof case is `HC0158.dll`. Its body loop treats a
 subset of `.uni`-empty B3xx gaiji codes as inline HTML/CSS commands rather than
 glyphs. Implemented mappings include rank/star spans, part-of-speech and
 conjugation spans, boxed labels, red emphasis, and the conditional boxed
 translation-label form. The same renderer still resolves ordinary numbered and
 conjugation gaiji through `Templates/*.svg`, and renders `PCMDATA.DIC` sound
-ranges with the discovered `sound.png` template.
+ranges with the discovered `sound.png` template. The focused ARCHSIC4 reference
+entry has strong visual coverage, but this is still not a claim of exact
+`HC0158.dll` parity across every entry and hook.
 
-The third implemented raw-HONMON proof case is `HC0157.dll`. Its vertical body
+The third branch-subset proof case is `HC0157.dll`. Its vertical body
 loop treats several gaiji-plane values as style/control markers tied to
 `Templates/00000157.css`: A14D/A14E are accent spans; B156, B15A/B15B,
 B15C/B15D, B160-B17D, B221-B226, B228/B229/B22A, B23C-B23F, and B240/B241
@@ -1179,16 +1182,19 @@ open or close named CSS spans; B157/B158 and B172/B173 both style the following
 region and render their own gaiji/image value; and B22D-B23B render circled
 number gaiji inside a red span. Its `1f4a`/`1f6a` path also uses the
 `sound.png` / `img_mark2` template when available. This is a branch-table
-implementation, not a string-only inference.
+implementation, not a string-only inference, and it remains visually incomplete
+until the product wrapper, section/layout state, and remaining custom hooks are
+validated.
 
-The fourth implemented raw-HONMON proof case is `HC0146.dll`. Its vertical body
+The fourth branch-subset proof case is `HC0146.dll`. Its vertical body
 loop maps B232/B233 to a `color_font` delimiter pair, B240 to the literal
 abbreviation label `略：`, B157-B159 to `_M` image templates with
 `img_mark4`, B25A-B351 to `gaiji_icon`, and B23B/B357-B424 to `gaiji_full`.
 B236/B237/B241 and B44F-B451 are consumed as renderer template selectors rather
 than displayed as glyphs. Several other HC0146 branches still route through
-runtime-initialized template globals; those remain named gaps until the concrete
-open tags and state transitions are recovered.
+runtime-initialized template globals; those remain named gaps until the
+concrete open tags, section/layout state, wrapper CSS, and state transitions are
+recovered.
 
 Some other renderer families are decoded but deliberately not implemented yet.
 The toolkit keeps unresolved branches as named behavior gaps rather than

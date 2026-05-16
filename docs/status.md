@@ -274,23 +274,27 @@ and non-SSED reader status are tracked separately in
   case is `HC013A.dll`, where section `1f09 0011` starts an example block and
   the renderer inserts the `exam` image once for that contiguous examples
   region.
-- `HC0158.dll` now has a focused raw-HONMON renderer proof: B3xx formatter
+- `HC0158.dll` now has a focused raw-HONMON branch-subset proof: B3xx formatter
   gaiji become rank/star, part-of-speech, conjugation, boxed-label, and red
   emphasis spans; numbered/SVG gaiji remain image-backed; `PCMDATA.DIC` sound
-  ranges use the package `sound.png` template when present.
-- `HC0157.dll` now has a focused raw-HONMON renderer proof: accent gaiji,
+  ranges use the package `sound.png` template when present. The ARCHSIC4
+  reference entry has strong visual coverage, but exact product parity is not
+  claimed.
+- `HC0157.dll` now has a focused raw-HONMON branch-subset proof: accent gaiji,
   CSS-span gaiji markers, red circled-number wrappers, and self-rendering
   marker/image combinations are handled from the decompiled body-loop branch
   table; `PCMDATA.DIC` sound ranges use the package `sound.png` template when
-  present.
-- `HC0146.dll` now has a focused raw-HONMON renderer proof: B232/B233
+  present. Product wrapper, section/layout state, and custom hooks remain
+  visually incomplete.
+- `HC0146.dll` now has a focused raw-HONMON branch-subset proof: B232/B233
   `color_font` delimiters, B240 literal abbreviation text, nonprinting
   template selectors, and classed image-gaiji ranges are handled from the
-  decompiled body-loop branch table and `Templates/00000146.css`.
+  decompiled body-loop branch table and `Templates/00000146.css`. Product
+  wrapper, section/layout state, and custom hooks remain visually incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
-  exact SHA-256 renderer binaries. Only HC013A, HC0146, HC0157, HC0158, and
-  shared common semantics are implemented. Other branch tables remain named
-  gaps until their output constants and product data paths are understood.
+  exact SHA-256 renderer binaries. HC013A, HC0146, HC0157, HC0158 currently
+  have decoded branch subsets, not full HC parity. Other branch tables remain
+  named gaps until their output constants and product data paths are understood.
 - The default raw-resource gaiji readiness pass intentionally does not use
   Windows renderer databases. `NGYOKTUK` has no direct `.uni`/GA16/image gaiji
   resources, but its encrypted `vlpljblF` sidecar decrypts to row-ordered

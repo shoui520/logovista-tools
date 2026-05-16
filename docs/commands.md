@@ -241,28 +241,36 @@ semantics that are now understood:
 - private renderer directive suppression with metadata counts;
 - vertical-rendering hints as classes/metadata rather than hard-coded layout.
 
-Product rules are implemented only after the renderer path is understood. The
-initial proof case is `HC013A.dll`: `hc-render` recognizes its example-section
+Product branch rules are implemented only after the renderer path is
+understood. These are branch-subset implementations unless a representative
+visual comparison and wrapper/section-state mapping proves more. The initial
+proof case is `HC013A.dll`: `hc-render` recognizes its example-section
 rule and inserts the discovered `exam` image when a `1f09 0011` example block
 starts, matching the renderer's `exam.png` template without requiring a manual
 `--section-image` option.
-`HC0158.dll` is also implemented for its decoded raw-HONMON style markers:
+`HC0158.dll` also has a decoded raw-HONMON style-marker subset:
 B3xx formatter codes become CSS spans for rank stars, part-of-speech,
 conjugation, labels, and red emphasis; `PCMDATA.DIC` ranges render as
 `sound.png` links when that template image is present; numbered/SVG gaiji remain
 resource-backed images.
-`HC0157.dll` is implemented for its decoded gaiji-plane style marker table:
+`HC0157.dll` has a decoded gaiji-plane style-marker subset:
 A14D/A14E accent markers, B156/B15A/B15C/B160-B17D/B221-B226/B228-B22A/
 B23C-B241 CSS span markers, B22D-B23B red circled-number wrappers, and
 `sound.png` audio links. These mappings come from the renderer body loop and
-the matching CSS/resource files; unresolved renderer families remain named gaps.
-`HC0146.dll` is implemented for the decoded marker branches whose output
+the matching CSS/resource files; full product layout remains a named gap.
+`HC0146.dll` has decoded marker branches whose output
 templates are understood: B232/B233 color-font delimiters, B240 abbreviation
 text, nonprinting B44F-B451/B236/B237/B241 template selectors, and classed
 image-gaiji templates for B157-B159, B25A-B351, B23B, and B357-B424.
 The all-family code-level pass has decompiled representatives for all 109 exact
 HC SHA-256 families, but `hc-render` only implements shared semantics and
 product rules whose branch tables and data paths are understood.
+The generated `hc_entries.html` is standalone enough for visual inspection: the
+command writes a normalized product stylesheet and copies discovered
+package-local image assets next to the output HTML. This improves inspection
+quality, but the command still reports `exact_hc_parity=false` until the product
+wrapper, section-state, media/link, custom gaiji, and hook behavior are all
+covered.
 
 Each dictionary output directory contains:
 

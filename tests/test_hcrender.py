@@ -6,6 +6,7 @@ from logovista_tools.entries import DictionarySource
 from logovista_tools.hcrender import (
     HcRenderOptions,
     _has_entry_body_sidecar,
+    _prepare_hc_render_assets,
     _renderer_behavior_gaps,
     _rendererdb_args,
     _schema_backed_sidecars,
@@ -311,6 +312,58 @@ def test_hc0146_renders_abbreviation_marker_as_literal_text() -> None:
     assert rendered.stats["hc0146_literal_markers"] == 1
 
 
+def test_hc_render_assets_copy_images_and_normalise_product_css(tmp_path: Path) -> None:
+    package = tmp_path / "_DCT_TEST"
+    templates = package / "Templates"
+    templates.mkdir(parents=True)
+    idx = package / "TEST.IDX"
+    honmon = package / "HONMON.DIC"
+    idx.write_bytes(b"")
+    honmon.write_bytes(b"")
+    (templates / "00000146.css").write_text(".midashi{font-size:$midashi-font-size$}.x{color:$body-color$}", encoding="utf-8")
+    (templates / "b157_M.png").write_bytes(b"PNGDATA")
+    source = DictionarySource(
+        dict_id="TEST",
+        idx=idx,
+        title="test",
+        honmon=honmon,
+        honmon_start_block=1,
+        gaiji_map={},
+        image_sources={"b157": "Templates/b157_M.png"},
+    )
+    renderer = HcRendererClassification(
+        path=package / "HC0146.dll",
+        code="0146",
+        expected_numeric_index="00000146.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=(),
+        features={},
+    )
+
+    image_sources, stylesheet, copied = _prepare_hc_render_assets(source, tmp_path / "out", renderer)
+
+    assert image_sources == {"b157": "Templates/b157_M.png"}
+    assert stylesheet == "hc-renderer.css"
+    assert (tmp_path / "out" / "Templates" / "b157_M.png").read_bytes() == b"PNGDATA"
+    css = (tmp_path / "out" / "hc-renderer.css").read_text(encoding="utf-8")
+    assert ".lv-hc-render" in css
+    assert "$midashi-font-size$" not in css
+    assert "1.35em" in css
+    assert "#111111" in css
+    assert copied == 2
+
+
 def test_hc_renderer_product_hooks_are_named_gaps() -> None:
     row = HcRendererClassification(
         path=Path("HC0001.dll"),
@@ -333,6 +386,35 @@ def test_hc_renderer_product_hooks_are_named_gaps() -> None:
     )
 
     assert _renderer_behavior_gaps(row) == ["panel_hooks", "plugin_hooks", "sql_search_or_helper_hooks"]
+
+
+def test_branch_subset_profiles_do_not_claim_visual_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0146.dll"),
+        code="0146",
+        expected_numeric_index="00000146.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=(),
+        features={},
+    )
+
+    profile = build_hc_behavior_profile(row)
+
+    assert profile.exact_hc_parity is False
+    assert "visual_parity_unverified" in profile.named_gaps
+    assert any("visual parity" in note for note in profile.notes)
+    assert any(hook.status == "branch_subset_implemented" for hook in profile.hook_behaviors)
 
 
 def test_hc_render_schema_sidecars_classify_search_helpers(tmp_path: Path) -> None:

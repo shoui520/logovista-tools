@@ -1,0 +1,202 @@
+# HC Renderer Parity Matrix
+
+This page tracks Windows `HC????.dll` renderer behavior by exact SHA-256 family. It is a work queue for renderer parity, not a claim that parity has been achieved.
+
+Parity is only promoted when the relevant DLL code path or branch table is understood and a real or synthetic render proves the behavior. String sightings, exports, SQL text, and template names are evidence, not implementation by themselves.
+
+## Status Vocabulary
+
+| Status | Meaning |
+|---|---|
+| `decoded_branch_subset_visual_incomplete` | One or more product branch-table subsets are implemented, but the product renderer wrapper, section layout, CSS state, or representative visual output is still incomplete. This is not HC parity. |
+| `exact_body_sidecar_supported_hc_hooks_unprofiled` | The readable entry body is available through a renderer/app sidecar, but the HC DLL hooks still need profile work. |
+| `needs_marker_branch_decode` | The decompile shows gaiji constants, template branches, or renderer-specific comparisons that need branch-table recovery. |
+| `common_controls_plus_named_hooks` | Shared HC/SSED controls are handled, but product hooks such as SQL/search/custom DIB/headword modification remain named gaps. |
+| `common_controls_candidate_verify` | No obvious custom branch evidence yet; still needs representative entry comparison before it can be called common-only. |
+
+## Current Counts
+
+| Status | Families |
+|---|---:|
+| `common_controls_candidate_verify` | 1 |
+| `common_controls_plus_named_hooks` | 14 |
+| `exact_body_sidecar_supported_hc_hooks_unprofiled` | 5 |
+| `needs_marker_branch_decode` | 85 |
+| `decoded_branch_subset_visual_incomplete` | 4 |
+
+| Family | Families |
+|---|---:|
+| Britannica panel/media renderer | 3 |
+| GEN HTMLs vertical renderer | 1 |
+| SQL search/helper renderer | 1 |
+| SQL-hook raw-HONMON renderer | 28 |
+| panel-enabled raw-HONMON renderer | 10 |
+| read-aloud HTML/audio renderer | 1 |
+| rendererdb/exact-body-sidecar family | 5 |
+| shared raw-HONMON renderer | 60 |
+
+Decoded branch subsets currently implemented:
+
+- `HC013A.dll`: HC013A example section badge; representative package `_DCT_HAESPJPN`; remaining gaps: custom_gaiji_dib_hook, modify_headword_hook, panel_lifecycle_hook, sql_or_search_hook, and representative visual parity.
+- `HC0146.dll`: HC0146 marker/image-gaiji subset; representative package `_DCT_PROYAL43`; remaining gaps: product section/layout mapping, exact renderer wrapper state, custom_gaiji_dib_hook, modify_headword_hook, panel_lifecycle_hook, sql_or_search_hook, and representative visual parity.
+- `HC0157.dll`: HC0157 inline style gaiji table; representative package `_DCT_DCONCI98`; remaining gaps: product section/layout mapping, exact renderer wrapper state, custom_gaiji_dib_hook, modify_headword_hook, and representative visual parity.
+- `HC0158.dll`: HC0158 inline style gaiji table; representative package `_DCT_ARCHSIC4`; remaining gaps: custom_gaiji_dib_hook, modify_headword_hook, panel_lifecycle_hook, sql_or_search_hook, and broader representative visual coverage.
+
+Promotion out of `decoded_branch_subset_visual_incomplete` requires all of:
+
+- the relevant body-loop branch table or code path is recovered,
+- the product stylesheet/template wrapper used by the renderer output is applied,
+- `1f09` section/state transitions are mapped to the renderer's visible block model where they affect layout,
+- links/audio/media/gaiji resources resolve through the product's observed template paths,
+- at least one representative real entry and one synthetic fixture exercise the implemented rule.
+
+## Next Implementation Order
+
+The order below is heuristic. It weights package count, renderer-specific gaiji constants, template hints, and named hooks. It is used to pick the next family to inspect; it is not itself evidence of renderer behavior.
+
+| Rank | HC | SHA | Representative | Packages | Score | State | Next action |
+|---:|---|---|---|---:|---:|---|---|
+| 1 | `HC00C6` | `e1e812a28caf` | `_DCT_Dconci87` | 1 | 285 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 2 | `HC02BE` | `0b1fb20bd4b1` | `_DCT_KQDENTAL` | 1 | 249 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 3 | `HC0158` | `65c83afc1af6` | `_DCT_ARCHSIC4` | 1 | 179 | `decoded_branch_subset_visual_incomplete` | sample more entries; promote only additional recovered branches |
+| 4 | `HC02BC` | `7b9004005dc3` | `_DCT_STEDMAN6` | 1 | 178 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 5 | `HC012E` | `65276af4c7a9` | `_DCT_NKGORIN2` | 1 | 177 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 6 | `HC0157` | `5da55357458a` | `_DCT_DCONCI98` | 1 | 171 | `decoded_branch_subset_visual_incomplete` | sample more entries; promote only additional recovered branches |
+| 7 | `HC02C2` | `623d29c24f19` | `_DCT_KQCOLEXP` | 1 | 168 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 8 | `HC0065` | `88eb804bd611` | `_DCT_GENIUSEB` | 1 | 162 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 9 | `HC012D` | `e71267585a11` | `_DCT_MEIKYOU2` | 1 | 159 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 10 | `HC0145` | `94a25e181592` | `_DCT_RDRSP2` | 1 | 156 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 11 | `HC009D` | `00b08f4c8b74` | `_DCT_GKCEREMO` | 1 | 152 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 12 | `HC013D` | `ffc129d1e066` | `_DCT_HKDKSR13` | 1 | 151 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 13 | `HC0144` | `fea7e139f059` | `_DCT_RPLUSREV` | 1 | 147 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 14 | `HC03E8` | `045a048e2ab4` | `_DCT_GENKANA5` | 1 | 146 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 15 | `HC0141` | `b2cb08e5df37` | `_DCT_Readers3` | 1 | 144 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 16 | `HC0190` | `ddcea0ba8c9d` | `_DCT_SIZK0101` | 30 | 143 | `needs_marker_branch_decode` | compare representative entries against common renderer output; mark common-only if no differences |
+| 17 | `HC009C` | `2e9fa53adaae` | `_DCT_SESGRASS` | 1 | 140 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 18 | `HC02C5` | `ce183b2fc4c4` | `_DCT_GENIUS53` | 1 | 138 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 19 | `HC0151` | `148f7d9a4fdc` | `_DCT_IBIO5` | 1 | 137 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 20 | `HC0142` | `f5c9669416f3` | `_DCT_YUECONO5` | 1 | 130 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 21 | `HC02C1` | `cd453a74ba53` | `_DCT_KQJCOLLO` | 1 | 130 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 22 | `HC02BF` | `9633e65277fa` | `_DCT_KQLATINO` | 1 | 129 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 23 | `HC012F` | `1dbabcd98bc0` | `_DCT_YHOUGO4` | 1 | 124 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 24 | `HC0131` | `37cefa29ed5c` | `_DCT_KQEBHOU` | 1 | 123 | `needs_marker_branch_decode` | recover SQL/search hooks and decide entry-render impact |
+| 25 | `HC0146` | `bd6644ef5906` | `_DCT_PROYAL43` | 1 | 122 | `decoded_branch_subset_visual_incomplete` | sample more entries; promote only additional recovered branches |
+| 26 | `HC02C4` | `4d2dd3f4ff6e` | `_DCT_GEN2016` | 2 | 120 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 27 | `HC02C7` | `7ee0f7dfa370` | `_DCT_Gen2017` | 2 | 120 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 28 | `HC00A6` | `76d0fc7c33fc` | `_DCT_HKKIGAK6` | 1 | 119 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 29 | `HC014A` | `db3868617977` | `_DCT_HKDKSR29` | 1 | 119 | `needs_marker_branch_decode` | map template hints to body-loop branches and compare representative entry |
+| 30 | `HC02C3` | `7bfaeec12bbc` | `_DCT_HKDKSR14` | 1 | 119 | `needs_marker_branch_decode` | map template hints to body-loop branches and compare representative entry |
+
+## Full Matrix
+
+| # | HC | SHA | Representative | Packages | State | Evidence | Gaps | Next action |
+|---:|---|---|---|---:|---|---|---|---|
+| 1 | `HC0190` | `ddcea0ba8c9d` | `_DCT_SIZK0101` | 30 | `needs_marker_branch_decode` | body-loop, gaiji=3, tmpl=7, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 2 | `HC009B` | `5a9a4f5513c6` | `_DCT_GEN2001` | 12 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=21, section_control_seen_in_body_loop | none | map template hints to body-loop branches and compare representative entry |
+| 3 | `HC02C0` | `3070f6031aec` | `_DCT_GEN2015` | 2 | `needs_marker_branch_decode` | body-loop, gaiji=6, tmpl=41, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |
+| 4 | `HC013C` | `39a81a8f426b` | `_DCT_Gen2014` | 2 | `needs_marker_branch_decode` | body-loop, gaiji=6, tmpl=41, section_control_seen_in_body_loop | `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |
+| 5 | `HC02C4` | `4d2dd3f4ff6e` | `_DCT_GEN2016` | 2 | `needs_marker_branch_decode` | body-loop, gaiji=15, tmpl=28, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 6 | `HC00B3` | `74a23f0857ee` | `_DCT_GEN2012` | 2 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=24, section_control_seen_in_body_loop | none | map template hints to body-loop branches and compare representative entry |
+| 7 | `HC02C7` | `7ee0f7dfa370` | `_DCT_Gen2017` | 2 | `needs_marker_branch_decode` | body-loop, gaiji=15, tmpl=28, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 8 | `HC00A0` | `91289f09eb84` | `_DCT_GKBUSINE` | 2 | `common_controls_candidate_verify` | body-loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 9 | `HC02CA` | `93ffe27c9ead` | `_DCT_GEN2019` | 2 | `needs_marker_branch_decode` | body-loop, gaiji=9, tmpl=28, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |
+| 10 | `HC0136` | `c9748b34a5ed` | `_DCT_GEN2013` | 2 | `needs_marker_branch_decode` | body-loop, gaiji=3, tmpl=39, section_control_seen_in_body_loop | none | map template hints to body-loop branches and compare representative entry |
+| 11 | `HC0048` | `d1d8bdb7b564` | `_DCT_SPEECH` | 2 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=11, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 12 | `HC009D` | `00b08f4c8b74` | `_DCT_GKCEREMO` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=37, tmpl=35, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | none | decode gaiji/marker branch table and map constants to CSS/templates |
+| 13 | `HC00AC` | `0193f1f71c25` | `_DCT_GKKOJIKT` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=4, tmpl=16, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 14 | `HC02C6` | `029f680eb531` | `_DCT_HKDKSR30` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=5, tmpl=50, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |
+| 15 | `HC0159` | `03a1b037270e` | `_DCT_HABGESPA` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=11, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 16 | `HC0067` | `03f1231e1c2b` | `_DCT_IPHYCHE5` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=15, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 17 | `HC008B` | `0401bc3d01d5` | `_DCT_MEDEXPDA` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=22, section_control_seen_in_body_loop | none | map template hints to body-loop branches and compare representative entry |
+| 18 | `HC03E8` | `045a048e2ab4` | `_DCT_GENKANA5` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=31, tmpl=17, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 19 | `HC0BBB` | `0a71f369cef5` | `_DCT_NANMED20` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=6, tmpl=2 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 20 | `HC02BE` | `0b1fb20bd4b1` | `_DCT_KQDENTAL` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=73, tmpl=28, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook`, `sql_or_search_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 21 | `HC0096` | `0b5d5be4fd9d` | `_DCT_GKTISIKI` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=7, tmpl=20, section_control_seen_in_body_loop | none | map template hints to body-loop branches and compare representative entry |
+| 22 | `HC013A` | `1078ada0a8a4` | `_DCT_HAESPJPN` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=29, tmpl=23, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook`, `sql_or_search_hook` | sample more entries; promote only additional recovered branches |
+| 23 | `HC0093` | `1079c6e940ed` | `_DCT_GKGOGEN` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=12, tmpl=17, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | none | decode gaiji/marker branch table and map constants to CSS/templates |
+| 24 | `HC0069` | `11d8ed56a81e` | `_DCT_IBIO4VRS` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=15, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 25 | `HC0137` | `12fefb31f4c0` | `_DCT_IWKOKU7N` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=11, tmpl=21, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 26 | `HC0151` | `148f7d9a4fdc` | `_DCT_IBIO5` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=22, tmpl=34, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 27 | `HC005C` | `16cde4c9da5a` | `_DCT_KENE7J5` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=10, tmpl=23, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `modify_headword_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 28 | `HC0091` | `1bc2eabd9a19` | `_DCT_KQSYNONM` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=16, section_control_seen_in_body_loop | `modify_headword_hook` | compare representative entries against common renderer output; mark common-only if no differences |
+| 29 | `HC0063` | `1c0f75e107bc` | `_DCT_KQNEWJE5` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=9, tmpl=16, section_control_seen_in_body_loop | `modify_headword_hook` | compare representative entries against common renderer output; mark common-only if no differences |
+| 30 | `HC012F` | `1dbabcd98bc0` | `_DCT_YHOUGO4` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=15, tmpl=35, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 31 | `HC02D1` | `20206fa97bb0` | `_DCT_GEN2021` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=8, tmpl=28, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |
+| 32 | `HC0094` | `25918f5f1ff7` | `_DCT_GKKEIGO` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=23, tmpl=22, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | none | decode gaiji/marker branch table and map constants to CSS/templates |
+| 33 | `HC009C` | `2e9fa53adaae` | `_DCT_SESGRASS` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=28, tmpl=41, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | none | decode gaiji/marker branch table and map constants to CSS/templates |
+| 34 | `HC0155` | `2ecd6e778258` | `_DCT_CJJC160` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=12, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 35 | `HC015F` | `332de6d4b627` | `_DCT_PROYAL53` | 1 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | body-loop, gaiji=1, tmpl=10, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | verify rendererdb path and inspect remaining hooks/search/media templates |
+| 36 | `HC0131` | `37cefa29ed5c` | `_DCT_KQEBHOU` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=8, tmpl=40, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 37 | `HC0020` | `3aa9cb985cfc` | `_DCT_KENCOLLO` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=3, tmpl=16, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 38 | `HC0090` | `42c487feb7d1` | `_DCT_KQEJMED2` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=3, tmpl=20, section_control_seen_in_body_loop | none | map template hints to body-loop branches and compare representative entry |
+| 39 | `HC00C4` | `467a07a23ff2` | `_DCT_GKKANAN3` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=9, tmpl=28, section_control_seen_in_body_loop | `custom_gaiji_dib_hook` | map template hints to body-loop branches and compare representative entry |
+| 40 | `HC02C9` | `4dd5adf18a31` | `_DCT_GEN2018` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=9, tmpl=28, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |
+| 41 | `HC02C8` | `54e5d31f03ce` | `_DCT_ZUKAIHO4` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=9, tmpl=24, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 42 | `HC0135` | `5d07a6726268` | `_DCT_SINMEI7` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=2, tmpl=1 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 43 | `HC0157` | `5da55357458a` | `_DCT_DCONCI98` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=56, tmpl=62, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | sample more entries; promote only additional recovered branches |
+| 44 | `HC02C2` | `623d29c24f19` | `_DCT_KQCOLEXP` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=37, tmpl=27, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 45 | `HC012E` | `65276af4c7a9` | `_DCT_NKGORIN2` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=35, tmpl=40, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 46 | `HC0158` | `65c83afc1af6` | `_DCT_ARCHSIC4` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=52, tmpl=71, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook`, `sql_or_search_hook` | sample more entries; promote only additional recovered branches |
+| 47 | `HC015C` | `668bbac883f9` | `_DCT_JSSAURU2` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=14, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 48 | `HC008C` | `6793024c94bf` | `_DCT_HKDKSR10` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=18, tmpl=29, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | none | decode gaiji/marker branch table and map constants to CSS/templates |
+| 49 | `HC00A4` | `714b57ee5794` | `_DCT_IKUIKU` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=7, tmpl=20, section_control_seen_in_body_loop | none | map template hints to body-loop branches and compare representative entry |
+| 50 | `HC0160` | `7154821c9501` | `_DCT_ISUGAKU4` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=14 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 51 | `HC00A6` | `76d0fc7c33fc` | `_DCT_HKKIGAK6` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=22, tmpl=32, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | none | decode gaiji/marker branch table and map constants to CSS/templates |
+| 52 | `HC00D3` | `770c010446ba` | `_DCT_BRI2014` | 1 | `common_controls_plus_named_hooks` | body-loop | `modify_headword_hook`, `panel_lifecycle_hook` | verify whether Panel hook affects entry body or only viewer UI |
+| 53 | `HC0068` | `7a4919c67ce5` | `_DCT_IBIO4` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=15, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 54 | `HC02BC` | `7b9004005dc3` | `_DCT_STEDMAN6` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=47, tmpl=25, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 55 | `HC02C3` | `7bfaeec12bbc` | `_DCT_HKDKSR14` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=5, tmpl=50, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |
+| 56 | `HC02CB` | `7c67b67cd135` | `_DCT_GENMEM1` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=9, tmpl=28, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |
+| 57 | `HC00A9` | `7c763cd2b40c` | `_DCT_GEN2011` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=21, section_control_seen_in_body_loop | none | map template hints to body-loop branches and compare representative entry |
+| 58 | `HC02CD` | `7f515d98a1da` | `_DCT_GEN2020` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=9, tmpl=28, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |
+| 59 | `HC00AA` | `80697aa35c4a` | `_DCT_HKBYOIN4` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=3, tmpl=22, section_control_seen_in_body_loop | none | map template hints to body-loop branches and compare representative entry |
+| 60 | `HC00A3` | `80b9e4bfe2bd` | `_DCT_VIKU1000` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=6, tmpl=20, section_control_seen_in_body_loop | none | map template hints to body-loop branches and compare representative entry |
+| 61 | `HC00C5` | `82a9d644a865` | `_DCT_GKKANYOK` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=6, tmpl=19, section_control_seen_in_body_loop | `custom_gaiji_dib_hook` | compare representative entries against common renderer output; mark common-only if no differences |
+| 62 | `HC0C80` | `82c35f39941c` | `_DCT_BRINEN15` | 1 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | body-loop, tmpl=14 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | verify rendererdb path and inspect remaining hooks/search/media templates |
+| 63 | `HC00AD` | `85248c0354c5` | `_DCT_KANJIGN5` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=5, tmpl=15, section_control_seen_in_body_loop | `custom_gaiji_dib_hook` | compare representative entries against common renderer output; mark common-only if no differences |
+| 64 | `HC00BB` | `870bed4d7571` | `_DCT_Gen2000` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=18, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 65 | `HC0065` | `88eb804bd611` | `_DCT_GENIUSEB` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=24, tmpl=47, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 66 | `HC0153` | `8aa3cc6dfbeb` | `_DCT_HOUGAKU5` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=10 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 67 | `HC0145` | `94a25e181592` | `_DCT_RDRSP2` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=31, tmpl=27, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 68 | `HC015A` | `959808fa0cf9` | `_DCT_KOJIEN7` | 1 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | body-loop, tmpl=13, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | verify rendererdb path and inspect remaining hooks/search/media templates |
+| 69 | `HC0132` | `95b5f32cd9f2` | `_DCT_NGFINANC` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=2, tmpl=26, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |
+| 70 | `HC02BF` | `9633e65277fa` | `_DCT_KQLATINO` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=16, tmpl=22, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook`, `sql_or_search_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 71 | `HC00D5` | `9bc17aca00e4` | `_DCT_BRI2016` | 1 | `common_controls_plus_named_hooks` | body-loop | `modify_headword_hook`, `panel_lifecycle_hook` | verify whether Panel hook affects entry body or only viewer UI |
+| 72 | `HC0092` | `9f4f3d448970` | `_DCT_KCOMPEJ2` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=16, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 73 | `HC00AB` | `a1e7ee73966f` | `_DCT_GKYOJIJK` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=4, tmpl=16, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 74 | `HC0147` | `a5a2c4bcaec4` | `_DCT_YUCOGPSY` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=12, tmpl=27, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 75 | `HC0152` | `a77fe91732d4` | `_DCT_HAFRAN` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=11, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 76 | `HC00DE` | `aa92c5995de1` | `_DCT_BRI2019P` | 1 | `common_controls_plus_named_hooks` | body-loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook` | verify whether Panel hook affects entry body or only viewer UI |
+| 77 | `HC015B` | `aaa2b21f912a` | `_DCT_KENROWA` | 1 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | body-loop, tmpl=13, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | verify rendererdb path and inspect remaining hooks/search/media templates |
+| 78 | `HC0156` | `ac56f75af1d1` | `_DCT_KJJK100` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=12 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 79 | `HC014E` | `b20be015a67f` | `_DCT_PRMEDAB7` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=4, tmpl=2 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 80 | `HC0141` | `b2cb08e5df37` | `_DCT_Readers3` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=26, tmpl=25, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 81 | `HC004D` | `b5aedaab1278` | `_DCT_BMANNER` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=11, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 82 | `HC0076` | `b638539b068b` | `_DCT_HKEBMBOK` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=14, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 83 | `HC013F` | `b6d4f07ffb80` | `_DCT_ZYAKUKOG` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=2, tmpl=13, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 84 | `HC0146` | `bd6644ef5906` | `_DCT_PROYAL43` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=46, tmpl=15, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook`, `sql_or_search_hook` | sample more entries; promote only additional recovered branches |
+| 85 | `HC00C7` | `c93d6813af27` | `_DCT_GKKNJPZL` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=2 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 86 | `HC00A9` | `ca2f02ad4023` | `_DCT_GEN2011` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=23, section_control_seen_in_body_loop | none | map template hints to body-loop branches and compare representative entry |
+| 87 | `HC02C1` | `cd453a74ba53` | `_DCT_KQJCOLLO` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=18, tmpl=27, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 88 | `HC02C5` | `ce183b2fc4c4` | `_DCT_GENIUS53` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=31, tmpl=1, renderer_specific_gaiji_comparisons_seen | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook`, `sql_or_search_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 89 | `HC0095` | `d142ef45c591` | `_DCT_GKSAHOU` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=9, tmpl=18, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 90 | `HC02CC` | `d6421f9b1cf5` | `_DCT_GENMEM2` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=9, tmpl=28, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |
+| 91 | `HC015D` | `d8639eb90dc2` | `_DCT_SINJIGEN` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=17, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 92 | `HC007D` | `db1211af8d58` | `_DCT_KQNEWEJ6` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=3, tmpl=17, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 93 | `HC014A` | `db3868617977` | `_DCT_HKDKSR29` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=5, tmpl=50, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |
+| 94 | `HC014D` | `dcc44e6740c3` | `_DCT_NGYOKTUK` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=13 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 95 | `HC02D0` | `dcdb356351e8` | `_DCT_IWKOKUG8` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=17, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 96 | `HC015E` | `e0f7fbd8e77f` | `_DCT_DAIJIRN4` | 1 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | body-loop, tmpl=18, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | verify rendererdb path and inspect remaining hooks/search/media templates |
+| 97 | `HC014F` | `e14c5d1f5616` | `_DCT_EJJE200` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=15, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 98 | `HC00C6` | `e1e812a28caf` | `_DCT_Dconci87` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=103, tmpl=28, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 99 | `HC009F` | `e5bbc975c903` | `_DCT_HAIKSAIJ` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=6, tmpl=18, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 100 | `HC012D` | `e71267585a11` | `_DCT_MEIKYOU2` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=21, tmpl=50, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 101 | `HC00B6` | `ea813a9b3e32` | `_DCT_GENIUS43` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=20, tmpl=1, renderer_specific_gaiji_comparisons_seen | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 102 | `HC0161` | `eb1cde378983` | `_DCT_YUPSYCHO` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=12, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 103 | `HC008F` | `f05a990a08d8` | `_DCT_KQBIZEJ` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=16, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 104 | `HC02C9` | `f38083698a89` | `_DCT_GEN2018` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=8, tmpl=31, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |
+| 105 | `HC0142` | `f5c9669416f3` | `_DCT_YUECONO5` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=21, tmpl=21, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 106 | `HC0162` | `fc5100079d37` | `_DCT_YHOUGO5` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=12, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 107 | `HC0144` | `fea7e139f059` | `_DCT_RPLUSREV` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=28, tmpl=24, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 108 | `HC0073` | `feeefe989182` | `_DCT_HKKIGAKU` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=2, tmpl=20, section_control_seen_in_body_loop | none | map template hints to body-loop branches and compare representative entry |
+| 109 | `HC013D` | `ffc129d1e066` | `_DCT_HKDKSR13` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=21, tmpl=50, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | decode gaiji/marker branch table and map constants to CSS/templates |

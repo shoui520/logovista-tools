@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import shutil
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
@@ -30,6 +31,8 @@ from .hcprofiles import build_hc_behavior_profile
 from .parallel import parallel_map_ordered, worker_args
 from .pcmdata import PcmPointer, parse_pcm_pointer
 from .rendererdb import extract_rendererdb_dictionary
+from .resources import candidate_package_roots
+from .ssed import resolve_case_insensitive_path
 from .ssed import SsedRandomReader
 from .windows import (
     HcRendererClassification,
@@ -76,6 +79,55 @@ PRIVATE_START_OPS = {0xE2}
 PRIVATE_END_OPS = {0xE3}
 VERTICAL_HINT_OPS = {0x36, 0x37, 0x4B, 0x4C}
 PRIVATE_RENDERER_DIRECTIVE_OPS = {0x4E, 0x4F, 0xE4, 0xE6}
+
+HC_CSS_DEFAULTS = {
+    "$font-family-Jpn$": '"Yu Mincho", "Hiragino Mincho ProN", "Meiryo", serif',
+    "$body-font-family$": '"Yu Mincho", "Hiragino Mincho ProN", "Meiryo", serif',
+    "$midashi-font-family$": '"Yu Mincho", "Hiragino Mincho ProN", "Meiryo", serif',
+    "$font-family-Eng$": '"Times New Roman", "Arial", sans-serif',
+    "$ref-font-family$": '"Yu Gothic", "Meiryo", sans-serif',
+    "$Jpn-font-size$": "16px",
+    "$body-font-size$": "16px",
+    "$Eng-font-size$": "0.95em",
+    "$ref-font-size$": "1em",
+    "$midashi-font-size$": "1.35em",
+    "$midashi-bold$": "bold",
+    "$body-color$": "#111111",
+    "$midashi-color$": "#111111",
+    "$body-bgcolor$": "#ffffff",
+    "$ref-color$": "#0645ad",
+    "$line-height$": "1.65",
+    "$body_vertical_height$": "640",
+    "$body_vertical_width$": "480",
+}
+
+HC_RENDER_BASE_CSS = """
+.lv-hc-render {
+  margin: 0.75rem 0 1.25rem;
+  line-height: 1.65;
+}
+.lv-hc-render .lv-hc-heading {
+  display: block;
+}
+.lv-hc-render .lv-hc-section {
+  display: none;
+}
+.lv-hc-render img {
+  max-height: 1.4em;
+  vertical-align: middle;
+}
+.lv-hc-render .lv-hc-gaiji-placeholder {
+  display: inline-block;
+  min-width: 1em;
+  min-height: 1em;
+  border: 1px solid #999;
+  vertical-align: -0.15em;
+}
+.lv-hc-render .lv-hc-link,
+.lv-hc-render .lv-hc-audio {
+  text-decoration: none;
+}
+""".strip()
 
 
 @dataclass(frozen=True)
@@ -368,6 +420,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return None
     if _renderer_code(options) == "0158" and op == 0x12:
         return ("b", "")
+    if op == 0x41 and _renderer_code(options) in {"0146", "0157", "0158"}:
+        return ("span", ' class="lv-hc-heading midashi"')
     return STYLE_START_TAGS.get(op)
 
 
@@ -478,6 +532,99 @@ def _append_renderer_image_gaiji(
         f'src="{_escape_attr(image_src)}" alt="{_escape_attr(key)}" '
         f'data-gaiji-code="{_escape_attr(key)}">'
     )
+
+
+def _safe_relative_path(value: str) -> Path | None:
+    path = Path(value)
+    if path.is_absolute() or ".." in path.parts:
+        return None
+    return path
+
+
+def _resolve_package_relative(source: DictionarySource, value: str) -> Path | None:
+    relative = _safe_relative_path(value)
+    if relative is None:
+        return None
+    for root in candidate_package_roots(source.idx):
+        found = resolve_case_insensitive_path(root, relative)
+        if found is not None and found.is_file():
+            return found
+    return None
+
+
+def _copy_package_asset(source: DictionarySource, value: str, out_dir: Path) -> bool:
+    relative = _safe_relative_path(value)
+    if relative is None:
+        return False
+    source_path = _resolve_package_relative(source, value)
+    if source_path is None:
+        return False
+    target_path = out_dir / relative
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    source_stat = source_path.stat()
+    if not target_path.exists():
+        shutil.copy2(source_path, target_path)
+    else:
+        target_stat = target_path.stat()
+        if source_stat.st_size != target_stat.st_size or source_stat.st_mtime_ns != target_stat.st_mtime_ns:
+            shutil.copy2(source_path, target_path)
+    return True
+
+
+def _renderer_css_name(renderer: HcRendererClassification | None) -> str | None:
+    if renderer is None or renderer.code is None:
+        return None
+    try:
+        value = int(renderer.code, 16)
+    except ValueError:
+        return None
+    return f"Templates/{value:08X}.css"
+
+
+def _normalise_hc_css(css: str) -> str:
+    for placeholder, replacement in HC_CSS_DEFAULTS.items():
+        css = css.replace(placeholder, replacement)
+    return css
+
+
+def _prepare_hc_render_assets(
+    source: DictionarySource,
+    dict_out: Path,
+    renderer: HcRendererClassification | None,
+) -> tuple[dict[str, str], str | None, int]:
+    """Copy package assets needed by the generated standalone HC HTML."""
+
+    copied = 0
+    output_sources: dict[str, str] = {}
+    for key, value in sorted((source.image_sources or {}).items()):
+        output_sources[key] = value
+        if _copy_package_asset(source, value, dict_out):
+            copied += 1
+
+    stylesheet_rel = _renderer_css_name(renderer)
+    stylesheet_output = None
+    css_parts = [HC_RENDER_BASE_CSS]
+    if stylesheet_rel is not None:
+        stylesheet_source = _resolve_package_relative(source, stylesheet_rel)
+        if stylesheet_source is not None:
+            css_parts.append(_normalise_hc_css(stylesheet_source.read_text(encoding="utf-8", errors="replace")))
+    if css_parts:
+        stylesheet_output = "hc-renderer.css"
+        (dict_out / stylesheet_output).write_text("\n\n".join(css_parts) + "\n", encoding="utf-8")
+        copied += 1
+    return output_sources, stylesheet_output, copied
+
+
+def _write_hc_html_header(html_out: Any, *, stylesheet: str | None, vertical: bool) -> None:
+    body_class = "v" if vertical else "h"
+    html_out.write("<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n")
+    if stylesheet:
+        html_out.write(f'<link rel="stylesheet" href="{_escape_attr(stylesheet)}">\n')
+    html_out.write(f"</head>\n<body class=\"{body_class}\">\n")
+
+
+def _write_hc_html_footer(html_out: Any) -> None:
+    html_out.write("</body>\n</html>\n")
 
 
 def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRenderResult:
@@ -1054,9 +1201,10 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
     reader = SsedRandomReader(source.honmon)
     entries_path = dict_out / "hc_entries.jsonl"
     html_path = dict_out / "hc_entries.html"
+    image_sources, stylesheet, copied_assets = _prepare_hc_render_assets(source, dict_out, renderer)
     options = HcRenderOptions(
         gaiji_map=source.gaiji_map,
-        image_sources=source.image_sources or {},
+        image_sources=image_sources,
         renderer_code=renderer.code if renderer is not None else None,
         vertical=bool(getattr(args, "vertical", False)),
     )
@@ -1064,7 +1212,7 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
     emitted = 0
     named_gaps: Counter[str] = Counter()
     with entries_path.open("w", encoding="utf-8") as jsonl, html_path.open("w", encoding="utf-8") as html_out:
-        html_out.write("<!doctype html><meta charset=\"utf-8\">\n")
+        _write_hc_html_header(html_out, stylesheet=stylesheet, vertical=bool(getattr(args, "vertical", False)))
         for entry_index, (start, end) in enumerate(iter_entry_slices_reader(reader), start=1):
             if args.limit is not None and emitted >= args.limit:
                 break
@@ -1082,10 +1230,13 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
             jsonl.write(json.dumps(record, ensure_ascii=False) + "\n")
             html_out.write(f"<!-- {source.dict_id} #{entry_index} -->\n{result.html}\n")
             emitted += 1
+        _write_hc_html_footer(html_out)
     return {
         "raw_honmon_entries_emitted": emitted,
         "raw_honmon_entries_path": str(entries_path),
         "raw_honmon_html_path": str(html_path),
+        "raw_honmon_stylesheet": stylesheet,
+        "raw_honmon_assets_copied": copied_assets,
         "raw_honmon_stats": dict(sorted(totals.items())),
         "raw_honmon_named_behavior_gaps": dict(sorted(named_gaps.items())),
     }
