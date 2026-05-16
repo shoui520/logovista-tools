@@ -26,14 +26,17 @@ from .entries import (
     iter_entry_slices_reader,
     normalize_fullwidth_ascii,
 )
+from .hcprofiles import build_hc_behavior_profile
 from .parallel import parallel_map_ordered, worker_args
 from .pcmdata import PcmPointer, parse_pcm_pointer
 from .rendererdb import extract_rendererdb_dictionary
 from .ssed import SsedRandomReader
 from .windows import (
     HcRendererClassification,
+    classify_vlpljbl_file,
     classify_hc_renderer_file,
     discover_hc_renderer_files,
+    discover_renderer_sidecars,
     discover_sqlite_sidecars,
     hc_renderer_classification_to_json,
     load_exinfo_for_idx,
@@ -575,6 +578,7 @@ def _renderer_behavior_gaps(renderer: HcRendererClassification | None) -> list[s
 def _schema_backed_sidecars(source: DictionarySource) -> dict[str, Any]:
     exinfo = load_exinfo_for_idx(source.idx)
     rows = discover_sqlite_sidecars(source.idx, exinfo)
+    renderer_sidecars = discover_renderer_sidecars(source.idx, exinfo)
     role_counts = Counter(row.role for row in rows)
     supported_roles = {
         "sqlite_renderer_body",
@@ -590,22 +594,58 @@ def _schema_backed_sidecars(source: DictionarySource) -> dict[str, Any]:
         "sqlite_search_or_fulltext",
         "sqlite_search_or_conjugation",
     }
-    return {
-        "sidecars": [
+    sidecar_rows = [
+        {
+            "name": row.path.name,
+            "storage": row.storage,
+            "content_kind": row.content_kind,
+            "role": row.role,
+            "tables": list(row.tables),
+            "hc_render_support": (
+                "entry_body_or_media" if row.role in supported_roles else "classified_search_helper" if row.role in clear_search_roles else "classified_only"
+            ),
+        }
+        for row in rows
+    ]
+    seen = {str(row.path.resolve()) for row in rows}
+    for sidecar in renderer_sidecars:
+        resolved = str(sidecar.path.resolve())
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        role = "sqlite_renderer_body"
+        content_kind = "sqlite"
+        tables: list[dict[str, Any]] = []
+        if sidecar.path.name.lower().startswith("vlpljbl"):
+            classified = classify_vlpljbl_file(sidecar.path, inspect_sqlite=True, compute_hash=False)
+            role = classified.role
+            content_kind = classified.content_kind
+            tables = list(classified.sqlite_tables)
+        role_counts[role] += 1
+        sidecar_rows.append(
             {
-                "name": row.path.name,
-                "storage": row.storage,
-                "content_kind": row.content_kind,
-                "role": row.role,
-                "tables": list(row.tables),
+                "name": sidecar.path.name,
+                "storage": sidecar.storage,
+                "content_kind": content_kind,
+                "role": role,
+                "tables": tables,
                 "hc_render_support": (
-                    "entry_body_or_media" if row.role in supported_roles else "classified_search_helper" if row.role in clear_search_roles else "classified_only"
+                    "entry_body_or_media" if role in supported_roles else "classified_search_helper" if role in clear_search_roles else "classified_only"
                 ),
             }
-            for row in rows
-        ],
+        )
+    return {
+        "sidecars": sidecar_rows,
         "role_counts": dict(sorted(role_counts.items())),
     }
+
+
+def _has_entry_body_sidecar(schema_sidecars: dict[str, Any]) -> bool:
+    return any(
+        row.get("hc_render_support") == "entry_body_or_media"
+        for row in schema_sidecars.get("sidecars", [])
+        if isinstance(row, dict)
+    )
 
 
 def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: argparse.Namespace) -> dict[str, Any]:
@@ -656,7 +696,7 @@ def _rendererdb_args(args: argparse.Namespace) -> argparse.Namespace:
         media_limit=args.media_limit,
         write_ziptomedia=bool(args.write_ziptomedia),
         ziptomedia_limit=args.ziptomedia_limit,
-        limit=0,
+        limit=args.limit,
     )
 
 
@@ -669,9 +709,16 @@ def extract_hc_render_for_source(source: DictionarySource, out_dir: Path, args: 
     raw_summary = _render_raw_honmon_entries(source, dict_out, args)
     schema_sidecars = _schema_backed_sidecars(source)
     rendererdb_summary = None
-    if args.compare_rendererdb:
-        status(args, f"hc-render: {source.dict_id}: comparing renderer SQLite/body sidecars", verbose=True)
+    uses_renderer_sidecar_body = _has_entry_body_sidecar(schema_sidecars)
+    if args.compare_rendererdb or uses_renderer_sidecar_body:
+        status(args, f"hc-render: {source.dict_id}: resolving renderer SQLite/body sidecars", verbose=True)
         rendererdb_summary = extract_rendererdb_dictionary(source, dict_out / "rendererdb", _rendererdb_args(args))
+    profile = build_hc_behavior_profile(
+        renderer,
+        schema_sidecars=schema_sidecars,
+        rendererdb_summary=rendererdb_summary,
+        raw_gaps=raw_summary.get("raw_honmon_named_behavior_gaps", {}),
+    )
     behavior_gaps = _renderer_behavior_gaps(renderer)
     behavior_gaps.extend(raw_summary.get("raw_honmon_named_behavior_gaps", {}).keys())
     summary = {
@@ -682,6 +729,8 @@ def extract_hc_render_for_source(source: DictionarySource, out_dir: Path, args: 
         "honmon": str(source.honmon),
         "hc_renderer": renderer_json,
         "schema_backed_sidecars": schema_sidecars,
+        "behavior_profile": profile.as_dict(),
+        "exact_body_strategy": profile.body_strategy,
         "common_semantics": {
             "controls": [
                 "SSED text and style controls",
@@ -699,11 +748,12 @@ def extract_hc_render_for_source(source: DictionarySource, out_dir: Path, args: 
                 "media/t_media blob tables",
                 "ziptomedia references",
             ],
-            "exact_hc_parity": False,
+            "exact_body_html_available": profile.exact_body_html_available,
+            "exact_hc_parity": profile.exact_hc_parity,
         },
         **raw_summary,
         "rendererdb_comparison": rendererdb_summary,
-        "named_behavior_gaps": sorted(set(behavior_gaps)),
+        "named_behavior_gaps": sorted(set(behavior_gaps) | set(profile.named_gaps)),
     }
     (dict_out / "hc_render_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary

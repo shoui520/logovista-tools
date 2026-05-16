@@ -122,7 +122,26 @@ toolkit HTML renderer: text/style controls, internal links, `COLSCR.DIC`
 picture placeholders, `PCMDATA.DIC` sound ranges, Unicode/image gaiji fallback,
 private directive suppression, and vertical-rendering metadata. It also invokes
 the clear schema-backed renderer sidecar paths (`t_contents`, `HONBUN`,
-Android body DBs, media tables, and ziptomedia references) when requested.
+Android body DBs, media tables, and ziptomedia references) automatically when
+those sidecars are present. The command distinguishes **exact entry-body HTML**
+from **exact HC DLL parity**. For dense renderer DB products such as the
+modern `t_contents` family, the entry body can be taken from the same renderer
+sidecar HTML that the HC plugin queries; product hooks can still remain open.
+
+Current code-level renderer families are:
+
+```text
+modern_dense_t_contents_renderer  dense HONMON ID anchors -> t_contents f_Html
+ejje_search_sidecar_renderer      t_Search_* category SQL helper tables
+britannica_panel_media_renderer   Panel lifecycle + Media/HTMLs resources
+britannica_yearbook_array_renderer array_no-based t_contents indirection
+panel_enabled_renderer            Panel lifecycle hooks around normal rendering
+simple_htmls_vertical_renderer    HTMLs/block-offset template fallback
+sizk_readaloud_renderer           read-aloud HTML/audio template fallback
+shared_vertical_renderer          common body loop with vertical entrypoint
+shared_body_renderer              common body loop only
+```
+
 Panel hooks, SQL search UI hooks, plugin callbacks, user-data callbacks,
 custom gaiji DIB generation, and product-specific `modifyHeadword*` behavior
 remain named behavior gaps unless their exact data path is separately decoded.

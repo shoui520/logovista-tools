@@ -78,9 +78,12 @@ and non-SSED reader status are tracked separately in
   `EXINFO` `HTMLDLL` correlation, numeric-index correlation, `vlpljbl*`
   companion names, embedded SQL/HTML/image template strings, and observed
   control effects for body, gaiji, picture, link, audio, and private layout
-  directives. `hc-render` applies the common HC control semantics to raw body
-  slices and reports product-specific hooks as named behavior gaps rather than
-  claiming exact plugin parity.
+  directives. `hc` and `hc-render` now emit per-renderer behavior profiles that
+  classify exact body strategy separately from product hook parity.
+  `hc-render` applies the common HC control semantics to raw body slices,
+  automatically uses clear renderer body sidecars when present, and reports
+  product-specific hooks as named behavior gaps rather than claiming exact
+  plugin parity.
 - Renderer/app SQLite extraction through raw HONMON ID anchors and
   `t_contents` rows, with optional `media` BLOB export.
 - Renderer SQLite extraction for the `BRINEN15` dense-anchor variant:

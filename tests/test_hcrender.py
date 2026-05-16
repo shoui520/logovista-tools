@@ -1,8 +1,17 @@
 from pathlib import Path
+import argparse
 import sqlite3
 
 from logovista_tools.entries import DictionarySource
-from logovista_tools.hcrender import HcRenderOptions, _renderer_behavior_gaps, _schema_backed_sidecars, render_hc_body
+from logovista_tools.hcrender import (
+    HcRenderOptions,
+    _has_entry_body_sidecar,
+    _renderer_behavior_gaps,
+    _rendererdb_args,
+    _schema_backed_sidecars,
+    render_hc_body,
+)
+from logovista_tools.hcprofiles import build_hc_behavior_profile
 from logovista_tools.windows import HcRendererClassification, PeSummary
 
 
@@ -120,3 +129,130 @@ def test_hc_render_schema_sidecars_classify_search_helpers(tmp_path: Path) -> No
 
     assert summary["role_counts"] == {"sqlite_category_search_index": 1}
     assert summary["sidecars"][0]["hc_render_support"] == "classified_search_helper"
+    assert _has_entry_body_sidecar(summary) is False
+
+
+def test_hc_render_schema_sidecars_detect_exact_body_sidecar(tmp_path: Path) -> None:
+    idx = tmp_path / "TEST.IDX"
+    honmon = tmp_path / "HONMON.DIC"
+    idx.write_bytes(b"")
+    honmon.write_bytes(b"")
+    con = sqlite3.connect(tmp_path / "body.db")
+    con.execute("create table t_contents (f_DataId integer primary key, f_Html text)")
+    con.commit()
+    con.close()
+    source = DictionarySource(
+        dict_id="TEST",
+        idx=idx,
+        title="test",
+        honmon=honmon,
+        honmon_start_block=1,
+        gaiji_map={},
+    )
+
+    summary = _schema_backed_sidecars(source)
+
+    assert summary["role_counts"] == {"sqlite_renderer_body": 1}
+    assert summary["sidecars"][0]["hc_render_support"] == "entry_body_or_media"
+    assert _has_entry_body_sidecar(summary) is True
+
+
+def test_hc_render_schema_sidecars_detect_extensionless_renderer_sidecar(tmp_path: Path) -> None:
+    idx = tmp_path / "TEST.IDX"
+    honmon = tmp_path / "HONMON.DIC"
+    idx.write_bytes(b"")
+    honmon.write_bytes(b"")
+    con = sqlite3.connect(tmp_path / "vlpljblF")
+    con.execute("create table t_contents (f_DataId integer primary key, f_Html text)")
+    con.commit()
+    con.close()
+    source = DictionarySource(
+        dict_id="TEST",
+        idx=idx,
+        title="test",
+        honmon=honmon,
+        honmon_start_block=1,
+        gaiji_map={},
+    )
+
+    summary = _schema_backed_sidecars(source)
+
+    assert summary["role_counts"] == {"sqlite_renderer_body": 1}
+    assert summary["sidecars"][0]["name"] == "vlpljblF"
+    assert summary["sidecars"][0]["hc_render_support"] == "entry_body_or_media"
+    assert _has_entry_body_sidecar(summary) is True
+
+
+def test_hc_render_rendererdb_comparison_uses_requested_entry_limit() -> None:
+    args = argparse.Namespace(
+        write_sidecar_media=False,
+        media_limit=None,
+        write_ziptomedia=True,
+        ziptomedia_limit=3,
+        limit=25,
+    )
+
+    derived = _rendererdb_args(args)
+
+    assert derived.limit == 25
+    assert derived.write_ziptomedia is True
+    assert derived.ziptomedia_limit == 3
+
+
+def test_hc_behavior_profile_names_exact_body_without_claiming_full_parity() -> None:
+    renderer = HcRendererClassification(
+        path=Path("HC015F.dll"),
+        code="015F",
+        expected_numeric_index="0000015F.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(
+            kind="pe",
+            exports=(
+                "epwing2HtmlBodydata",
+                "epwing2HtmlBodydataVertical",
+                "createMediaFileFromZip",
+                "pluginFunction2nd",
+                "modifyHeadwordEx",
+                "initializeSQL",
+                "finalizeSQL",
+            ),
+        ),
+        exinfo_html_dll="HC015F.dll",
+        exinfo_declares_this=True,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=("vlpljblF",),
+        dic_tokens=(),
+        vlpljbl_tokens=("vlpljblF",),
+        html_templates=("%s\\body%d.html",),
+        sql_snippets=("SELECT f_html FROM t_contents WHERE f_dataid = ? LIMIT 1 ;",),
+        image_templates=(),
+        features={
+            "html_body_renderer": True,
+            "vertical_renderer": True,
+            "sql_hooks": True,
+            "plugin_hooks": True,
+            "headword_modifier": True,
+            "zip_media_export": True,
+        },
+    )
+    schema = {
+        "role_counts": {"sqlite_renderer_body_with_media": 1},
+        "sidecars": [{"role": "sqlite_renderer_body_with_media", "hc_render_support": "entry_body_or_media"}],
+    }
+
+    profile = build_hc_behavior_profile(
+        renderer,
+        schema_sidecars=schema,
+        rendererdb_summary={"status": "ok", "ziptomedia_written": 2},
+    )
+    row = profile.as_dict()
+
+    assert row["family"] == "modern_dense_t_contents_renderer"
+    assert row["exact_body_html_available"] is True
+    assert row["body_strategy_status"] == "exact_entry_body_html"
+    assert row["exact_hc_parity"] is False
+    assert "schema_backed_exact_entry_html" in row["implemented_semantics"]
+    assert "ziptomedia_reference_extraction" in row["implemented_semantics"]
+    assert "royal_example_search_helpers" in row["named_gaps"]

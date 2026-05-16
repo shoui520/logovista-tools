@@ -59,6 +59,7 @@ from .gaiji import (
 )
 from .gaiji_readiness import extract_gaiji_readiness_for_args
 from .honmon_bytes import extract_honmon_byte_reports_for_args
+from .hcprofiles import build_hc_behavior_profile
 from .hcrender import add_hc_render_args, extract_hc_render_for_sources
 from .indexes import extract_indexes_for_idx
 from .ir import extract_ir_for_args
@@ -1505,7 +1506,9 @@ def cmd_vlpljbl(args: argparse.Namespace) -> int:
 def _hc_task(payload: tuple[Path, argparse.Namespace]) -> dict[str, Any]:
     path, args = payload
     row = classify_hc_renderer_file(path, compute_hash=not args.no_hash)
-    return hc_renderer_classification_to_json(row)
+    data = hc_renderer_classification_to_json(row)
+    data["behavior_profile"] = build_hc_behavior_profile(row).as_dict()
+    return data
 
 
 def cmd_hc(args: argparse.Namespace) -> int:

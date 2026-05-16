@@ -205,6 +205,9 @@ report:
   bridge imports: body-byte access, Unicode-first/bitmap-fallback gaiji,
   picture controls, sound ranges, internal address links, Panel hooks, SQL
   search hooks, and private layout directives.
+- `behavior_profile`, a per-renderer behavior contract that names the renderer
+  family, implemented semantics, exact body strategy, and product-specific hook
+  gaps.
 
 `hc` emits discovery and per-file progress to stderr. Its JSON output is
 redacted: it includes names, hashes, import/export names, and short embedded
@@ -240,12 +243,17 @@ hc_entries.jsonl
 hc_entries.html
 ```
 
-`--compare-rendererdb` also runs the schema-backed renderer sidecar resolver
-for clear `t_contents`, `HONBUN`, Android body DB, media table, and ziptomedia
-cases, writing its own nested `rendererdb/` output. Product-specific hooks such
-as Panel handlers, SQL search UI, plugin callbacks, user-data hooks, custom
-gaiji bitmap hooks, and `modifyHeadword*` are preserved as named behavior gaps;
-the command does not fake exact product behavior.
+When a body-capable renderer sidecar is present, `hc-render` automatically runs
+the schema-backed sidecar resolver for clear `t_contents`, `HONBUN`, Android
+body DB, media table, and ziptomedia cases, writing its own nested
+`rendererdb/` output. `--compare-rendererdb` remains available as an explicit
+request, but it is no longer required for dense renderer-sidecar packages.
+
+The summary separates `exact_body_html_available` from `exact_hc_parity`.
+For example, a `t_contents` package may have exact sidecar body HTML while
+still reporting product-specific gaps for Panel handlers, SQL search UI,
+plugin callbacks, user-data hooks, custom gaiji bitmap hooks, or
+`modifyHeadword*`. The command does not fake exact product behavior.
 
 ### `multiview`
 
