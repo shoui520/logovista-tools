@@ -549,6 +549,15 @@ HC012E_LITERAL_MARKERS = {"a149": "&nbsp;&nbsp;"}
 HC012E_DIRECT_IMAGE_MARKERS = frozenset(f"b{value:03x}" for value in range(0x136, 0x13A))
 HC012E_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
 
+HC02C2_ICON_SECTION_IMAGES = {
+    "0007": "1.png",
+    "0008": "2.png",
+    "0009": "3.png",
+    "000a": "4.png",
+}
+HC02C2_TEMPLATE_IMAGE_MARKERS = frozenset(f"b{value:03x}" for value in range(0x13E, 0x15E))
+HC02C2_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
+
 
 def _escape_attr(value: object) -> str:
     return html.escape(str(value), quote=True)
@@ -634,11 +643,19 @@ def _renderer_code(options: HcRenderOptions) -> str:
     return (options.renderer_code or "").upper()
 
 
+def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
+    if _renderer_code(options) == "02C2" and start_op in {0x42, 0x43}:
+        return "lv-hc-link lineLink"
+    return "lv-hc-link"
+
+
 def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | None:
     if _renderer_code(options) == "0157" and op == 0x12:
         return None
     if _renderer_code(options) == "0158" and op == 0x12:
         return ("b", "")
+    if op in {0x41, 0x4C} and _renderer_code(options) == "02C2":
+        return None
     if op == 0x41 and _renderer_code(options) == "012E":
         return ("div", ' class="midashi"')
     if op == 0x41 and _renderer_code(options) in {"00C6", "0146", "0157", "0158"}:
@@ -732,7 +749,7 @@ def _append_gaiji_value(
     if image_src:
         stats["gaiji_image"] += 1
         css_class = "lv-hc-gaiji lv-hc-gaiji-image"
-        if _renderer_code(options) == "012E":
+        if _renderer_code(options) in {"012E", "02C2"}:
             css_class += " img_gaiji"
         if _renderer_code(options) == "0158":
             css_class += " gaiji"
@@ -851,6 +868,35 @@ def _hc012e_section_parts(code: str, options: HcRenderOptions) -> list[str]:
     if code == "005a":
         return ["<br>", _hc012e_honbun_div()]
     return []
+
+
+def _hc02c2_honbun_div() -> str:
+    return '<div class="honbun" style="margin-left:0.000000em;">'
+
+
+def _hc02c2_icon_section_parts(code: str) -> list[str]:
+    image_name = HC02C2_ICON_SECTION_IMAGES.get(code)
+    if image_name is None:
+        return []
+    return [
+        _hc02c2_honbun_div(),
+        f'<img src="{image_name}" class="img_icon"/><br>',
+        "</div>",
+    ]
+
+
+def _hc02c2_section_parts(code: str, previous_code: str | None) -> tuple[list[str], bool]:
+    if code == "0001":
+        return ['<div class="midashi">'], False
+
+    parts: list[str] = []
+    if code in HC02C2_ICON_SECTION_IMAGES and code != previous_code:
+        parts.extend(_hc02c2_icon_section_parts(code))
+    parts.append(_hc02c2_honbun_div())
+    moji_down = code == "0007"
+    if moji_down:
+        parts.append('<p class="moji-down">')
+    return parts, moji_down
 
 
 def _safe_relative_path(value: str) -> Path | None:
@@ -976,6 +1022,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc02be_section_open = False
     hc012e_section_open = False
     hc012e_current_section: str | None = None
+    hc02c2_section_open = False
+    hc02c2_moji_down_open = False
+    hc02c2_current_section: str | None = None
     i = 0
     while i < len(data):
         byte = data[i]
@@ -1062,6 +1111,23 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats["hc012e_section_blocks"] += 1
                             if "hitsujun start" in "".join(section_parts):
                                 stats["hc012e_hitsujun_sections"] += 1
+                    if _renderer_code(options) == "02C2":
+                        if hc02c2_section_open:
+                            if hc02c2_moji_down_open:
+                                root.append("</p>")
+                                hc02c2_moji_down_open = False
+                            root.append("</div>")
+                            hc02c2_section_open = False
+                        icon_emitted = code in HC02C2_ICON_SECTION_IMAGES and code != hc02c2_current_section
+                        section_parts, moji_down_open = _hc02c2_section_parts(code, hc02c2_current_section)
+                        root.extend(section_parts)
+                        hc02c2_current_section = code
+                        hc02c2_section_open = bool(section_parts)
+                        hc02c2_moji_down_open = moji_down_open
+                        if section_parts:
+                            stats["hc02c2_section_blocks"] += 1
+                        if icon_emitted:
+                            stats["hc02c2_section_icons"] += 1
                     if active_section_image_rules and all(
                         code not in section_rules[active].group_codes for active in active_section_image_rules
                     ):
@@ -1094,6 +1160,12 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if _renderer_code(options) == "012E" and hc012e_section_open:
                     _current_parts(root_parts, contexts).append("</div>")
                     hc012e_section_open = False
+                if _renderer_code(options) == "02C2" and hc02c2_section_open:
+                    if hc02c2_moji_down_open:
+                        _current_parts(root_parts, contexts).append("</p>")
+                        hc02c2_moji_down_open = False
+                    _current_parts(root_parts, contexts).append("</div>")
+                    hc02c2_section_open = False
                 _current_parts(root_parts, contexts).append("<br>")
                 stats["line_breaks"] += 1
                 i += 2 + arg_len
@@ -1118,6 +1190,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "012E" and op in HC012E_NONPRINTING_CONTROL_OPS:
                 stats["hc012e_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "02C2" and op in HC02C2_NONPRINTING_CONTROL_OPS:
+                stats["hc02c2_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -1192,7 +1269,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if not label:
                     label = "link"
                 attrs = [
-                    'class="lv-hc-link"',
+                    f'class="{_escape_attr(_link_css_class(options, ctx.start_op if ctx else None))}"',
                     f'href="{_escape_attr(_pointer_href(target))}"',
                     f'data-lv-link-status="{_escape_attr(link["status"])}"',
                 ]
@@ -1394,6 +1471,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     stats["hc012e_noop_markers"] += 1
                     i += 2
                     continue
+            if _renderer_code(options) == "02C2" and key in HC02C2_TEMPLATE_IMAGE_MARKERS:
+                image_src = _image_source_for_key(key, options)
+                if image_src is not None:
+                    _append_renderer_image_gaiji(_current_parts(root_parts, contexts), key, image_src, "img_gaiji", stats)
+                else:
+                    _append_gaiji_value(_current_parts(root_parts, contexts), _current_text_parts(contexts), key, options, stats)
+                stats["hc02c2_template_image_markers"] += 1
+                i += 2
+                continue
             if _renderer_code(options) == "00C6":
                 parts = _current_parts(root_parts, contexts)
                 text_parts = _current_text_parts(contexts)
@@ -1704,6 +1790,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     if hc02be_section_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc012e_section_open:
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc02c2_section_open:
+        if hc02c2_moji_down_open:
+            _current_parts(root_parts, contexts).append("</p>")
         _current_parts(root_parts, contexts).append("</div>")
     while contexts:
         ctx = contexts.pop()

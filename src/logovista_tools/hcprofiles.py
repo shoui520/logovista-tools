@@ -278,6 +278,26 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The branch subset excludes custom DIB generation, modifyHeadwordEx, and unverified vertical-navigation table scaffolding.",
             )
         )
+    if code == "02C2":
+        rows.append(
+            HcHookBehavior(
+                name="kqcolexp_section_icons_and_template_gaiji",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC02C2 epwing2HtmlBodydataVertical 1f09 branch ladder",
+                    "HC02C2 B13E-B15D template image branch exclusion set",
+                    "HC02C2 1f41/1f4c skip branch and lineLink template",
+                    "Templates/000002C2.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to midashi/honbun blocks, sections 0007-000A emit "
+                    "1.png-4.png img_icon markers, section 0007 opens moji-down text, "
+                    "B13E-B15D render as img_gaiji template images, and line links carry "
+                    "the recovered lineLink class"
+                ),
+                notes="Panel lifecycle, modifyHeadwordEx, and custom DIB generation remain named gaps.",
+            )
+        )
     if code == "012E":
         rows.append(
             HcHookBehavior(
@@ -436,6 +456,8 @@ def build_hc_behavior_profile(
         implemented.add("HC02BE_section_and_phonetic_markers")
     if code == "02BC":
         implemented.add("HC02BC_section_and_medical_markers")
+    if code == "02C2":
+        implemented.add("HC02C2_section_icons_and_template_gaiji")
     if code == "012E":
         implemented.add("HC012E_kanji_layout_and_gaijitemp_markers")
     if code == "0146":

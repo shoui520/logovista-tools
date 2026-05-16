@@ -348,6 +348,55 @@ def test_hc012e_treats_1f6d_as_nonprinting_renderer_control() -> None:
     assert rendered.stats["hc012e_nonprinting_controls"] == 1
 
 
+def test_hc02c2_maps_section_icons_and_moji_down_blocks() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x01"
+        + jis_ascii("H")
+        + b"\x1f\x09\x00\x07"
+        + jis_ascii("A")
+        + b"\x1f\x09\x00\x08"
+        + jis_ascii("B")
+        + b"\x1f\x09\x00\x09"
+        + jis_ascii("C")
+        + b"\x1f\x09\x00\x0a"
+        + jis_ascii("D"),
+        HcRenderOptions(renderer_code="02C2"),
+    )
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<img src="1.png" class="img_icon"/><br>' in rendered.html
+    assert '<img src="2.png" class="img_icon"/><br>' in rendered.html
+    assert '<img src="3.png" class="img_icon"/><br>' in rendered.html
+    assert '<img src="4.png" class="img_icon"/><br>' in rendered.html
+    assert '<p class="moji-down">' in rendered.html
+    assert '<span class="lv-hc-halfwidth">A</span></p>' in rendered.html
+    assert rendered.stats["hc02c2_section_blocks"] == 5
+    assert rendered.stats["hc02c2_section_icons"] == 4
+
+
+def test_hc02c2_uses_template_gaiji_images_and_suppresses_heading_control() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x41" + jis_ascii("H") + b"\x1f\x61" + b"\xb1\x3e",
+        HcRenderOptions(renderer_code="02C2", image_sources={"b13e": "Templates/B13E.png"}),
+    )
+
+    assert 'class="lv-hc-heading"' not in rendered.html
+    assert 'src="Templates/B13E.png"' in rendered.html
+    assert 'class="lv-hc-gaiji img_gaiji"' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc02c2_nonprinting_controls"] == 1
+    assert rendered.stats["hc02c2_template_image_markers"] == 1
+
+
+def test_hc02c2_line_links_use_product_class() -> None:
+    body = b"\x1f\x42" + jis_ascii("L") + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="02C2"))
+
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'href="lvaddr://00000002/0048"' in rendered.html
+
+
 def test_hc0158_renders_rank_marker_stars_without_gaiji_placeholder() -> None:
     rendered = render_hc_body(
         b"\xb3\x55" + jis_ascii("A") + b"\xb3\x54",
@@ -647,6 +696,36 @@ def test_branch_subset_profiles_do_not_claim_visual_parity() -> None:
     assert "visual_parity_unverified" in profile.named_gaps
     assert any("visual parity" in note for note in profile.notes)
     assert any(hook.status == "branch_subset_implemented" for hook in profile.hook_behaviors)
+
+
+def test_hc02c2_profile_records_section_icon_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC02C2.dll"),
+        code="02C2",
+        expected_numeric_index="000002C2.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=(),
+        features={"panel_hooks": True, "headword_modifier": True},
+    )
+
+    profile = build_hc_behavior_profile(row)
+    data = profile.as_dict()
+
+    assert "HC02C2_section_icons_and_template_gaiji" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "panel_lifecycle" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
 
 
 def test_hc_render_schema_sidecars_classify_search_helpers(tmp_path: Path) -> None:

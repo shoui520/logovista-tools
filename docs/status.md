@@ -297,6 +297,14 @@ and non-SSED reader status are tracked separately in
   inline medical chemistry/phonetic composites. Custom DIB generation,
   modifyHeadwordEx, and unverified vertical-navigation wrapper scaffolding
   remain named gaps.
+- `HC02C2.dll` now has a focused raw-HONMON branch-subset proof for KQCOLEXP:
+  section `1f09` payloads map to product `midashi`/`honbun` blocks; sections
+  `0007` through `000A` emit `1.png` through `4.png` `img_icon` markers;
+  section `0007` opens `moji-down` text; B13E-B15D render as `img_gaiji`
+  template images; `1f41`/`1f4c` are consumed as renderer state controls; and
+  internal links carry the recovered `lineLink` class. Custom DIB generation,
+  `modifyHeadwordEx`, Panel lifecycle hooks, and broader visual parity remain
+  named gaps.
 - `HC012E.dll` now has a focused raw-HONMON branch-subset proof for NKGORIN2:
   `Gaijitemp/` image glyphs are discovered as package resources; common
   section `1f09` payloads map to `honbun`, `bushu`, `kaku_midashi`, `exam`,
@@ -324,8 +332,9 @@ and non-SSED reader status are tracked separately in
   decompiled body-loop branch table and `Templates/00000146.css`. Product
   wrapper, section/layout state, and custom hooks remain visually incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
-  exact SHA-256 renderer binaries. HC013A, HC00C6, HC012E, HC02BC, HC02BE, HC0146,
-  HC0157, and HC0158 currently have decoded branch subsets, not full HC parity.
+  exact SHA-256 renderer binaries. HC013A, HC00C6, HC012E, HC02BC, HC02BE, HC02C2,
+  HC0146, HC0157, and HC0158 currently have decoded branch subsets, not full HC
+  parity.
   Other branch tables remain named gaps until their output constants and product
   data paths are understood.
 - The default raw-resource gaiji readiness pass intentionally does not use
