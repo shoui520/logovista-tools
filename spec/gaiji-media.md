@@ -128,6 +128,14 @@ usage group span, and B22D-B23B render Unicode circled-number gaiji inside a red
 span. This means a reader must not globally treat those codes as plain images or
 plain Unicode for that renderer profile.
 
+`HC0146.dll` shows a third profile-specific gaiji-marker pattern. Its vertical
+body loop treats B232/B233 as a `color_font` delimiter pair, B240 as literal
+abbreviation text, B157-B159 as `_M` image templates using `img_mark4`,
+B25A-B351 as `gaiji_icon`, and B23B/B357-B424 as `gaiji_full`. B236/B237/B241
+and B44F-B451 are consumed as nonprinting renderer selectors even when matching
+template images exist. Branches whose output comes from runtime-initialized
+template globals remain profile gaps until their concrete tags are recovered.
+
 ## `COLSCR.DIC` Media Resources
 
 `COLSCR.DIC` is a compressed SSED component, usually listed as component type

@@ -218,6 +218,23 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="HC013A decodes the 0011 section payload as decimal 11 and keeps the example block active across sections 0010, 0011, and 0012.",
             )
         )
+    if code == "0146":
+        rows.append(
+            HcHookBehavior(
+                name="proyal43_inline_marker_gaiji",
+                status="implemented",
+                evidence=(
+                    "HC0146 epwing2HtmlBodydataVertical B232/B233 color-font branches",
+                    "HC0146 B157-B159, B25A-B351, B23B, and B357-B424 image-template branches",
+                    "Templates/00000146.css class definitions",
+                ),
+                implementation=(
+                    "B232/B233 color_font delimiter pair, B240 literal abbreviation label, "
+                    "nonprinting template selectors, and classed image gaiji templates"
+                ),
+                notes="The implementation covers branches whose destination template is recovered from the body loop and package CSS; unresolved BSS-backed open spans remain named gaps.",
+            )
+        )
     if code == "0158":
         rows.append(
             HcHookBehavior(
@@ -330,6 +347,8 @@ def build_hc_behavior_profile(
         implemented.add("sidecar_media_blob_extraction")
     if code == "013A":
         implemented.add("HC013A_example_section_badge")
+    if code == "0146":
+        implemented.add("HC0146_inline_marker_gaiji")
     if code == "0158":
         implemented.add("HC0158_inline_style_gaiji")
         implemented.add("HC0158_sound_icon_audio_link")
@@ -352,6 +371,8 @@ def build_hc_behavior_profile(
         if feature == "headword_modifier" and any("headword" in hook.name for hook in hooks):
             continue
         if feature == "plugin_hooks" and any("plugin" in item for hook in hooks for item in (hook.name, *hook.evidence)):
+            continue
+        if feature == "panel_hooks" and any("panel" in hook.name for hook in hooks):
             continue
         hooks.append(
             HcHookBehavior(

@@ -283,10 +283,14 @@ and non-SSED reader status are tracked separately in
   marker/image combinations are handled from the decompiled body-loop branch
   table; `PCMDATA.DIC` sound ranges use the package `sound.png` template when
   present.
+- `HC0146.dll` now has a focused raw-HONMON renderer proof: B232/B233
+  `color_font` delimiters, B240 literal abbreviation text, nonprinting
+  template selectors, and classed image-gaiji ranges are handled from the
+  decompiled body-loop branch table and `Templates/00000146.css`.
 - The all-family HC pass has decompiled a representative for each of the 109
-  exact SHA-256 renderer binaries. Only HC013A, HC0157, HC0158, and shared
-  common semantics are implemented. Other branch tables remain named gaps until
-  their output constants and product data paths are understood.
+  exact SHA-256 renderer binaries. Only HC013A, HC0146, HC0157, HC0158, and
+  shared common semantics are implemented. Other branch tables remain named
+  gaps until their output constants and product data paths are understood.
 - The default raw-resource gaiji readiness pass intentionally does not use
   Windows renderer databases. `NGYOKTUK` has no direct `.uni`/GA16/image gaiji
   resources, but its encrypted `vlpljblF` sidecar decrypts to row-ordered

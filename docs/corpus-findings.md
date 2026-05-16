@@ -1146,9 +1146,9 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-implemented product profiles:        3   HC013A, HC0157, HC0158
+implemented product profiles:        4   HC013A, HC0146, HC0157, HC0158
 common semantics plus named gaps:   105
-decompiled marker table deferred:     1   HC0146
+decompiled marker table deferred:     0
 ```
 
 Named unresolved hook families in the exact-SHA pass include custom gaiji DIB
@@ -1181,11 +1181,18 @@ number gaiji inside a red span. Its `1f4a`/`1f6a` path also uses the
 `sound.png` / `img_mark2` template when available. This is a branch-table
 implementation, not a string-only inference.
 
+The fourth implemented raw-HONMON proof case is `HC0146.dll`. Its vertical body
+loop maps B232/B233 to a `color_font` delimiter pair, B240 to the literal
+abbreviation label `略：`, B157-B159 to `_M` image templates with
+`img_mark4`, B25A-B351 to `gaiji_icon`, and B23B/B357-B424 to `gaiji_full`.
+B236/B237/B241 and B44F-B451 are consumed as renderer template selectors rather
+than displayed as glyphs. Several other HC0146 branches still route through
+runtime-initialized template globals; those remain named gaps until the concrete
+open tags and state transitions are recovered.
+
 Some other renderer families are decoded but deliberately not implemented yet.
-For example, `HC0146.dll` has a large B-code marker table and `1f09` section
-logic, but several output branches still route through unresolved data
-constants. Until those constants are traced to concrete templates, the toolkit
-keeps them as named behavior gaps rather than guessing.
+The toolkit keeps unresolved branches as named behavior gaps rather than
+guessing from strings alone.
 
 ### Panel Subsystem
 

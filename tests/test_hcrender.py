@@ -257,6 +257,60 @@ def test_hc0157_treats_1f12_1f13_as_noop_controls() -> None:
     assert "unknown_control_1f12" not in rendered.named_behavior_gaps
 
 
+def test_hc0146_renders_color_font_markers_without_gaiji_placeholders() -> None:
+    rendered = render_hc_body(
+        b"\xb2\x32" + jis_ascii("A") + b"\xb2\x33",
+        HcRenderOptions(renderer_code="0146"),
+    )
+
+    assert '<font class="color_font"><span class="lv-hc-halfwidth">A</span></font>' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc0146_style_markers"] == 2
+
+
+def test_hc0146_renders_dll_backed_image_marker_classes() -> None:
+    rendered = render_hc_body(
+        b"\xb1\x57\xb2\x5a\xb3\x57",
+        HcRenderOptions(
+            renderer_code="0146",
+            image_sources={
+                "b157": "Templates/b157_M.png",
+                "b25a": "Templates/b25a.png",
+                "b357": "Templates/b357.png",
+            },
+        ),
+    )
+
+    assert 'src="Templates/b157_M.png"' in rendered.html
+    assert 'class="lv-hc-gaiji img_mark4"' in rendered.html
+    assert 'src="Templates/b25a.png"' in rendered.html
+    assert 'class="lv-hc-gaiji gaiji_icon"' in rendered.html
+    assert 'src="Templates/b357.png"' in rendered.html
+    assert 'class="lv-hc-gaiji gaiji_full"' in rendered.html
+    assert rendered.stats["hc0146_image_markers"] == 3
+    assert rendered.stats["gaiji_image"] == 3
+
+
+def test_hc0146_treats_template_selector_markers_as_nonprinting() -> None:
+    rendered = render_hc_body(
+        b"\xb4\x4f" + jis_ascii("A") + b"\xb4\x51",
+        HcRenderOptions(renderer_code="0146", image_sources={"b44f": "Templates/b44f.png"}),
+    )
+
+    assert "Templates/b44f.png" not in rendered.html
+    assert 'data-gaiji-code="b451"' not in rendered.html
+    assert rendered.plain == "A"
+    assert rendered.stats["hc0146_noop_markers"] == 2
+
+
+def test_hc0146_renders_abbreviation_marker_as_literal_text() -> None:
+    rendered = render_hc_body(b"\xb2\x40" + jis_ascii("A"), HcRenderOptions(renderer_code="0146"))
+
+    assert "略：" in rendered.html
+    assert rendered.plain == "略：A"
+    assert rendered.stats["hc0146_literal_markers"] == 1
+
+
 def test_hc_renderer_product_hooks_are_named_gaps() -> None:
     row = HcRendererClassification(
         path=Path("HC0001.dll"),
