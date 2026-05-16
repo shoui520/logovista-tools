@@ -522,6 +522,7 @@ HC012E_HONBUN_SECTION_CODES = {
     "0024",
     "0025",
     "0026",
+    "0027",
     "0028",
     "0029",
     "002a",
@@ -858,8 +859,6 @@ def _hc012e_section_parts(code: str, options: HcRenderOptions) -> list[str]:
         return ['<table class="table_oyaji"><tr><td><div class="Oyaji">']
     if code == "001f":
         return ['<table class="table_kyuuji"><tr><td><div class="Kyuuji">']
-    if code == "0027":
-        return ['<table class="table_itaiji"><tr><td><div class="Itaiji">']
     if code == "003f":
         return ['<table class="table_itaiji_2"><tr><td><div class="Itaiji">']
     if code == "0008":

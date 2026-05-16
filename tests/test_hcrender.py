@@ -322,7 +322,7 @@ def test_hc012e_closes_table_sections_on_section_transition() -> None:
     rendered = render_hc_body(
         b"\x1f\x09\x00\x07"
         + jis_ascii("O")
-        + b"\x1f\x09\x00\x27"
+        + b"\x1f\x09\x00\x3f"
         + jis_ascii("I"),
         HcRenderOptions(renderer_code="012E"),
     )
@@ -334,7 +334,18 @@ def test_hc012e_closes_table_sections_on_section_transition() -> None:
     assert rendered.html.count("<td>") == 2
     assert rendered.html.count("</td>") == 2
     assert '<table class="table_oyaji"><tr><td><div class="Oyaji">' in rendered.html
-    assert '</div></td></tr></table><table class="table_itaiji"><tr><td><div class="Itaiji">' in rendered.html
+    assert '</div></td></tr></table><table class="table_itaiji_2"><tr><td><div class="Itaiji">' in rendered.html
+
+
+def test_hc012e_keeps_common_kun_section_normal_sized() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x27" + jis_ascii("K"),
+        HcRenderOptions(renderer_code="012E"),
+    )
+
+    assert '<div class="honbun" style="margin-left:0.000000em;">' in rendered.html
+    assert "table_itaiji" not in rendered.html
+    assert 'class="Itaiji"' not in rendered.html
 
 
 def test_hc012e_renders_color_size_direct_image_and_literal_markers() -> None:

@@ -1220,10 +1220,13 @@ visual parity remain named gaps, so exact HC02C2 visual parity is not claimed.
 The seventh branch-subset proof case is `HC012E.dll`. Its vertical body loop
 uses package-local `Gaijitemp/` image resources for most kanji-form glyphs.
 The implemented subset maps common `1f09` section payloads to `honbun`,
-`bushu`, `kaku_midashi`, `exam`, `Oyaji`, and `Itaiji` block/table shapes;
-B238/B239/B241/B242 to black/red/sizedown spans; B136-B139 to Gaijitemp
-`hatsuon` images; A149 to spacing; and `1f6d` to a consumed renderer marker.
-Custom DIB generation, `modifyHeadword`, original-search SQL hooks, and full
+`bushu`, `kaku_midashi`, `exam`, `Oyaji`, and `Itaiji_2` block/table shapes;
+section `0027` is intentionally kept as normal `honbun` in the toolkit because
+the real corpus uses it for common kun labels that should not inherit the large
+`.Itaiji` glyph style. B238/B239/B241/B242 map to black/red/sizedown spans;
+B136-B139 map to Gaijitemp `hatsuon` images; A149 maps to spacing; and `1f6d`
+is consumed as a renderer marker. Custom DIB generation, `modifyHeadword`,
+original-search SQL hooks, exact `0027` large-glyph context, and full
 stroke-order table lifecycle parity remain named gaps, so exact HC012E visual
 parity is not claimed.
 

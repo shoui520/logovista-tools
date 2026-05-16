@@ -315,12 +315,14 @@ and non-SSED reader status are tracked separately in
 - `HC012E.dll` now has a focused raw-HONMON branch-subset proof for NKGORIN2:
   `Gaijitemp/` image glyphs are discovered as package resources; common
   section `1f09` payloads map to `honbun`, `bushu`, `kaku_midashi`, `exam`,
-  `Oyaji`, and `Itaiji` block/table shapes; B238/B239/B241/B242 create
-  black/red/sizedown spans; B136-B139 render Gaijitemp images with the
-  recovered `hatsuon` class; A149 emits spacing; and `1f6d` is consumed as
-  a renderer end/control marker. Custom DIB generation, `modifyHeadword`,
-  original-search SQL hooks, and full stroke-order table lifecycle parity
-  remain named gaps.
+  `Oyaji`, and `Itaiji_2` block/table shapes; section `0027` is kept as normal
+  `honbun` because the real corpus uses it for common kun labels that should
+  not inherit the large `.Itaiji` glyph style; B238/B239/B241/B242 create
+  black/red/sizedown spans; B136-B139 render Gaijitemp images with the recovered
+  `hatsuon` class; A149 emits spacing; and `1f6d` is consumed as a renderer
+  end/control marker. Custom DIB generation, `modifyHeadword`, original-search
+  SQL hooks, exact `0027` large-glyph context, and full stroke-order table
+  lifecycle parity remain named gaps.
 - `HC0158.dll` now has a focused raw-HONMON branch-subset proof: B3xx formatter
   gaiji become rank/star, part-of-speech, conjugation, boxed-label, and red
   emphasis spans; numbered/SVG gaiji remain image-backed; `PCMDATA.DIC` sound
