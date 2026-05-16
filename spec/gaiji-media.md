@@ -109,6 +109,15 @@ example block active. The generic `entries` command still supports explicit
 section-image rules such as `--section-image 0011=exam`; this preserves the raw
 section marker and inserts the named image in `body_html`.
 
+Some renderer-specific `gaiji` values are not glyph resources. In `HC0158.dll`
+packages, code-level renderer analysis shows that selected `.uni`-empty B3xx
+codes are inline formatting markers: for example B355 opens a rank span
+containing two star symbols, B368/B369 wrap part-of-speech text, B36C/B36D wrap
+conjugation text, B375/B376 wrap red emphasis, and B379/B37A wrap label boxes
+with a conditional red/newline variant for translation labels. Normal
+image-backed gaiji in the same entry, such as B253 numbered markers and
+B347/B34B conjugation markers, still resolve through `Templates/*.svg`.
+
 ## `COLSCR.DIC` Media Resources
 
 `COLSCR.DIC` is a compressed SSED component, usually listed as component type

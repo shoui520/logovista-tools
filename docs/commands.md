@@ -236,10 +236,15 @@ semantics that are now understood:
 - vertical-rendering hints as classes/metadata rather than hard-coded layout.
 
 Product rules are implemented only after the renderer path is understood. The
-current proof case is `HC013A.dll`: `hc-render` recognizes its example-section
+initial proof case is `HC013A.dll`: `hc-render` recognizes its example-section
 rule and inserts the discovered `exam` image when a `1f09 0011` example block
 starts, matching the renderer's `exam.png` template without requiring a manual
 `--section-image` option.
+`HC0158.dll` is also implemented for its decoded raw-HONMON style markers:
+B3xx formatter codes become CSS spans for rank stars, part-of-speech,
+conjugation, labels, and red emphasis; `PCMDATA.DIC` ranges render as
+`sound.png` links when that template image is present; numbered/SVG gaiji remain
+resource-backed images.
 
 Each dictionary output directory contains:
 

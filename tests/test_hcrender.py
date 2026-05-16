@@ -117,6 +117,65 @@ def test_hc013a_reports_missing_exam_asset_without_faking_image() -> None:
     assert "missing_section_image_exam" in rendered.named_behavior_gaps
 
 
+def test_hc0158_renders_rank_marker_stars_without_gaiji_placeholder() -> None:
+    rendered = render_hc_body(
+        b"\xb3\x55" + jis_ascii("A") + b"\xb3\x54",
+        HcRenderOptions(renderer_code="0158"),
+    )
+
+    assert '<span class="rank1"><sup>&#x2605;&#x2605;</sup>' in rendered.html
+    assert "★★A" in rendered.plain
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc0158_style_markers"] == 2
+
+
+def test_hc0158_renders_part_of_speech_and_conjugation_markers() -> None:
+    rendered = render_hc_body(
+        b"\xb3\x68" + jis_ascii("H") + b"\xb3\x69" + b"\xb3\x6c" + jis_ascii("K") + b"\xb3\x6d",
+        HcRenderOptions(renderer_code="0158"),
+    )
+
+    assert '<span class="hinshi"><span class="lv-hc-halfwidth">H</span></span>' in rendered.html
+    assert '<span class="katsuyou"><span class="lv-hc-halfwidth">K</span></span>' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+
+
+def test_hc0158_renders_label_and_red_text_markers() -> None:
+    rendered = render_hc_body(
+        b"\xb3\x79\x4c\x75\xb3\x7a" + b"\xb3\x75" + jis_ascii("R") + b"\xb3\x76",
+        HcRenderOptions(renderer_code="0158"),
+    )
+
+    assert '<br><span class="waku_red red">訳</span>' in rendered.html
+    assert '<span class="red"><span class="lv-hc-halfwidth">R</span></span>' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+
+
+def test_hc0158_keeps_numbered_svg_gaiji_as_image_resource() -> None:
+    rendered = render_hc_body(
+        b"\xb2\x53",
+        HcRenderOptions(renderer_code="0158", image_sources={"b253": "Templates/B253.svg"}),
+    )
+
+    assert 'src="Templates/B253.svg"' in rendered.html
+    assert 'class="lv-hc-gaiji lv-hc-gaiji-image gaiji"' in rendered.html
+    assert rendered.stats["gaiji_image"] == 1
+
+
+def test_hc0158_renders_pcm_audio_as_sound_icon_link() -> None:
+    payload = bytes.fromhex("00010000000001230045000001230067")
+    body = b"\x1f\x4a" + payload + jis_ascii("P") + b"\x1f\x6a"
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="0158", image_sources={"sound": "Templates/sound.png"}),
+    )
+
+    assert '<img src="Templates/sound.png" class="img_mark2">' in rendered.html
+    assert "pcmdata:00000123:0045-00000123:0067" in rendered.html
+    assert rendered.stats["audio_images"] == 1
+
+
 def test_hc_renderer_product_hooks_are_named_gaps() -> None:
     row = HcRendererClassification(
         path=Path("HC0001.dll"),

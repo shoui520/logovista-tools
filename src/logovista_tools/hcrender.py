@@ -150,6 +150,49 @@ HC_SECTION_IMAGE_RULES: dict[str, dict[str, _SectionImageRule]] = {
     }
 }
 
+HC0158_OPEN_MARKERS: dict[str, tuple[str, str, str]] = {
+    # These B3xx values are not display glyphs for HC0158. The DLL maps them
+    # directly to CSS spans while normal image gaiji such as B253/B347 still
+    # flow through the SVG/custom-character path.
+    "b353": ('<span class="rank4">', "b354", "</span>"),
+    "b355": ('<span class="rank1"><sup>&#x2605;&#x2605;</sup>', "b354", "</span>"),
+    "b356": ('<span class="rank2">', "b354", "</span>"),
+    "b357": ('<span class="rank3">', "b354", "</span>"),
+    "b360": ('<span class="midashi_kana">', "b361", "</span>"),
+    "b362": ('<span class="meishi_kana_rekishi">', "b363", "</span>"),
+    "b364": ('<span class="meishi_kana">', "b365", "</span>"),
+    "b366": ('<span class="iso">', "b367", "</span>"),
+    "b368": ('<span class="hinshi">', "b369", "</span>"),
+    "b36a": ('<span class="gogi">', "b36b", "</span>"),
+    "b36c": ('<span class="katsuyou">', "b36d", "</span>"),
+    "b36e": ('<span class="gogen">', "b36f", "</span>"),
+    "b370": ('<span class="seibotsu">', "b371", "</span>"),
+    "b372": ('<span class="waka_haiku">', "b373", "</span>"),
+    "b375": ('<span class="red">', "b376", "</span>"),
+    "b37b": ('<span class="small">', "b37c", "</span>"),
+    "b37d": ('<span class="underline">', "b37e", "</span>"),
+}
+
+HC0158_CLOSE_MARKERS = {
+    "b354",
+    "b361",
+    "b363",
+    "b365",
+    "b367",
+    "b369",
+    "b36b",
+    "b36d",
+    "b36f",
+    "b371",
+    "b373",
+    "b376",
+    "b37a",
+    "b37c",
+    "b37e",
+}
+
+HC0158_NOOP_MARKERS = {"b358", "b359", "b35a", "b35b", "b35c", "b35d", "b35e", "b35f"}
+
 
 def _escape_attr(value: object) -> str:
     return html.escape(str(value), quote=True)
@@ -231,9 +274,39 @@ def _audio_href(target: dict[str, Any] | None) -> str:
     return f"lved.sond:{target['resource_id']}"
 
 
-def _style_close_tag(start_op: int) -> str | None:
-    spec = STYLE_START_TAGS.get(start_op)
+def _renderer_code(options: HcRenderOptions) -> str:
+    return (options.renderer_code or "").upper()
+
+
+def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | None:
+    if _renderer_code(options) == "0158" and op == 0x12:
+        return ("b", "")
+    return STYLE_START_TAGS.get(op)
+
+
+def _style_close_tag(start_op: int, options: HcRenderOptions) -> str | None:
+    spec = _style_start_spec(start_op, options)
     return spec[0] if spec else None
+
+
+def _decode_next_jis_text(data: bytes, offset: int) -> str:
+    if offset + 1 >= len(data):
+        return ""
+    first = data[offset]
+    second = data[offset + 1]
+    if not (0x21 <= first <= 0x7E and 0x21 <= second <= 0x7E):
+        return ""
+    return decode_jis_pair(data[offset : offset + 2]) or ""
+
+
+def _hc0158_conditional_waku(next_text: str) -> str:
+    if next_text == "訳":
+        return '<br><span class="waku_red red">'
+    if next_text == "慣":
+        return '<span class="waku_red red">'
+    if next_text == "図":
+        return '<span class="back_red white">'
+    return '<span class="waku">'
 
 
 def _pop_context(contexts: list[_Context], kind: str) -> _Context | None:
@@ -277,6 +350,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     root_parts: list[str] = []
     contexts: list[_Context] = []
     style_stack: list[int] = []
+    hc0158_marker_stack: list[tuple[str, str]] = []
     stats: Counter[str] = Counter()
     links: list[dict[str, Any]] = []
     media: list[dict[str, Any]] = []
@@ -339,8 +413,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
-            if op in STYLE_START_TAGS:
-                tag, attrs = STYLE_START_TAGS[op]
+            style_spec = _style_start_spec(op, options)
+            if style_spec is not None:
+                tag, attrs = style_spec
                 _current_parts(root_parts, contexts).append(f"<{tag}{attrs}>")
                 style_stack.append(op)
                 if op == 0x04:
@@ -352,11 +427,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if op in STYLE_END_OPS:
                 start_op = STYLE_END_OPS[op]
-                close_tag = _style_close_tag(start_op)
+                close_tag = _style_close_tag(start_op, options)
                 if close_tag and start_op in style_stack:
                     while style_stack:
                         popped = style_stack.pop()
-                        popped_tag = _style_close_tag(popped)
+                        popped_tag = _style_close_tag(popped, options)
                         if popped_tag:
                             _current_parts(root_parts, contexts).append(f"</{popped_tag}>")
                         if popped == start_op:
@@ -433,6 +508,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 label = "".join(ctx.parts) if ctx else ""
                 if not label:
                     label = "audio"
+                if _renderer_code(options) == "0158":
+                    sound_src = options.image_sources.get("sound") or options.image_sources.get("sound.png")
+                    if sound_src:
+                        label = f'<img src="{_escape_attr(sound_src)}" class="img_mark2">'
+                        stats["audio_images"] += 1
                 attrs = [
                     'class="lv-hc-audio"',
                     f'href="{_escape_attr(_audio_href(target))}"',
@@ -530,6 +610,52 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
         if i + 1 < len(data) and 0xA1 <= byte <= 0xFE:
             key = f"{byte:02x}{data[i + 1]:02x}"
+            if _renderer_code(options) == "0158":
+                marker = HC0158_OPEN_MARKERS.get(key)
+                if marker is not None:
+                    html_fragment, close_code, close_html = marker
+                    _current_parts(root_parts, contexts).append(html_fragment)
+                    hc0158_marker_stack.append((close_code, close_html))
+                    stats["hc0158_style_markers"] += 1
+                    i += 2
+                    continue
+                if key == "b374":
+                    _current_parts(root_parts, contexts).append("<br>")
+                    stats["line_breaks"] += 1
+                    stats["hc0158_style_markers"] += 1
+                    i += 2
+                    continue
+                if key == "b377":
+                    _current_parts(root_parts, contexts).append("<ruby>")
+                    hc0158_marker_stack.append(("b378", "</ruby>"))
+                    stats["hc0158_style_markers"] += 1
+                    i += 2
+                    continue
+                if key == "b378":
+                    if hc0158_marker_stack and hc0158_marker_stack[-1][0] == "b378":
+                        hc0158_marker_stack.pop()
+                    _current_parts(root_parts, contexts).append("<rt>&#x3001;</rt></ruby>")
+                    stats["hc0158_style_markers"] += 1
+                    i += 2
+                    continue
+                if key == "b379":
+                    _current_parts(root_parts, contexts).append(_hc0158_conditional_waku(_decode_next_jis_text(data, i + 2)))
+                    hc0158_marker_stack.append(("b37a", "</span>"))
+                    stats["hc0158_style_markers"] += 1
+                    i += 2
+                    continue
+                if key in HC0158_CLOSE_MARKERS:
+                    if hc0158_marker_stack and hc0158_marker_stack[-1][0] == key:
+                        _current_parts(root_parts, contexts).append(hc0158_marker_stack.pop()[1])
+                        stats["hc0158_style_markers"] += 1
+                    else:
+                        stats["hc0158_unmatched_style_markers"] += 1
+                    i += 2
+                    continue
+                if key in HC0158_NOOP_MARKERS:
+                    stats["hc0158_noop_markers"] += 1
+                    i += 2
+                    continue
             mapped = options.gaiji_map.get(key)
             if mapped:
                 stats["gaiji_unicode"] += 1
@@ -541,8 +667,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 image_src = options.image_sources.get(key.lower())
                 if image_src:
                     stats["gaiji_image"] += 1
+                    css_class = "lv-hc-gaiji lv-hc-gaiji-image"
+                    if _renderer_code(options) == "0158":
+                        css_class += " gaiji"
                     _current_parts(root_parts, contexts).append(
-                        f'<img class="lv-hc-gaiji lv-hc-gaiji-image" '
+                        f'<img class="{css_class}" '
                         f'src="{_escape_attr(image_src)}" alt="{_escape_attr(key)}" '
                         f'data-gaiji-code="{_escape_attr(key)}">'
                     )
@@ -559,9 +688,13 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         i += 1
 
     while style_stack:
-        close_tag = _style_close_tag(style_stack.pop())
+        close_tag = _style_close_tag(style_stack.pop(), options)
         if close_tag:
             _current_parts(root_parts, contexts).append(f"</{close_tag}>")
+    while hc0158_marker_stack:
+        close_code, close_html = hc0158_marker_stack.pop()
+        _current_parts(root_parts, contexts).append(close_html)
+        gaps.add(f"unterminated_hc0158_marker_{close_code}")
     while contexts:
         ctx = contexts.pop()
         if ctx.kind == "private":

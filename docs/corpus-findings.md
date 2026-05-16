@@ -1143,6 +1143,14 @@ decimal section numbers. Section `0011` enters an example block and emits the
 so the badge is emitted once per contiguous examples region rather than before
 every example/translation line.
 
+The second product-specific proof case is `HC0158.dll`. Its body loop treats a
+subset of `.uni`-empty B3xx gaiji codes as inline HTML/CSS commands rather than
+glyphs. Implemented mappings include rank/star spans, part-of-speech and
+conjugation spans, boxed labels, red emphasis, and the conditional boxed
+translation-label form. The same renderer still resolves ordinary numbered and
+conjugation gaiji through `Templates/*.svg`, and renders `PCMDATA.DIC` sound
+ranges with the discovered `sound.png` template.
+
 ### Panel Subsystem
 
 The Panel subsystem is now decoded as an optional SSED navigation/UI subsystem

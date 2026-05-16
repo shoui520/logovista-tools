@@ -271,6 +271,10 @@ and non-SSED reader status are tracked separately in
   case is `HC013A.dll`, where section `1f09 0011` starts an example block and
   the renderer inserts the `exam` image once for that contiguous examples
   region.
+- `HC0158.dll` now has a focused raw-HONMON renderer proof: B3xx formatter
+  gaiji become rank/star, part-of-speech, conjugation, boxed-label, and red
+  emphasis spans; numbered/SVG gaiji remain image-backed; `PCMDATA.DIC` sound
+  ranges use the package `sound.png` template when present.
 - The default raw-resource gaiji readiness pass intentionally does not use
   Windows renderer databases. `NGYOKTUK` has no direct `.uni`/GA16/image gaiji
   resources, but its encrypted `vlpljblF` sidecar decrypts to row-ordered

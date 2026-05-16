@@ -218,6 +218,25 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="HC013A decodes the 0011 section payload as decimal 11 and keeps the example block active across sections 0010, 0011, and 0012.",
             )
         )
+    if code == "0158":
+        rows.append(
+            HcHookBehavior(
+                name="archsic4_inline_style_gaiji",
+                status="implemented",
+                evidence=("HC0158 epwing2HtmlBodydata B353-B37E branches", "00000158.css span classes"),
+                implementation="B3xx formatting-marker gaiji map to HC0158 CSS spans; normal B253/B347 image gaiji stay resource-backed",
+                notes="B379 is conditional: labels before translation/usage/figure text select waku_red/back_red/waku variants from the next JIS pair.",
+            )
+        )
+        rows.append(
+            HcHookBehavior(
+                name="archsic4_sound_icon_audio_link",
+                status="implemented",
+                evidence=("HC0158 lved.sond template", "Templates/sound.png"),
+                implementation="PCMDATA audio ranges render as sound.png links for HC0158",
+                notes="The href remains the toolkit resource address rather than claiming exact viewer URL parity.",
+            )
+        )
     if code == "0190":
         rows.append(
             HcHookBehavior(
@@ -284,6 +303,9 @@ def build_hc_behavior_profile(
         implemented.add("sidecar_media_blob_extraction")
     if code == "013A":
         implemented.add("HC013A_example_section_badge")
+    if code == "0158":
+        implemented.add("HC0158_inline_style_gaiji")
+        implemented.add("HC0158_sound_icon_audio_link")
 
     feature_gaps = {
         "panel_hooks": "panel_lifecycle_hook",
