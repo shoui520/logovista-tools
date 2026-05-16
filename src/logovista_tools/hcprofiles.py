@@ -364,6 +364,30 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "0145":
+        rows.append(
+            HcHookBehavior(
+                name="rdrsp2_section_and_marker_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0145 epwing2HtmlBodydataVertical 1f09 decimal section branch ladder",
+                    "HC0145 B924/B925 bold-italic marker branch",
+                    "HC0145 A921-A924 and B92A/B92B/B934/B936 literal marker branches",
+                    "Templates/00000145.css class definitions",
+                ),
+                implementation=(
+                    "1f09 decimal section values map to midashi/komidashi/honbun/contents "
+                    "blocks, internal links use lineLink, B924/B925 wrap bold-italic spans, "
+                    "and recovered bracket/superscript/parenthesis/spacing literals are emitted "
+                    "while known renderer selectors are consumed"
+                ),
+                notes=(
+                    "The subset excludes custom DIB generation, modifyHeadwordEx, SQL original-search "
+                    "and D_Example/D_Idiom hooks, exact table/navigation wrapper lifecycle, and broader "
+                    "representative visual parity."
+                ),
+            )
+        )
     if code == "0146":
         rows.append(
             HcHookBehavior(
@@ -507,6 +531,8 @@ def build_hc_behavior_profile(
         implemented.add("HC012E_kanji_layout_and_gaijitemp_markers")
     if code == "012D":
         implemented.add("HC012D_section_and_inline_image_markers")
+    if code == "0145":
+        implemented.add("HC0145_section_and_marker_layout")
     if code == "0146":
         implemented.add("HC0146_inline_marker_gaiji")
     if code == "0158":

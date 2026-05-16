@@ -332,6 +332,16 @@ and non-SSED reader status are tracked separately in
   map to spacing; and internal links carry the recovered `lineLink` class.
   Custom DIB generation, `modifyHeadword`, SQL/original-search hooks, exact
   yindex/ruigo script lifecycle, and broader visual parity remain named gaps.
+- `HC0145.dll` now has a focused raw-HONMON branch-subset proof for RDRSP2:
+  `1f09` section payloads are decoded as decimal section states and map to
+  `midashi`, `komidashi`, `honbun`, and `contents` blocks; `1f41` is consumed
+  as renderer state rather than emitting the generic heading wrapper; internal
+  links carry `lineLink`; B924/B925 wrap bold-italic spans; A921-A924 and
+  B92A/B92B/B934/B936 emit the recovered literal/superscript/spacing markers;
+  and known selector gaiji are consumed instead of displayed as placeholders.
+  Custom DIB generation, `modifyHeadwordEx`, SQL original-search plus
+  D_Example/D_Idiom hooks, exact table/navigation wrapper lifecycle, and
+  broader visual parity remain named gaps.
 - `HC0158.dll` now has a focused raw-HONMON branch-subset proof: B3xx formatter
   gaiji become rank/star, part-of-speech, conjugation, boxed-label, and red
   emphasis spans; numbered/SVG gaiji remain image-backed; `PCMDATA.DIC` sound
@@ -350,8 +360,8 @@ and non-SSED reader status are tracked separately in
   decompiled body-loop branch table and `Templates/00000146.css`. Product
   wrapper, section/layout state, and custom hooks remain visually incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
-  exact SHA-256 renderer binaries. HC013A, HC0065, HC00C6, HC012D, HC012E, HC02BC,
-  HC02BE, HC02C2, HC0146, HC0157, and HC0158 currently have decoded branch
+  exact SHA-256 renderer binaries. HC013A, HC0065, HC00C6, HC012D, HC012E, HC0145,
+  HC02BC, HC02BE, HC02C2, HC0146, HC0157, and HC0158 currently have decoded branch
   subsets, not full HC parity.
   Other branch tables remain named gaps until their output constants and product
   data paths are understood.

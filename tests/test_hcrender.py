@@ -394,7 +394,8 @@ def test_hc012d_maps_midashi_honbun_and_yorei_sections() -> None:
         HcRenderOptions(renderer_code="012D"),
     )
 
-    assert '<div class="midashi"><span class="lv-hc-halfwidth">H</span></div>' in rendered.html
+    assert '<div class="midashi">' in rendered.html
+    assert '<span class="lv-hc-halfwidth">H</span></div>' in rendered.html
     assert '<div class="honbun_start">' in rendered.html
     assert '<div class="yorei">' in rendered.html
     assert '<span class="lv-hc-halfwidth">B</span></div>' in rendered.html
@@ -440,6 +441,74 @@ def test_hc012d_maps_spacing_markers_and_gaiji_class() -> None:
     assert "lv-hc-gaiji-placeholder" not in rendered.html
     assert rendered.plain == ""
     assert rendered.stats["hc012d_literal_markers"] == 2
+
+
+def test_hc0145_maps_decimal_sections_without_generic_heading() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_ascii("B")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x08"
+        + jis_ascii("C")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x09"
+        + jis_ascii("D")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x20"
+        + jis_ascii("E")
+        + b"\x1f\x0a",
+        HcRenderOptions(renderer_code="0145"),
+    )
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<span class="lv-hc-halfwidth">H</span></div>' in rendered.html
+    assert '<div class="honbun" style="margin-left:2.000000em;">' in rendered.html
+    assert '<div class="contents" style="text-indent:0em;">' in rendered.html
+    assert '<div class="honbun" style="text-indent:-1.0em;margin-left:2.000000em;">' in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.stats["hc0145_section_blocks"] == 5
+    assert rendered.stats["hc0145_nonprinting_controls"] == 1
+
+
+def test_hc0145_renders_literal_style_and_noop_markers() -> None:
+    rendered = render_hc_body(
+        b"\xa9\x21\xa9\x22\xa9\x23\xa9\x24\xb9\x2a\xb9\x2b\xb9\x34\xb9\x36"
+        + b"\xb9\x24"
+        + jis_ascii("B")
+        + b"\xb9\x25"
+        + b"\xb9\x32\xb9\x2d",
+        HcRenderOptions(renderer_code="0145"),
+    )
+
+    assert "≪" in rendered.html
+    assert "≫" in rendered.html
+    assert "<sup>*</sup>" in rendered.html
+    assert "<sup>||</sup>" in rendered.html
+    assert "（" in rendered.html
+    assert "）" in rendered.html
+    assert "[" in rendered.html
+    assert "&nbsp;" in rendered.html
+    assert '<b><i><span class="lv-hc-halfwidth">B</span></i></b>' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc0145_literal_markers"] == 8
+    assert rendered.stats["hc0145_style_markers"] == 2
+    assert rendered.stats["hc0145_noop_markers"] == 2
+
+
+def test_hc0145_uses_line_links_and_img_gaiji_class() -> None:
+    body = b"\xb9\x21" + b"\x1f\x42" + jis_ascii("L") + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0145", image_sources={"b921": "Templates/b921.png"}))
+
+    assert '<img class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji" src="Templates/b921.png"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert rendered.stats["gaiji_image"] == 1
 
 
 def test_hc02c2_maps_section_icons_and_moji_down_blocks() -> None:
@@ -924,6 +993,36 @@ def test_hc012d_profile_records_section_subset_without_claiming_parity() -> None
 
     assert "HC012D_section_and_inline_image_markers" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
+    assert "sql_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+
+
+def test_hc0145_profile_records_section_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0145.dll"),
+        code="0145",
+        expected_numeric_index="00000145.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=(),
+        features={"custom_gaiji_dib": True, "sql_hooks": True, "headword_modifier": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC0145_section_and_marker_layout" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "sql_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
 

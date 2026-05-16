@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             11   HC013A, HC0065, HC00C6, HC012D, HC012E, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
-common semantics plus named gaps:    99
+decoded branch subsets:             12   HC013A, HC0065, HC00C6, HC012D, HC012E, HC0145, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
+common semantics plus named gaps:    98
 full product visual parity:           0
 ```
 
@@ -1241,6 +1241,21 @@ images. A134/A137 are spacing markers and B87C/B87D are consumed as layout
 markers. Custom DIB generation, `modifyHeadword`, SQL/original-search hooks,
 exact yindex/ruigo script lifecycle, and broader representative coverage remain
 named gaps, so exact HC012D visual parity is not claimed.
+
+The RDRSP2 branch-subset proof case is `HC0145.dll`. Its vertical body loop
+decodes `1f09` payloads as decimal section states and maps them to RDRSP2
+`midashi`, `komidashi`, `honbun`, and `contents` blocks. The `1f41` path is a
+renderer state marker, not a visible generic heading wrapper. Internal links
+use `lineLink`; B924/B925 wrap bold-italic spans; A921-A924 and
+B92A/B92B/B934/B936 emit the recovered bracket/superscript/parenthesis/spacing
+literals; and known selector gaiji such as B92C/B92D/B931/B932 are consumed
+instead of displayed. In the first 20-entry RDRSP2 sample, generic
+`lv-hc-heading` wrappers dropped from 20 to 0, product `midashi` blocks rose
+from 0 to 20, `honbun` blocks from 0 to 39, `contents` blocks from 0 to 13,
+`lineLink` anchors from 0 to 4, and generic gaiji placeholders from 108 to 21.
+Custom DIB generation, `modifyHeadwordEx`, SQL original-search plus
+`D_Example`/`D_Idiom` hooks, and exact table/navigation wrapper lifecycle remain
+named gaps, so exact HC0145 visual parity is not claimed.
 
 The ninth branch-subset proof case is `HC0158.dll`. Its body loop treats a
 subset of `.uni`-empty B3xx gaiji codes as inline HTML/CSS commands rather than
