@@ -22,6 +22,7 @@ class DecodeResult:
     text: str
     unknown_controls: int
     unknown_bytes: int
+    invalid_jis_pairs: int = 0
     spans_debug: tuple[SpanDebug, ...] = ()
 
 
@@ -83,6 +84,7 @@ def decode_text_stream(data: bytes, gaiji: dict[str, str] | None = None) -> Deco
     private = 0
     unknown_controls = 0
     unknown_bytes = 0
+    invalid_jis_pairs = 0
 
     while i < len(data):
         b = data[i]
@@ -166,6 +168,19 @@ def decode_text_stream(data: bytes, gaiji: dict[str, str] | None = None) -> Deco
         if i + 1 < len(data) and 0x21 <= b <= 0x7E and 0x21 <= data[i + 1] <= 0x7E:
             raw = data[i : i + 2]
             value = decode_jis_pair(raw)
+            if not value:
+                invalid_jis_pairs += 1
+                spans.append(
+                    Span(
+                        kind="invalid_jis_pair",
+                        raw=raw,
+                        offset=i,
+                        length=2,
+                        hidden=bool(private),
+                    )
+                )
+                i += 2
+                continue
             if halfwidth:
                 value = narrow_fullwidth(value)
             spans.append(Span(kind="text", text=value, raw=raw, offset=i, length=2, hidden=bool(private)))
@@ -194,4 +209,5 @@ def decode_text_stream(data: bytes, gaiji: dict[str, str] | None = None) -> Deco
         text="".join(text_parts),
         unknown_controls=unknown_controls,
         unknown_bytes=unknown_bytes,
+        invalid_jis_pairs=invalid_jis_pairs,
     )

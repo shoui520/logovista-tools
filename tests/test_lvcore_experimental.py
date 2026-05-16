@@ -18,7 +18,7 @@ sys.path.insert(0, str(LVCORE_SRC))
 sys.path.insert(0, str(LVCORE_AUDIT_SRC))
 
 from lvcore import Address, Diagnostic, DiagnosticArea, Location, PackageFamily, SearchHit, SearchProfile, SearchResults, Severity, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
-from lvcore.body_source import SidecarRole, classify_sqlite_sidecar_role, quote_sql_identifier, sqlite_columns  # noqa: E402
+from lvcore.body_source import SidecarInfo, SidecarRole, classify_sqlite_sidecar_role, quote_sql_identifier, sqlite_columns  # noqa: E402
 from lvcore.crypto import decrypt_logofont, decrypt_logofont_file_to_path, logofont_key_iv, macos_logofont_key_iv  # noqa: E402
 from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, LinkTargetKind, ResourceKind, ResourceRef, ResourceStatus, build_entry_document  # noqa: E402
 from lvcore.errors import FormatError  # noqa: E402
@@ -27,6 +27,7 @@ from lvcore.index import IndexRow, parse_index  # noqa: E402
 from lvcore.inspect import InspectorRenderer  # noqa: E402
 from lvcore.model import Component, ComponentRole, Entry, Span  # noqa: E402
 from lvcore.opcodes import OpcodeCategory, behavior_for  # noqa: E402
+from lvcore.package_entries import PackageEntryMixin  # noqa: E402
 from lvcore.render import GaijiPolicy, HtmlProfile, render_html, render_text  # noqa: E402
 from lvcore.resources import ColscrLocator, PcmRangeLocator, SidecarBlobLocator  # noqa: E402
 from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE, CaseFoldedDirectory, SsedData, expand_sseddata, parse_catalog  # noqa: E402
@@ -1030,6 +1031,24 @@ def test_lvcore_invalid_text_encoding_bytes_are_recoverable_diagnostics() -> Non
     assert any(diagnostic.code == "unknown_byte" for diagnostic in document.diagnostics)
 
 
+def test_lvcore_invalid_jis_pair_is_recoverable_diagnostic() -> None:
+    decoded = decode_text_stream(b"\x24\x7c")
+    entry = Entry(
+        Address(2, 0, "HONMON.DIC"),
+        Address(2, 2, "HONMON.DIC"),
+        "bad jis",
+        decoded.text,
+        decoded.spans,
+        decode_invalid_jis_pairs=decoded.invalid_jis_pairs,
+    )
+    document = entry.document()
+
+    assert decoded.invalid_jis_pairs == 1
+    assert decoded.unknown_bytes == 0
+    assert decoded.text == ""
+    assert document.diagnostics_by_code() == {"invalid_jis_pair": 1}
+
+
 def test_lvcore_decode_telemetry_is_reported_once_by_validation(tmp_path: Path) -> None:
     honmon_start = 2
     title_start = 3
@@ -1051,10 +1070,16 @@ def test_lvcore_decode_telemetry_is_reported_once_by_validation(tmp_path: Path) 
     report = validate_package(package, sample_entries=1, sample_search_hits=1)
     entry = package.search_entries("bad", profile=SearchProfile.EXACT)[0]
 
-    assert report["decode_telemetry"] == {"unknown_controls": 1, "unknown_bytes": 2}
+    assert report["decode_telemetry"] == {"unknown_controls": 1, "unknown_bytes": 2, "invalid_jis_pairs": 0}
     assert entry.decode_unknown_controls == 1
     assert entry.decode_unknown_bytes == 2
     assert entry.to_dict(debug=True)["decode_telemetry"] == {"unknown_controls": 1, "unknown_bytes": 2}
+
+
+def test_lvcore_honbun_sidecar_anchor_queries_include_integer_key() -> None:
+    sidecar = SidecarInfo(path=Path("body.db"), kind="honbun", storage="plain")
+
+    assert PackageEntryMixin._anchor_query_values("00000123", sidecar) == ("00000123", "123", 123)
 
 
 def test_lvcore_detects_and_reads_synthetic_ssed(tmp_path: Path) -> None:
@@ -1147,6 +1172,74 @@ def test_lvcore_entries_limit_uses_index_boundaries_when_markers_are_absent(tmp_
 
     assert [entry.headword for entry in entries] == [None, None]
     assert "third entry" not in "\n".join(entry.text for entry in entries)
+
+
+def test_lvcore_entries_merge_index_boundaries_with_non_entry_section_markers(tmp_path: Path) -> None:
+    honmon_start = 2
+    title_start = 3
+    index_start = 4
+    first = b"\x1f\x09\x00\x01" + body_text("alpha") + b"\x1f\x0a" + body_text("first") + b"\x1f\x0a"
+    second = b"\x1f\x09\x00\x02" + body_text("beta") + b"\x1f\x0a" + body_text("second") + b"\x1f\x0a"
+    alpha_title = body_text("alpha") + b"\x1f\x0a"
+    beta_title = body_text("beta") + b"\x1f\x0a"
+    index = simple_index(
+        [
+            ("alpha", honmon_start, 0, title_start, 0),
+            ("beta", honmon_start, len(first), title_start, len(alpha_title)),
+        ]
+    )
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("FHTITLE.DIC", 0x05, title_start, title_start, b"\x01\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start, b"\x02\x01\x55\x40"),
+    ]
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "SECTION.IDX").write_bytes(ssedinfo("Section", components))
+    (tmp_path / "HONMON.DIC").write_bytes(literal_sseddata(first + second, start_block=honmon_start, kind=0))
+    (tmp_path / "FHTITLE.DIC").write_bytes(literal_sseddata(alpha_title + beta_title, start_block=title_start, kind=5))
+    (tmp_path / "FHINDEX.DIC").write_bytes(literal_sseddata(index, start_block=index_start, kind=0x91))
+
+    package = open_package(tmp_path)
+    entries = list(package.iter_entries(limit=2))
+
+    assert len(entries) == 2
+    assert "first" in entries[0].text
+    assert "second" not in entries[0].text
+    assert "second" in entries[1].text
+
+
+def test_lvcore_entries_learn_non_default_section_stop_code(tmp_path: Path) -> None:
+    honmon_start = 2
+    first = b"\x1f\x09\x00\x02" + body_text("alpha") + b"\x1f\x0a"
+    second = b"\x1f\x09\x00\x02" + body_text("beta") + b"\x1f\x0a"
+    components = [("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00")]
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "STOP.IDX").write_bytes(ssedinfo("Stop", components))
+    (tmp_path / "HONMON.DIC").write_bytes(literal_sseddata(first + second, start_block=honmon_start, kind=0))
+
+    package = open_package(tmp_path)
+    entries = list(package.iter_entries(limit=2))
+
+    assert len(entries) == 2
+    assert "alpha" in entries[0].text
+    assert "beta" in entries[1].text
+
+
+def test_lvcore_entries_learn_keyword_stop_code_when_section_marker_absent(tmp_path: Path) -> None:
+    honmon_start = 2
+    first = b"\x1f\x41\x00\x00" + body_text("alpha") + b"\x1f\x61\x1f\x0a"
+    second = b"\x1f\x41\x00\x00" + body_text("beta") + b"\x1f\x61\x1f\x0a"
+    components = [("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00")]
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "KEYWORD.IDX").write_bytes(ssedinfo("Keyword", components))
+    (tmp_path / "HONMON.DIC").write_bytes(literal_sseddata(first + second, start_block=honmon_start, kind=0))
+
+    package = open_package(tmp_path)
+    entries = list(package.iter_entries(limit=2))
+
+    assert len(entries) == 2
+    assert "alpha" in entries[0].text
+    assert "beta" in entries[1].text
 
 
 def test_lvcore_direct_body_hit_dereference_does_not_require_body_source_scan(
@@ -3514,6 +3607,12 @@ def test_lvcore_detects_deferred_families(tmp_path: Path) -> None:
     (multi / "vlpljbl.exe").write_bytes(b"")
     (multi / "blvbat").write_bytes(b"")
     assert detect_family(multi).family == PackageFamily.LVLMULTI
+
+    multi_bin = tmp_path / "_DCT_FAKE_MULTI_BIN"
+    multi_bin.mkdir()
+    (multi_bin / "vlpljbl.bin").write_bytes(b"")
+    (multi_bin / "blvdat").write_bytes(b"")
+    assert detect_family(multi_bin).family == PackageFamily.LVLMULTI
 
     hybrid = tmp_path / "_DCT_FAKE_MULTI_WITH_IDX"
     hybrid.mkdir()

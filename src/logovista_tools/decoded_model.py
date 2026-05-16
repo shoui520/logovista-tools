@@ -76,11 +76,13 @@ from .windows import (
     discover_hc_renderer_files,
     discover_numeric_aux_indexes,
     discover_renderer_sidecars,
+    discover_sqlite_sidecars,
     discover_vlpljbl_files,
     hc_renderer_classification_to_json,
     iter_aux_index_specs,
     load_exinfo_for_idx,
     parse_aux_index_text,
+    sqlite_sidecar_classification_to_json,
     vlpljbl_classification_to_json,
 )
 
@@ -629,6 +631,10 @@ def windows_sidecars_for_idx(idx: Path, args: argparse.Namespace) -> dict[str, A
         {"path": str(sidecar.path), "storage": sidecar.storage}
         for sidecar in discover_renderer_sidecars(idx)
     ]
+    sqlite_sidecars = [
+        sqlite_sidecar_classification_to_json(row)
+        for row in discover_sqlite_sidecars(idx, exinfo)
+    ]
     numeric_aux = [str(path) for path in discover_numeric_aux_indexes(idx)]
     return {
         "exinfo": {"path": str(exinfo.path), "general": exinfo.general} if exinfo is not None else None,
@@ -636,6 +642,7 @@ def windows_sidecars_for_idx(idx: Path, args: argparse.Namespace) -> dict[str, A
         "numeric_aux_indexes": numeric_aux,
         "hc_renderers": hc_rows,
         "vlpljbl": vlpljbl_rows,
+        "sqlite_sidecars": sqlite_sidecars,
         "renderer_sidecars": renderer_sidecars,
     }
 

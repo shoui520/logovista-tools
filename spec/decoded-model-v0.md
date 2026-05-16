@@ -912,7 +912,7 @@ Current coverage:
 
 - dense HONMON anchor records from `HONMON.DIC`;
 - DictFULLDB body links when the declared `t_contents` table is readable;
-- Windows renderer DB body links, with verified rows under `--deep-sidecars`
+- renderer/app DB body links, with verified rows under `--deep-sidecars`
   and unverified structural links otherwise;
 - Android body DB links using the observed `data_id = rowid * 5` rule;
 - index-derived body/title pointers from emitted index rows;

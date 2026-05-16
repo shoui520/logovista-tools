@@ -960,10 +960,12 @@ Law viewer binaries contain UTF-16 strings naming decrypted cache targets:
 `hore_body.db`, `hanrei_youshi.db`, `index.db`, `jiko_sakuin.db`, `yroppo.db`,
 and `mo6.db`.
 
-Most law-package `Resources/*` entries decrypt with LogoFontCipher to PDF
-assets. MOROKU23 has three resource files that remain plain/unknown under the
-current resource classifier; they are reported as opaque rather than forced
-into the PDF model.
+The MOROKU law-package `Resources/*` entries named `inshizei`, `minji`,
+`zenkoku`, and `zeihou` are encrypted PDF assets. Across MOROKU21-26 there
+are 20 such resources. Seventeen decrypt with the Windows LogoFontCipher
+variant; the three MOROKU23 files decrypt with the Mac OS X LogoFontCipher
+variant. In both cases the decrypted payload is a normal PDF and should be
+written as `.pdf` without rewriting the document bytes.
 
 Toolkit command:
 
@@ -1127,22 +1129,33 @@ This is enough for toolkit parsers to consume the correct byte lengths and
 preserve renderer intent. It is not a claim of pixel-perfect reproduction of
 every product-specific HC HTML template or SQL/search hook.
 
+The `hc-render` command now turns those common semantics into executable HTML
+rendering for raw body slices. It emits safe internal-link anchors,
+COLSCR/PCMDATA resource placeholders, gaiji Unicode/image fallbacks, suppressed
+private renderer directive metadata, and optional rendererdb/media/ziptomedia
+comparison output. Product-specific hooks remain named gaps unless their exact
+data path is understood.
+
 ### Panel Subsystem
 
 The Panel subsystem is now decoded as an optional SSED navigation/UI subsystem
-rather than a generic file-family inventory item. The decoded samples currently
-come from Windows package copies, but Panel is not a Windows platform marker.
+rather than a generic file-family inventory item. The decoded samples cover
+Windows package copies, recovered package copies, and mobile package copies;
+Panel is not a Windows platform marker.
 
-Complete Panel packages have `Panels.dtd`, `Panels.xml`, `Panel.html`,
+Complete Windows Panel packages have `Panels.dtd`, `Panels.xml`, `Panel.html`,
 `Cell.html`, and external `.bin` payloads. The DTD schema is stable across the
 decoded set: `panels` contains package information and `panel+`; each `panel`
 contains a `title` and one or more `data` nodes; `data` may contain inline
 `cell` nodes or reference an external file. `paneltype` separates menu and
 contents panels. Menu panels use inline cells whose `ref` attributes point to
 other Panel `index` values. Content panels usually use `data type="bin"` and a
-`filename`; a few use `data type="html"`.
+`filename`; a few use `data type="html"`. Mac bundle resources use a
+`Panels.plist` representation of the same panel/data model, while mobile
+packages can use nested menu plists whose `path` values name `.bin` tables
+under package `bin/` directories.
 
-The decoded binary payload grammar is:
+The common decoded binary payload grammar is:
 
 ```text
 uint32le record_count
@@ -1158,32 +1171,45 @@ body/title text: JIS pairs, gaiji pairs, NUL padding, and `0x1f` display
 controls. This matters because many observed labels contain halfwidth and
 superscript controls; treating them as raw byte pairs loses display semantics.
 
-The current Panel decode pass covered the observed complete Panel XML/BIN set:
+Additional decoded variants are now known: id-prefixed rows with an extra
+`uint32le record_id`, declared-count mismatch tables where the physical row
+count is smaller than the header count, empty/zero-width placeholder tables,
+and one mobile headerless table whose records are `uint32be block`,
+`uint32be offset`, and fixed-width NUL-padded UTF-8 labels.
+
+The current full Panel decode pass covered every non-`vlpljbl.bin` `.bin`
+candidate under the Windows SSED corpus, recovered packages, and the mobile
+corpus:
 
 ```text
-complete Panels.xml packages: 10
-Panel BIN files decoded:       2,457
-Panel BIN rows decoded:      577,728
-binary decode failures:           0
+metadata files parsed:          12
+external references parsed:  2,544
+Panel BIN files decoded:     4,544
+binary decode failures:         0
 ```
 
-All decoded row addresses resolve into declared SSED components. Rows mostly
-target `HONMON.DIC`; one decoded package also has a small set of rows targeting
-`MENU.DIC`. This makes Panel content an optional navigation surface: label ->
-raw SSED address. It is not an entry body store, media store, compressed
-container, SQLite sidecar, or replacement for normal native index search.
+Rows mostly target `HONMON.DIC`; one decoded package also has a small set of
+rows targeting `MENU.DIC`. This makes Panel content an optional navigation
+surface: label -> raw SSED address. It is not an entry body store, media store,
+compressed container, SQLite sidecar, or replacement for normal native index
+search.
 
 Observed packaging details:
 
-- One package stores Panel `.bin` payloads in a sibling `_Panel` directory
-  rather than a package-local `Panel/` directory.
-- XML filenames use Windows backslashes and require path normalization.
+- Some packages store Panel `.bin` payloads in sibling `_Panel` directories,
+  package-local `Panel/`, package-local `bin/`, or the package root.
+- XML filenames use Windows backslashes and require path normalization. Mobile
+  plist references can omit the `.bin` suffix.
 - Some packages carry Panel templates or DTD fragments without `Panels.xml`;
   those files are renderer/template residue, not a complete decodable Panel
   navigation surface by themselves.
 - One Windows package copy has a missing Panel `.bin` referenced from XML; the
   corresponding iOS package copy supplies that same file, and it decodes with
   the same fixed-record grammar.
+- Windows reader metadata uses `EXINFO.INI` `GENERAL/PANELXML` to advertise
+  Panel XML, and renderer plug-ins can expose Panel lifecycle hooks. Those
+  hooks wrap the generic Panel model; they do not change the observed BIN
+  record grammar.
 
 Reader impact: Panel support should be exposed as an explicit optional
 navigation/sidebar API. Friendly entry rendering should not automatically merge
@@ -1491,8 +1517,38 @@ The resource wrappers differ:
   These font files are not encrypted SQLite sidecars.
 
 The `rendererdb` command handles both body-cache shapes while still starting
-from raw HONMON IDs: `t_contents` for Windows renderer DBs and `rowid * 5` for
-the Android `Html` table shape.
+from raw HONMON IDs: Windows renderer `t_contents` rows and the Android
+`Html` table shape using `rowid * 5`.
+
+### Observed SQLite `.db` Sidecars
+
+SQLite sidecars are not Windows-only. In the observed corpus they appear as
+Windows root/template DBs, Android app DBs, no-platform supplemental DBs, and
+iOS `DictFULLDB` SQL payloads. Two Windows-corpus `Thumbs.db` files are OLE
+thumbnail caches and are not dictionary SQLite.
+
+Observed role classes:
+
+| Role | Observed examples | Reader impact |
+|---|---|---|
+| `sqlite_renderer_body*` | Android `IWKOKUG8.db`, Windows encrypted/renderer `t_contents` payloads | Body-critical when raw HONMON carries dense IDs. |
+| `sqlite_block_offset_body` | Android `OUKOKU11.db` | Body rows carry `Block`/`Offset` plus title/body text. |
+| `sqlite_android_index_metadata` | Android `OUKOKU11_indexinfo.db` | Android UI/index metadata, not body text. |
+| `sqlite_examples_idioms` | `D_Example`, `D_Idiom` DBs | Supplemental examples/idioms keyed by body address. |
+| `sqlite_supplemental` | `D_Goyo`, `D_Keigo`, `D_Kininaru` | Supplemental usage panes keyed by body address. |
+| `sqlite_link_reference` | `GENIUSEB.db`, category-style block/offset/title tables | Navigation/reference metadata. |
+| `sqlite_kanji_support` | `t_all`, `t_bushu`, `t_jukugo`, `t_yomi`, `t_exam` | Kanji lookup/support tables. |
+| `sqlite_search_or_conjugation` | `HAESPJPN.db` | Search/conjugation helper cache; not a body source. |
+| `sqlite_template_navigation` | `GKBusine.db`, `GKTravel.db` | Template-driven phrase/navigation helper DBs. |
+| `sqlite_category_search_index` | `kyz_filter.db` | Category/filter search helper DB. |
+| `sqlite_ancillary` | `D_InternationalChronology`, tiny `t_data(index,data)` DBs | Ancillary app/helper data. |
+
+The toolkit classifies these by schema capabilities first, then by stable
+table-name evidence only where the schema is otherwise ambiguous. Body
+extraction remains conservative: only body-capable SQLite roles are accepted as
+`rendererdb` body sidecars. Supplemental/search/kanji/ancillary DBs are
+reported and can be copied by `extract`, but they are not treated as replacement
+entry bodies.
 
 ### Corpus-Wide `vlpljbl*` Audit
 
@@ -1931,6 +1987,42 @@ referenced sound files missing:   14,618
 That is not a body-decoding blocker. It means a full text/image conversion is
 well covered, while complete audio export requires a package/install that
 contains the missing ziptomedia files.
+
+PROYAL53 also has ten extensionless files under `dat/`. These are not SQLite
+tables or SSED components. Each file is LogoFontCipher-wrapped `RIFF/WAVE`
+audio; decrypting the file gives the app-ready `.wav` payload directly. The
+filenames are part of the resource identity and should be preserved with a
+`.wav` suffix on export.
+
+### Britannica Loose Media Text Files
+
+Observed Britannica media companion packages use plaintext side files outside
+the SSED catalog:
+
+- `whatday/M-D.body` and `whatday/M-D.top` are CP932 HTML fragments keyed by
+  month/day. The fragments contain table markup and `lved.addrXXXXXXXX:YYYY`
+  links. The address fields are hexadecimal block/offset pairs into the
+  associated dictionary body/search space.
+- `top/top_art.dat`, `top/top_biography.dat`, and `top/top_nature.dat` are
+  CP932 five-line record lists. Each record contains an item id, display title,
+  short description, hexadecimal body address, and image filename. The image
+  filename resolves against sibling `thumb/`, `mini/`, and `full/` media
+  directories.
+
+The current local files decode as:
+
+```text
+whatday .body fragments:         366
+whatday .top fragments:          366
+whatday lved.addr references:  7,555
+top/*.dat files:                   6
+top/*.dat records:               241
+top records with image matches:  241
+```
+
+These are auxiliary media/navigation resources, not encrypted component
+stores. The parser preserves the HTML/text payloads and separately exposes the
+resolved address and image relationships.
 
 ### SPINDEX.DIC
 

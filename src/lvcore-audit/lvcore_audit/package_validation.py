@@ -354,7 +354,7 @@ class _PackageValidationAdapter:
             "by_table": {},
         }
         sidecar_reference_seen: set[tuple[int, int, str | None]] = set()
-        decode_counters = {"unknown_controls": 0, "unknown_bytes": 0}
+        decode_counters = {"unknown_controls": 0, "unknown_bytes": 0, "invalid_jis_pairs": 0}
         decode_counter_seen: set[tuple[int, int, str | None]] = set()
         entries_checked = 0
         render_ok = 0
@@ -408,6 +408,7 @@ class _PackageValidationAdapter:
             decode_counter_seen.add(key)
             decode_counters["unknown_controls"] += entry.decode_unknown_controls
             decode_counters["unknown_bytes"] += entry.decode_unknown_bytes
+            decode_counters["invalid_jis_pairs"] += entry.decode_invalid_jis_pairs
 
         if body_source.ssed_kind == SsedBodySourceKind.BODY_STREAM:
             for entry in self.iter_entries(limit=sample_entries, max_bytes=max_bytes_per_scan):

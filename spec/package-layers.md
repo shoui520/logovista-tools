@@ -44,6 +44,13 @@ Mac OS X  EXINFO.INI, help `.localized` bundles, AppleDouble `._*` metadata,
 for stripped core-SSED packages and for future SSED writer output that should
 not depend on a specific LogoVista reader implementation.
 
+SQLite `.db` sidecars are not a package-family marker by themselves. They occur
+across Android, Windows, iOS/no-platform, and app-bundle layouts. The observed
+roles include body/render caches, media BLOB stores, examples/idioms,
+link-reference rows, kanji support tables, template navigation/filter tables,
+and ancillary metadata. Treat them by schema and declaration context, not by
+extension or platform.
+
 Separate non-SSED package families include:
 
 ```text
@@ -102,6 +109,23 @@ Embedded strings still provide useful HTML/CSS/image template evidence, and
 imports show which raw service families a product needed. The HC DLLs are not a
 substitute for parsing HONMON/INDEX/TITLE resources; they are renderer semantic
 evidence for controls and bridge behavior.
+
+Loose media/resource side files are not always declared as SSED components.
+Observed examples include Britannica `whatday/*.body` / `*.top` HTML fragments,
+Britannica `top/top_*.dat` CP932 address/image lists, PROYAL53 `dat/*`
+LogoFontCipher-wrapped WAVE files, and LVLMultiView law `Resources/*`
+LogoFontCipher-wrapped PDFs. Treat these as package resources addressed by
+their surrounding renderer/UI metadata, not as `HONMON.DIC` body streams.
+
+`logovista-tools hc-render` implements the common renderer semantics as a
+toolkit HTML renderer: text/style controls, internal links, `COLSCR.DIC`
+picture placeholders, `PCMDATA.DIC` sound ranges, Unicode/image gaiji fallback,
+private directive suppression, and vertical-rendering metadata. It also invokes
+the clear schema-backed renderer sidecar paths (`t_contents`, `HONBUN`,
+Android body DBs, media tables, and ziptomedia references) when requested.
+Panel hooks, SQL search UI hooks, plugin callbacks, user-data callbacks,
+custom gaiji DIB generation, and product-specific `modifyHeadword*` behavior
+remain named behavior gaps unless their exact data path is separately decoded.
 
 Numeric sidecar names often share the HC product code
 (`HC013A.dll` -> `0000013A.idx`), but this is a convention. `EXINFO.INI`
@@ -212,12 +236,14 @@ Panels.dtd
 Panels.xml
 Panel.html
 Cell.html
-Panel/*.bin
+Panel/*.bin or sibling/mobile bin tables
 ```
 
-One observed layout stores the `.bin` payloads in a sibling package directory
-instead of a package-local `Panel/` directory. Panel XML paths use Windows
-backslashes, so portable tooling must normalize path separators and perform
+Other observed layouts store `.bin` payloads in a sibling `_Panel` directory,
+a package-level `bin/` directory, or the package root. Panel XML paths may use
+Windows backslashes, while mobile plist paths normally use slash-separated names
+without the `.bin` suffix. Portable tooling must normalize path separators,
+append `.bin` for plist path references when needed, and perform
 case-insensitive package-local lookup.
 
 `Panels.dtd` is a small XML schema:
@@ -247,7 +273,20 @@ Menu panels normally use inline `cell` elements whose `ref` values point to
 other Panel `index` values. Content panels normally use external
 `data type="bin"` rows, or less commonly `data type="html"`.
 
-The decoded Panel `.bin` grammar is fixed-width and little-endian:
+Mac and mobile packages can represent the same model as plist:
+
+```text
+Panels.plist:
+  dictionaryName, creationDate, panel dictionary
+  panel id -> paneltype, datatype, title, layout attributes, data array
+  data item -> type=(bin|html), filename
+
+mobile menu plist:
+  nested arrays/dicts
+  item/title, optional child array, optional path naming a bin table
+```
+
+The common decoded Panel `.bin` grammar is fixed-width and little-endian:
 
 ```text
 uint32 record_count
@@ -258,10 +297,31 @@ repeat record_count:
     byte[text_width] label_text_stream
 ```
 
-The exact file size is `8 + record_count * (8 + text_width)`. Decoded records
-are label-to-address rows for optional Panel navigation surfaces. The target is
-an SSED logical block/offset pair; in the decoded Windows corpus these rows
-target `HONMON.DIC`, with a small observed set targeting `MENU.DIC`.
+The exact file size is normally `8 + record_count * (8 + text_width)`. Decoded
+records are label-to-address rows for optional Panel navigation surfaces. The
+target is an SSED logical block/offset pair; in the decoded Windows corpus
+these rows target `HONMON.DIC`, with a small observed set targeting `MENU.DIC`.
+
+Observed compatible variants are:
+
+```text
+id-prefixed row:
+  uint32le record_id
+  uint32le target_block
+  uint32le target_offset
+  byte[text_width] label_text_stream
+
+declared-count mismatch:
+  same little-endian row grammar, but physical rows are fewer than the
+  declared header count
+
+empty/zero-width:
+  count=0,text_width=0 placeholder, or zero-width address rows
+
+headerless UTF-8:
+  repeated uint32be target_block, uint32be target_offset,
+  fixed-width NUL-padded UTF-8 label bytes
+```
 
 `label_text_stream` is not an arbitrary byte label. It is a NUL-padded
 LogoVista text stream using JIS pairs, gaiji pairs, and known `0x1f` display
@@ -269,9 +329,11 @@ controls such as halfwidth and superscript spans. Readers should decode it with
 the same conservative text-stream logic used for body/title text.
 
 `Panel.html` and `Cell.html` are viewer templates for presenting the Panel
-tree/cells. They do not define the binary record grammar. A reader that does
-not implement the original UI can still expose the decoded Panel rows as an
-optional navigation API without merging them into ordinary entry body rendering.
+tree/cells. They do not define the binary record grammar. The Windows reader
+also advertises Panel availability through `EXINFO.INI` `GENERAL/PANELXML` and
+renderer panel lifecycle hooks. A reader that does not implement the original
+UI can still expose the decoded Panel rows as an optional navigation API
+without merging them into ordinary entry body rendering.
 
 Observed Windows `vlpljbl*` names are not one format. Content classification
 is required before interpreting them:

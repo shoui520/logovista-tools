@@ -79,7 +79,7 @@ from logovista_tools.rendererdb import (
     ziptomedia_reference_names,
     ziptomedia_source_path,
 )
-from logovista_tools.decoded_model import static_package_resources_for_idx
+from logovista_tools.decoded_model import static_package_resources_for_idx, windows_sidecars_for_idx
 from logovista_tools.resources import load_image_resource_profile, relative_image_source
 from logovista_tools.lvcrypto import (
     decrypt_macos_logofont_cipher_bytes,
@@ -104,6 +104,7 @@ from logovista_tools.windows import (
     classify_vlpljbl_file,
     discover_numeric_aux_indexes,
     discover_renderer_sidecars,
+    discover_sqlite_sidecars,
     file_magic_kind,
     iter_aux_index_specs,
     parse_aux_index_text,
@@ -1349,6 +1350,7 @@ def test_vlpljbl_classifier_identifies_plain_sqlite_role(tmp_path) -> None:
 def test_vlpljbl_magic_and_sqlite_roles() -> None:
     assert file_magic_kind(b"MZ" + b"\x00" * 20) == "pe_executable"
     assert file_magic_kind(b"OTTO" + b"\x00" * 20) == "opentype_cff"
+    assert file_magic_kind(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 20) == "ole_compound_file"
     assert sqlite_role_for_tables(({"name": "AssetRows", "columns": ["asset_name", "payload_blob"]},)) == "sqlite_media_store"
     assert (
         sqlite_role_for_tables(({"name": "HONBUN", "columns": ["ID", "Title_UTF8", "Contents_HTML_box"]},))
@@ -1356,6 +1358,42 @@ def test_vlpljbl_magic_and_sqlite_roles() -> None:
     )
     assert sqlite_role_for_tables(({"name": "MAIN", "columns": ["Block", "Offset", "Body"]},)) == "sqlite_block_offset_body"
     assert sqlite_role_for_tables(({"name": "EntryPayload", "columns": ["content_id", "body_html"]},)) == "sqlite_renderer_body"
+    assert (
+        sqlite_role_for_tables(({"name": "D_Example", "columns": ["No", "Block", "Offset", "Keyword", "Midashi", "Title"]},))
+        == "sqlite_examples_idioms"
+    )
+    assert (
+        sqlite_role_for_tables(({"name": "D_InternationalChronology", "columns": ["INC_Code", "Year", "Text"]},))
+        == "sqlite_ancillary"
+    )
+    assert (
+        sqlite_role_for_tables(
+            (
+                {"name": "t_all", "columns": ["f_code", "f_bushu_id", "f_yomi"]},
+                {"name": "t_bushu", "columns": ["f_order", "f_code", "f_bushu_yomi"]},
+            )
+        )
+        == "sqlite_kanji_support"
+    )
+    assert (
+        sqlite_role_for_tables(
+            (
+                {"name": "android_metadata", "columns": ["locale"]},
+                {"name": "DICT", "columns": ["Html"]},
+                {"name": "media", "columns": ["id", "name", "type", "main"]},
+            )
+        )
+        == "sqlite_renderer_body_with_media"
+    )
+    assert (
+        sqlite_role_for_tables(
+            (
+                {"name": "android_metadata", "columns": ["locale"]},
+                {"name": "indexinfo", "columns": ["index", "title", "writevertical"]},
+            )
+        )
+        == "sqlite_android_index_metadata"
+    )
 
 
 def test_discover_android_body_database_and_media_schema(tmp_path) -> None:
@@ -1374,6 +1412,42 @@ def test_discover_android_body_database_and_media_schema(tmp_path) -> None:
     assert blob_extension(b'  <svg id="x"/>') == "svg"
 
     con.close()
+
+
+def test_discover_sqlite_sidecars_follows_exinfo_and_common_dirs(tmp_path) -> None:
+    idx = tmp_path / "DICT.IDX"
+    idx.write_bytes(b"")
+    exinfo = tmp_path / "EXINFO.INI"
+    exinfo.write_text("[GENERAL]\nSQLNAME=Template.db\nROSQLNAME=Body.db\n", encoding="cp932")
+
+    templates = tmp_path / "Templates"
+    templates.mkdir()
+    template_db = templates / "Template.db"
+    con = sqlite3.connect(template_db)
+    con.execute("create table D_InternationalChronology (INC_Code text, Year text)")
+    con.commit()
+    con.close()
+
+    body_db = tmp_path / "Body.db"
+    con = sqlite3.connect(body_db)
+    con.execute("create table EntryPayload (content_id integer primary key, body_html text)")
+    con.commit()
+    con.close()
+
+    sidecars = discover_sqlite_sidecars(idx, parse_exinfo(exinfo))
+    by_name = {row.path.name: row for row in sidecars}
+
+    assert by_name["Template.db"].role == "sqlite_ancillary"
+    assert by_name["Body.db"].role == "sqlite_renderer_body"
+    assert [row.path.name for row in discover_renderer_sidecars(idx, parse_exinfo(exinfo))] == ["Body.db"]
+
+    model_sidecars = windows_sidecars_for_idx(
+        idx,
+        Namespace(sidecar_sample_limit=5, deep_sidecars=False, no_hash=True),
+    )
+    model_roles = {Path(row["path"]).name: row["role"] for row in model_sidecars["sqlite_sidecars"]}
+    assert model_roles["Template.db"] == "sqlite_ancillary"
+    assert model_roles["Body.db"] == "sqlite_renderer_body"
 
 
 def test_rendererdb_lowercase_content_and_t_media_schema(tmp_path) -> None:

@@ -12,7 +12,9 @@ def _multiview_markers(root: Path) -> bool:
     if not root.is_dir():
         return False
     names = {child.name.casefold() for child in root.iterdir() if not is_metadata_noise_path(child)}
-    return "vlpljbl.exe" in names and bool({"blvbat", "blvdat", "hlvbat", "ilvbat", "jlvbat", "nlvbat"} & names)
+    loader_present = bool({"vlpljbl.exe", "vlpljbl.bin"} & names)
+    payload_present = bool({"blvbat", "blvdat", "hlvbat", "ilvbat", "jlvbat", "nlvbat"} & names)
+    return loader_present and payload_present
 
 
 def detect_family(path: Path) -> PackageInfo:

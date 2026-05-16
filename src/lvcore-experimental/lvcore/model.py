@@ -241,6 +241,7 @@ class Entry:
     entry_diagnostics: tuple[Any, ...] = ()
     decode_unknown_controls: int = 0
     decode_unknown_bytes: int = 0
+    decode_invalid_jis_pairs: int = 0
 
     def document(self):
         from .document import build_entry_document
@@ -273,6 +274,7 @@ class Entry:
             "end_address": self.end_address.to_dict(),
             "decode_unknown_controls": self.decode_unknown_controls,
             "decode_unknown_bytes": self.decode_unknown_bytes,
+            "decode_invalid_jis_pairs": self.decode_invalid_jis_pairs,
             "span_summaries": [span.to_debug_summary() for span in self.spans],
             "diagnostics": [
                 diagnostic.to_dict() if hasattr(diagnostic, "to_dict") else diagnostic
@@ -293,16 +295,20 @@ class Entry:
         }
         if not debug:
             return data
+        decode_telemetry: JsonObject = {
+            "unknown_controls": self.decode_unknown_controls,
+            "unknown_bytes": self.decode_unknown_bytes,
+        }
+        if self.decode_invalid_jis_pairs:
+            decode_telemetry["invalid_jis_pairs"] = self.decode_invalid_jis_pairs
         data.update(
             {
                 "address": self.address.to_dict(),
                 "end_address": self.end_address.to_dict(),
-                "decode_telemetry": {
-                    "unknown_controls": self.decode_unknown_controls,
-                    "unknown_bytes": self.decode_unknown_bytes,
-                },
+                "decode_telemetry": decode_telemetry,
                 "decode_unknown_controls": self.decode_unknown_controls,
                 "decode_unknown_bytes": self.decode_unknown_bytes,
+                "decode_invalid_jis_pairs": self.decode_invalid_jis_pairs,
                 "span_summaries": [span.to_debug_summary() for span in self.spans],
             }
         )

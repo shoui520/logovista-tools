@@ -123,12 +123,25 @@ def _sidecar_html_to_spans(value: str, *, fallback_text: str) -> tuple[Span, ...
     return (Span(kind="text", text=fallback_text),)
 
 
+ENTRY_STOP_OPS = {0x09, 0x41}
+ENTRY_STOP_MARKER_LENGTH = 4
+
+
 class PackageEntryMixin:
     """Entry/body-source methods for LogoVistaPackage."""
 
     @staticmethod
+    def _learn_entry_stop_markers(reader: SsedData, *, max_scan_bytes: int = CHUNK_SIZE) -> tuple[bytes, ...]:
+        data = reader.read(0, min(reader.expanded_size, max_scan_bytes))
+        for pos in range(0, max(0, len(data) - ENTRY_STOP_MARKER_LENGTH + 1)):
+            if data[pos] == 0x1F and data[pos + 1] in ENTRY_STOP_OPS:
+                return (bytes(data[pos : pos + ENTRY_STOP_MARKER_LENGTH]),)
+        return (ENTRY_MARKER,)
+
+    @staticmethod
     def _marker_offsets(reader: SsedData, *, limit: int | None = None, budget: ScanBudget | None = None) -> list[int]:
         offsets: list[int] = []
+        markers = PackageEntryMixin._learn_entry_stop_markers(reader)
         tail = b""
         tail_base = 0
         budget = budget or ScanBudget()
@@ -143,16 +156,26 @@ class PackageEntryMixin:
             data_base = tail_base
             search = 0
             while True:
-                found = data.find(ENTRY_MARKER, search)
+                found = -1
+                marker = b""
+                for candidate in markers:
+                    candidate_found = data.find(candidate, search)
+                    if candidate_found >= 0 and (found < 0 or candidate_found < found):
+                        found = candidate_found
+                        marker = candidate
                 if found < 0:
                     break
                 absolute = data_base + found
+                if found >= 2 and data[found - 2 : found] == b"\x1f\x02":
+                    absolute -= 2
+                elif absolute >= 2 and reader.read(absolute - 2, 2) == b"\x1f\x02":
+                    absolute -= 2
                 if not offsets or absolute != offsets[-1]:
                     offsets.append(absolute)
-                search = found + 1
+                search = found + max(1, len(marker))
                 if limit is not None and len(offsets) >= limit + 1:
                     return offsets
-            keep = max(0, len(ENTRY_MARKER) - 1)
+            keep = max(0, ENTRY_STOP_MARKER_LENGTH + 2 - 1)
             tail = data[-keep:] if keep else b""
             tail_base = chunk_base + len(chunk) - len(tail)
         return offsets
@@ -178,6 +201,13 @@ class PackageEntryMixin:
         reader = self.data(honmon)
         budget = ScanBudget(max_bytes=max_bytes, cancel=cancel)
         starts = self._markers_for_component(honmon, limit=limit, budget=budget)
+        pointer_offsets: list[int] = []
+        if limit is not None:
+            pointer_offsets = self._body_pointer_offsets_fast(honmon, limit=limit + 1, budget=budget)
+        else:
+            pointer_offsets = self._body_pointer_offsets(honmon)
+        if pointer_offsets:
+            starts = sorted(set(starts).union(pointer_offsets))
         if not starts:
             if not budget.allow(min(reader.expanded_size, BLOCK_SIZE)):
                 return
@@ -245,6 +275,7 @@ class PackageEntryMixin:
                 spans=decoded.spans,
                 decode_unknown_controls=decoded.unknown_controls,
                 decode_unknown_bytes=decoded.unknown_bytes,
+                decode_invalid_jis_pairs=decoded.invalid_jis_pairs,
             )
             yield entry
             count += 1
@@ -587,18 +618,23 @@ class PackageEntryMixin:
 
     def _next_marker_after(self, component: Component, start: int, *, max_scan_bytes: int | None = None) -> int | None:
         reader = self.data(component)
+        markers = self._learn_entry_stop_markers(reader)
         offset = max(start + 1, 0)
         scan_end = reader.expanded_size if max_scan_bytes is None else min(reader.expanded_size, start + max_scan_bytes)
         tail = b""
         tail_base = offset
-        keep = len(ENTRY_MARKER) + 2 - 1
+        keep = ENTRY_STOP_MARKER_LENGTH + 2 - 1
         while offset < scan_end:
             chunk = reader.read(offset, min(CHUNK_SIZE, scan_end - offset))
             if not chunk:
                 break
             data = tail + chunk
             base = tail_base
-            found = data.find(ENTRY_MARKER)
+            found = -1
+            for marker in markers:
+                marker_found = data.find(marker)
+                if marker_found >= 0 and (found < 0 or marker_found < found):
+                    found = marker_found
             if found >= 0:
                 absolute = base + found
                 if absolute > start:
@@ -677,6 +713,7 @@ class PackageEntryMixin:
             entry_diagnostics=diagnostics,
             decode_unknown_controls=decoded.unknown_controls,
             decode_unknown_bytes=decoded.unknown_bytes,
+            decode_invalid_jis_pairs=decoded.invalid_jis_pairs,
         )
         return entry
 
@@ -705,11 +742,10 @@ class PackageEntryMixin:
         stripped = anchor_id.lstrip("0") or "0"
         if stripped != anchor_id:
             values.append(stripped)
-        if sidecar.kind != "honbun":
-            try:
-                values.append(int(stripped))
-            except ValueError:
-                pass
+        try:
+            values.append(int(stripped))
+        except ValueError:
+            pass
         return tuple(dict.fromkeys(values))
 
     def _sidecar_debug_details(self, sidecar: SidecarInfo, anchor_id: str) -> JsonObject:

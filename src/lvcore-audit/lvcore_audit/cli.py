@@ -363,7 +363,7 @@ def build_corpus_summary(args: argparse.Namespace) -> tuple[dict[str, Any], list
     }
     resource_resolution_by_reason = {"unresolved_gaiji": {}, "unresolved_media": {}, "unresolved_link": {}}
     media_resolution_counts: dict[str, dict[str, int]] = {}
-    decode_telemetry_counts = {"unknown_controls": 0, "unknown_bytes": 0}
+    decode_telemetry_counts = {"unknown_controls": 0, "unknown_bytes": 0, "invalid_jis_pairs": 0}
     title_dereference_counts: dict[str, Any] = {
         "attempts": 0,
         "resolved": 0,

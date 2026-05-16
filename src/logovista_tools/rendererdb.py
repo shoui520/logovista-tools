@@ -1,4 +1,4 @@
-"""Extract Windows renderer SQLite bodies through raw HONMON anchors."""
+"""Extract renderer/app SQLite bodies through raw HONMON anchors."""
 
 from __future__ import annotations
 

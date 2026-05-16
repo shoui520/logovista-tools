@@ -743,7 +743,7 @@ def main() -> int:
     parser.add_argument(
         "--renderer-sidecars",
         action="store_true",
-        help="Also decrypt/use Windows renderer SQLite sidecars such as vlpljblb.",
+        help="Also decrypt/use renderer SQLite sidecars such as vlpljblb.",
     )
     parser.add_argument(
         "--max-sql-rows",

@@ -187,10 +187,12 @@ MSHTML renderer. CSS values include viewer placeholders such as:
 [lineheight]
 ```
 
-MOROKU law packages ship extensionless `Resources/*` files. Most observed
-entries decrypt with LogoFontCipher to PDF documents. MOROKU23 has three
-resource files that remain plain/unknown under the current classifier and are
-reported as opaque.
+MOROKU law packages ship extensionless `Resources/*` files. The observed
+`inshizei`, `minji`, `zenkoku`, and `zeihou` resources decrypt to PDF
+documents. Most use the Windows LogoFontCipher AES-CBC key/IV; the three
+MOROKU23 law resources use the Mac OS X LogoFontCipher AES-CBC variant. The
+plaintext payload after decryption starts with normal PDF magic and should be
+exported as `.pdf` without rewriting the PDF bytes.
 
 ESPRANT2 ships a `HANREI/` static HTML directory with CSS/JS and 15 HTML files.
 The primary menu targets resolve to `t_contents`, not directly to those static

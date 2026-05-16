@@ -106,6 +106,13 @@ with the `SSEDINFO` magic. Large observed auxiliary trees may be sharded with
 suffixes such as `_0`, `_1`, `_2`, and `_3`. These are still auxiliary index
 trees; they are not additional SSED catalogs.
 
+SQLite `.db` sidecars are cross-platform resources, not Windows-only files.
+Observed roles include Android app body DBs, Android index metadata DBs,
+Windows `EXINFO.INI` `SQLNAME` / `ROSQLNAME` DBs, examples/idioms and
+link-reference DBs, kanji-support DBs, template navigation/filter DBs, and
+ancillary helper DBs. Classification should be schema-first; only body-capable
+SQLite roles should be used as entry-body providers.
+
 `SPINDEX.DIC` and `HANREI/` are auxiliary resource families rather than
 Windows-only markers. They are observed in Windows package layouts, and they can
 appear in Mac OS X package layouts too.

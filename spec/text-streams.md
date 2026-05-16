@@ -307,38 +307,47 @@ reader/model must classify it and expose the dereference path. A plain core SSED
 writer does not need to emit dense HONMON, renderer DBs, Android DBs, or
 `DictFULLDB`; writer v0 targets self-contained body-stream `HONMON.DIC`.
 
-## DictFULLDB Payloads
+## SQLite Sidecars and DictFULLDB Payloads
 
-Many LogoVista products include `.db` or `.sql` files. Some are app search
-caches; some are explicitly declared by `DictList.plist` as `DictFULLDB`.
-KOJIEN7 is in the second category, and its declared body payload happens to be
-SQLite.
+Many LogoVista products include `.db`, `.sqlite`, or `.sql` files. These are
+not Windows-only. Observed packages use SQLite-style sidecars in Windows,
+iOS, Android, Mac-adjacent app bundles, and stripped/no-platform SSED layouts.
+The filename extension alone does not identify the role.
 
 Practical interpretation:
 
-- Database files may be app/mobile search caches.
-- `DictFULLDB` is the declared full body payload for some products.
+- `DictFULLDB` is the `DictList.plist`-declared full body payload for some
+  products, such as KOJIEN7.
+- Windows `EXINFO.INI` can declare app/renderer SQLite with `SQLNAME=` or
+  `ROSQLNAME=`.
+- Android packages can use a plain package DB such as `DICTID.db`, plus
+  metadata DBs such as `*_indexinfo.db`.
+- Other plain DBs can be examples/idioms, link-reference tables, kanji-support
+  tables, chronology/ancillary tables, template navigation/filter databases,
+  or media BLOB stores.
 - It may flatten or normalize formatting.
 - It may also contain formatted HTML with `div`, `sub`, `object`, `img`, and
   `lved.dataid:` links.
 - It is useful for validation, fallback, pointer discovery, and full-body
   extraction when raw HONMON stores IDs instead of definitions.
 
-The `entries` and `titles` commands do not read SQLite. The `fulldb` command
-does, but only after decoding body IDs from raw HONMON records. The
-`gaiji-report` command reads SQLite as an auxiliary validation source and keeps
-that evidence separate from the raw `.DIC`/`.IDX` extraction path.
+The `entries` and `titles` commands stay on the native `.DIC`/`.IDX` path. The
+`fulldb` command follows declared `DictFULLDB` payloads after decoding body IDs
+from raw HONMON records. The `rendererdb` command handles raw-ID-assisted
+renderer/app DB bodies, including Windows `t_contents`/`HONBUN` sidecars and
+the observed Android `DICTID(Html)` rowid layout. The `gaiji-report` command
+reads SQLite only as auxiliary validation evidence.
 
-Windows renderer DBs and the observed Android body DB shape are related but not
-the same declaration mechanism. They are not `DictFULLDB` entries in
-`DictList.plist`; they are platform body/render caches. The toolkit still treats
-them as raw-ID-assisted body sources, not as replacements for raw parsing:
-`rendererdb` first decodes dense HONMON IDs and then accepts only DB rows that
-match those raw IDs. Renderer DBs can also contain rows whose IDs are outside
-that decimal raw-ID namespace. The observed Windows `NANMED20` `vlpljblF`
-sidecar has `t_contents.f_DataId` values such as `99A00001`; these are
-preserved as sidecar-only rows in reports and are not interpreted as raw HONMON
-anchors.
+Renderer/app DBs and declared `DictFULLDB` payloads are related but not the
+same declaration mechanism. Renderer/app DBs are not `DictFULLDB` entries in
+`DictList.plist`; they are platform body/render caches. The toolkit still
+treats them as raw-ID-assisted body sources, not as replacements for raw
+parsing: `rendererdb` first decodes dense HONMON IDs and then accepts only DB
+rows that match those raw IDs. Renderer DBs can also contain rows whose IDs are
+outside that decimal raw-ID namespace. The observed Windows `NANMED20`
+`vlpljblF` sidecar has `t_contents.f_DataId` values such as `99A00001`; these
+are preserved as sidecar-only rows in reports and are not interpreted as raw
+HONMON anchors.
 
 ## Non-SSED LVED/WebView2 Packages
 

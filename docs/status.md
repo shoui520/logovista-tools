@@ -61,6 +61,11 @@ and non-SSED reader status are tracked separately in
   SQLite schema, and inferred role. Observed roles include decryptor binaries,
   fonts, renderer body DBs, media stores, search indexes, row-ordered `HONBUN`,
   and block/offset body DBs.
+- Cross-platform plain SQLite sidecar classification for `.db` / `.sqlite`
+  payloads outside the `vlpljbl*` naming convention, including Android body DBs,
+  Android index metadata, examples/idioms, link-reference rows, kanji-support
+  tables, template navigation/filter tables, search/conjugation helpers, and
+  ancillary helper DBs.
 - `EXINFO.INI` parsing and CP932 auxiliary text-index extraction, including
   sibling eight-hex-digit `00000xxx.idx` sidecar trees and sharded
   `00000xxx_n.idx` variants. `EXINFO.INI` and numeric auxiliary indexes are not
@@ -73,10 +78,12 @@ and non-SSED reader status are tracked separately in
   `EXINFO` `HTMLDLL` correlation, numeric-index correlation, `vlpljbl*`
   companion names, embedded SQL/HTML/image template strings, and observed
   control effects for body, gaiji, picture, link, audio, and private layout
-  directives.
-- Windows renderer SQLite extraction through raw HONMON ID anchors and
+  directives. `hc-render` applies the common HC control semantics to raw body
+  slices and reports product-specific hooks as named behavior gaps rather than
+  claiming exact plugin parity.
+- Renderer/app SQLite extraction through raw HONMON ID anchors and
   `t_contents` rows, with optional `media` BLOB export.
-- Windows renderer SQLite extraction for the `BRINEN15` dense-anchor variant:
+- Renderer SQLite extraction for the `BRINEN15` dense-anchor variant:
   marker-at-byte-0 HONMON ID rows, `f_data_id` / `f_contents` `t_contents`
   schemas, and two-column `t_media(f_name, f_blob)` JPEG stores.
 - Android body DB extraction through raw HONMON ID anchors and the observed
@@ -108,6 +115,10 @@ and non-SSED reader status are tracked separately in
   packages, including SSEDINFO facade parsing, LogoFontCipher SQLite payload
   roles, `menuData.xml` href resolution, static HTML/viewer-file reporting,
   and encrypted PDF resource detection where present.
+- Loose media/resource decoders for Britannica `whatday` HTML fragments,
+  Britannica `top/top_*.dat` address/image lists, PROYAL53 `dat/*`
+  LogoFontCipher WAVE payloads, LVLMultiView MOROKU law PDFs, and extensionless
+  renderer SQLite sidecars such as CJJC160.
 - SIZK / NHK 文学のしずく focused dictionary-family inspection for the observed
   30 Windows-corpus dictionaries, including EXINFO-declared `shizuku.uni`,
   `HTMLs/b121`-`b124` template selectors, tiny four-entry HONMON streams,
@@ -264,10 +275,13 @@ and non-SSED reader status are tracked separately in
 - Current lvcore reader-side counters and SSED closure status are tracked in
   [lvcore Status](lvcore-status.md), not in this toolkit status page.
 - The Panel subsystem has a decoded optional-navigation model. Complete
-  Panel packages use `Panels.dtd`, `Panels.xml`, `Panel.html`, `Cell.html`, and
-  external `.bin` tables. The `.bin` files are fixed-width little-endian
-  label-to-address tables, and the observed complete Panel corpus decodes
-  2,457 files / 577,728 rows with no binary decode failures. Rows mostly target
+  Windows-style Panel packages use `Panels.dtd`, `Panels.xml`, `Panel.html`,
+  `Cell.html`, and external `.bin` tables; Mac/mobile packages can represent
+  the same model with `Panels.plist` or nested menu plists. The common `.bin`
+  files are fixed-width little-endian label-to-address tables, with observed
+  id-prefixed, declared-count-mismatch, empty/zero-width, and headerless
+  big-endian UTF-8 variants. The current decode pass covers 4,544 non-decryptor
+  `.bin` candidates with no binary decode failures. Rows mostly target
   `HONMON.DIC`; a small observed set targets `MENU.DIC`. Panel rows are
   optional navigation/sidebar data, not ordinary entry bodies.
 - `CCALTSTR.HA` / `CCALTSTR.FU` are decoded as fixed-record custom-character

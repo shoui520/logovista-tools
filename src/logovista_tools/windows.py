@@ -1,4 +1,9 @@
-"""Windows LogoVista sidecar helpers."""
+"""LogoVista sidecar helpers.
+
+Most helpers in this module were introduced for Windows renderer packages, but
+SQLite sidecar classification is intentionally platform-neutral: the same
+plain ``*.db`` patterns also appear in Android and portable SSED layouts.
+"""
 
 from __future__ import annotations
 
@@ -64,10 +69,21 @@ class AuxIndexRow:
 
 @dataclass(frozen=True)
 class RendererSidecar:
-    """A Windows renderer sidecar that is or decrypts to SQLite."""
+    """A renderer/body sidecar that is or decrypts to SQLite."""
 
     path: Path
     storage: str
+
+
+@dataclass(frozen=True)
+class SqliteSidecarClassification:
+    """Schema-level classification for one plain/encrypted SQLite sidecar."""
+
+    path: Path
+    storage: str | None
+    role: str
+    tables: tuple[dict[str, Any], ...] = ()
+    content_kind: str = "sqlite"
 
 
 @dataclass(frozen=True)
@@ -321,6 +337,17 @@ def sqlite_storage_for_path(path: Path) -> str | None:
     return None
 
 
+def sqlite_sidecar_classification_to_json(row: SqliteSidecarClassification) -> dict[str, Any]:
+    return {
+        "path": str(row.path),
+        "name": row.path.name,
+        "storage": row.storage,
+        "content_kind": row.content_kind,
+        "role": row.role,
+        "sqlite_tables": list(row.tables),
+    }
+
+
 def quote_identifier(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
@@ -359,6 +386,8 @@ def file_magic_kind(data: bytes) -> str:
         return "html"
     if data.startswith(b"RIFF"):
         return "riff"
+    if data.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+        return "ole_compound_file"
     return "unknown"
 
 
@@ -866,7 +895,7 @@ def _has_any(columns: set[str], *candidates: str) -> bool:
 
 
 def _sqlite_table_role(name: str, columns: set[str]) -> str:
-    """Infer a renderer SQLite table role from schema capabilities.
+    """Infer a LogoVista SQLite table role from schema capabilities.
 
     Table names are still useful evidence, but they are not stable enough to be
     the primary dispatch mechanism. Prefer id/body/blob/address capabilities,
@@ -874,6 +903,16 @@ def _sqlite_table_role(name: str, columns: set[str]) -> str:
     """
 
     lower = name.lower()
+    if lower == "android_metadata":
+        return "platform_metadata"
+    if lower == "indexinfo":
+        return "index_metadata"
+    if lower == "info":
+        return "metadata"
+    if lower in {"bamen", "bamendetail", "koudou", "koudoudetail"}:
+        return "metadata"
+    if lower in {"katsuyou", "kisoku"}:
+        return "conjugation"
     has_id = _has_any(
         columns,
         "id",
@@ -905,9 +944,14 @@ def _sqlite_table_role(name: str, columns: set[str]) -> str:
         "keyword",
         "midashi",
         "midashij",
+        "japanese",
         "c_text",
         "k_text",
         "j_text",
+        "f_katakana",
+        "f_std_name",
+        "f_2nd_name",
+        "f_kan_name",
     )
     has_body = _has_any(
         columns,
@@ -940,12 +984,22 @@ def _sqlite_table_role(name: str, columns: set[str]) -> str:
         return "empty"
     if columns == {"index", "data"}:
         return "ancillary"
+    if "chronology" in lower:
+        return "ancillary"
     if lower in {"t_all", "t_bushu", "t_jukugo", "t_yomi", "t_exam"}:
         return "kanji_support"
+    if lower in {"d_example", "d_idiom"}:
+        return "examples_idioms"
+    if lower in {"d_goyo", "d_keigo", "d_kininaru", "d_english"}:
+        return "supplemental"
     if has_blob and (has_name or has_id):
         return "media_store"
+    if columns == {"html"}:
+        return "body"
     if has_id and has_body and not has_address:
         return "body"
+    if has_address and has_body:
+        return "block_offset_body"
     if has_address and has_search_type and has_title:
         return "search"
     if has_address and has_title:
@@ -954,24 +1008,36 @@ def _sqlite_table_role(name: str, columns: set[str]) -> str:
         return "search"
     if lower.startswith("t_search_") or "zenbun" in lower or lower == "t_index":
         return "search"
+    if lower.startswith("d_"):
+        return "supplemental"
     return "unknown"
 
 
 def sqlite_role_for_tables(tables: tuple[dict[str, Any], ...]) -> str:
-    """Return an evidence-backed role for a ``vlpljbl*`` SQLite payload."""
+    """Return an evidence-backed role for a LogoVista SQLite sidecar.
+
+    The same schema families appear as encrypted Windows ``vlpljbl*`` payloads,
+    plain Windows ``*.db`` sidecars, Android body databases, and portable SSED
+    helper databases. This function therefore classifies by schema first and
+    by platform marker tables only when they are part of the observed layout.
+    """
 
     columns = _column_sets(tables)
-    names = set(columns)
+    names_all = set(columns)
+    names = {name for name in names_all if name not in {"android_metadata"}}
     if not names:
-        return "sqlite_empty"
-    roles = {name: _sqlite_table_role(name, cols) for name, cols in columns.items()}
+        return "sqlite_metadata_only" if names_all else "sqlite_empty"
+    roles = {name: _sqlite_table_role(name, columns[name]) for name in names}
     role_values = set(roles.values())
+    has_android_metadata = "android_metadata" in names_all
+    if has_android_metadata and names == {"indexinfo"}:
+        return "sqlite_android_index_metadata"
+    if {"bamen", "koudou"} & names and any(name.startswith("data") for name in names):
+        return "sqlite_template_navigation"
+    if any(name.startswith("t_kyz_") for name in names):
+        return "sqlite_category_search_index"
     if role_values <= {"media_store"}:
         return "sqlite_media_store"
-    if role_values <= {"search"} and any(name.startswith("t_search_") for name in names):
-        return "sqlite_category_search_index"
-    if role_values <= {"search"} and len(names) == 1:
-        return "sqlite_search_index"
     if "honbun" in names:
         honbun = columns["honbun"]
         if {"id", "title_utf8", "contents_html_box"} <= honbun:
@@ -979,12 +1045,16 @@ def sqlite_role_for_tables(tables: tuple[dict[str, Any], ...]) -> str:
         if {"f_data_id", "f_honbun"} <= honbun or {"f_data_id", "f_contents"} <= honbun:
             return "sqlite_honbun_data_id_body"
         return "sqlite_honbun"
+    if "block_offset_body" in role_values:
+        return "sqlite_block_offset_body"
     if "body" in role_values:
         if "media_store" in role_values:
             return "sqlite_renderer_body_with_media"
         return "sqlite_renderer_body"
-    if any({"block", "offset", "body"} <= cols for cols in columns.values()):
-        return "sqlite_block_offset_body"
+    if role_values <= {"search"} and any(name.startswith("t_search_") for name in names):
+        return "sqlite_category_search_index"
+    if role_values <= {"search"} and len(names) == 1:
+        return "sqlite_search_index"
     if "t_contents" in names:
         cols = columns["t_contents"]
         body_columns = {
@@ -1000,13 +1070,32 @@ def sqlite_role_for_tables(tables: tuple[dict[str, Any], ...]) -> str:
             if {"media", "t_media"} & names:
                 return "sqlite_renderer_body_with_media"
             return "sqlite_renderer_body"
-    if any({"block", "offset", "title"} <= cols for cols in columns.values()):
+    if "examples_idioms" in role_values:
+        return "sqlite_examples_idioms"
+    if role_values <= {"supplemental", "examples_idioms"}:
+        return "sqlite_supplemental"
+    if "kanji_support" in role_values:
+        return "sqlite_kanji_support"
+    if "conjugation" in role_values:
+        return "sqlite_search_or_conjugation"
+    if role_values <= {"ancillary", "metadata", "platform_metadata", "index_metadata"}:
+        return "sqlite_ancillary"
+    if any({"block", "offset", "title"} <= columns[name] for name in names):
         return "sqlite_block_offset_title_index"
     if "link_reference" in role_values:
-        return "sqlite_block_offset_title_index"
+        return "sqlite_link_reference"
     if "search" in role_values or {"t_search", "t_zenbun"} & names:
         return "sqlite_search_or_fulltext"
     return "sqlite_unclassified"
+
+
+RENDERER_BODY_SQLITE_ROLES = {
+    "sqlite_renderer_body",
+    "sqlite_renderer_body_with_media",
+    "sqlite_row_ordered_honbun_renderer_body",
+    "sqlite_honbun_data_id_body",
+    "sqlite_block_offset_body",
+}
 
 
 def vlpljbl_role_for_content(content_kind: str, suffix: str, tables: tuple[dict[str, Any], ...]) -> str:
@@ -1100,11 +1189,95 @@ def sqlite_has_supported_sidecar_schema(path: Path) -> bool:
         role = sqlite_role_for_tables(sqlite_table_schema_summaries(path))
     except sqlite3.Error:
         return False
-    return role not in {"sqlite_empty", "sqlite_unclassified"}
+    return role in RENDERER_BODY_SQLITE_ROLES
+
+
+def _resolve_sidecar_reference(root: Path, name: str) -> Path | None:
+    candidates = [
+        root / name,
+        root / "Templates" / name,
+        root / "templates" / name,
+        root / "resource" / name,
+        root / "innerdata" / name,
+        root / "manual" / name,
+    ]
+    for candidate in candidates:
+        found = find_case_insensitive(candidate.parent, candidate.name)
+        if found is not None and found.is_file():
+            return found.resolve()
+    return None
+
+
+def discover_sqlite_sidecar_files(idx: Path, exinfo: Exinfo | None = None) -> list[Path]:
+    """Return package-local SQLite-ish sidecars without assuming a platform.
+
+    This is intentionally bounded. It checks direct package siblings, common
+    resource/template directories, and explicit ``EXINFO.INI`` references such
+    as ``SQLNAME`` / ``ROSQLNAME``. It does not recursively inventory arbitrary
+    app trees.
+    """
+
+    root = idx.parent
+    candidates: list[Path] = []
+    if exinfo is not None:
+        for key, value in exinfo.general.items():
+            if key.upper() in {"SQLNAME", "ROSQLNAME"} or value.lower().endswith((".db", ".sqlite", ".sqlite3")):
+                resolved = _resolve_sidecar_reference(root, value)
+                if resolved is not None:
+                    candidates.append(resolved)
+    for directory in (root, root / "Templates", root / "templates", root / "resource", root / "innerdata", root / "manual"):
+        if not directory.is_dir():
+            continue
+        for child in sorted(directory.iterdir()):
+            if child.is_file() and child.suffix.lower() in {".db", ".sqlite", ".sqlite3"}:
+                candidates.append(child.resolve())
+    rows: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        rows.append(candidate)
+    return rows
+
+
+def classify_sqlite_sidecar_file(path: Path) -> SqliteSidecarClassification:
+    prefix = read_file_prefix(path, 64)
+    storage = sqlite_storage_for_path(path)
+    content_kind = file_magic_kind(prefix)
+    if storage is None:
+        return SqliteSidecarClassification(
+            path=path.resolve(),
+            storage=None,
+            content_kind=content_kind,
+            role="not_sqlite",
+        )
+    try:
+        if storage == "plain":
+            tables = sqlite_table_schema_summaries(path)
+        else:
+            with tempfile.TemporaryDirectory(prefix="lv-sqlite-sidecar-") as tmp:
+                decrypted = Path(tmp) / f"{path.name}.sqlite"
+                decrypt_logofont_cipher_file_to_path(path, decrypted)
+                tables = sqlite_table_schema_summaries(decrypted)
+        role = sqlite_role_for_tables(tables)
+    except sqlite3.Error:
+        tables = ()
+        role = "sqlite_open_error"
+    return SqliteSidecarClassification(
+        path=path.resolve(),
+        storage=storage,
+        role=role,
+        tables=tables,
+    )
+
+
+def discover_sqlite_sidecars(idx: Path, exinfo: Exinfo | None = None) -> list[SqliteSidecarClassification]:
+    return [classify_sqlite_sidecar_file(path) for path in discover_sqlite_sidecar_files(idx, exinfo)]
 
 
 def discover_renderer_sidecars(idx: Path, exinfo: Exinfo | None = None) -> list[RendererSidecar]:
-    """Return sibling files that are plain/encrypted SQLite renderer payloads."""
+    """Return body-capable files that are plain/encrypted SQLite payloads."""
 
     candidates: list[Path] = []
     if exinfo is not None:
@@ -1114,14 +1287,9 @@ def discover_renderer_sidecars(idx: Path, exinfo: Exinfo | None = None) -> list[
             candidates.append(candidate)
     for child in sorted(idx.parent.iterdir()):
         lower = child.name.lower()
-        if not child.is_file():
-            continue
-        if lower == "vlpljbl.bin":
-            continue
-        if lower.startswith("vlpljbl"):
+        if child.is_file() and lower.startswith("vlpljbl") and lower != "vlpljbl.bin":
             candidates.append(child)
-        elif child.suffix.lower() in {".db", ".sqlite", ".sqlite3"}:
-            candidates.append(child)
+    candidates.extend(discover_sqlite_sidecar_files(idx, exinfo))
 
     rows: list[RendererSidecar] = []
     seen: set[Path] = set()

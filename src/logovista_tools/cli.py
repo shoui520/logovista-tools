@@ -59,6 +59,7 @@ from .gaiji import (
 )
 from .gaiji_readiness import extract_gaiji_readiness_for_args
 from .honmon_bytes import extract_honmon_byte_reports_for_args
+from .hcrender import add_hc_render_args, extract_hc_render_for_sources
 from .indexes import extract_indexes_for_idx
 from .ir import extract_ir_for_args
 from .lved import (
@@ -69,6 +70,15 @@ from .lved import (
     inspect_lved_roots,
 )
 from .lvcrypto import decrypt_logofont_cipher_auto_file_to_path
+from .loose_media import (
+    classify_loose_decoded_resource,
+    is_britannica_top_dat_path,
+    is_britannica_whatday_path,
+    iter_candidate_files as iter_loose_media_candidate_files,
+    parse_britannica_top_dat,
+    parse_britannica_whatday_file,
+    write_decoded_resource,
+)
 from .model_types import PackageFamily
 from .menus import extract_menus_for_idx
 from .multiview import (
@@ -79,6 +89,11 @@ from .multiview import (
 )
 from .opcode_atlas import extract_opcode_atlas_for_args
 from .parallel import add_jobs_argument, parallel_map_ordered, worker_args
+from .panels import (
+    PanelBinParseError,
+    iter_panel_references,
+    parse_panel_bin_file,
+)
 from .pcmdata import extract_pcmdata_for_sources
 from .profiles import extract_profiles_for_args
 from .rendererdb import extract_rendererdb_for_sources
@@ -563,6 +578,316 @@ def cmd_resources(args: argparse.Namespace) -> int:
             print(f"  img: {image_dir}")
         print(f"  gaiji sample: {', '.join(row['gaiji_image_keys'][:16])}")
         print(f"  named sample: {', '.join(named[:16])}")
+    return 0
+
+
+def _loose_media_item_to_json(path: Path, args: argparse.Namespace) -> dict[str, Any]:
+    if is_britannica_whatday_path(path):
+        decoded = parse_britannica_whatday_file(path)
+        return {
+            "kind": "britannica_whatday_html",
+            **decoded.to_dict(include_text=args.include_text),
+        }
+    if is_britannica_top_dat_path(path):
+        decoded = parse_britannica_top_dat(path)
+        return {
+            "kind": "britannica_top_dat",
+            **decoded.to_dict(include_text=args.include_text, limit=args.limit),
+        }
+    resource = classify_loose_decoded_resource(path)
+    if resource is None:
+        return {
+            "kind": "unclassified",
+            "path": str(path),
+            "name": path.name,
+            "bytes": path.stat().st_size,
+        }
+    row = {"kind": "decoded_loose_resource", **resource.to_dict()}
+    if args.write_decoded:
+        out_dir = args.out_dir / "decoded" / resource.role
+        row["written"] = str(write_decoded_resource(resource, out_dir))
+    return row
+
+
+def cmd_loose_media(args: argparse.Namespace) -> int:
+    roots = args.root or [Path(".")]
+    rows: list[dict[str, Any]] = []
+    failures: list[dict[str, str]] = []
+    for path in iter_loose_media_candidate_files(roots):
+        try:
+            row = _loose_media_item_to_json(path, args)
+        except Exception as exc:  # pragma: no cover - exercised by corpus probes.
+            failures.append({"path": str(path), "error": f"{type(exc).__name__}: {exc}"})
+            continue
+        if row.get("kind") == "unclassified" and not args.include_unclassified:
+            continue
+        rows.append(row)
+
+    by_kind = Counter(str(row.get("kind")) for row in rows)
+    by_role = Counter(str(row.get("role")) for row in rows if row.get("role"))
+    summary = {
+        "schema": "logovista-loose-media-v1",
+        "roots": [str(root) for root in roots],
+        "items": len(rows),
+        "by_kind": dict(sorted(by_kind.items())),
+        "by_role": dict(sorted(by_role.items())),
+        "failures": failures,
+        "rows": rows if args.limit is None else rows[: args.limit],
+    }
+    if args.out_dir:
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        write_json(args.out_dir / "loose-media-summary.json", summary)
+    if args.json:
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
+    print(f"loose-media: items={len(rows)} failures={len(failures)}")
+    for kind, count in sorted(by_kind.items()):
+        print(f"  {kind}: {count}")
+    for role, count in sorted(by_role.items()):
+        print(f"  role {role}: {count}")
+    for row in rows[: args.limit or 20]:
+        path = row.get("path")
+        label = row.get("role") or row.get("kind")
+        extra = ""
+        if row.get("kind") == "britannica_top_dat":
+            extra = f" records={row.get('records')}"
+        elif row.get("kind") == "britannica_whatday_html":
+            extra = f" refs={len(row.get('references', []))}"
+        elif row.get("content_kind"):
+            extra = f" {row.get('storage')}->{row.get('content_kind')}"
+        print(f"  {label}: {path}{extra}")
+    return 0
+
+
+def _casefolded_relative(root: Path, relative: str) -> Path | None:
+    current = root
+    for part in Path(relative.replace("\\", "/")).parts:
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            current = current.parent
+            continue
+        found = CaseFoldedDirectory.from_path(current).find(part)
+        if found is None:
+            return None
+        current = found
+    return current
+
+
+def _panel_metadata_paths(root: Path) -> list[Path]:
+    candidates = [
+        "Panels.xml",
+        "Panels.plist",
+        "menu_.plist",
+        "Panel/Panels.xml",
+        "Panel/Panels.plist",
+    ]
+    found: list[Path] = []
+    for base in (root, root.parent):
+        for candidate in candidates:
+            path = _casefolded_relative(base, candidate)
+            if path is not None and path.is_file() and path not in found:
+                found.append(path)
+    return found
+
+
+def _panel_bin_roots(root: Path) -> list[Path]:
+    candidates = [
+        root,
+        root / "Panel",
+        root / "bin",
+        root.parent / f"{root.name}_Panel",
+        root.parent / "bin",
+    ]
+    found: list[Path] = []
+    for candidate in candidates:
+        if candidate.is_dir() and candidate not in found:
+            found.append(candidate)
+    return found
+
+
+def _resolve_panel_bin(root: Path, filename: str, data_type: str) -> Path | None:
+    normalized = filename.replace("\\", "/")
+    names = [normalized]
+    if data_type.lower() == "bin" and Path(normalized).suffix.lower() != ".bin":
+        names.append(f"{normalized}.bin")
+    rel_without_panel = normalized.removeprefix("Panel/")
+    if rel_without_panel != normalized:
+        names.append(rel_without_panel)
+        if data_type.lower() == "bin" and Path(rel_without_panel).suffix.lower() != ".bin":
+            names.append(f"{rel_without_panel}.bin")
+
+    for base in _panel_bin_roots(root):
+        for name in names:
+            path = _casefolded_relative(base, name)
+            if path is not None and path.is_file():
+                return path
+    return None
+
+
+def _panel_bin_to_json(path: Path, *, limit: int | None) -> dict[str, Any]:
+    panel = parse_panel_bin_file(path)
+    records = panel.records if limit is None or limit == 0 else panel.records[:limit]
+    return {
+        "path": str(path),
+        "format": panel.format,
+        "declared_record_count": panel.declared_record_count,
+        "actual_record_count": panel.actual_record_count,
+        "text_width": panel.text_width,
+        "record_stride": panel.record_stride,
+        "text_encoding": panel.text_encoding,
+        "sample_records": [
+            {
+                "index": record.index,
+                "record_id": record.record_id,
+                "block": record.block,
+                "offset": record.offset,
+                "text": record.text,
+            }
+            for record in records
+        ],
+    }
+
+
+def _decode_panels_for_root(
+    root: Path,
+    *,
+    dict_id: str,
+    title: str,
+    idx: Path | None,
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    if root.is_file():
+        metadata_paths = [root] if root.name.lower() in {"panels.xml", "panels.plist", "menu_.plist"} else []
+        root = root.parent
+    else:
+        metadata_paths = _panel_metadata_paths(root)
+    references: list[dict[str, Any]] = []
+    decoded_by_path: dict[Path, dict[str, Any]] = {}
+    failures: list[dict[str, Any]] = []
+
+    for metadata_path in metadata_paths:
+        try:
+            refs = list(iter_panel_references(metadata_path))
+        except Exception as exc:
+            failures.append({"path": str(metadata_path), "reason": f"metadata_parse_failed: {exc}"})
+            continue
+        for ref in refs:
+            resolved = _resolve_panel_bin(root, ref.filename, ref.data_type)
+            ref_row = {
+                "metadata": str(metadata_path),
+                "source_format": ref.source_format,
+                "panel_index": ref.panel_index,
+                "panel_type": ref.panel_type,
+                "data_type": ref.data_type,
+                "filename": ref.filename,
+                "title": ref.title,
+                "resolved": str(resolved) if resolved else None,
+            }
+            references.append(ref_row)
+            if resolved is None or ref.data_type.lower() != "bin":
+                continue
+            try:
+                decoded_by_path.setdefault(resolved, _panel_bin_to_json(resolved, limit=args.limit))
+            except PanelBinParseError as exc:
+                failures.append({"path": str(resolved), "reason": str(exc)})
+
+    if args.include_unreferenced:
+        for base in _panel_bin_roots(root):
+            for path in sorted(base.rglob("*.bin")):
+                if path.name.lower() == "vlpljbl.bin" or path in decoded_by_path:
+                    continue
+                try:
+                    decoded_by_path[path] = _panel_bin_to_json(path, limit=args.limit)
+                except PanelBinParseError as exc:
+                    failures.append({"path": str(path), "reason": str(exc)})
+
+    bins = [decoded_by_path[path] for path in sorted(decoded_by_path)]
+    return {
+        "dict_id": dict_id,
+        "title": title,
+        "idx": str(idx) if idx else None,
+        "root": str(root),
+        "metadata_files": [str(path) for path in metadata_paths],
+        "references": references,
+        "decoded_bins": bins,
+        "decoded_bin_count": len(bins),
+        "decoded_record_count": sum(row["actual_record_count"] for row in bins),
+        "failures": failures,
+    }
+
+
+def _panels_task(payload: tuple[Any, argparse.Namespace]) -> dict[str, Any]:
+    source, args = payload
+    return _decode_panels_for_root(
+        source.idx.parent,
+        dict_id=source.dict_id,
+        title=source.title,
+        idx=source.idx,
+        args=args,
+    )
+
+
+def cmd_panels(args: argparse.Namespace) -> int:
+    roots = args.root or [Path(".")]
+    status(args, f"panels: discovering dictionaries under {', '.join(str(root) for root in roots)}")
+    sources = discover_dictionaries(
+        roots,
+        jobs=args.jobs,
+        dict_ids=args.dict,
+        include_gaiji=False,
+        include_images=False,
+    )
+    if not sources:
+        status(args, "panels: no SSED dictionaries found; trying direct Panel metadata/resource roots")
+        task_args = worker_args(args)
+        summaries = [
+            _decode_panels_for_root(
+                root,
+                dict_id=root.stem if root.is_file() else root.name,
+                title="",
+                idx=None,
+                args=task_args,
+            )
+            for root in roots
+        ]
+        if not any(row["metadata_files"] or row["decoded_bins"] for row in summaries):
+            raise ValueError(dictionary_source_error("panels", roots, dict_ids=args.dict))
+    else:
+        task_args = worker_args(args)
+        summaries = parallel_map_ordered(
+            _panels_task,
+            [(source, task_args) for source in sources],
+            jobs=args.jobs,
+        )
+
+    if args.out_dir:
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        write_json(args.out_dir / "summary.json", summaries)
+        status(args, f"panels: wrote summary {args.out_dir / 'summary.json'}")
+
+    if args.json:
+        print(json.dumps(summaries, ensure_ascii=False, indent=2))
+        return 0
+
+    for summary in summaries:
+        print(
+            f"{summary['dict_id']:12s} metadata={len(summary['metadata_files']):2d} "
+            f"refs={len(summary['references']):4d} bins={summary['decoded_bin_count']:4d} "
+            f"records={summary['decoded_record_count']:7d} failures={len(summary['failures'])}"
+        )
+        for path in summary["metadata_files"]:
+            print(f"  metadata: {path}")
+        for row in summary["decoded_bins"][:8]:
+            print(
+                f"  {Path(row['path']).name}: {row['format']} "
+                f"records={row['actual_record_count']} width={row['text_width']} "
+                f"encoding={row['text_encoding']}"
+            )
+        if len(summary["decoded_bins"]) > 8:
+            print(f"  ... {len(summary['decoded_bins']) - 8} more decoded BIN file(s)")
+        for failure in summary["failures"][:8]:
+            print(f"  failure: {failure['path']} {failure['reason']}", file=sys.stderr)
     return 0
 
 
@@ -1114,6 +1439,14 @@ def cmd_extras(args: argparse.Namespace) -> int:
 def cmd_rendererdb(args: argparse.Namespace) -> int:
     status(args, "rendererdb: inspecting renderer sidecars")
     summaries = extract_rendererdb_for_sources(args)
+    if args.json:
+        print(json.dumps(summaries, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_hc_render(args: argparse.Namespace) -> int:
+    status(args, "hc-render: applying common HC renderer semantics")
+    summaries = extract_hc_render_for_sources(args)
     if args.json:
         print(json.dumps(summaries, ensure_ascii=False, indent=2))
     return 0
@@ -1889,6 +2222,55 @@ def build_parser() -> argparse.ArgumentParser:
     add_jobs_argument(p_resources)
     p_resources.set_defaults(func=cmd_resources)
 
+    p_loose_media = sub.add_parser(
+        "loose-media",
+        help="Decode loose Britannica media files and extensionless LogoFontCipher resources.",
+    )
+    p_loose_media.add_argument("root", type=Path, nargs="*", help="File, package directory, or collection root.")
+    p_loose_media.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    p_loose_media.add_argument("--out-dir", type=Path, default=Path("logovista-loose-media"))
+    p_loose_media.add_argument("--limit", type=int, help="Limit emitted rows/items in terminal and JSON output.")
+    p_loose_media.add_argument(
+        "--include-text",
+        action="store_true",
+        help="Include plaintext/HTML text fields for decoded Britannica text resources.",
+    )
+    p_loose_media.add_argument(
+        "--include-unclassified",
+        action="store_true",
+        help="Include matching candidate files that did not decode to a known resource kind.",
+    )
+    p_loose_media.add_argument(
+        "--write-decoded",
+        action="store_true",
+        help="Write decrypted extensionless resources with inferred file extensions.",
+    )
+    p_loose_media.set_defaults(func=cmd_loose_media)
+
+    p_panels = sub.add_parser("panels", help="Decode LogoVista Panel XML/plist metadata and Panel BIN tables.")
+    p_panels.add_argument(
+        "root",
+        type=Path,
+        nargs="*",
+        help="Collection directory, package directory, or direct .IDX path.",
+    )
+    p_panels.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
+    p_panels.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    p_panels.add_argument("--out-dir", type=Path, help="Write decoded Panel summary JSON to this directory.")
+    p_panels.add_argument(
+        "--limit",
+        type=int,
+        default=8,
+        help="Sample decoded records per BIN in JSON output; use 0 for all.",
+    )
+    p_panels.add_argument(
+        "--include-unreferenced",
+        action="store_true",
+        help="Also decode package-local .bin files in known Panel/bin directories that are not referenced by metadata.",
+    )
+    add_jobs_argument(p_panels)
+    p_panels.set_defaults(func=cmd_panels)
+
     p_colscr = sub.add_parser("colscr", help="Inspect or extract COLSCR.DIC media image records.")
     add_colscr_args(p_colscr)
     p_colscr.set_defaults(func=cmd_colscr)
@@ -1908,7 +2290,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_rendererdb = sub.add_parser(
         "rendererdb",
-        help="Extract Windows renderer SQLite bodies linked from raw HONMON ID anchors.",
+        help="Extract renderer/app SQLite bodies linked from raw HONMON ID anchors.",
     )
     p_rendererdb.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
     p_rendererdb.add_argument("--out-dir", type=Path, default=Path("logovista-rendererdb"))
@@ -1963,6 +2345,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_hc.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
     add_jobs_argument(p_hc)
     p_hc.set_defaults(func=cmd_hc)
+
+    p_hc_render = sub.add_parser(
+        "hc-render",
+        help="Render HONMON with common HC????.dll semantics and compare renderer sidecars.",
+    )
+    add_hc_render_args(p_hc_render)
+    add_jobs_argument(p_hc_render)
+    p_hc_render.set_defaults(func=cmd_hc_render)
 
     p_multiview = sub.add_parser(
         "multiview",
@@ -2436,7 +2826,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_gaiji_report.add_argument(
         "--renderer-sidecars",
         action="store_true",
-        help="Also decrypt/use Windows renderer SQLite sidecars such as vlpljblb.",
+        help="Also decrypt/use renderer SQLite sidecars such as vlpljblb.",
     )
     p_gaiji_report.add_argument(
         "--max-sql-rows",
@@ -2474,7 +2864,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_gaiji_readiness.add_argument(
         "--renderer-sidecars",
         action="store_true",
-        help="Use Windows renderer SQLite/HONBUN sidecars as entry-level gaiji display evidence.",
+        help="Use renderer SQLite/HONBUN sidecars as entry-level gaiji display evidence.",
     )
     p_gaiji_readiness.add_argument(
         "--renderer-inference-limit",

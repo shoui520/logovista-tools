@@ -60,7 +60,7 @@ Corpus-scale commands support `--jobs`:
 ```
 
 This applies to commands that operate across many dictionaries or resources:
-`scan`, `extract`, `entries`, `resources`, `colscr`, `pcmdata`, `extras`, `rendererdb`,
+`scan`, `extract`, `entries`, `resources`, `panels`, `colscr`, `pcmdata`, `extras`, `rendererdb`, `hc-render`,
 `spindex`, `audit-honmon`, `gaiji-report`, `gaiji-readiness`, `ga16`,
 `titles`, `indexes`, `menus`, `fulldb`, `profile`, `honmon-bytes`,
 `opcode-atlas`, `component-forensics`, `dump-ir`, `dump-package-models`, LVED
@@ -164,7 +164,20 @@ sqlite_block_offset_body        SQLite rows carry raw Block/Offset/Body
 sqlite_media_store              media-only store
 sqlite_search_index             search/title index only
 sqlite_category_search_index    KWIT category search tables
+sqlite_examples_idioms          D_Example/D_Idiom-style supplemental rows
+sqlite_supplemental             usage/supplemental rows such as D_Goyo
+sqlite_link_reference           block/offset/title link-reference rows
+sqlite_kanji_support            kanji lookup/support tables
+sqlite_search_or_conjugation    search/conjugation helper tables
+sqlite_template_navigation      template phrase/navigation helper DB
+sqlite_android_index_metadata   Android UI/index metadata DB
+sqlite_ancillary                chronology or tiny helper metadata DB
 ```
+
+The same schema classifier is used for plain `.db` / `.sqlite` sidecars
+outside the `vlpljbl*` naming convention, including Android package DBs and
+Windows `EXINFO.INI` `SQLNAME` / `ROSQLNAME` references. Only body-capable
+SQLite roles are accepted as `rendererdb` entry-body sidecars.
 
 ### `hc`
 
@@ -196,6 +209,43 @@ report:
 `hc` emits discovery and per-file progress to stderr. Its JSON output is
 redacted: it includes names, hashes, import/export names, and short embedded
 format strings, but not dictionary body data.
+
+### `hc-render`
+
+Render raw `HONMON.DIC` / `HONMON.DIN` body slices with the common behavior
+observed in Windows `HC????.dll` renderer loops:
+
+```bash
+logovista-tools hc-render /path/to/DICT --limit 20 --out-dir hc-render
+logovista-tools hc-render /path/to/DICT --compare-rendererdb --write-ziptomedia
+logovista-tools hc-render /path/to/DICT --json --no-hash
+```
+
+This command is not an exact HC DLL emulator. It applies the shared renderer
+semantics that are now understood:
+
+- SSED JIS text, style, section, heading, literal, URL, and line-break controls;
+- internal address links from paired link controls;
+- `COLSCR.DIC` picture/media placeholders from `1f3c` / `1f4d`-style payloads;
+- `PCMDATA.DIC` audio range links from `1f4a` / `1f6a`;
+- Unicode gaiji first, then image-backed gaiji, then a safe placeholder;
+- private renderer directive suppression with metadata counts;
+- vertical-rendering hints as classes/metadata rather than hard-coded layout.
+
+Each dictionary output directory contains:
+
+```text
+hc_render_summary.json
+hc_entries.jsonl
+hc_entries.html
+```
+
+`--compare-rendererdb` also runs the schema-backed renderer sidecar resolver
+for clear `t_contents`, `HONBUN`, Android body DB, media table, and ziptomedia
+cases, writing its own nested `rendererdb/` output. Product-specific hooks such
+as Panel handlers, SQL search UI, plugin callbacks, user-data hooks, custom
+gaiji bitmap hooks, and `modifyHeadword*` are preserved as named behavior gaps;
+the command does not fake exact product behavior.
 
 ### `multiview`
 
@@ -501,7 +551,7 @@ mixed_or_dense_but_raw_slices_readable
 dense_honmon_id_table_dictfulldb    HONMON stores raw numeric body IDs
 dense_honmon_token_table_dictfulldb HONMON stores opaque raw tokens/anchors
 dense_honmon_id_table_rendererdb    HONMON stores raw numeric IDs that resolve
-                                    to a Windows renderer SQLite sidecar
+                                    to a renderer/app SQLite sidecar
 dense_honmon_id_table_androiddb     HONMON stores raw numeric IDs that resolve
                                     to an Android app body database
 idx_title_only_no_readable_honmon_body
@@ -1002,6 +1052,67 @@ Named images such as `exam.png`, `esp.png`, or `jpn.png` are reported as package
 resources for format exporters to use when reconstructing dictionary-specific
 styling.
 
+### `loose-media`
+
+Decode loose media/resource files that sit outside the main SSED component
+catalog.
+
+```bash
+logovista-tools loose-media /path/to/_DCT_BRI2017P_Media_whatday
+logovista-tools loose-media /path/to/_DCT_BRI2016_Media/top --json
+logovista-tools loose-media /path/to/_DCT_PROYAL53/dat --write-decoded --out-dir loose-media
+logovista-tools loose-media /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --write-decoded
+```
+
+Handled families:
+
+- Britannica `whatday/*.body` and `whatday/*.top`: CP932 HTML fragments with
+  month/day identity and decoded `lved.addrXXXXXXXX:YYYY` address links.
+- Britannica `top/top_*.dat`: CP932 five-line records containing id, title,
+  description, hexadecimal body address, and image filename. Image names are
+  resolved against sibling `thumb/`, `mini/`, and `full/` directories.
+- PROYAL53 `dat/*`: extensionless LogoFontCipher-wrapped `RIFF/WAVE` audio
+  files exported as `.wav`.
+- LVLMultiView law `Resources/inshizei`, `minji`, `zenkoku`, and `zeihou`:
+  extensionless LogoFontCipher-wrapped PDFs. MOROKU23 uses the Mac OS X
+  LogoFontCipher variant; the other observed MOROKU resources use the Windows
+  variant.
+- Extensionless renderer SQLite sidecars such as CJJC160's dict-code-named
+  file: LogoFontCipher-wrapped SQLite exported as `.sqlite`.
+
+By default the command reports structural metadata and decoded relationships.
+Use `--include-text` only when you explicitly want plaintext/HTML fields in
+the JSON output. Use `--write-decoded` to write decrypted `.wav`, `.pdf`, or
+`.sqlite` payloads; bytes are not rewritten beyond decryption.
+
+### `panels`
+
+Decode LogoVista Panel metadata and Panel `.bin` lookup tables.
+
+```bash
+logovista-tools panels /path/to/LogoVista --dict ZYAKUKOG
+logovista-tools panels /path/to/DICT --include-unreferenced --json
+logovista-tools panels /path/to/Resources/Panels.plist
+```
+
+The command parses Windows `Panels.xml`, Mac/mobile `Panels.plist`, and nested
+mobile menu plists where present. It resolves external `type=bin` references
+against package-local `Panel/`, `bin/`, package-root, and sibling `_Panel`
+locations with case-insensitive path handling and normalized path separators.
+If no SSED `.IDX` package is found, `panels` falls back to treating the
+argument as a direct Panel metadata file or resource directory; this is useful
+for inspecting app/plugin resource bundles that contain `Panels.plist`,
+`Panel.html`, and `Cell.html` without the dictionary catalog files.
+
+Decoded `.bin` rows expose Panel label text plus target block/offset addresses.
+The parser handles the common little-endian address-label grammar, id-prefixed
+rows, declared-count mismatch tables, empty/zero-width tables, and the observed
+headerless big-endian UTF-8 mobile table. `vlpljbl.bin` is intentionally ignored
+because that name is a decryptor binary, not Panel data.
+
+Panel rows are optional navigation/sidebar data. They are not merged into normal
+entry body extraction and are not a replacement for native index search.
+
 ### `colscr`
 
 Inspect or extract images stored in `COLSCR.DIC` and referenced by raw
@@ -1150,8 +1261,9 @@ table, not a body stream. It still starts from raw HONMON:
 1. Expand `HONMON.DIC`.
 2. Decode 32-byte records whose visible field is a full-width decimal ID.
 3. Discover a sibling body SQLite payload.
-4. For Windows renderer DBs, decrypt observed LogoFontCipher sidecars such as
-   `vlpljblb` when needed, query `t_contents`, and emit only rows whose
+4. For renderer DBs, decrypt observed LogoFontCipher sidecars such as
+   `vlpljblb` when needed, or open plain app DBs directly, query body tables,
+   and emit only rows whose
    `f_DataId` exists in raw HONMON. Mixed-case and lowercase column variants
    such as `f_DataId` / `f_dataid` are normalized. The `BRINEN15` variant is
    also normalized: marker-at-byte-0 HONMON ID records, `f_data_id`,
@@ -1264,7 +1376,7 @@ The report combines:
 - package PNG/image gaiji coverage;
 - SQLite text evidence from declared `DictFULLDB` and sibling app-cache
   databases;
-- optional Windows renderer SQLite sidecar evidence when `--renderer-sidecars`
+- optional renderer SQLite sidecar evidence when `--renderer-sidecars`
   is used;
 - aligned validation for cache tables that expose `Block` and `Offset`.
 
@@ -1273,7 +1385,7 @@ Useful options:
 ```bash
 --dict NAME                         inspect only matching dictionary ids
 --no-sql-cache                      use declared DictFULLDB only
---renderer-sidecars                 decrypt/use Windows renderer SQLite sidecars
+--renderer-sidecars                 decrypt/use renderer SQLite sidecars
 --max-sql-rows N                    scan at most N rows per SQLite table; 0 = full scan
 --max-aligned-entries N             align at most N raw HONMON entries; 0 = full scan
 --alignment-tolerance N             byte tolerance for Block/Offset cache matching

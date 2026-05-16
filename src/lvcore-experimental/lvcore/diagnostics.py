@@ -37,6 +37,7 @@ class DiagnosticCode(str, Enum):
     EMPTY_BODY_AT_POINTER = "empty_body_at_pointer"
     ENTRY_RANGE_FALLBACK = "entry_range_fallback"
     INVALID_BODY_POINTER = "invalid_body_pointer"
+    INVALID_JIS_PAIR = "invalid_jis_pair"
     MALFORMED_DIRECT_LEAF_ROW = "malformed_direct_leaf_row"
     MALFORMED_GROUP_LEAF_ROW = "malformed_group_leaf_row"
     MALFORMED_SIMPLE_LEAF_ROW = "malformed_simple_leaf_row"

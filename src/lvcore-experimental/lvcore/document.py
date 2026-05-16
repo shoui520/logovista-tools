@@ -711,6 +711,18 @@ def build_entry_document(entry: Entry) -> EntryDocument:
             inlines.append(InlineNode(InlineKind.UNKNOWN_CONTROL, attrs={"raw": span.debug.raw.hex(), "span_offset": span.offset}))
             continue
 
+        if span.kind == "invalid_jis_pair":
+            diagnostics.add(
+                Severity.WARNING,
+                DiagnosticArea.BODY,
+                "invalid_jis_pair",
+                "invalid JIS text cell skipped from friendly document",
+                location=location(span),
+                details={"raw": span.debug.raw.hex()},
+            )
+            inlines.append(InlineNode(InlineKind.UNKNOWN_CONTROL, attrs={"raw": span.debug.raw.hex(), "span_offset": span.offset}))
+            continue
+
         if span.kind in {"control", "section"}:
             tag = span.debug.attrs.get("tag")
             behavior = behavior_for(span.debug.op)

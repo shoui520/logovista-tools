@@ -105,6 +105,7 @@ class PackageGaijiMixin:
             text=decoded.text,
             unknown_controls=decoded.unknown_controls,
             unknown_bytes=decoded.unknown_bytes,
+            invalid_jis_pairs=decoded.invalid_jis_pairs,
             spans_debug=tuple(span.debug for span in spans),
         )
 
@@ -116,6 +117,7 @@ class PackageGaijiMixin:
             text=decoded.text,
             unknown_controls=decoded.unknown_controls,
             unknown_bytes=decoded.unknown_bytes,
+            invalid_jis_pairs=decoded.invalid_jis_pairs,
             spans_debug=tuple(span.debug for span in spans),
         )
 
