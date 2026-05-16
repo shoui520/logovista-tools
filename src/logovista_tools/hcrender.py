@@ -461,6 +461,47 @@ HC02BE_ACCENT_MARKERS: dict[str, tuple[str, str, str, str]] = {
     "b159": ("&#x153;", "nowrap_full", "tilde_full", "tilde"),
 }
 
+HC02BC_OPEN_MARKERS: dict[str, _RendererGaijiRule] = {
+    "b121": _RendererGaijiRule('<span class="blue">', "b125"),
+    "b122": _RendererGaijiRule('<span class="blue">', "b125"),
+    "b123": _RendererGaijiRule('<span class="blue">', "b125"),
+    "b124": _RendererGaijiRule('<span class="blue">', "b125"),
+    "b132": _RendererGaijiRule('<span class="sc">', "b133"),
+    "b134": _RendererGaijiRule('<span style="color:#800000;">', "b135"),
+    "b136": _RendererGaijiRule('<span style="color:#990000;"><b>', "b137", "</b></span>"),
+    "b138": _RendererGaijiRule('<span style="color:#A0522D;">', "b139"),
+    "b13d": _RendererGaijiRule('<div style="margin-left:1em;">', "b13e", "</div>"),
+}
+HC02BC_CLOSE_MARKERS = frozenset(rule.close_code for rule in HC02BC_OPEN_MARKERS.values() if rule.close_code)
+HC02BC_NOOP_MARKERS = {"b13a", "b13b", "b13f", "b140", "b141", "b16e", "b16f"}
+HC02BC_LITERAL_MARKERS = {
+    "a167": '<font face="Meiryo,MS UI Gothic">&#x2032;</font>',
+    "b13c": "<br>",
+}
+HC02BC_COMPOSITE_MARKERS = {
+    # Direct HTML snippets from HC02BC epwing2HtmlBodydataVertical's gaiji
+    # branch ladder. These are renderer-formatting glyphs, not image gaiji.
+    "a145": '<p style="line-height:0em;display:inline-table;"><span>Q</span><br><span style="position: relative;top:-0.8em;"><font face="Meiryo,MS UI Gothic">&thinsp;</font>.</span></p>',
+    "a146": '<p style="line-height:0em;display:inline-table;"><span>Q</span><br><span style="position: relative;top:-0.8em;"><font face="Meiryo,MS UI Gothic">&thinsp;</font>.</span></p>',
+    "a147": '<p style="line-height:0em;display:inline-table;"><span>V</span><br><span style="position: relative;top:-0.8em;"><font face="Meiryo,MS UI Gothic">&thinsp;</font>.</span></p>',
+    "a148": '<p style="line-height:0em;display:inline-table;"><span>V</span><br><span style="position: relative;top:-0.8em;"><font face="Meiryo,MS UI Gothic">&thinsp;</font>.</span></p>',
+    "a159": '<p style="line-height:0em;display:inline-table;"><span>c</span><br><span style="position: relative;top:-0.8em;">_</span></p>',
+    "a15e": '<p style="line-height:0em;display:inline-table;"><span>s</span><br><span style="position: relative;top:-0.8em;">_</span></p>',
+    "a160": '<p style="line-height:0em;display:inline-table;"><span>v</span><br><span style="position: relative;top:-0.8em;">_</span></p>',
+    "b126": '<p style="line-height:0em;display:inline-table;"><span>V</span><br><span style="position: relative;top:-0.8em;"><font face="Meiryo,MS UI Gothic">&thinsp;</font>.</span>o<small><small>2</small></small></p>',
+    "b127": '<p style="line-height:0em;display:inline-table;"><span>V</span><br><span style="position: relative;top:-0.8em;"><font face="Meiryo,MS UI Gothic">&thinsp;</font>.</span>o<small><small>2</small></small></p>',
+    "b128": '<p style="line-height:0em;display:inline-table;"><span>V</span><br><span style="position: relative;top:-0.8em;"><font face="Meiryo,MS UI Gothic">&thinsp;</font>.</span>co<small><small>2</small></small></p>',
+    "b129": '<p style="line-height:0em;display:inline-table;"><span>V</span><br><span style="position: relative;top:-0.8em;"><font face="Meiryo,MS UI Gothic">&thinsp;</font>.</span>co<small><small>2</small></small></p>',
+    "b12a": '<p style="line-height:0em;display:inline-table;"><span>V</span><br><span style="position: relative;top:-0.8em;"><font face="Meiryo,MS UI Gothic">&thinsp;</font>.</span></p>a:<p style="line-height:0em;display:inline-table;"><span>Q</span><br><span style="position: relative;top:-0.8em;"><font face="Meiryo,MS UI Gothic">&thinsp;</font>.</span></p>',
+    "b12b": '<p style="line-height:0em;display:inline-table;"><span>V</span><br><span style="position: relative;top:-0.8em;"><font face="Meiryo,MS UI Gothic">&thinsp;</font>.</span></p><small><small>A</small></small>',
+    "b12c": '<p style="line-height:0em;display:inline-table;"><small><small><small><small><small><b>&#x2571;</b></small></small></small></small></small><br><span style="position: relative;top:-0.7em;"><small><small><small><small><small><b>&#x2572;</b></small></small></small></small></small></span></p>',
+    "b12d": '<p style="line-height:0em;display:inline-table;"><font face="Meiryo,MS UI Gothic">&thinsp;</font>&#x0394;<br><span style="position: relative;top:0em;">&#xff0f;</span></p>',
+    "b12e": '<p style="line-height:0em;display:inline-table;"><span style="position: relative;top:-0.1em;"><small>&#x0394;</small></span><br><span style="position: relative;top:0.4em;"><small>&#x2192;</small></span></p>',
+    "b12f": '<p style="line-height:0em;display:inline-table;"><small><small>&#xff24;</small></small><br><span style="position: relative;top:-0.6em;"><small><small><small><small>20</small></small></small></small></span></p>',
+    "b130": 'O<p style="line-height:0em;display:inline-table;"><span><small><font face="Meiryo,MS UI Gothic">&thinsp;</font><small>2</small></small></span><br><span style="position: relative;top:-0.7em;"><font face="Meiryo,MS UI Gothic">&thinsp;</font>.</span><br><span style="position: relative;top:-1em;">_</span></p>',
+    "b131": '<p style="line-height:0em;display:inline-table;"><small><small><small>N</small></small></small><br><span style="position: relative;top:-0.6em;"><small><small><small>+</small></small></small></span></p>',
+}
+
 
 def _escape_attr(value: object) -> str:
     return html.escape(str(value), quote=True)
@@ -682,6 +723,36 @@ def _hc02be_accent_html(rule: tuple[str, str, str, str], image_sources: dict[str
     )
 
 
+def _hc02bc_section_parts(code: str, image_sources: dict[str, str]) -> list[str]:
+    if code == "270f":
+        return []
+    if code == "0001":
+        return ['<div class="midashi">']
+    if code == "0002":
+        parts: list[str] = []
+        src = image_sources.get("fukumidashi") or image_sources.get("fukumidashi.png")
+        if src:
+            parts.append(f'<img src="{_escape_attr(src)}" class="img_mark2">')
+        parts.append('<div class="komidashi"  style="margin-left:1.000000em;">')
+        return parts
+    try:
+        digit = int(code, 16) % 10
+    except ValueError:
+        return []
+    if digit in {1, 6}:
+        margin = "1.000000" if digit == 1 else "0.000000"
+        return [f'<div class="komidashi"  style="margin-left:{margin}em;">']
+    if digit == 2:
+        return ['<div class="honbun" style="margin-left:0.000000em;">']
+    if digit in {3, 4, 5, 7}:
+        return ['<div class="honbun" style="margin-left:1.000000em;">']
+    if digit == 8:
+        return ['<div class="contents" style="text-indent:0em;">']
+    if digit == 9:
+        return ["&nbsp;"]
+    return []
+
+
 def _safe_relative_path(value: str) -> Path | None:
     path = Path(value)
     if path.is_absolute() or ".." in path.parts:
@@ -789,6 +860,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0146_marker_stack: list[tuple[str, str]] = []
     hc00c6_marker_stack: list[tuple[str, str]] = []
     hc02be_marker_stack: list[tuple[str, str]] = []
+    hc02bc_marker_stack: list[tuple[str, str]] = []
     stats: Counter[str] = Counter()
     links: list[dict[str, Any]] = []
     media: list[dict[str, Any]] = []
@@ -799,6 +871,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc00c6_section_open = False
     hc00c6_example_block_active = False
     hc00c6_supab_pending = False
+    hc02bc_section_open = False
     hc02be_section_open = False
     i = 0
     while i < len(data):
@@ -863,6 +936,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         root.append(f'<div class="ind_{_escape_attr(code)}">')
                         hc02be_section_open = True
                         stats["hc02be_section_divs"] += 1
+                    if _renderer_code(options) == "02BC":
+                        if hc02bc_section_open:
+                            root.append("</div>")
+                            hc02bc_section_open = False
+                        section_parts = _hc02bc_section_parts(code, options.image_sources)
+                        root.extend(section_parts)
+                        if section_parts and section_parts[-1].startswith("<div"):
+                            hc02bc_section_open = True
+                        if section_parts:
+                            stats["hc02bc_section_divs"] += 1
                     if active_section_image_rules and all(
                         code not in section_rules[active].group_codes for active in active_section_image_rules
                     ):
@@ -889,6 +972,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if _renderer_code(options) == "02BE" and hc02be_section_open:
                     _current_parts(root_parts, contexts).append("</div>")
                     hc02be_section_open = False
+                if _renderer_code(options) == "02BC" and hc02bc_section_open:
+                    _current_parts(root_parts, contexts).append("</div>")
+                    hc02bc_section_open = False
                 _current_parts(root_parts, contexts).append("<br>")
                 stats["line_breaks"] += 1
                 i += 2 + arg_len
@@ -1209,6 +1295,47 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     stats["hc02be_noop_markers"] += 1
                     i += 2
                     continue
+            if _renderer_code(options) == "02BC":
+                parts = _current_parts(root_parts, contexts)
+                text_parts = _current_text_parts(contexts)
+                composite = HC02BC_COMPOSITE_MARKERS.get(key)
+                if composite is not None:
+                    parts.append(composite)
+                    if text_parts is not None:
+                        text_parts.append(_plain_from_html(composite))
+                    stats["hc02bc_composite_markers"] += 1
+                    i += 2
+                    continue
+                literal = HC02BC_LITERAL_MARKERS.get(key)
+                if literal is not None:
+                    parts.append(literal)
+                    if text_parts is not None:
+                        text_parts.append(_plain_from_html(literal))
+                    stats["hc02bc_literal_markers"] += 1
+                    if key == "b13c":
+                        stats["line_breaks"] += 1
+                    i += 2
+                    continue
+                marker = HC02BC_OPEN_MARKERS.get(key)
+                if marker is not None:
+                    parts.append(marker.html)
+                    if marker.close_code is not None:
+                        hc02bc_marker_stack.append((marker.close_code, marker.close_html))
+                    stats["hc02bc_style_markers"] += 1
+                    i += 2
+                    continue
+                if key in HC02BC_CLOSE_MARKERS:
+                    if hc02bc_marker_stack and hc02bc_marker_stack[-1][0] == key:
+                        parts.append(hc02bc_marker_stack.pop()[1])
+                        stats["hc02bc_style_markers"] += 1
+                    else:
+                        stats["hc02bc_unmatched_style_markers"] += 1
+                    i += 2
+                    continue
+                if key in HC02BC_NOOP_MARKERS:
+                    stats["hc02bc_noop_markers"] += 1
+                    i += 2
+                    continue
             if _renderer_code(options) == "0146":
                 parts = _current_parts(root_parts, contexts)
                 text_parts = _current_text_parts(contexts)
@@ -1376,7 +1503,13 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         close_code, close_html = hc02be_marker_stack.pop()
         _current_parts(root_parts, contexts).append(close_html)
         gaps.add(f"unterminated_hc02be_marker_{close_code}")
+    while hc02bc_marker_stack:
+        close_code, close_html = hc02bc_marker_stack.pop()
+        _current_parts(root_parts, contexts).append(close_html)
+        gaps.add(f"unterminated_hc02bc_marker_{close_code}")
     if hc00c6_section_open:
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc02bc_section_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc02be_section_open:
         _current_parts(root_parts, contexts).append("</div>")

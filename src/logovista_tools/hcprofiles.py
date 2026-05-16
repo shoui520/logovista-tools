@@ -257,6 +257,27 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Panel lifecycle, SQL/search hooks, modifyHeadword, and custom DIB paths remain named gaps.",
             )
         )
+    if code == "02BC":
+        rows.append(
+            HcHookBehavior(
+                name="stedman6_section_and_medical_markers",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC02BC epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    "HC02BC B121-B139 span/color marker branches",
+                    "HC02BC A145/A146, A147/A148, A159/A15E/A160, and B126-B131 composite marker branches",
+                    "Templates/000002bc.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to midashi/komidashi/honbun/contents blocks, "
+                    "section 0002 emits fukumidashi.png where available, B121-B124/B125 "
+                    "wrap blue text, B132/B133 small-cap text, B134-B139 color/bold spans, "
+                    "B13C-B13E structural breaks/indent blocks, and the decoded A/B marker "
+                    "set emits the DLL's inline chemistry/phonetic composites"
+                ),
+                notes="The branch subset excludes custom DIB generation, modifyHeadwordEx, and unverified vertical-navigation table scaffolding.",
+            )
+        )
     if code == "0146":
         rows.append(
             HcHookBehavior(
@@ -390,6 +411,8 @@ def build_hc_behavior_profile(
         implemented.add("HC00C6_section_and_marker_layout")
     if code == "02BE":
         implemented.add("HC02BE_section_and_phonetic_markers")
+    if code == "02BC":
+        implemented.add("HC02BC_section_and_medical_markers")
     if code == "0146":
         implemented.add("HC0146_inline_marker_gaiji")
     if code == "0158":

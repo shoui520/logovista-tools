@@ -238,6 +238,57 @@ def test_hc02be_renders_pronunciation_and_yomigana_markers() -> None:
     assert rendered.stats["hc02be_literal_markers"] == 2
 
 
+def test_hc02bc_maps_sections_to_stedman_blocks() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x01" + jis_ascii("H")
+        + b"\x1f\x09\x00\x02" + jis_ascii("K")
+        + b"\x1f\x09\x00\x08" + jis_ascii("C"),
+        HcRenderOptions(renderer_code="02BC", image_sources={"fukumidashi": "Templates/fukumidashi.png"}),
+    )
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<img src="Templates/fukumidashi.png" class="img_mark2">' in rendered.html
+    assert '<div class="komidashi"  style="margin-left:1.000000em;">' in rendered.html
+    assert '<div class="contents" style="text-indent:0em;">' in rendered.html
+    assert rendered.stats["hc02bc_section_divs"] == 3
+
+
+def test_hc02bc_renders_color_and_indent_marker_pairs() -> None:
+    rendered = render_hc_body(
+        b"\xb1\x21" + jis_ascii("B") + b"\xb1\x25"
+        + b"\xb1\x34" + jis_ascii("R") + b"\xb1\x35"
+        + b"\xb1\x36" + jis_ascii("D") + b"\xb1\x37"
+        + b"\xb1\x3d" + jis_ascii("I") + b"\xb1\x3e"
+        + b"\xb1\x3a\xb1\x3c",
+        HcRenderOptions(renderer_code="02BC"),
+    )
+
+    assert '<span class="blue"><span class="lv-hc-halfwidth">B</span></span>' in rendered.html
+    assert '<span style="color:#800000;"><span class="lv-hc-halfwidth">R</span></span>' in rendered.html
+    assert '<span style="color:#990000;"><b><span class="lv-hc-halfwidth">D</span></b></span>' in rendered.html
+    assert '<div style="margin-left:1em;"><span class="lv-hc-halfwidth">I</span></div>' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc02bc_style_markers"] == 8
+    assert rendered.stats["hc02bc_noop_markers"] == 1
+    assert rendered.stats["hc02bc_literal_markers"] == 1
+
+
+def test_hc02bc_renders_medical_composite_markers() -> None:
+    rendered = render_hc_body(
+        b"\xa1\x45\xa1\x47\xa1\x59\xb1\x26\xb1\x2c\xb1\x31",
+        HcRenderOptions(renderer_code="02BC"),
+    )
+
+    assert "<span>Q</span>" in rendered.html
+    assert "<span>V</span>" in rendered.html
+    assert "<span>c</span>" in rendered.html
+    assert "o<small><small>2</small></small>" in rendered.html
+    assert "&#x2571;" in rendered.html
+    assert "<small><small><small>N</small></small></small>" in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc02bc_composite_markers"] == 6
+
+
 def test_hc0158_renders_rank_marker_stars_without_gaiji_placeholder() -> None:
     rendered = render_hc_body(
         b"\xb3\x55" + jis_ascii("A") + b"\xb3\x54",
