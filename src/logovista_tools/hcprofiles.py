@@ -436,6 +436,31 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "0144":
+        rows.append(
+            HcHookBehavior(
+                name="rplusrev_section_and_marker_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0144 epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    "HC0144 B924/B925 bold-italic marker branch",
+                    "HC0144 A921-A924 and B92A/B92B/B934/B936 literal marker branches",
+                    "HC0144 B921/B926-B929/B92C-B92F/B931-B933/B935/B937 no-output marker branches",
+                    "Templates/00000144.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to midashi/komidashi/honbun/contents blocks, "
+                    "1f41 is consumed as renderer state, internal links use lineLink, "
+                    "B924/B925 wrap bold-italic spans, recovered literal markers are "
+                    "emitted, and known selector/image markers are consumed"
+                ),
+                notes=(
+                    "The subset excludes custom DIB generation, modifyHeadwordEx, SQL "
+                    "D_Example/D_Idiom helpers, exact HTMLs/fix fallback lifecycle, and "
+                    "smallcap/custom-character image suffix selection."
+                ),
+            )
+        )
     if code == "0146":
         rows.append(
             HcHookBehavior(
@@ -585,6 +610,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0145_section_and_marker_layout")
     if code == "013D":
         implemented.add("HC013D_hkdksr13_drug_layout_and_template_markers")
+    if code == "0144":
+        implemented.add("HC0144_section_and_marker_layout")
     if code == "0146":
         implemented.add("HC0146_inline_marker_gaiji")
     if code == "0158":

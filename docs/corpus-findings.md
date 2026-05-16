@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             14   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0145, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
-common semantics plus named gaps:    97
+decoded branch subsets:             15   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0144, HC0145, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
+common semantics plus named gaps:    96
 full product visual parity:           0
 ```
 
@@ -1271,6 +1271,21 @@ from 0 to 20, `honbun` blocks from 0 to 39, `contents` blocks from 0 to 13,
 Custom DIB generation, `modifyHeadwordEx`, SQL original-search plus
 `D_Example`/`D_Idiom` hooks, and exact table/navigation wrapper lifecycle remain
 named gaps, so exact HC0145 visual parity is not claimed.
+
+The RPLUSREV branch-subset proof case is `HC0144.dll`. Its vertical body loop
+uses the same section family shape as HC0145 for the common English dictionary
+entry stream: `1f09` sections map to `midashi`, `komidashi`, `honbun`, and
+`contents` blocks; `1f41` is consumed as renderer state; internal links use
+`lineLink`; B924/B925 wrap bold-italic spans; A921-A924 and B92A/B92B/B934/B936
+emit recovered literal markers; and B921/B926-B929/B92C-B92F/B931-B933/B935/B937
+are consumed as renderer selectors/no-output markers. In the first 100-entry
+RPLUSREV sample, generic `lv-hc-heading` wrappers dropped from 100 to 0,
+product `midashi` blocks rose from 0 to 101, `honbun` blocks from 0 to 138,
+`lineLink` anchors from 0 to 23, and generic gaiji placeholders from 181 to 32.
+Custom DIB generation, `modifyHeadwordEx`, SQL example/idiom helpers, exact
+`HTMLs`/`fix` fallback lifecycle, custom-character image suffix selection, and
+broader visual parity remain named gaps, so exact HC0144 visual parity is not
+claimed.
 
 The HKDKSR13 branch-subset proof case is `HC013D.dll`. Its vertical body loop
 maps `1f09` section payloads to product drug-layout classes such as `title3`,

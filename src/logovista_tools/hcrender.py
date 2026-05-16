@@ -658,6 +658,10 @@ HC0145_NOOP_MARKERS = {
     "b935",
     "b937",
 }
+HC0144_LITERAL_MARKERS = HC0145_LITERAL_MARKERS
+HC0144_OPEN_MARKERS = HC0145_OPEN_MARKERS
+HC0144_CLOSE_MARKERS = HC0145_CLOSE_MARKERS
+HC0144_NOOP_MARKERS = HC0145_NOOP_MARKERS | {"b921"}
 HC013D_NONPRINTING_CONTROL_OPS = {0x6D}
 HC013D_MED_SECTION_CLASSES = {
     "0004": ("div", ' class="title3"'),
@@ -779,7 +783,7 @@ def _renderer_code(options: HcRenderOptions) -> str:
 def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
     if _renderer_code(options) == "0065" and start_op in {0x42, 0x43, 0x44}:
         return "lv-hc-link lLink"
-    if _renderer_code(options) in {"009D", "012D", "013D", "0145", "02C2"} and start_op in {0x42, 0x43}:
+    if _renderer_code(options) in {"009D", "012D", "013D", "0144", "0145", "02C2"} and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
     return "lv-hc-link"
 
@@ -801,6 +805,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return None
     if op == 0x41 and _renderer_code(options) == "013D":
         return ("div", ' class="midashi"')
+    if op == 0x41 and _renderer_code(options) == "0144":
+        return None
     if op == 0x41 and _renderer_code(options) == "0145":
         return None
     if op == 0x41 and _renderer_code(options) in {"00C6", "0146", "0157", "0158"}:
@@ -910,7 +916,7 @@ def _append_gaiji_value(
     if image_src:
         stats["gaiji_image"] += 1
         css_class = "lv-hc-gaiji lv-hc-gaiji-image"
-        if _renderer_code(options) in {"0065", "009D", "012E", "013D", "0145", "02C2"}:
+        if _renderer_code(options) in {"0065", "009D", "012E", "013D", "0144", "0145", "02C2"}:
             css_class += " img_gaiji"
         if _renderer_code(options) == "012D":
             css_class += " gaiji"
@@ -1178,6 +1184,14 @@ def _hc0145_section_close_for_parts(parts: list[str]) -> str | None:
     return None
 
 
+def _hc0144_section_parts(code: str) -> list[str]:
+    return _hc0145_section_parts(code)
+
+
+def _hc0144_section_close_for_parts(parts: list[str]) -> str | None:
+    return _hc0145_section_close_for_parts(parts)
+
+
 def _hc013d_section_parts(code: str) -> tuple[list[str], str | None]:
     tag_spec = HC013D_MED_SECTION_CLASSES.get(code)
     if tag_spec is not None:
@@ -1410,6 +1424,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0146_marker_stack: list[tuple[str, str]] = []
     hc00c6_marker_stack: list[tuple[str, str]] = []
     hc009d_marker_stack: list[tuple[str, str]] = []
+    hc0144_marker_stack: list[tuple[str, str]] = []
     hc0145_marker_stack: list[tuple[str, str]] = []
     hc02be_marker_stack: list[tuple[str, str]] = []
     hc02bc_marker_stack: list[tuple[str, str]] = []
@@ -1431,6 +1446,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc012d_section_close: str | None = None
     hc012d_pending_honbun_user = False
     hc013d_section_close: str | None = None
+    hc0144_section_close: str | None = None
     hc0145_section_close: str | None = None
     hc012e_section_close: str | None = None
     hc012e_current_section: str | None = None
@@ -1546,6 +1562,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         hc013d_section_close = section_close
                         if section_parts:
                             stats["hc013d_section_blocks"] += 1
+                    if _renderer_code(options) == "0144":
+                        if hc0144_section_close is not None:
+                            root.append(hc0144_section_close)
+                            hc0144_section_close = None
+                        section_parts = _hc0144_section_parts(code)
+                        root.extend(section_parts)
+                        hc0144_section_close = _hc0144_section_close_for_parts(section_parts)
+                        if section_parts:
+                            stats["hc0144_section_blocks"] += 1
                     if _renderer_code(options) == "0145":
                         if hc0145_section_close is not None:
                             root.append(hc0145_section_close)
@@ -1634,6 +1659,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if _renderer_code(options) == "013D" and hc013d_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc013d_section_close)
                     hc013d_section_close = None
+                if _renderer_code(options) == "0144" and hc0144_section_close is not None:
+                    _current_parts(root_parts, contexts).append(hc0144_section_close)
+                    hc0144_section_close = None
+                    i += 2 + arg_len
+                    continue
                 if _renderer_code(options) == "0145" and hc0145_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc0145_section_close)
                     hc0145_section_close = None
@@ -1697,6 +1727,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "0145" and op == 0x41:
                 stats["hc0145_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0144" and op == 0x41:
+                stats["hc0144_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -2133,6 +2168,37 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     stats["hc012d_noop_markers"] += 1
                     i += 2
                     continue
+            if _renderer_code(options) == "0144":
+                parts = _current_parts(root_parts, contexts)
+                text_parts = _current_text_parts(contexts)
+                marker = HC0144_OPEN_MARKERS.get(key)
+                if marker is not None:
+                    parts.append(marker.html)
+                    if marker.close_code is not None:
+                        hc0144_marker_stack.append((marker.close_code, marker.close_html))
+                    stats["hc0144_style_markers"] += 1
+                    i += 2
+                    continue
+                if key in HC0144_CLOSE_MARKERS:
+                    if hc0144_marker_stack and hc0144_marker_stack[-1][0] == key:
+                        parts.append(hc0144_marker_stack.pop()[1])
+                        stats["hc0144_style_markers"] += 1
+                    else:
+                        stats["hc0144_unmatched_style_markers"] += 1
+                    i += 2
+                    continue
+                literal = HC0144_LITERAL_MARKERS.get(key)
+                if literal is not None:
+                    parts.append(literal)
+                    if text_parts is not None:
+                        text_parts.append(_plain_from_html(literal))
+                    stats["hc0144_literal_markers"] += 1
+                    i += 2
+                    continue
+                if key in HC0144_NOOP_MARKERS:
+                    stats["hc0144_noop_markers"] += 1
+                    i += 2
+                    continue
             if _renderer_code(options) == "0145":
                 parts = _current_parts(root_parts, contexts)
                 text_parts = _current_text_parts(contexts)
@@ -2460,6 +2526,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         close_code, close_html = hc00c6_marker_stack.pop()
         _current_parts(root_parts, contexts).append(close_html)
         gaps.add(f"unterminated_hc00c6_marker_{close_code}")
+    while hc0144_marker_stack:
+        close_code, close_html = hc0144_marker_stack.pop()
+        _current_parts(root_parts, contexts).append(close_html)
+        gaps.add(f"unterminated_hc0144_marker_{close_code}")
     while hc0145_marker_stack:
         close_code, close_html = hc0145_marker_stack.pop()
         _current_parts(root_parts, contexts).append(close_html)
@@ -2488,6 +2558,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc012d_section_close)
     if hc013d_section_close is not None:
         _current_parts(root_parts, contexts).append(hc013d_section_close)
+    if hc0144_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc0144_section_close)
     if hc0145_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0145_section_close)
     if hc012e_section_close is not None:

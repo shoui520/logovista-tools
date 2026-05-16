@@ -572,6 +572,71 @@ def test_hc0145_uses_line_links_and_img_gaiji_class() -> None:
     assert rendered.stats["gaiji_image"] == 1
 
 
+def test_hc0144_maps_sections_and_consumes_heading_state() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41"
+        + jis_ascii("H")
+        + b"\x1f\x09\x00\x02"
+        + jis_ascii("P")
+        + b"\x1f\x09\x00\x04"
+        + jis_ascii("D")
+        + b"\x1f\x09\x01\x06"
+        + jis_ascii("S")
+        + b"\x1f\x09\x00\x08"
+        + jis_ascii("C")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0144"))
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<div class="honbun" style="margin-left:2.000000em;">' in rendered.html
+    assert '<div class="honbun" style="text-indent:-1.0em;margin-left:2.000000em;">' in rendered.html
+    assert '<div class="komidashi"  style="margin-left:1.000000em;">' in rendered.html
+    assert '<div class="contents" style="text-indent:0em;">' in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert "unknown_control_1f41" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc0144_nonprinting_controls"] == 1
+
+
+def test_hc0144_marker_subset_matches_decompiled_branch_table() -> None:
+    body = (
+        b"\xb9\x21"
+        + b"\xb9\x24"
+        + jis_ascii("B")
+        + b"\xb9\x25"
+        + b"\xa9\x21"
+        + b"\xa9\x22"
+        + b"\xb9\x2a"
+        + b"\xb9\x2b"
+        + b"\xb9\x34"
+        + b"\xb9\x36"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0144", image_sources={"b921": "Templates/b921.png"}))
+
+    assert "Templates/b921.png" not in rendered.html
+    assert '<b><i><span class="lv-hc-halfwidth">B</span></i></b>' in rendered.html
+    assert "≪" in rendered.html
+    assert "≫" in rendered.html
+    assert "（" in rendered.html
+    assert "）" in rendered.html
+    assert "[" in rendered.html
+    assert "&nbsp;" in rendered.html
+    assert rendered.stats["hc0144_style_markers"] == 2
+    assert rendered.stats["hc0144_literal_markers"] == 6
+    assert rendered.stats["hc0144_noop_markers"] == 1
+
+
+def test_hc0144_internal_links_use_line_link_class() -> None:
+    body = b"\x1f\x42" + jis_ascii("L") + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0144"))
+
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'href="lvaddr://00000002/0048"' in rendered.html
+
+
 def test_hc013d_maps_sections_to_drug_layout_classes() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -1194,6 +1259,36 @@ def test_hc0145_profile_records_section_subset_without_claiming_parity() -> None
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0145_section_and_marker_layout" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "sql_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+
+
+def test_hc0144_profile_records_section_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0144.dll"),
+        code="0144",
+        expected_numeric_index="00000144.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=(),
+        features={"custom_gaiji_dib": True, "sql_hooks": True, "headword_modifier": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC0144_section_and_marker_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "sql_hook" in data["named_gaps"]
