@@ -275,6 +275,11 @@ and non-SSED reader status are tracked separately in
   gaiji become rank/star, part-of-speech, conjugation, boxed-label, and red
   emphasis spans; numbered/SVG gaiji remain image-backed; `PCMDATA.DIC` sound
   ranges use the package `sound.png` template when present.
+- `HC0157.dll` now has a focused raw-HONMON renderer proof: accent gaiji,
+  CSS-span gaiji markers, red circled-number wrappers, and self-rendering
+  marker/image combinations are handled from the decompiled body-loop branch
+  table; `PCMDATA.DIC` sound ranges use the package `sound.png` template when
+  present.
 - The default raw-resource gaiji readiness pass intentionally does not use
   Windows renderer databases. `NGYOKTUK` has no direct `.uni`/GA16/image gaiji
   resources, but its encrypted `vlpljblF` sidecar decrypts to row-ordered

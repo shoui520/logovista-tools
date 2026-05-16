@@ -245,6 +245,11 @@ B3xx formatter codes become CSS spans for rank stars, part-of-speech,
 conjugation, labels, and red emphasis; `PCMDATA.DIC` ranges render as
 `sound.png` links when that template image is present; numbered/SVG gaiji remain
 resource-backed images.
+`HC0157.dll` is implemented for its decoded gaiji-plane style marker table:
+A14D/A14E accent markers, B156/B15A/B15C/B160-B17D/B221-B226/B228-B22A/
+B23C-B241 CSS span markers, B22D-B23B red circled-number wrappers, and
+`sound.png` audio links. These mappings come from the renderer body loop and
+the matching CSS/resource files; unresolved renderer families remain named gaps.
 
 Each dictionary output directory contains:
 

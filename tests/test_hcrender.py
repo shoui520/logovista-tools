@@ -176,6 +176,73 @@ def test_hc0158_renders_pcm_audio_as_sound_icon_link() -> None:
     assert rendered.stats["audio_images"] == 1
 
 
+def test_hc0157_renders_dll_backed_inline_style_markers() -> None:
+    rendered = render_hc_body(
+        b"\xb1\x5c" + jis_ascii("P") + b"\xb1\x5d"
+        + b"\xb1\x78" + jis_ascii("N") + b"\xb1\x79"
+        + b"\xb2\x40" + jis_ascii("S") + b"\xb2\x41",
+        HcRenderOptions(renderer_code="0157"),
+    )
+
+    assert '<span class="hinshi_ej"><span class="lv-hc-halfwidth">P</span></span>' in rendered.html
+    assert '<span class="bunshi"><sup><span class="lv-hc-halfwidth">N</span></sup></span>' in rendered.html
+    assert '<sup><span class="jousu"><span class="lv-hc-halfwidth">S</span></span></sup>' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc0157_style_markers"] == 6
+
+
+def test_hc0157_renders_self_glyph_markers_inside_profile_spans() -> None:
+    rendered = render_hc_body(
+        b"\xb1\x57" + jis_ascii("A") + b"\xb2\x2a"
+        + b"\xb1\x72" + jis_ascii("B") + b"\xb1\x73",
+        HcRenderOptions(
+            renderer_code="0157",
+            gaiji_map={"b172": "｟", "b173": "｠"},
+            image_sources={"b157": "Templates/B157.png"},
+        ),
+    )
+
+    assert '<span class="midashi_word red"><img class="lv-hc-gaiji lv-hc-gaiji-image" src="Templates/B157.png"' in rendered.html
+    assert '<span class="lv-hc-halfwidth">A</span></span>' in rendered.html
+    assert '<span class="shiyougroup">｟<span class="lv-hc-halfwidth">B</span>｠</span>' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+
+
+def test_hc0157_wraps_red_circled_number_gaiji_without_losing_unicode() -> None:
+    rendered = render_hc_body(
+        b"\xb2\x2d",
+        HcRenderOptions(renderer_code="0157", gaiji_map={"b22d": "①"}),
+    )
+
+    assert '<span class="red">①</span>' in rendered.html
+    assert rendered.plain == "①"
+    assert rendered.stats["gaiji_unicode"] == 1
+
+
+def test_hc0157_renders_accent_and_sound_icon_templates() -> None:
+    payload = bytes.fromhex("00010000000001230045000001230067")
+    body = b"\xa1\x4e" + b"\x1f\x4a" + payload + jis_ascii("P") + b"\x1f\x6a"
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="0157", image_sources={"sound": "Templates/sound.png"}),
+    )
+
+    assert '<span class="accent">&#x0301;</span>' in rendered.html
+    assert '<img src="Templates/sound.png" class="img_mark2">' in rendered.html
+    assert "pcmdata:00000123:0045-00000123:0067" in rendered.html
+    assert rendered.stats["audio_images"] == 1
+
+
+def test_hc0157_treats_1f12_1f13_as_noop_controls() -> None:
+    rendered = render_hc_body(b"\x1f\x12" + jis_ascii("A") + b"\x1f\x13", HcRenderOptions(renderer_code="0157"))
+
+    assert "<em>" not in rendered.html
+    assert rendered.plain == "A"
+    assert rendered.stats["hc0157_noop_controls"] == 2
+    assert "unknown_control_1f12" not in rendered.named_behavior_gaps
+
+
 def test_hc_renderer_product_hooks_are_named_gaps() -> None:
     row = HcRendererClassification(
         path=Path("HC0001.dll"),

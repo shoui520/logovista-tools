@@ -118,6 +118,16 @@ with a conditional red/newline variant for translation labels. Normal
 image-backed gaiji in the same entry, such as B253 numbered markers and
 B347/B34B conjugation markers, still resolve through `Templates/*.svg`.
 
+`HC0157.dll` has a different renderer-specific gaiji marker table. Its body
+loop maps A14D/A14E to accent spans and maps B156, B15A/B15B, B15C/B15D,
+B160-B17D, B221-B226, B228/B229/B22A, B23C-B23F, and B240/B241 to named CSS
+span starts/ends defined by the package CSS. Some branches both style and render
+the current gaiji value: B157/B158 open a red headword span and render their own
+image-backed marker, B172/B173 render bracket gaiji while opening/closing a
+usage group span, and B22D-B23B render Unicode circled-number gaiji inside a red
+span. This means a reader must not globally treat those codes as plain images or
+plain Unicode for that renderer profile.
+
 ## `COLSCR.DIC` Media Resources
 
 `COLSCR.DIC` is a compressed SSED component, usually listed as component type

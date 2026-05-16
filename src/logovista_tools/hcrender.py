@@ -137,6 +137,14 @@ class _SectionImageRule:
     break_after: bool = True
 
 
+@dataclass(frozen=True)
+class _RendererGaijiRule:
+    html: str
+    close_code: str | None = None
+    close_html: str = "</span>"
+    render_self: bool = False
+
+
 HC_SECTION_IMAGE_RULES: dict[str, dict[str, _SectionImageRule]] = {
     # HC013A emits the exam badge when entering a contiguous example block.
     # The body stream encodes this as 1f09 0011; HC013A decodes the payload as
@@ -149,6 +157,49 @@ HC_SECTION_IMAGE_RULES: dict[str, dict[str, _SectionImageRule]] = {
         )
     }
 }
+
+HC_SOUND_ICON_RENDERERS = {"0157", "0158"}
+
+HC0157_OPEN_MARKERS: dict[str, _RendererGaijiRule] = {
+    # HC0157 uses selected gaiji-plane values as CSS/style delimiters.  A few
+    # markers also render their own custom glyph/image inside the opened span.
+    "b156": _RendererGaijiRule('<span class="midashi_word">', "b22a"),
+    "b157": _RendererGaijiRule('<span class="midashi_word red">', "b22a", render_self=True),
+    "b158": _RendererGaijiRule('<span class="midashi_word red">', "b22a", render_self=True),
+    "b15a": _RendererGaijiRule('<span class="hatsuon">', "b15b"),
+    "b15c": _RendererGaijiRule('<span class="hinshi_ej">', "b15d"),
+    "b160": _RendererGaijiRule('<span class="text_yourei_en">', "b161"),
+    "b162": _RendererGaijiRule('<span class="text_seiku_en">', "b163"),
+    "b164": _RendererGaijiRule('<span class="text_hasei_en">', "b165"),
+    "b166": _RendererGaijiRule('<span class="text_henka_en">', "b167"),
+    "b168": _RendererGaijiRule('<span class="ico_henka">', "b169"),
+    "b16a": _RendererGaijiRule('<span class="ico_jisei">', "b16b"),
+    "b16e": _RendererGaijiRule('<span class="ico_senmon">', "b16f"),
+    "b170": _RendererGaijiRule('<span class="ico_yurai">', "b171"),
+    "b172": _RendererGaijiRule('<span class="shiyougroup">', "b173", render_self=True),
+    "b174": _RendererGaijiRule('<span class="shiyou">', "b175"),
+    "b176": _RendererGaijiRule('<span class="bunsu">', "b177"),
+    "b178": _RendererGaijiRule('<span class="bunshi"><sup>', "b179", "</sup></span>"),
+    "b17a": _RendererGaijiRule('<span class="bunbo"><sub>', "b17b", "</sub></span>"),
+    "b17c": _RendererGaijiRule('<span class="ruby">', "b17d"),
+    "b221": _RendererGaijiRule('<span class="smallcap">', "b222"),
+    "b223": _RendererGaijiRule('<span class="serifbold">', "b224"),
+    "b225": _RendererGaijiRule('<span class="normalfont">', "b226"),
+    "b228": _RendererGaijiRule('<span class="jerank0">', "b22a"),
+    "b229": _RendererGaijiRule('<span class="jerank1">', "b22a"),
+    "b23c": _RendererGaijiRule('<span class="kyousei">', "b23d"),
+    "b23e": _RendererGaijiRule('<span class="hinshi_je">', "b23f"),
+    "b240": _RendererGaijiRule('<sup><span class="jousu">', "b241", "</span></sup>"),
+}
+
+HC0157_CLOSE_MARKERS = frozenset(rule.close_code for rule in HC0157_OPEN_MARKERS.values() if rule.close_code)
+HC0157_SELF_RENDERING_CLOSE_MARKERS = {"b173"}
+HC0157_STANDALONE_MARKERS = {
+    "a14d": '<span class="accent">&#x0300;</span>',
+    "a14e": '<span class="accent">&#x0301;</span>',
+}
+HC0157_NOOP_MARKERS = {"b17e"}
+HC0157_RED_GAIJI_RANGE = range(0xB22D, 0xB23C)
 
 HC0158_OPEN_MARKERS: dict[str, tuple[str, str, str]] = {
     # These B3xx values are not display glyphs for HC0158. The DLL maps them
@@ -279,6 +330,8 @@ def _renderer_code(options: HcRenderOptions) -> str:
 
 
 def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | None:
+    if _renderer_code(options) == "0157" and op == 0x12:
+        return None
     if _renderer_code(options) == "0158" and op == 0x12:
         return ("b", "")
     return STYLE_START_TAGS.get(op)
@@ -341,6 +394,39 @@ def _section_image_src(rule: _SectionImageRule, image_sources: dict[str, str]) -
     return image_sources.get(rule.image_key.lower()) or image_sources.get(f"{rule.image_key.lower()}.png")
 
 
+def _append_gaiji_value(
+    parts: list[str],
+    text_parts: list[str] | None,
+    key: str,
+    options: HcRenderOptions,
+    stats: Counter[str],
+) -> None:
+    mapped = options.gaiji_map.get(key)
+    if mapped:
+        stats["gaiji_unicode"] += 1
+        _append_text(parts, mapped)
+        if text_parts is not None:
+            text_parts.append(mapped)
+        return
+    image_src = options.image_sources.get(key.lower())
+    if image_src:
+        stats["gaiji_image"] += 1
+        css_class = "lv-hc-gaiji lv-hc-gaiji-image"
+        if _renderer_code(options) == "0158":
+            css_class += " gaiji"
+        parts.append(
+            f'<img class="{css_class}" '
+            f'src="{_escape_attr(image_src)}" alt="{_escape_attr(key)}" '
+            f'data-gaiji-code="{_escape_attr(key)}">'
+        )
+        return
+    stats["gaiji_placeholder"] += 1
+    parts.append(
+        f'<span class="lv-hc-gaiji lv-hc-gaiji-placeholder" '
+        f'data-gaiji-code="{_escape_attr(key)}"></span>'
+    )
+
+
 def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRenderResult:
     """Render one expanded HONMON body slice with common HC semantics."""
 
@@ -351,6 +437,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     contexts: list[_Context] = []
     style_stack: list[int] = []
     hc0158_marker_stack: list[tuple[str, str]] = []
+    hc0157_marker_stack: list[tuple[str, str]] = []
     stats: Counter[str] = Counter()
     links: list[dict[str, Any]] = []
     media: list[dict[str, Any]] = []
@@ -410,6 +497,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if op == 0x0A:
                 _current_parts(root_parts, contexts).append("<br>")
                 stats["line_breaks"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0157" and op in {0x12, 0x13}:
+                stats["hc0157_noop_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -508,7 +600,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 label = "".join(ctx.parts) if ctx else ""
                 if not label:
                     label = "audio"
-                if _renderer_code(options) == "0158":
+                if _renderer_code(options) in HC_SOUND_ICON_RENDERERS:
                     sound_src = options.image_sources.get("sound") or options.image_sources.get("sound.png")
                     if sound_src:
                         label = f'<img src="{_escape_attr(sound_src)}" class="img_mark2">'
@@ -610,6 +702,53 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
         if i + 1 < len(data) and 0xA1 <= byte <= 0xFE:
             key = f"{byte:02x}{data[i + 1]:02x}"
+            if _renderer_code(options) == "0157":
+                parts = _current_parts(root_parts, contexts)
+                text_parts = _current_text_parts(contexts)
+                standalone = HC0157_STANDALONE_MARKERS.get(key)
+                if standalone is not None:
+                    parts.append(standalone)
+                    stats["hc0157_style_markers"] += 1
+                    i += 2
+                    continue
+                marker = HC0157_OPEN_MARKERS.get(key)
+                if marker is not None:
+                    parts.append(marker.html)
+                    if marker.close_code is not None:
+                        hc0157_marker_stack.append((marker.close_code, marker.close_html))
+                    if marker.render_self:
+                        _append_gaiji_value(parts, text_parts, key, options, stats)
+                    stats["hc0157_style_markers"] += 1
+                    i += 2
+                    continue
+                if int(key, 16) in HC0157_RED_GAIJI_RANGE:
+                    parts.append('<span class="red">')
+                    _append_gaiji_value(parts, text_parts, key, options, stats)
+                    parts.append("</span>")
+                    stats["hc0157_style_markers"] += 1
+                    i += 2
+                    continue
+                if key in HC0157_SELF_RENDERING_CLOSE_MARKERS:
+                    _append_gaiji_value(parts, text_parts, key, options, stats)
+                    if hc0157_marker_stack and hc0157_marker_stack[-1][0] == key:
+                        parts.append(hc0157_marker_stack.pop()[1])
+                        stats["hc0157_style_markers"] += 1
+                    else:
+                        stats["hc0157_unmatched_style_markers"] += 1
+                    i += 2
+                    continue
+                if key in HC0157_CLOSE_MARKERS:
+                    if hc0157_marker_stack and hc0157_marker_stack[-1][0] == key:
+                        parts.append(hc0157_marker_stack.pop()[1])
+                        stats["hc0157_style_markers"] += 1
+                    else:
+                        stats["hc0157_unmatched_style_markers"] += 1
+                    i += 2
+                    continue
+                if key in HC0157_NOOP_MARKERS:
+                    stats["hc0157_noop_markers"] += 1
+                    i += 2
+                    continue
             if _renderer_code(options) == "0158":
                 marker = HC0158_OPEN_MARKERS.get(key)
                 if marker is not None:
@@ -656,31 +795,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     stats["hc0158_noop_markers"] += 1
                     i += 2
                     continue
-            mapped = options.gaiji_map.get(key)
-            if mapped:
-                stats["gaiji_unicode"] += 1
-                _append_text(_current_parts(root_parts, contexts), mapped)
-                text_parts = _current_text_parts(contexts)
-                if text_parts is not None:
-                    text_parts.append(mapped)
-            else:
-                image_src = options.image_sources.get(key.lower())
-                if image_src:
-                    stats["gaiji_image"] += 1
-                    css_class = "lv-hc-gaiji lv-hc-gaiji-image"
-                    if _renderer_code(options) == "0158":
-                        css_class += " gaiji"
-                    _current_parts(root_parts, contexts).append(
-                        f'<img class="{css_class}" '
-                        f'src="{_escape_attr(image_src)}" alt="{_escape_attr(key)}" '
-                        f'data-gaiji-code="{_escape_attr(key)}">'
-                    )
-                else:
-                    stats["gaiji_placeholder"] += 1
-                    _current_parts(root_parts, contexts).append(
-                        f'<span class="lv-hc-gaiji lv-hc-gaiji-placeholder" '
-                        f'data-gaiji-code="{_escape_attr(key)}"></span>'
-                    )
+            _append_gaiji_value(_current_parts(root_parts, contexts), _current_text_parts(contexts), key, options, stats)
             i += 2
             continue
 
@@ -695,6 +810,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         close_code, close_html = hc0158_marker_stack.pop()
         _current_parts(root_parts, contexts).append(close_html)
         gaps.add(f"unterminated_hc0158_marker_{close_code}")
+    while hc0157_marker_stack:
+        close_code, close_html = hc0157_marker_stack.pop()
+        _current_parts(root_parts, contexts).append(close_html)
+        gaps.add(f"unterminated_hc0157_marker_{close_code}")
     while contexts:
         ctx = contexts.pop()
         if ctx.kind == "private":

@@ -237,6 +237,32 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The href remains the toolkit resource address rather than claiming exact viewer URL parity.",
             )
         )
+    if code == "0157":
+        rows.append(
+            HcHookBehavior(
+                name="dconci98_inline_style_gaiji",
+                status="implemented",
+                evidence=(
+                    "HC0157 epwing2HtmlBodydataVertical A14D/A14E accent branches",
+                    "HC0157 B156-B241 CSS span branch ladder",
+                    "Templates/00000157.css class definitions",
+                ),
+                implementation=(
+                    "A14D/A14E accent markers, B156-B241 CSS span delimiters, "
+                    "and B22D-B23B red circled-number gaiji wrappers"
+                ),
+                notes="Branches that call the custom-character path render the same gaiji code inside the opened span instead of swallowing it as metadata.",
+            )
+        )
+        rows.append(
+            HcHookBehavior(
+                name="dconci98_sound_icon_audio_link",
+                status="implemented",
+                evidence=("HC0157 lved.sond template", "sound.png/img_mark2 template strings", "1f4a/1f6a body loop branches"),
+                implementation="PCMDATA audio ranges render as sound.png links for HC0157",
+                notes="The href remains the toolkit resource address rather than claiming exact viewer URL parity.",
+            )
+        )
     if code == "0190":
         rows.append(
             HcHookBehavior(
@@ -306,6 +332,9 @@ def build_hc_behavior_profile(
     if code == "0158":
         implemented.add("HC0158_inline_style_gaiji")
         implemented.add("HC0158_sound_icon_audio_link")
+    if code == "0157":
+        implemented.add("HC0157_inline_style_gaiji")
+        implemented.add("HC0157_sound_icon_audio_link")
 
     feature_gaps = {
         "panel_hooks": "panel_lifecycle_hook",
