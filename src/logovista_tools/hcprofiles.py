@@ -298,6 +298,26 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Panel lifecycle, modifyHeadwordEx, and custom DIB generation remain named gaps.",
             )
         )
+    if code == "0065":
+        rows.append(
+            HcHookBehavior(
+                name="geniuseb_midashi_contents_and_grammar_labels",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0065 epwing2HtmlBodydata initial midashi/contents_body path",
+                    "HC0065 1f41 anchor/transition branch",
+                    "HC0065 A430-A433 grammar-label literal branches",
+                    "GENIUSEB.UNI A174 fallback record",
+                    "Templates/00000065.css class definitions",
+                ),
+                implementation=(
+                    "entry bodies open with midashi, 1f41 transitions to contents_body, "
+                    "internal links use lLink, A174/A430-A433 render as B/c/u/S/D grammar "
+                    "labels, and A251/A253 template image markers use img_gaiji"
+                ),
+                notes="The example/collocation box branches, SQL original-search hooks, modifyHeadwordEx, and custom DIB paths remain named gaps.",
+            )
+        )
     if code == "012E":
         rows.append(
             HcHookBehavior(
@@ -458,6 +478,8 @@ def build_hc_behavior_profile(
         implemented.add("HC02BC_section_and_medical_markers")
     if code == "02C2":
         implemented.add("HC02C2_section_icons_and_template_gaiji")
+    if code == "0065":
+        implemented.add("HC0065_midashi_contents_and_grammar_labels")
     if code == "012E":
         implemented.add("HC012E_kanji_layout_and_gaijitemp_markers")
     if code == "0146":

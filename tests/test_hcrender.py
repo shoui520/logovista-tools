@@ -397,6 +397,54 @@ def test_hc02c2_line_links_use_product_class() -> None:
     assert 'href="lvaddr://00000002/0048"' in rendered.html
 
 
+def test_hc0065_wraps_midashi_and_contents_body() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x01"
+        + jis_ascii("A")
+        + b"\x1f\x09\x00\x02"
+        + jis_ascii("B")
+        + b"\x1f\x41\x01\x00"
+        + jis_ascii("C")
+        + b"\x1f\x61",
+        HcRenderOptions(renderer_code="0065"),
+    )
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<span class="lv-hc-halfwidth">A</span>' in rendered.html
+    assert '<div class="contents_body">' in rendered.html
+    assert '<span class="lv-hc-halfwidth">C</span></div>' in rendered.html
+    assert 'class="lv-hc-heading"' not in rendered.html
+    assert rendered.stats["hc0065_midashi_blocks"] == 1
+    assert rendered.stats["hc0065_contents_body_blocks"] == 1
+
+
+def test_hc0065_renders_grammar_label_and_template_image_markers() -> None:
+    rendered = render_hc_body(
+        b"\xa1\x74\xa4\x30\xa4\x31\xa4\x32\xa4\x33\xa2\x51\xa2\x53",
+        HcRenderOptions(
+            renderer_code="0065",
+            image_sources={"a251": "Templates/a251.png", "a253": "Templates/a253.png"},
+        ),
+    )
+
+    assert "BcuSD" in rendered.plain
+    assert 'src="Templates/a251.png"' in rendered.html
+    assert 'src="Templates/a253.png"' in rendered.html
+    assert 'class="lv-hc-gaiji img_gaiji"' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc0065_literal_markers"] == 5
+    assert rendered.stats["hc0065_template_image_markers"] == 2
+
+
+def test_hc0065_internal_links_use_product_class() -> None:
+    body = b"\x1f\x42" + jis_ascii("G") + b"\x1f\x62\x00\x00\x00\x03\x00\x40"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0065"))
+
+    assert 'class="lv-hc-link lLink"' in rendered.html
+    assert 'href="lvaddr://00000003/0064"' in rendered.html
+
+
 def test_hc0158_renders_rank_marker_stars_without_gaiji_placeholder() -> None:
     rendered = render_hc_body(
         b"\xb3\x55" + jis_ascii("A") + b"\xb3\x54",
@@ -725,6 +773,35 @@ def test_hc02c2_profile_records_section_icon_subset_without_claiming_parity() ->
     assert "HC02C2_section_icons_and_template_gaiji" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "panel_lifecycle" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+
+
+def test_hc0065_profile_records_midashi_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0065.dll"),
+        code="0065",
+        expected_numeric_index="00000065.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=(),
+        features={"sql_hooks": True, "headword_modifier": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC0065_midashi_contents_and_grammar_labels" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "sql_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
 
 

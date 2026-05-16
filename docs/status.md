@@ -274,6 +274,13 @@ and non-SSED reader status are tracked separately in
   case is `HC013A.dll`, where section `1f09 0011` starts an example block and
   the renderer inserts the `exam` image once for that contiguous examples
   region.
+- `HC0065.dll` now has a focused raw-HONMON branch-subset proof for GENIUSEB:
+  entry bodies open with a `midashi` block; `1f41` transitions into
+  `contents_body`; internal links carry the recovered `lLink` class; A174 and
+  A430-A433 render as B/c/u/S/D grammar labels; and A251/A253 template images
+  use the `img_gaiji` class. Example/collocation box branches, SQL
+  original-search hooks, custom DIB generation, and `modifyHeadwordEx` remain
+  named gaps.
 - `HC00C6.dll` now has a focused raw-HONMON branch-subset proof for Dconci87:
   section `1f09` payloads map to product block classes such as `midashi`,
   `yakugo`, `contents`, and `exampleyakugo`; example blocks insert `exam.png`;
@@ -332,9 +339,9 @@ and non-SSED reader status are tracked separately in
   decompiled body-loop branch table and `Templates/00000146.css`. Product
   wrapper, section/layout state, and custom hooks remain visually incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
-  exact SHA-256 renderer binaries. HC013A, HC00C6, HC012E, HC02BC, HC02BE, HC02C2,
-  HC0146, HC0157, and HC0158 currently have decoded branch subsets, not full HC
-  parity.
+  exact SHA-256 renderer binaries. HC013A, HC0065, HC00C6, HC012E, HC02BC,
+  HC02BE, HC02C2, HC0146, HC0157, and HC0158 currently have decoded branch
+  subsets, not full HC parity.
   Other branch tables remain named gaps until their output constants and product
   data paths are understood.
 - The default raw-resource gaiji readiness pass intentionally does not use

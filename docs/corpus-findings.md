@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:              9   HC013A, HC00C6, HC012E, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
-common semantics plus named gaps:   101
+decoded branch subsets:             10   HC013A, HC0065, HC00C6, HC012E, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
+common semantics plus named gaps:   100
 full product visual parity:           0
 ```
 
@@ -1164,7 +1164,16 @@ decimal section numbers. Section `0011` enters an example block and emits the
 so the badge is emitted once per contiguous examples region rather than before
 every example/translation line.
 
-The second branch-subset proof case is `HC00C6.dll`. Its vertical body loop
+The second branch-subset proof case is `HC0065.dll`. Its body loop opens
+entries with a `midashi` block and treats `1f41` as the transition into
+`contents_body`, rather than as a visible headword span. It also uses the
+product `lLink` class for internal links, renders A174 and A430-A433 as
+B/c/u/S/D grammar labels, and keeps A251/A253 as `img_gaiji` template-backed
+images. Example/collocation boxes, SQL original-search hooks, custom DIB
+generation, and `modifyHeadwordEx` remain named gaps, so exact HC0065 visual
+parity is not claimed.
+
+The third branch-subset proof case is `HC00C6.dll`. Its vertical body loop
 maps `1f09` section payloads to product block classes used by
 `Templates/000000c6.css`: `0001` is a headword block, `0002`/`0003` are
 subheadword blocks, `0006` is the translated-definition block, and
@@ -1175,7 +1184,7 @@ table handles A23C/A23D and A24C/A24D as `partwaku` labels, A244/A245 as
 classed images. Unresolved literal `DAT_*` branches and custom DIB generation
 remain named gaps, so exact HC00C6 visual parity is not claimed.
 
-The third branch-subset proof case is `HC02BE.dll`. Its vertical body loop
+The fourth branch-subset proof case is `HC02BE.dll`. Its vertical body loop
 maps section payloads to the `ind_####` classes defined in
 `Templates/000002BE.css`. It also treats a large subset of gaiji-plane values
 as phonetic renderer commands: half-width and full-width base characters are
@@ -1186,7 +1195,7 @@ corresponding parentheses; and B924/B925 are consumed as renderer selectors.
 Panel lifecycle, SQL/search, `modifyHeadword`, and custom DIB paths remain
 named gaps, so exact HC02BE visual parity is not claimed.
 
-The fourth branch-subset proof case is `HC02BC.dll`. Its vertical body loop
+The fifth branch-subset proof case is `HC02BC.dll`. Its vertical body loop
 maps `1f09` section payloads to STEDMAN6 block shapes such as `midashi`,
 `komidashi`, `honbun`, and `contents`, and section `0002` emits
 `fukumidashi.png` when the package asset is present. The same branch table
@@ -1198,7 +1207,7 @@ unverified vertical-navigation wrapper scaffolding remain named gaps, so exact
 HC02BC visual parity is not claimed.
 
 
-The fifth branch-subset proof case is `HC02C2.dll`. Its vertical body loop
+The sixth branch-subset proof case is `HC02C2.dll`. Its vertical body loop
 maps `1f09` section payloads to KQCOLEXP `midashi` and `honbun` blocks.
 Sections `0007`, `0008`, `0009`, and `000A` emit `1.png`, `2.png`, `3.png`,
 and `4.png` `img_icon` markers respectively; section `0007` also opens the
@@ -1208,7 +1217,7 @@ state controls, and emits internal links with the recovered `lineLink` class.
 Custom DIB generation, `modifyHeadwordEx`, Panel lifecycle hooks, and broader
 visual parity remain named gaps, so exact HC02C2 visual parity is not claimed.
 
-The sixth branch-subset proof case is `HC012E.dll`. Its vertical body loop
+The seventh branch-subset proof case is `HC012E.dll`. Its vertical body loop
 uses package-local `Gaijitemp/` image resources for most kanji-form glyphs.
 The implemented subset maps common `1f09` section payloads to `honbun`,
 `bushu`, `kaku_midashi`, `exam`, `Oyaji`, and `Itaiji` block/table shapes;
@@ -1218,7 +1227,7 @@ Custom DIB generation, `modifyHeadword`, original-search SQL hooks, and full
 stroke-order table lifecycle parity remain named gaps, so exact HC012E visual
 parity is not claimed.
 
-The seventh branch-subset proof case is `HC0158.dll`. Its body loop treats a
+The eighth branch-subset proof case is `HC0158.dll`. Its body loop treats a
 subset of `.uni`-empty B3xx gaiji codes as inline HTML/CSS commands rather than
 glyphs. Implemented mappings include rank/star spans, part-of-speech and
 conjugation spans, boxed labels, red emphasis, and the conditional boxed
@@ -1228,7 +1237,7 @@ ranges with the discovered `sound.png` template. The focused ARCHSIC4 reference
 entry has strong visual coverage, but this is still not a claim of exact
 `HC0158.dll` parity across every entry and hook.
 
-The eighth branch-subset proof case is `HC0157.dll`. Its vertical body
+The ninth branch-subset proof case is `HC0157.dll`. Its vertical body
 loop treats several gaiji-plane values as style/control markers tied to
 `Templates/00000157.css`: A14D/A14E are accent spans; B156, B15A/B15B,
 B15C/B15D, B160-B17D, B221-B226, B228/B229/B22A, B23C-B23F, and B240/B241
@@ -1240,7 +1249,7 @@ implementation, not a string-only inference, and it remains visually incomplete
 until the product wrapper, section/layout state, and remaining custom hooks are
 validated.
 
-The ninth branch-subset proof case is `HC0146.dll`. Its vertical body
+The tenth branch-subset proof case is `HC0146.dll`. Its vertical body
 loop maps B232/B233 to a `color_font` delimiter pair, B240 to the literal
 abbreviation label `略：`, B157-B159 to `_M` image templates with
 `img_mark4`, B25A-B351 to `gaiji_icon`, and B23B/B357-B424 to `gaiji_full`.
