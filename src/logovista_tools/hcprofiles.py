@@ -411,6 +411,31 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "013D":
+        rows.append(
+            HcHookBehavior(
+                name="hkdksr13_drug_layout_and_template_markers",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC013D epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    "HC013D 215A/2223 JIS-pair lookahead branches for subtitle/title images",
+                    "HC013D 236D/2364/234C litre-unit branches",
+                    "Templates/0000013d.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to midashi-adjacent title3/medblk/med/medprice/"
+                    "medimage/mednamelist/indent blocks, internal links use lineLink, "
+                    "1f6d is consumed as renderer state, template-backed gaiji markers use "
+                    "img_gaiji, and recovered syohatsu/midashi/title/litre/entity JIS "
+                    "branches emit the DLL template HTML"
+                ),
+                notes=(
+                    "The subset excludes custom DIB generation, modifyHeadword, exact "
+                    "contents2-5 state transitions, table_pc/clickmenu lifecycle, and "
+                    "full COLSCR picture extraction into HTML."
+                ),
+            )
+        )
     if code == "0146":
         rows.append(
             HcHookBehavior(
@@ -558,6 +583,8 @@ def build_hc_behavior_profile(
         implemented.add("HC012D_section_and_inline_image_markers")
     if code == "0145":
         implemented.add("HC0145_section_and_marker_layout")
+    if code == "013D":
+        implemented.add("HC013D_hkdksr13_drug_layout_and_template_markers")
     if code == "0146":
         implemented.add("HC0146_inline_marker_gaiji")
     if code == "0158":

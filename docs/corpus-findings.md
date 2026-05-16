@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             13   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC0145, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
-common semantics plus named gaps:    98
+decoded branch subsets:             14   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0145, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
+common semantics plus named gaps:    97
 full product visual parity:           0
 ```
 
@@ -1272,7 +1272,21 @@ Custom DIB generation, `modifyHeadwordEx`, SQL original-search plus
 `D_Example`/`D_Idiom` hooks, and exact table/navigation wrapper lifecycle remain
 named gaps, so exact HC0145 visual parity is not claimed.
 
-The ninth branch-subset proof case is `HC0158.dll`. Its body loop treats a
+The HKDKSR13 branch-subset proof case is `HC013D.dll`. Its vertical body loop
+maps `1f09` section payloads to product drug-layout classes such as `title3`,
+`medblk`, `med`, `medprice`, `medimage`, `mednamelist*`, and `indent##`.
+The `1f41` path opens the recovered `midashi` block, internal links use
+`lineLink`, `1f6d` is consumed as renderer state, image-backed gaiji use the
+product `img_gaiji` class, and recovered JIS-pair lookahead branches emit the
+`syohatsu`, `midashi*`, `title*`, litre-unit, and entity templates. In the
+first 200-entry HKDKSR13 sample, generic `lv-hc-heading` wrappers dropped from
+200 to 0, `lineLink` anchors rose from 0 to 2,222, product `medimage` blocks
+rose from 0 to 407, and `unknown_control_1f6d` gaps dropped to 0. Custom DIB
+generation, `modifyHeadword`, exact contents/table/click-menu lifecycle, full
+picture extraction into final HTML, and broader representative visual parity
+remain named gaps, so exact HC013D visual parity is not claimed.
+
+The ARCHSIC4 branch-subset proof case is `HC0158.dll`. Its body loop treats a
 subset of `.uni`-empty B3xx gaiji codes as inline HTML/CSS commands rather than
 glyphs. Implemented mappings include rank/star spans, part-of-speech and
 conjugation spans, boxed labels, red emphasis, and the conditional boxed
@@ -1282,7 +1296,7 @@ ranges with the discovered `sound.png` template. The focused ARCHSIC4 reference
 entry has strong visual coverage, but this is still not a claim of exact
 `HC0158.dll` parity across every entry and hook.
 
-The tenth branch-subset proof case is `HC0157.dll`. Its vertical body
+The DCONCI98 branch-subset proof case is `HC0157.dll`. Its vertical body
 loop treats several gaiji-plane values as style/control markers tied to
 `Templates/00000157.css`: A14D/A14E are accent spans; B156, B15A/B15B,
 B15C/B15D, B160-B17D, B221-B226, B228/B229/B22A, B23C-B23F, and B240/B241
@@ -1294,7 +1308,7 @@ implementation, not a string-only inference, and it remains visually incomplete
 until the product wrapper, section/layout state, and remaining custom hooks are
 validated.
 
-The eleventh branch-subset proof case is `HC0146.dll`. Its vertical body
+The PROYAL43 branch-subset proof case is `HC0146.dll`. Its vertical body
 loop maps B232/B233 to a `color_font` delimiter pair, B240 to the literal
 abbreviation label `略：`, B157-B159 to `_M` image templates with
 `img_mark4`, B25A-B351 to `gaiji_icon`, and B23B/B357-B424 to `gaiji_full`.

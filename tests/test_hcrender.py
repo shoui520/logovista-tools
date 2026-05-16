@@ -572,6 +572,90 @@ def test_hc0145_uses_line_links_and_img_gaiji_class() -> None:
     assert rendered.stats["gaiji_image"] == 1
 
 
+def test_hc013d_maps_sections_to_drug_layout_classes() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x04"
+        + jis_ascii("G")
+        + b"\x1f\x09\x00\x08"
+        + jis_ascii("B")
+        + b"\x1f\x09\x00\x06"
+        + jis_ascii("M")
+        + b"\x1f\x09\x00\x10"
+        + jis_ascii("P")
+        + b"\x1f\x09\x00\x11"
+        + jis_ascii("I")
+        + b"\x1f\x09\x00\x41"
+        + jis_ascii("S")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="013D"))
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<div class="title3">' in rendered.html
+    assert '<div class="medblk">' in rendered.html
+    assert '<span class="med">' in rendered.html
+    assert '<div class="medprice">' in rendered.html
+    assert '<div class="medimage">' in rendered.html
+    assert '<div class="indent41">' in rendered.html
+    assert rendered.stats["hc013d_section_blocks"] == 6
+
+
+def test_hc013d_internal_links_use_line_link_class_and_1f6d_is_nonprinting() -> None:
+    body = b"\x1f\x42" + jis_ascii("L") + b"\x1f\x62\x00\x00\x00\x02\x00\x30" + b"\x1f\x6d\x00\x00"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="013D"))
+
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc013d_nonprinting_controls"] == 1
+
+
+def test_hc013d_renders_template_gaiji_with_product_image_class() -> None:
+    rendered = render_hc_body(
+        b"\xb1\x29",
+        HcRenderOptions(renderer_code="013D", image_sources={"b129": "Templates/b129.png"}),
+    )
+
+    assert 'class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji"' in rendered.html
+    assert 'src="Templates/b129.png"' in rendered.html
+
+
+def test_hc013d_decodes_jis_product_template_sequences() -> None:
+    body = (
+        bytes.fromhex("215a3d69215b")
+        + bytes.fromhex("215a403d3a5e")
+        + bytes.fromhex("236d234c")
+        + bytes.fromhex("2364234c")
+        + bytes.fromhex("2331234c")
+        + bytes.fromhex("2175216f21632164")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="013D",
+            image_sources={"syohatsu": "Templates/syohatsu.png", "midashi1": "Templates/midashi1.png"},
+        ),
+    )
+
+    assert '<img src="Templates/syohatsu.png" class="img_gaiji">' in rendered.html
+    assert '<div class="seizaijouhou"><div class="SubTitle">' in rendered.html
+    assert '<img src="Templates/midashi1.png" class="img_midashi">' in rendered.html
+    assert "m&#x2113;" in rendered.html
+    assert "d&#x2113;" in rendered.html
+    assert "１ℓ" in rendered.plain
+    assert "&amp;" in rendered.html
+    assert "&yen;" in rendered.html
+    assert "&lt;" in rendered.html
+    assert "&gt;" in rendered.html
+    assert rendered.stats["hc013d_jis_template_markers"] == 9
+
+
 def test_hc02c2_maps_section_icons_and_moji_down_blocks() -> None:
     rendered = render_hc_body(
         b"\x1f\x09\x00\x01"
@@ -1113,6 +1197,35 @@ def test_hc0145_profile_records_section_subset_without_claiming_parity() -> None
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "sql_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+
+
+def test_hc013d_profile_records_drug_layout_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC013D.dll"),
+        code="013D",
+        expected_numeric_index="0000013D.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=(),
+        features={"custom_gaiji_dib": True, "headword_modifier": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC013D_hkdksr13_drug_layout_and_template_markers" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
 
 

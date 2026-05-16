@@ -342,6 +342,16 @@ and non-SSED reader status are tracked separately in
   Custom DIB generation, `modifyHeadwordEx`, SQL original-search plus
   D_Example/D_Idiom hooks, exact table/navigation wrapper lifecycle, and
   broader visual parity remain named gaps.
+- `HC013D.dll` now has a focused raw-HONMON branch-subset proof for HKDKSR13:
+  `1f09` section payloads map to drug-layout classes such as `title3`,
+  `medblk`, `med`, `medprice`, `medimage`, `mednamelist*`, and `indent##`;
+  `1f41` opens the recovered `midashi` block; internal links carry
+  `lineLink`; `1f6d` is consumed as renderer state; image-backed gaiji use
+  `img_gaiji`; and recovered JIS-pair lookahead branches emit the
+  `syohatsu`, `midashi*`, `title*`, litre-unit, and entity templates. Custom
+  DIB generation, `modifyHeadword`, exact contents/table/click-menu lifecycle,
+  full picture extraction into final HTML, and broader visual parity remain
+  named gaps.
 - `HC009D.dll` now has a focused raw-HONMON branch-subset proof for GKCEREMO:
   `1f09` section payloads map to product `lineinfoN` blocks; section `0008`
   uses the next B14x renderer marker to open product kakomi boxes such as
@@ -371,7 +381,7 @@ and non-SSED reader status are tracked separately in
   wrapper, section/layout state, and custom hooks remain visually incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
   exact SHA-256 renderer binaries. HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E,
-  HC0145, HC02BC, HC02BE, HC02C2, HC0146, HC0157, and HC0158 currently have decoded branch
+  HC013D, HC0145, HC02BC, HC02BE, HC02C2, HC0146, HC0157, and HC0158 currently have decoded branch
   subsets, not full HC parity.
   Other branch tables remain named gaps until their output constants and product
   data paths are understood.

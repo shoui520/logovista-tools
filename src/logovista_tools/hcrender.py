@@ -658,6 +658,38 @@ HC0145_NOOP_MARKERS = {
     "b935",
     "b937",
 }
+HC013D_NONPRINTING_CONTROL_OPS = {0x6D}
+HC013D_MED_SECTION_CLASSES = {
+    "0004": ("div", ' class="title3"'),
+    "0006": ("span", ' class="med"'),
+    "0008": ("div", ' class="medblk"'),
+    "0010": ("div", ' class="medprice"'),
+    "0011": ("div", ' class="medimage"'),
+    "0014": ("div", ' class="mednamelist1"'),
+    "0015": ("div", ' class="mednamelist2"'),
+    "0016": ("div", ' class="mednamelist3"'),
+}
+HC013D_INDENT_SECTION_CODES = {"0040", "0041", "0050", "0051", "0052", "0060", "0061"}
+HC013D_TITLE_TRIGGER_SEQUENCES = {
+    ("4a2c", "4e60"),
+    ("3d68", "4a7d"),
+    ("3272", "4062"),
+}
+HC013D_SUBTITLE_IMAGE_SEQUENCES = {
+    ("403d", "3a5e"): ("seizaijouhou", "SubTitle", "midashi1"),
+    ("3335", "4d57"): ("gaiyou", "SubTitle_gaiyou", "midashi2"),
+    ("452c", "317e"): ("gaiyou", "SubTitle_gaiyou", "midashi4"),
+    ("3b48", "4d51"): ("shiyoujounocyuui", "SubTitle_caution", "midashi3"),
+    ("436d", "3055"): ("shiyoujounocyuui", "SubTitle_caution", "midashi5"),
+}
+HC013D_SHOW_TITLE_SEQUENCES = {
+    ("2433", "244e", "3e4f", "2447"): ("gTitle1", 0x12),
+    ("3c2b", "384a", "436d", "3c4d"): ("gTitle2", 0x12),
+    ("497b", "3a6e", "4d51", "2126"): ("nTitle1", 0x1e),
+    ("3a5e", "3741", "242b", "2469"): ("nTitle2", 0x16),
+    ("3330", "4d51", "4c74", "2447"): ("nTitle1", 0x1e),
+    ("3441", "4a7d", "4c74", "2447"): ("nTitle3", 0x1a),
+}
 
 
 def _escape_attr(value: object) -> str:
@@ -747,7 +779,7 @@ def _renderer_code(options: HcRenderOptions) -> str:
 def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
     if _renderer_code(options) == "0065" and start_op in {0x42, 0x43, 0x44}:
         return "lv-hc-link lLink"
-    if _renderer_code(options) in {"009D", "012D", "0145", "02C2"} and start_op in {0x42, 0x43}:
+    if _renderer_code(options) in {"009D", "012D", "013D", "0145", "02C2"} and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
     return "lv-hc-link"
 
@@ -767,6 +799,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("div", ' class="midashi"')
     if op == 0x41 and _renderer_code(options) == "009D":
         return None
+    if op == 0x41 and _renderer_code(options) == "013D":
+        return ("div", ' class="midashi"')
     if op == 0x41 and _renderer_code(options) == "0145":
         return None
     if op == 0x41 and _renderer_code(options) in {"00C6", "0146", "0157", "0158"}:
@@ -876,7 +910,7 @@ def _append_gaiji_value(
     if image_src:
         stats["gaiji_image"] += 1
         css_class = "lv-hc-gaiji lv-hc-gaiji-image"
-        if _renderer_code(options) in {"0065", "009D", "012E", "0145", "02C2"}:
+        if _renderer_code(options) in {"0065", "009D", "012E", "013D", "0145", "02C2"}:
             css_class += " img_gaiji"
         if _renderer_code(options) == "012D":
             css_class += " gaiji"
@@ -1144,6 +1178,102 @@ def _hc0145_section_close_for_parts(parts: list[str]) -> str | None:
     return None
 
 
+def _hc013d_section_parts(code: str) -> tuple[list[str], str | None]:
+    tag_spec = HC013D_MED_SECTION_CLASSES.get(code)
+    if tag_spec is not None:
+        tag, attrs = tag_spec
+        return [f"<{tag}{attrs}>"], f"</{tag}>"
+    if code in HC013D_INDENT_SECTION_CODES:
+        return [f'<div class="indent{code[-2:]}">'], "</div>"
+    try:
+        value = int(code, 10)
+    except ValueError:
+        return [], None
+    if value in {2, 3, 5, 7, 9, 12, 13}:
+        return [f'<div style="margin-left:{value * 4}px;">'], "</div>"
+    return [], None
+
+
+def _image_tag_for_key(
+    key: str,
+    options: HcRenderOptions,
+    css_class: str,
+    *,
+    fallback_ext: str = ".png",
+) -> str:
+    src = _image_source_for_key(key, options) or f"{key}{fallback_ext}"
+    return f'<img src="{_escape_attr(src)}" class="{_escape_attr(css_class)}">'
+
+
+def _hc013d_subtitle_html(
+    outer_class: str,
+    subtitle_class: str,
+    image_key: str,
+    options: HcRenderOptions,
+) -> str:
+    return (
+        '<div class="clearLeft"></div>'
+        f'<div class="{_escape_attr(outer_class)}">'
+        f'<div class="{_escape_attr(subtitle_class)}">'
+        f'{_image_tag_for_key(image_key, options, "img_midashi")}'
+        "</div></div>"
+    )
+
+
+def _hc013d_jis_sequence_html(data: bytes, offset: int, options: HcRenderOptions) -> tuple[str | None, int]:
+    key = _jis_key_at(data, offset)
+    next1 = _jis_key_at(data, offset + 2)
+    next2 = _jis_key_at(data, offset + 4)
+    if key == "215a" and next1 == "3d69" and next2 == "215b":
+        return _image_tag_for_key("syohatsu", options, "img_gaiji"), 6
+    if key == "215a" and next1 is not None and next2 is not None:
+        subtitle = HC013D_SUBTITLE_IMAGE_SEQUENCES.get((next1, next2))
+        if subtitle is not None:
+            return _hc013d_subtitle_html(*subtitle, options), 6
+        if (next1, next2) == ("3e26", "494a"):
+            return '<span class="SubTitle_syouhin"></span>', 6
+        if (next1, next2) in HC013D_TITLE_TRIGGER_SEQUENCES:
+            return '<div class="clearLeft"></div><span class="title"></span>', 6
+    if key == "2223":
+        seq = tuple(_jis_key_at(data, offset + 2 + step * 2) or "" for step in range(4))
+        show_title = HC013D_SHOW_TITLE_SEQUENCES.get(seq)
+        if show_title is not None:
+            image_key, consumed = show_title
+            return _image_tag_for_key(image_key, options, "img_showtitle"), consumed + 2
+        if next1 is not None and next2 is not None and (next1, next2) in {
+            ("3759", "3970"),
+            ("3470", "4b5c"),
+            ("3d45", "4267"),
+            ("243d", "244e"),
+            ("4a3b", "4d51"),
+            ("436d", "3055"),
+        }:
+            return '<span class="title2"></span>', 6
+    if key == "236d" and next1 == "234c":
+        return "m&#x2113;", 4
+    if key == "2364" and next1 == "234c":
+        return "d&#x2113;", 4
+    previous = _jis_key_at(data, offset - 2) if offset >= 2 else None
+    if key == "234c" and previous is not None:
+        try:
+            previous_value = int(previous, 16)
+        except ValueError:
+            previous_value = 0
+        if 0x2330 < previous_value < 0x233A:
+            return "&#x2113;", 2
+    if key == "217b" and data[offset + 2 : offset + 6] == b"\x1f\x04\x23\x32" and _jis_key_at(data, offset + 6) == "2331":
+        return "&#x3251;", 8
+    if key == "2175":
+        return "&amp;", 2
+    if key == "216f":
+        return "&yen;", 2
+    if key == "2163":
+        return "&lt;", 2
+    if key == "2164":
+        return "&gt;", 2
+    return None, 0
+
+
 def _hc02c2_honbun_div() -> str:
     return '<div class="honbun" style="margin-left:0.000000em;">'
 
@@ -1300,6 +1430,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc02be_section_open = False
     hc012d_section_close: str | None = None
     hc012d_pending_honbun_user = False
+    hc013d_section_close: str | None = None
     hc0145_section_close: str | None = None
     hc012e_section_close: str | None = None
     hc012e_current_section: str | None = None
@@ -1406,6 +1537,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         hc012d_section_close = _hc012d_section_close_for_parts(section_parts)
                         if section_parts:
                             stats["hc012d_section_blocks"] += 1
+                    if _renderer_code(options) == "013D":
+                        if hc013d_section_close is not None:
+                            root.append(hc013d_section_close)
+                            hc013d_section_close = None
+                        section_parts, section_close = _hc013d_section_parts(code)
+                        root.extend(section_parts)
+                        hc013d_section_close = section_close
+                        if section_parts:
+                            stats["hc013d_section_blocks"] += 1
                     if _renderer_code(options) == "0145":
                         if hc0145_section_close is not None:
                             root.append(hc0145_section_close)
@@ -1491,6 +1631,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     hc012d_pending_honbun_user = False
                     i += 2 + arg_len
                     continue
+                if _renderer_code(options) == "013D" and hc013d_section_close is not None:
+                    _current_parts(root_parts, contexts).append(hc013d_section_close)
+                    hc013d_section_close = None
                 if _renderer_code(options) == "0145" and hc0145_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc0145_section_close)
                     hc0145_section_close = None
@@ -1544,6 +1687,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "009D" and op in HC009D_NONPRINTING_CONTROL_OPS:
                 stats["hc009d_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "013D" and op in HC013D_NONPRINTING_CONTROL_OPS:
+                stats["hc013d_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -1773,6 +1921,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 _current_parts(root_parts, contexts).append('<div class="honbun_user">')
                 hc012d_section_close = "</div>"
                 hc012d_pending_honbun_user = False
+            if _renderer_code(options) == "013D":
+                html_fragment, consumed = _hc013d_jis_sequence_html(data, i, options)
+                if html_fragment is not None and consumed:
+                    _current_parts(root_parts, contexts).append(html_fragment)
+                    text_parts = _current_text_parts(contexts)
+                    if text_parts is not None:
+                        text_parts.append(_plain_from_html(html_fragment))
+                    stats["hc013d_jis_template_markers"] += 1
+                    i += consumed
+                    continue
             key = f"{byte:02x}{data[i + 1]:02x}"
             if _renderer_code(options) == "012D":
                 image_key = HC012D_INLINE_IMAGE_JIS.get(key)
@@ -2328,6 +2486,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc009d_section_close)
     if hc012d_section_close is not None:
         _current_parts(root_parts, contexts).append(hc012d_section_close)
+    if hc013d_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc013d_section_close)
     if hc0145_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0145_section_close)
     if hc012e_section_close is not None:
