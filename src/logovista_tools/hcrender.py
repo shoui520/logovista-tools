@@ -889,6 +889,14 @@ def _hc012e_section_parts(code: str, options: HcRenderOptions) -> list[str]:
     return []
 
 
+def _hc012e_section_close_for_parts(parts: list[str]) -> str | None:
+    if any(part.startswith("<table") for part in parts):
+        return "</div></td></tr></table>"
+    if any(part.startswith("<div") for part in parts):
+        return "</div>"
+    return None
+
+
 def _hc02c2_honbun_div() -> str:
     return '<div class="honbun" style="margin-left:0.000000em;">'
 
@@ -1039,7 +1047,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc00c6_supab_pending = False
     hc02bc_section_open = False
     hc02be_section_open = False
-    hc012e_section_open = False
+    hc012e_section_close: str | None = None
     hc012e_current_section: str | None = None
     hc02c2_section_open = False
     hc02c2_moji_down_open = False
@@ -1120,14 +1128,13 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         if section_parts:
                             stats["hc02bc_section_divs"] += 1
                     if _renderer_code(options) == "012E":
-                        if hc012e_section_open:
-                            root.append("</div>")
-                            hc012e_section_open = False
+                        if hc012e_section_close is not None:
+                            root.append(hc012e_section_close)
+                            hc012e_section_close = None
                         hc012e_current_section = code
                         section_parts = _hc012e_section_parts(code, options)
                         root.extend(section_parts)
-                        if section_parts and (section_parts[-1].startswith("<div") or section_parts[-1].startswith("<table")):
-                            hc012e_section_open = True
+                        hc012e_section_close = _hc012e_section_close_for_parts(section_parts)
                         if section_parts:
                             stats["hc012e_section_blocks"] += 1
                             if "hitsujun start" in "".join(section_parts):
@@ -1182,9 +1189,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if _renderer_code(options) == "02BC" and hc02bc_section_open:
                     _current_parts(root_parts, contexts).append("</div>")
                     hc02bc_section_open = False
-                if _renderer_code(options) == "012E" and hc012e_section_open:
-                    _current_parts(root_parts, contexts).append("</div>")
-                    hc012e_section_open = False
+                if _renderer_code(options) == "012E" and hc012e_section_close is not None:
+                    _current_parts(root_parts, contexts).append(hc012e_section_close)
+                    hc012e_section_close = None
                 if _renderer_code(options) == "02C2" and hc02c2_section_open:
                     if hc02c2_moji_down_open:
                         _current_parts(root_parts, contexts).append("</p>")
@@ -1271,7 +1278,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             break
                 if _renderer_code(options) == "012E" and op == 0x61 and closed_requested_style:
                     _current_parts(root_parts, contexts).append('<div class="honbun_user">')
-                    hc012e_section_open = True
+                    hc012e_section_close = "</div>"
                 if op == 0x05 and halfwidth_depth:
                     halfwidth_depth -= 1
                 i += 2 + arg_len
@@ -1489,7 +1496,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     if hc012e_current_section == "003f":
                         parts.append("</div></td></tr></table><br>")
                         stats["hc012e_table_closures"] += 1
-                        hc012e_section_open = False
+                        hc012e_section_close = None
                     i += 2
                     continue
                 literal = HC012E_LITERAL_MARKERS.get(key)
@@ -1851,8 +1858,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append("</div>")
     if hc02be_section_open:
         _current_parts(root_parts, contexts).append("</div>")
-    if hc012e_section_open:
-        _current_parts(root_parts, contexts).append("</div>")
+    if hc012e_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc012e_section_close)
     if hc02c2_section_open:
         if hc02c2_moji_down_open:
             _current_parts(root_parts, contexts).append("</p>")
