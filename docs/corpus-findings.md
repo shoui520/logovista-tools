@@ -1146,7 +1146,7 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:              7   HC013A, HC00C6, HC02BC, HC02BE, HC0146, HC0157, HC0158
+decoded branch subsets:              8   HC013A, HC00C6, HC012E, HC02BC, HC02BE, HC0146, HC0157, HC0158
 common semantics plus named gaps:   102
 full product visual parity:           0
 ```
@@ -1197,7 +1197,18 @@ chemistry/phonetic composites. Custom DIB generation, `modifyHeadwordEx`, and
 unverified vertical-navigation wrapper scaffolding remain named gaps, so exact
 HC02BC visual parity is not claimed.
 
-The fifth branch-subset proof case is `HC0158.dll`. Its body loop treats a
+
+The fifth branch-subset proof case is `HC012E.dll`. Its vertical body loop
+uses package-local `Gaijitemp/` image resources for most kanji-form glyphs.
+The implemented subset maps common `1f09` section payloads to `honbun`,
+`bushu`, `kaku_midashi`, `exam`, `Oyaji`, and `Itaiji` block/table shapes;
+B238/B239/B241/B242 to black/red/sizedown spans; B136-B139 to Gaijitemp
+`hatsuon` images; A149 to spacing; and `1f6d` to a consumed renderer marker.
+Custom DIB generation, `modifyHeadword`, original-search SQL hooks, and full
+stroke-order table lifecycle parity remain named gaps, so exact HC012E visual
+parity is not claimed.
+
+The sixth branch-subset proof case is `HC0158.dll`. Its body loop treats a
 subset of `.uni`-empty B3xx gaiji codes as inline HTML/CSS commands rather than
 glyphs. Implemented mappings include rank/star spans, part-of-speech and
 conjugation spans, boxed labels, red emphasis, and the conditional boxed
@@ -1207,7 +1218,7 @@ ranges with the discovered `sound.png` template. The focused ARCHSIC4 reference
 entry has strong visual coverage, but this is still not a claim of exact
 `HC0158.dll` parity across every entry and hook.
 
-The sixth branch-subset proof case is `HC0157.dll`. Its vertical body
+The seventh branch-subset proof case is `HC0157.dll`. Its vertical body
 loop treats several gaiji-plane values as style/control markers tied to
 `Templates/00000157.css`: A14D/A14E are accent spans; B156, B15A/B15B,
 B15C/B15D, B160-B17D, B221-B226, B228/B229/B22A, B23C-B23F, and B240/B241
@@ -1219,7 +1230,7 @@ implementation, not a string-only inference, and it remains visually incomplete
 until the product wrapper, section/layout state, and remaining custom hooks are
 validated.
 
-The seventh branch-subset proof case is `HC0146.dll`. Its vertical body
+The eighth branch-subset proof case is `HC0146.dll`. Its vertical body
 loop maps B232/B233 to a `color_font` delimiter pair, B240 to the literal
 abbreviation label `略：`, B157-B159 to `_M` image templates with
 `img_mark4`, B25A-B351 to `gaiji_icon`, and B23B/B357-B424 to `gaiji_full`.

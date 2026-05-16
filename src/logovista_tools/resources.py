@@ -112,6 +112,8 @@ def candidate_image_dirs(root: Path) -> list[Path]:
         root / "img",
         root / "image",
         root / "images",
+        root / "Gaijitemp",
+        root / "gaijitemp",
         root / "Templates",
         root / "templates",
         root / "HANREI" / "img",

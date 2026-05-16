@@ -13,6 +13,7 @@ from logovista_tools.hcrender import (
     render_hc_body,
 )
 from logovista_tools.hcprofiles import build_hc_behavior_profile
+from logovista_tools.resources import load_image_resource_profile
 from logovista_tools.windows import HcRendererClassification, PeSummary
 
 
@@ -289,6 +290,64 @@ def test_hc02bc_renders_medical_composite_markers() -> None:
     assert rendered.stats["hc02bc_composite_markers"] == 6
 
 
+def test_hc012e_maps_kanji_sections_and_hitsujun_image() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x08"
+        + jis_ascii("H")
+        + b"\x1f\x09\x00\x0c"
+        + jis_ascii("B")
+        + b"\x1f\x09\x00\x3f"
+        + jis_ascii("I")
+        + b"\xb2\x36"
+        + jis_ascii("J")
+        + b"\xb2\x37",
+        HcRenderOptions(
+            renderer_code="012E",
+            image_sources={"hitsujun": "templates/hitsujun.png", "b237": "Gaijitemp/B237.png"},
+        ),
+    )
+
+    assert "<!-- hitsujun start -->" in rendered.html
+    assert '<img src="templates/hitsujun.png" class="img_gaiji">' in rendered.html
+    assert '<div class="bushu">' in rendered.html
+    assert '<table class="table_itaiji_2"><tr><td><div class="Itaiji">' in rendered.html
+    assert '</div></td><td><div class="honbun">' in rendered.html
+    assert '</div></td></tr></table><br>' in rendered.html
+    assert rendered.stats["hc012e_hitsujun_sections"] == 1
+    assert rendered.stats["hc012e_table_cell_transitions"] == 1
+    assert rendered.stats["hc012e_table_closures"] == 1
+
+
+def test_hc012e_renders_color_size_direct_image_and_literal_markers() -> None:
+    rendered = render_hc_body(
+        b"\xb2\x39" + jis_ascii("R") + b"\xb2\x42"
+        + b"\xb2\x41" + jis_ascii("S") + b"\xb2\x42"
+        + b"\xb1\x36"
+        + b"\xb1\x2b"
+        + b"\xa1\x49",
+        HcRenderOptions(renderer_code="012E", image_sources={"b136": "Gaijitemp/B136.png", "b12b": "Gaijitemp/B12B.png"}),
+    )
+
+    assert '<span style="color:#FF0000;"><span class="lv-hc-halfwidth">R</span></span>' in rendered.html
+    assert '<span class="sizedown"><span class="lv-hc-halfwidth">S</span></span>' in rendered.html
+    assert 'src="Gaijitemp/B136.png"' in rendered.html
+    assert 'class="lv-hc-gaiji hatsuon"' in rendered.html
+    assert "Gaijitemp/B12B.png" not in rendered.html
+    assert "&nbsp;&nbsp;" in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc012e_direct_image_markers"] == 1
+    assert rendered.stats["hc012e_noop_markers"] == 1
+    assert rendered.stats["hc012e_literal_markers"] == 1
+
+
+def test_hc012e_treats_1f6d_as_nonprinting_renderer_control() -> None:
+    rendered = render_hc_body(jis_ascii("A") + b"\x1f\x6d" + jis_ascii("B"), HcRenderOptions(renderer_code="012E"))
+
+    assert rendered.plain == "AB"
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc012e_nonprinting_controls"] == 1
+
+
 def test_hc0158_renders_rank_marker_stars_without_gaiji_placeholder() -> None:
     rendered = render_hc_body(
         b"\xb3\x55" + jis_ascii("A") + b"\xb3\x54",
@@ -519,6 +578,22 @@ def test_hc_render_assets_copy_images_and_normalise_product_css(tmp_path: Path) 
     assert "1.35em" in css
     assert "#111111" in css
     assert copied == 2
+
+
+def test_image_resource_profile_discovers_gaijitemp_assets(tmp_path: Path) -> None:
+    package = tmp_path / "_DCT_TEST"
+    gaijitemp = package / "Gaijitemp"
+    gaijitemp.mkdir(parents=True)
+    idx = package / "TEST.IDX"
+    idx.write_bytes(b"")
+    (gaijitemp / "B123.png").write_bytes(b"PNG")
+    (gaijitemp / "B123_V.png").write_bytes(b"PNGV")
+
+    profile = load_image_resource_profile(idx)
+
+    assert "b123" in profile.resources
+    assert "b123_v" in profile.resources
+    assert "b123" in profile.gaiji_image_keys
 
 
 def test_hc_renderer_product_hooks_are_named_gaps() -> None:

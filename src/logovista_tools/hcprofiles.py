@@ -278,6 +278,29 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The branch subset excludes custom DIB generation, modifyHeadwordEx, and unverified vertical-navigation table scaffolding.",
             )
         )
+    if code == "012E":
+        rows.append(
+            HcHookBehavior(
+                name="nkgorin2_kanji_layout_and_gaijitemp_markers",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC012E epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    "HC012E B238/B239/B241/B242 color and sizedown marker branches",
+                    "HC012E B136-B139 direct Gaijitemp hatsuon image branch",
+                    "Templates/0000012E.css and Gaijitemp resource paths",
+                ),
+                implementation=(
+                    "Gaijitemp image resources are discovered, common HC012E section codes map "
+                    "to honbun/bushu/kaku_midashi/exam/kanji-table blocks, B238/B239/B241/B242 "
+                    "map to color/sizedown spans, and B136-B139 render Gaijitemp images with "
+                    "the recovered hatsuon class"
+                ),
+                notes=(
+                    "The subset excludes custom DIB generation, modifyHeadword, original-search SQL, "
+                    "and full kanji stroke-order table lifecycle parity."
+                ),
+            )
+        )
     if code == "0146":
         rows.append(
             HcHookBehavior(
@@ -413,6 +436,8 @@ def build_hc_behavior_profile(
         implemented.add("HC02BE_section_and_phonetic_markers")
     if code == "02BC":
         implemented.add("HC02BC_section_and_medical_markers")
+    if code == "012E":
+        implemented.add("HC012E_kanji_layout_and_gaijitemp_markers")
     if code == "0146":
         implemented.add("HC0146_inline_marker_gaiji")
     if code == "0158":
