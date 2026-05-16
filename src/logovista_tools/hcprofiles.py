@@ -218,6 +218,45 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="HC013A decodes the 0011 section payload as decimal 11 and keeps the example block active across sections 0010, 0011, and 0012.",
             )
         )
+    if code == "00C6":
+        rows.append(
+            HcHookBehavior(
+                name="dconci87_section_and_marker_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC00C6 epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    "HC00C6 A23C/A23D and A24C/A24D partwaku branches",
+                    "HC00C6 A244 supAB marker state",
+                    "Templates/000000c6.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to midashi/midashi_JE/yakugo/contents/exampleyakugo divs, "
+                    "example sections insert exam.png once per contiguous block, A23C/A23D and "
+                    "A24C/A24D create partwaku boxes, A244/A245 wraps A/B labels as supAB, and "
+                    "template-backed gaiji markers use HC00C6 image classes"
+                ),
+                notes="The branch subset excludes unresolved DAT_* literal branches and the custom DIB transformation path.",
+            )
+        )
+    if code == "02BE":
+        rows.append(
+            HcHookBehavior(
+                name="kqdental_section_and_phonetic_markers",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC02BE epwing2HtmlBodydataVertical ind_%04d section templates",
+                    "HC02BE A/B gaiji branch ladder for phonetic accent image composites",
+                    "HC02BE B928/B929 hatsuon and B92C/B92D yomigana branches",
+                    "Templates/000002BE.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to ind_#### blocks, phonetic marker gaiji render "
+                    "nowrap half/full accent image composites, B928/B929 render hatsuon, "
+                    "B92C/B92D render yomigana, and B924/B925 are suppressed as renderer selectors"
+                ),
+                notes="Panel lifecycle, SQL/search hooks, modifyHeadword, and custom DIB paths remain named gaps.",
+            )
+        )
     if code == "0146":
         rows.append(
             HcHookBehavior(
@@ -347,6 +386,10 @@ def build_hc_behavior_profile(
         implemented.add("sidecar_media_blob_extraction")
     if code == "013A":
         implemented.add("HC013A_example_section_badge")
+    if code == "00C6":
+        implemented.add("HC00C6_section_and_marker_layout")
+    if code == "02BE":
+        implemented.add("HC02BE_section_and_phonetic_markers")
     if code == "0146":
         implemented.add("HC0146_inline_marker_gaiji")
     if code == "0158":

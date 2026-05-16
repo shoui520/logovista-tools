@@ -132,6 +132,112 @@ def test_hc013a_reports_missing_exam_asset_without_faking_image() -> None:
     assert "missing_section_image_exam" in rendered.named_behavior_gaps
 
 
+def test_hc00c6_maps_sections_to_product_divs_and_example_badge() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + jis_ascii("H")
+        + b"\x1f\x09\x00\x06"
+        + jis_ascii("D")
+        + b"\x1f\x09\x00\x07"
+        + jis_ascii("E")
+        + b"\x1f\x09\x00\x08"
+        + jis_ascii("J")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="00C6", image_sources={"exam": "templates/exam.png"}),
+    )
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<div class="yakugo" style="margin-left:2.000000em;">' in rendered.html
+    assert '<img src="templates/exam.png" class="ex_img"><br>' in rendered.html
+    assert '<div class="contents">' in rendered.html
+    assert '<div class="exampleyakugo">' in rendered.html
+    assert rendered.html.count('src="templates/exam.png" class="ex_img"') == 1
+    assert rendered.stats["hc00c6_section_divs"] == 4
+    assert rendered.stats["section_images"] == 1
+
+
+def test_hc00c6_renders_partwaku_supab_and_template_image_markers() -> None:
+    rendered = render_hc_body(
+        b"\xa2\x4c" + jis_ascii("P") + b"\xa2\x4d"
+        + b"\xa2\x44" + jis_ascii("B") + b"\xa2\x45"
+        + b"\xa1\x22"
+        + b"\xb1\x26",
+        HcRenderOptions(renderer_code="00C6", image_sources={"a122": "templates/A122.png"}),
+    )
+
+    assert '<span class="partwaku"><span class="lv-hc-halfwidth">P</span></span>' in rendered.html
+    assert '<sup class="supAB"><span class="lv-hc-halfwidth">B</span></sup>' not in rendered.html
+    assert '<sup class="supAB">B</sup>' in rendered.html
+    assert 'src="templates/A122.png"' in rendered.html
+    assert 'class="lv-hc-gaiji img_mark5"' in rendered.html
+    assert '<br><hr class="line">' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc00c6_style_markers"] == 2
+    assert rendered.stats["hc00c6_supab_markers"] == 2
+    assert rendered.stats["hc00c6_image_markers"] == 1
+    assert rendered.stats["hc00c6_rule_lines"] == 1
+
+
+def test_hc00c6_closes_partwaku_when_close_marker_is_halfwidth_wrapped() -> None:
+    rendered = render_hc_body(
+        b"\xa2\x3c" + jis_ascii("N") + b"\x1f\x04\xa2\x3d\x1f\x05",
+        HcRenderOptions(renderer_code="00C6"),
+    )
+
+    assert '<span class="partwaku"><span class="lv-hc-halfwidth">N</span></span>' in rendered.html
+    assert '<span class="lv-hc-halfwidth"></span>' not in rendered.html
+    assert rendered.stats["hc00c6_style_markers"] == 2
+    assert rendered.stats["hc00c6_noop_markers"] == 1
+
+
+def test_hc02be_maps_sections_to_ind_blocks() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x01" + jis_ascii("H") + b"\x1f\x09\x00\x10" + jis_ascii("D"),
+        HcRenderOptions(renderer_code="02BE"),
+    )
+
+    assert '<div class="ind_0001">' in rendered.html
+    assert '<div class="ind_0010">' in rendered.html
+    assert rendered.stats["hc02be_section_divs"] == 2
+
+
+def test_hc02be_renders_phonetic_accent_composite_markers() -> None:
+    rendered = render_hc_body(
+        b"\xa2\x4f\xb1\x4f",
+        HcRenderOptions(
+            renderer_code="02BE",
+            image_sources={"grave": "Templates/grave.png"},
+        ),
+    )
+
+    assert '<span class="nowrap_half">&#x251;<img class="grave_half" src="Templates/grave.png"></span>' in rendered.html
+    assert '<span class="nowrap_full">&#xe6;<img class="grave_full" src="Templates/grave.png"></span>' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc02be_accent_markers"] == 2
+
+
+def test_hc02be_renders_pronunciation_and_yomigana_markers() -> None:
+    rendered = render_hc_body(
+        b"\xb9\x28" + jis_ascii("P") + b"\xb9\x29"
+        + b"\xb9\x2c" + jis_ascii("Y") + b"\xb9\x2d"
+        + b"\xb9\x24\xb9\x25"
+        + b"\xb9\x26" + b"\xb9\x27",
+        HcRenderOptions(renderer_code="02BE"),
+    )
+
+    assert '<font class="hatsuon"><span class="lv-hc-halfwidth">P</span></font>' in rendered.html
+    assert '<span class="yomigana">（<span class="lv-hc-halfwidth">Y</span>）</span>' in rendered.html
+    assert "（" in rendered.html
+    assert "）" in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc02be_style_markers"] == 4
+    assert rendered.stats["hc02be_noop_markers"] == 2
+    assert rendered.stats["hc02be_literal_markers"] == 2
+
+
 def test_hc0158_renders_rank_marker_stars_without_gaiji_placeholder() -> None:
     rendered = render_hc_body(
         b"\xb3\x55" + jis_ascii("A") + b"\xb3\x54",

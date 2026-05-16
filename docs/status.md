@@ -274,6 +274,20 @@ and non-SSED reader status are tracked separately in
   case is `HC013A.dll`, where section `1f09 0011` starts an example block and
   the renderer inserts the `exam` image once for that contiguous examples
   region.
+- `HC00C6.dll` now has a focused raw-HONMON branch-subset proof for Dconci87:
+  section `1f09` payloads map to product block classes such as `midashi`,
+  `yakugo`, `contents`, and `exampleyakugo`; example blocks insert `exam.png`;
+  A23C/A23D and A24C/A24D create `partwaku` labels; A244/A245 drives `supAB`
+  A/B labels; and template-backed gaiji markers use HC00C6 image classes. This
+  is still not full visual parity because unresolved literal/DIB branches and
+  broader representative coverage remain.
+- `HC02BE.dll` now has a focused raw-HONMON branch-subset proof for KQDENTAL:
+  section `1f09` payloads map to `ind_####` product classes; phonetic gaiji
+  markers become half/full-width accent-image composites using `aigu.png`,
+  `grave.png`, `tilde*.png`, and `macron.png`; B928/B929 create `hatsuon`
+  spans; B92C/B92D create `yomigana` spans; and B924/B925 are suppressed as
+  renderer selectors. Panel, SQL/search, modifyHeadword, and custom DIB hooks
+  remain named gaps.
 - `HC0158.dll` now has a focused raw-HONMON branch-subset proof: B3xx formatter
   gaiji become rank/star, part-of-speech, conjugation, boxed-label, and red
   emphasis spans; numbered/SVG gaiji remain image-backed; `PCMDATA.DIC` sound
@@ -292,7 +306,7 @@ and non-SSED reader status are tracked separately in
   decompiled body-loop branch table and `Templates/00000146.css`. Product
   wrapper, section/layout state, and custom hooks remain visually incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
-  exact SHA-256 renderer binaries. HC013A, HC0146, HC0157, HC0158 currently
+  exact SHA-256 renderer binaries. HC013A, HC00C6, HC02BE, HC0146, HC0157, HC0158 currently
   have decoded branch subsets, not full HC parity. Other branch tables remain
   named gaps until their output constants and product data paths are understood.
 - The default raw-resource gaiji readiness pass intentionally does not use
