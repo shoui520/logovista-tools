@@ -83,6 +83,40 @@ def test_hc_render_gaiji_prefers_unicode_then_image_then_placeholder() -> None:
     assert rendered.stats["gaiji_placeholder"] == 1
 
 
+def test_hc013a_inserts_exam_badge_once_per_example_block() -> None:
+    body = (
+        b"\x1f\x09\x00\x11"
+        + jis_ascii("A")
+        + b"\x1f\x09\x00\x12"
+        + jis_ascii("B")
+        + b"\x1f\x09\x00\x11"
+        + jis_ascii("C")
+        + b"\x1f\x09\x00\x02"
+        + jis_ascii("D")
+        + b"\x1f\x09\x00\x11"
+        + jis_ascii("E")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="013A",
+            image_sources={"exam": "Templates/exam.png"},
+        ),
+    )
+
+    assert rendered.html.count('src="Templates/exam.png" class="ex_img"') == 2
+    assert rendered.html.count('data-lv-section="0011"') == 3
+    assert rendered.stats["section_images"] == 2
+
+
+def test_hc013a_reports_missing_exam_asset_without_faking_image() -> None:
+    rendered = render_hc_body(b"\x1f\x09\x00\x11" + jis_ascii("A"), HcRenderOptions(renderer_code="013A"))
+
+    assert "exam.png" not in rendered.html
+    assert "missing_section_image_exam" in rendered.named_behavior_gaps
+
+
 def test_hc_renderer_product_hooks_are_named_gaps() -> None:
     row = HcRendererClassification(
         path=Path("HC0001.dll"),

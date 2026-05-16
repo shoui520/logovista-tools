@@ -208,6 +208,16 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The DLL initializes product panel UI state; normal entry body rendering does not require running the panel hook.",
             )
         )
+    if code == "013A":
+        rows.append(
+            HcHookBehavior(
+                name="haespjpn_example_section_badge",
+                status="implemented",
+                evidence=("HC013A exam.png template", "1f09 section 0011 example block branch"),
+                implementation="raw HONMON section 0011 inserts the discovered exam image once per contiguous examples block",
+                notes="HC013A decodes the 0011 section payload as decimal 11 and keeps the example block active across sections 0010, 0011, and 0012.",
+            )
+        )
     if code == "0190":
         rows.append(
             HcHookBehavior(
@@ -272,6 +282,8 @@ def build_hc_behavior_profile(
         implemented.add("ziptomedia_reference_extraction")
     if rendererdb_summary and int(rendererdb_summary.get("media_written", 0) or 0):
         implemented.add("sidecar_media_blob_extraction")
+    if code == "013A":
+        implemented.add("HC013A_example_section_badge")
 
     feature_gaps = {
         "panel_hooks": "panel_lifecycle_hook",

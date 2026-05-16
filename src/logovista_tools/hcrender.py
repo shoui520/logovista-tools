@@ -84,6 +84,7 @@ class HcRenderOptions:
 
     gaiji_map: dict[str, str] = field(default_factory=dict)
     image_sources: dict[str, str] = field(default_factory=dict)
+    renderer_code: str | None = None
     vertical: bool = False
     include_debug_metadata: bool = False
 
@@ -126,6 +127,28 @@ class _Context:
     parts: list[str] = field(default_factory=list)
     text_parts: list[str] = field(default_factory=list)
     start_offset: int = 0
+
+
+@dataclass(frozen=True)
+class _SectionImageRule:
+    image_key: str
+    css_class: str
+    group_codes: frozenset[str]
+    break_after: bool = True
+
+
+HC_SECTION_IMAGE_RULES: dict[str, dict[str, _SectionImageRule]] = {
+    # HC013A emits the exam badge when entering a contiguous example block.
+    # The body stream encodes this as 1f09 0011; HC013A decodes the payload as
+    # packed decimal 11 and keeps the block open across 0010/0011/0012.
+    "013A": {
+        "0011": _SectionImageRule(
+            image_key="exam",
+            css_class="ex_img",
+            group_codes=frozenset({"0010", "0011", "0012"}),
+        )
+    }
+}
 
 
 def _escape_attr(value: object) -> str:
@@ -236,10 +259,21 @@ def _current_text_parts(contexts: list[_Context]) -> list[str] | None:
     return contexts[-1].text_parts if contexts else None
 
 
+def _renderer_section_rules(options: HcRenderOptions) -> dict[str, _SectionImageRule]:
+    code = (options.renderer_code or "").upper()
+    return HC_SECTION_IMAGE_RULES.get(code, {})
+
+
+def _section_image_src(rule: _SectionImageRule, image_sources: dict[str, str]) -> str | None:
+    return image_sources.get(rule.image_key.lower()) or image_sources.get(f"{rule.image_key.lower()}.png")
+
+
 def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRenderResult:
     """Render one expanded HONMON body slice with common HC semantics."""
 
     options = options or HcRenderOptions()
+    section_rules = _renderer_section_rules(options)
+    active_section_image_rules: set[str] = set()
     root_parts: list[str] = []
     contexts: list[_Context] = []
     style_stack: list[int] = []
@@ -280,6 +314,21 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if payload:
                     code = payload.hex()
                     root = _current_parts(root_parts, contexts)
+                    if active_section_image_rules and all(
+                        code not in section_rules[active].group_codes for active in active_section_image_rules
+                    ):
+                        active_section_image_rules.clear()
+                    rule = section_rules.get(code)
+                    if rule is not None and code not in active_section_image_rules:
+                        image_src = _section_image_src(rule, options.image_sources)
+                        if image_src is None:
+                            gaps.add(f"missing_section_image_{rule.image_key}")
+                        else:
+                            root.append(f'<img src="{_escape_attr(image_src)}" class="{_escape_attr(rule.css_class)}">')
+                            if rule.break_after:
+                                root.append("<br>")
+                            stats["section_images"] += 1
+                            active_section_image_rules.add(code)
                     root.append(f'<span class="lv-hc-section" data-lv-section="{_escape_attr(code)}"></span>')
                 i += 2 + arg_len
                 continue
@@ -649,12 +698,14 @@ def _has_entry_body_sidecar(schema_sidecars: dict[str, Any]) -> bool:
 
 
 def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: argparse.Namespace) -> dict[str, Any]:
+    renderer = getattr(args, "_hc_renderer", None)
     reader = SsedRandomReader(source.honmon)
     entries_path = dict_out / "hc_entries.jsonl"
     html_path = dict_out / "hc_entries.html"
     options = HcRenderOptions(
         gaiji_map=source.gaiji_map,
         image_sources=source.image_sources or {},
+        renderer_code=renderer.code if renderer is not None else None,
         vertical=bool(getattr(args, "vertical", False)),
     )
     totals: Counter[str] = Counter()
@@ -704,6 +755,7 @@ def extract_hc_render_for_source(source: DictionarySource, out_dir: Path, args: 
     dict_out = out_dir / source.dict_id
     dict_out.mkdir(parents=True, exist_ok=True)
     renderer = _renderer_for_source(source, compute_hash=not args.no_hash)
+    setattr(args, "_hc_renderer", renderer)
     renderer_json = hc_renderer_classification_to_json(renderer) if renderer else None
     status(args, f"hc-render: {source.dict_id}: rendering raw HONMON controls", verbose=True)
     raw_summary = _render_raw_honmon_entries(source, dict_out, args)

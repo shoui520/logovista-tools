@@ -1136,6 +1136,13 @@ private renderer directive metadata, and optional rendererdb/media/ziptomedia
 comparison output. Product-specific hooks remain named gaps unless their exact
 data path is understood.
 
+The first product-specific HC rendering rule implemented is `HC013A.dll` for
+HAESPJPN-style entries. The renderer decodes `1f09` section payloads as packed
+decimal section numbers. Section `0011` enters an example block and emits the
+`exam.png` template; sections `0010`, `0011`, and `0012` keep that block active,
+so the badge is emitted once per contiguous examples region rather than before
+every example/translation line.
+
 ### Panel Subsystem
 
 The Panel subsystem is now decoded as an optional SSED navigation/UI subsystem

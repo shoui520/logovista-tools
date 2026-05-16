@@ -266,8 +266,11 @@ and non-SSED reader status are tracked separately in
   three `.uni` files have small nonzero trailers after all parsed records.
   `HABGESPA.uni` is not in this residual group anymore; it is parsed as a
   single-section simple12 `.uni` file.
-- Named UI/style images such as `exam.png` are discovered, but mapping them to
-  semantic entry regions is dictionary-specific.
+- Named UI/style images such as `exam.png` are discovered. Mapping them to
+  semantic entry regions is dictionary-specific; the first implemented HC proof
+  case is `HC013A.dll`, where section `1f09 0011` starts an example block and
+  the renderer inserts the `exam` image once for that contiguous examples
+  region.
 - The default raw-resource gaiji readiness pass intentionally does not use
   Windows renderer databases. `NGYOKTUK` has no direct `.uni`/GA16/image gaiji
   resources, but its encrypted `vlpljblF` sidecar decrypts to row-ordered

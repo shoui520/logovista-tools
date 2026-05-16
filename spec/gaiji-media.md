@@ -101,11 +101,13 @@ well as PNG/GIF/JPEG files.
 
 Named images such as `exam.png` are not necessarily referenced by filename in
 `HONMON.DIC`. They may be style resources used by the app for semantic regions
-such as examples. The toolkit reports these resources, while the exporter or a
-dictionary-specific style layer decides when to insert them. The `entries`
-command supports explicit section-image rules such as `--section-image
-0011=exam`; this preserves the raw section marker and inserts the named image
-in `body_html`.
+such as examples. The toolkit reports these resources, while the exporter,
+HC-renderer layer, or a dictionary-specific style layer decides when to insert
+them. For `HC013A.dll`, `1f09 0011` enters an example block and maps to the
+`exam` image resource; `1f09 0010`, `1f09 0011`, and `1f09 0012` keep that
+example block active. The generic `entries` command still supports explicit
+section-image rules such as `--section-image 0011=exam`; this preserves the raw
+section marker and inserts the named image in `body_html`.
 
 ## `COLSCR.DIC` Media Resources
 

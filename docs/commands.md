@@ -235,6 +235,12 @@ semantics that are now understood:
 - private renderer directive suppression with metadata counts;
 - vertical-rendering hints as classes/metadata rather than hard-coded layout.
 
+Product rules are implemented only after the renderer path is understood. The
+current proof case is `HC013A.dll`: `hc-render` recognizes its example-section
+rule and inserts the discovered `exam` image when a `1f09 0011` example block
+starts, matching the renderer's `exam.png` template without requiring a manual
+`--section-image` option.
+
 Each dictionary output directory contains:
 
 ```text
@@ -508,10 +514,11 @@ Exporters for Yomitan, MDict, or another HTML-capable format should copy the
 referenced PNG files into the target package and rewrite `src` paths if their
 archive layout differs.
 
-`--section-image` is intentionally explicit. For HAESPJPN, `0011=exam` is a
-useful first-pass rule because `0011` marks Spanish example lines and
-`exam.png` is the dictionary's `用例` badge. Other dictionaries may use the
-same section code differently.
+`--section-image` is intentionally explicit for the generic `entries` command.
+For HAESPJPN, `0011=exam` is a useful raw-entry rule because `0011` marks
+Spanish example lines and `exam.png` is the dictionary's example badge. The
+HC-aware `hc-render` command now applies the `HC013A.dll` rule automatically
+and groups contiguous `0010`/`0011`/`0012` example sections.
 
 ### `audit-honmon`
 
