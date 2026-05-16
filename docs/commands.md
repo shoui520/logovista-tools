@@ -213,6 +213,11 @@ report:
 redacted: it includes names, hashes, import/export names, and short embedded
 format strings, but not dictionary body data.
 
+The repository's current HC reverse-engineering notes group renderers by exact
+SHA-256 binary. The combined Windows/recovered-GEN corpus has 158 HC files and
+109 exact binary families; implementation status is tracked at that exact
+binary-family level.
+
 ### `hc-render`
 
 Render raw `HONMON.DIC` / `HONMON.DIN` body slices with the common behavior
@@ -230,7 +235,8 @@ semantics that are now understood:
 - SSED JIS text, style, section, heading, literal, URL, and line-break controls;
 - internal address links from paired link controls;
 - `COLSCR.DIC` picture/media placeholders from `1f3c` / `1f4d`-style payloads;
-- `PCMDATA.DIC` audio range links from `1f4a` / `1f6a`;
+- `PCMDATA.DIC` audio range links from `1f4a` / `1f6a`, using the package
+  `sound` image asset when present;
 - Unicode gaiji first, then image-backed gaiji, then a safe placeholder;
 - private renderer directive suppression with metadata counts;
 - vertical-rendering hints as classes/metadata rather than hard-coded layout.
@@ -250,6 +256,9 @@ A14D/A14E accent markers, B156/B15A/B15C/B160-B17D/B221-B226/B228-B22A/
 B23C-B241 CSS span markers, B22D-B23B red circled-number wrappers, and
 `sound.png` audio links. These mappings come from the renderer body loop and
 the matching CSS/resource files; unresolved renderer families remain named gaps.
+The all-family code-level pass has decompiled representatives for all 109 exact
+HC SHA-256 families, but `hc-render` only implements shared semantics and
+product rules whose branch tables and data paths are understood.
 
 Each dictionary output directory contains:
 

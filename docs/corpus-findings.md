@@ -1058,6 +1058,11 @@ imports shared by every HC DLL:   dictionary bridge, MSVCP60.dll, MSVCRT.dll, KE
 exports shared by every HC DLL:   epwing2HtmlBodydata
 ```
 
+The follow-up code-level pass decompiled one representative for each of the
+109 exact SHA-256 binary families. The report therefore tracks behavior by
+binary identity, not by the four-hex HC code alone. Several HC codes have more
+than one exact binary, and exact binaries are shared across package sets.
+
 One recovered GEN2010 package copy contains an unrelated `SESGRASS.IDX`.
 That IDX is package contamination, not evidence that HC renderers support
 cross-dictionary SSEDINFO catalogs. `EXINFO.INI` `HTMLDLL` remains the
@@ -1121,6 +1126,8 @@ JIS/control-byte to HTML transducer around raw SSED body bytes. Common behavior:
   and produce image links/placeholders. This is a renderer effect; the wire
   grammar still treats `1f44` as the 10-byte start of the `1f44`/`1f64` pair.
 - `1f4a`/`1f6a` produces sound links for addressed PCMDATA-style ranges.
+  Renderers commonly emit an `img_mark2` sound icon when a package-local
+  `sound` image asset exists.
 - `1f36`, `1f37`, `1f48`, `1f49`, `1f4b`, `1f4c`, `1f4e`, `1f4f`, and
   `1fe0`..`1fe6` are renderer-private/layout controls. They carry structured
   payloads or state changes and should not be emitted as literal body text.
@@ -1135,6 +1142,19 @@ COLSCR/PCMDATA resource placeholders, gaiji Unicode/image fallbacks, suppressed
 private renderer directive metadata, and optional rendererdb/media/ziptomedia
 comparison output. Product-specific hooks remain named gaps unless their exact
 data path is understood.
+
+Current exact-binary-family status:
+
+```text
+implemented product profiles:        3   HC013A, HC0157, HC0158
+common semantics plus named gaps:   105
+decompiled marker table deferred:     1   HC0146
+```
+
+Named unresolved hook families in the exact-SHA pass include custom gaiji DIB
+hooks, `modifyHeadword*` callbacks, Panel lifecycle hooks, and SQL/search
+helper hooks. These are tracked as explicit gaps unless the relevant branch
+table and data path are understood.
 
 The first product-specific HC rendering rule implemented is `HC013A.dll` for
 HAESPJPN-style entries. The renderer decodes `1f09` section payloads as packed

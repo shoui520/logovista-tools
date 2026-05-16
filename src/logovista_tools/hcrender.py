@@ -158,8 +158,6 @@ HC_SECTION_IMAGE_RULES: dict[str, dict[str, _SectionImageRule]] = {
     }
 }
 
-HC_SOUND_ICON_RENDERERS = {"0157", "0158"}
-
 HC0157_OPEN_MARKERS: dict[str, _RendererGaijiRule] = {
     # HC0157 uses selected gaiji-plane values as CSS/style delimiters.  A few
     # markers also render their own custom glyph/image inside the opened span.
@@ -394,6 +392,10 @@ def _section_image_src(rule: _SectionImageRule, image_sources: dict[str, str]) -
     return image_sources.get(rule.image_key.lower()) or image_sources.get(f"{rule.image_key.lower()}.png")
 
 
+def _sound_image_src(image_sources: dict[str, str]) -> str | None:
+    return image_sources.get("sound") or image_sources.get("sound.png") or image_sources.get("sound.gif")
+
+
 def _append_gaiji_value(
     parts: list[str],
     text_parts: list[str] | None,
@@ -600,11 +602,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 label = "".join(ctx.parts) if ctx else ""
                 if not label:
                     label = "audio"
-                if _renderer_code(options) in HC_SOUND_ICON_RENDERERS:
-                    sound_src = options.image_sources.get("sound") or options.image_sources.get("sound.png")
-                    if sound_src:
-                        label = f'<img src="{_escape_attr(sound_src)}" class="img_mark2">'
-                        stats["audio_images"] += 1
+                sound_src = _sound_image_src(options.image_sources)
+                if sound_src:
+                    label = f'<img src="{_escape_attr(sound_src)}" class="img_mark2">'
+                    stats["audio_images"] += 1
                 attrs = [
                     'class="lv-hc-audio"',
                     f'href="{_escape_attr(_audio_href(target))}"',

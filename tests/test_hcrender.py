@@ -54,6 +54,20 @@ def test_hc_render_pcmdata_audio_range_decodes_bcd_range() -> None:
     assert rendered.audio[0]["target"]["end_offset"] == 67
 
 
+def test_hc_render_pcmdata_audio_uses_sound_icon_when_asset_is_available() -> None:
+    payload = bytes.fromhex("00010000000001230045000001230067")
+    body = b"\x1f\x4a" + payload + jis_ascii("P") + b"\x1f\x6a"
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(image_sources={"sound": "Templates/sound.gif"}),
+    )
+
+    assert '<img src="Templates/sound.gif" class="img_mark2">' in rendered.html
+    assert "pcmdata:00000123:0045-00000123:0067" in rendered.html
+    assert rendered.stats["audio_images"] == 1
+
+
 def test_hc_render_private_directive_suppresses_visible_text() -> None:
     body = jis_ascii("A") + b"\x1f\xe2\x00\x00" + jis_ascii("B") + b"\x1f\xe3\x00\x00" + jis_ascii("C")
 
@@ -413,6 +427,7 @@ def test_hc_behavior_profile_names_exact_body_without_claiming_full_parity() -> 
     assert row["exact_body_html_available"] is True
     assert row["body_strategy_status"] == "exact_entry_body_html"
     assert row["exact_hc_parity"] is False
+    assert "PCMDATA_sound_icon_when_asset_present" in row["implemented_semantics"]
     assert "schema_backed_exact_entry_html" in row["implemented_semantics"]
     assert "ziptomedia_reference_extraction" in row["implemented_semantics"]
     assert "royal_example_search_helpers" in row["named_gaps"]

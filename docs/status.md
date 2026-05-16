@@ -78,10 +78,13 @@ and non-SSED reader status are tracked separately in
   `EXINFO` `HTMLDLL` correlation, numeric-index correlation, `vlpljbl*`
   companion names, embedded SQL/HTML/image template strings, and observed
   control effects for body, gaiji, picture, link, audio, and private layout
-  directives. `hc` and `hc-render` now emit per-renderer behavior profiles that
-  classify exact body strategy separately from product hook parity.
+  directives. The HC reverse-engineering pass now tracks all 109 exact
+  SHA-256 binary families from the combined Windows/recovered-GEN corpus.
+  `hc` and `hc-render` emit per-renderer behavior profiles that classify exact
+  body strategy separately from product hook parity.
   `hc-render` applies the common HC control semantics to raw body slices,
-  automatically uses clear renderer body sidecars when present, and reports
+  automatically uses clear renderer body sidecars when present, uses package
+  `sound` image assets for PCMDATA audio links when available, and reports
   product-specific hooks as named behavior gaps rather than claiming exact
   plugin parity.
 - Renderer/app SQLite extraction through raw HONMON ID anchors and
@@ -280,6 +283,10 @@ and non-SSED reader status are tracked separately in
   marker/image combinations are handled from the decompiled body-loop branch
   table; `PCMDATA.DIC` sound ranges use the package `sound.png` template when
   present.
+- The all-family HC pass has decompiled a representative for each of the 109
+  exact SHA-256 renderer binaries. Only HC013A, HC0157, HC0158, and shared
+  common semantics are implemented. Other branch tables remain named gaps until
+  their output constants and product data paths are understood.
 - The default raw-resource gaiji readiness pass intentionally does not use
   Windows renderer databases. `NGYOKTUK` has no direct `.uni`/GA16/image gaiji
   resources, but its encrypted `vlpljblF` sidecar decrypts to row-ordered

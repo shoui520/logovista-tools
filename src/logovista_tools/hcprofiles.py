@@ -308,6 +308,7 @@ def build_hc_behavior_profile(
         "address_link_placeholders",
         "COLSCR_picture_placeholders",
         "PCMDATA_audio_range_placeholders",
+        "PCMDATA_sound_icon_when_asset_present",
         "gaiji_unicode_or_image_fallback",
         "private_renderer_directive_suppression",
     }
