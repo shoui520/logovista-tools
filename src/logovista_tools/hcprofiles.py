@@ -341,6 +341,29 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "012D":
+        rows.append(
+            HcHookBehavior(
+                name="meikyou2_section_and_inline_image_markers",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC012D epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    "HC012D link_k/kaisetsu_s/kaisetsu_m/link_t inline image branches",
+                    "HC012D 1f41/1f61 midashi-to-honbun_user transition",
+                    "Templates/0000012D.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to midashi-adjacent honbun/honbun_start/yorei/yindex/"
+                    "hinshi/kaisetsu/ruigo blocks, internal links use lineLink, 217E/2221/"
+                    "222A-before-link/224E render recovered template images, and A134/A137 "
+                    "spacing markers follow the DLL branches"
+                ),
+                notes=(
+                    "The subset excludes custom DIB generation, modifyHeadword hooks, SQL original-search "
+                    "helpers, exact yindex/ruigo script lifecycle, and unexercised section-code branches."
+                ),
+            )
+        )
     if code == "0146":
         rows.append(
             HcHookBehavior(
@@ -482,6 +505,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0065_midashi_contents_and_grammar_labels")
     if code == "012E":
         implemented.add("HC012E_kanji_layout_and_gaijitemp_markers")
+    if code == "012D":
+        implemented.add("HC012D_section_and_inline_image_markers")
     if code == "0146":
         implemented.add("HC0146_inline_marker_gaiji")
     if code == "0158":

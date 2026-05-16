@@ -378,6 +378,70 @@ def test_hc012e_treats_1f6d_as_nonprinting_renderer_control() -> None:
     assert rendered.stats["hc012e_nonprinting_controls"] == 1
 
 
+def test_hc012d_maps_midashi_honbun_and_yorei_sections() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x02"
+        + b"\xb8\x7c"
+        + jis_ascii("B")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x06"
+        + jis_ascii("Y")
+        + b"\x1f\x0a",
+        HcRenderOptions(renderer_code="012D"),
+    )
+
+    assert '<div class="midashi"><span class="lv-hc-halfwidth">H</span></div>' in rendered.html
+    assert '<div class="honbun_start">' in rendered.html
+    assert '<div class="yorei">' in rendered.html
+    assert '<span class="lv-hc-halfwidth">B</span></div>' in rendered.html
+    assert '<span class="lv-hc-halfwidth">Y</span></div>' in rendered.html
+    assert 'class="lv-hc-heading"' not in rendered.html
+    assert rendered.stats["hc012d_section_blocks"] == 2
+    assert rendered.stats["hc012d_noop_markers"] == 1
+
+
+def test_hc012d_honbun_user_transition_does_not_emit_empty_block_before_section() -> None:
+    section_follows = render_hc_body(
+        b"\x1f\x41\x01\x00" + jis_ascii("H") + b"\x1f\x61" + b"\x1f\x09\x00\x02" + jis_ascii("B"),
+        HcRenderOptions(renderer_code="012D"),
+    )
+    text_follows = render_hc_body(
+        b"\x1f\x41\x01\x00" + jis_ascii("H") + b"\x1f\x61" + jis_ascii("B"),
+        HcRenderOptions(renderer_code="012D"),
+    )
+
+    assert '<div class="honbun_user"></div>' not in section_follows.html
+    assert '<div class="honbun_user"><span class="lv-hc-halfwidth">B</span></div>' in text_follows.html
+
+
+def test_hc012d_uses_line_link_and_link_k_marker() -> None:
+    body = b"\x22\x2a" + b"\x1f\x42" + jis_ascii("L") + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="012D", image_sources={"link_k": "Templates/link_k.png"}))
+
+    assert '<img class="lv-hc-gaiji gaiji" src="Templates/link_k.png"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert rendered.stats["hc012d_inline_image_markers"] == 1
+
+
+def test_hc012d_maps_spacing_markers_and_gaiji_class() -> None:
+    rendered = render_hc_body(
+        b"\xa1\x34\xa1\x37\xb1\x21",
+        HcRenderOptions(renderer_code="012D", image_sources={"b121": "Templates/b121.png"}),
+    )
+
+    assert '<span class="mini_space"> </span>' in rendered.html
+    assert '<img class="lv-hc-gaiji lv-hc-gaiji-image gaiji" src="Templates/b121.png"' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.plain == ""
+    assert rendered.stats["hc012d_literal_markers"] == 2
+
+
 def test_hc02c2_maps_section_icons_and_moji_down_blocks() -> None:
     rendered = render_hc_body(
         b"\x1f\x09\x00\x01"
@@ -830,6 +894,35 @@ def test_hc0065_profile_records_midashi_subset_without_claiming_parity() -> None
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0065_midashi_contents_and_grammar_labels" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "sql_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+
+
+def test_hc012d_profile_records_section_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC012D.dll"),
+        code="012D",
+        expected_numeric_index="0000012D.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=(),
+        features={"sql_hooks": True, "headword_modifier": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC012D_section_and_inline_image_markers" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "sql_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]

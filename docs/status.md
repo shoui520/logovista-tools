@@ -323,6 +323,15 @@ and non-SSED reader status are tracked separately in
   end/control marker. Custom DIB generation, `modifyHeadword`, original-search
   SQL hooks, exact `0027` large-glyph context, and full stroke-order table
   lifecycle parity remain named gaps.
+- `HC012D.dll` now has a focused raw-HONMON branch-subset proof for MEIKYOU2:
+  `1f09` section payloads map to product blocks such as `honbun_start`,
+  `honbun`, `yorei`, `yindex_*`, `hinshi`, `kaisetsu_*`, and `ruigo_*`;
+  `1f41`/`1f61` use the product `midashi` transition rather than the generic
+  heading wrapper; `217E`, `2221`, `222A` before an internal link, and `224E`
+  map to `kaisetsu_s`, `kaisetsu_m`, `link_k`, and `link_t` images; A134/A137
+  map to spacing; and internal links carry the recovered `lineLink` class.
+  Custom DIB generation, `modifyHeadword`, SQL/original-search hooks, exact
+  yindex/ruigo script lifecycle, and broader visual parity remain named gaps.
 - `HC0158.dll` now has a focused raw-HONMON branch-subset proof: B3xx formatter
   gaiji become rank/star, part-of-speech, conjugation, boxed-label, and red
   emphasis spans; numbered/SVG gaiji remain image-backed; `PCMDATA.DIC` sound
@@ -341,7 +350,7 @@ and non-SSED reader status are tracked separately in
   decompiled body-loop branch table and `Templates/00000146.css`. Product
   wrapper, section/layout state, and custom hooks remain visually incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
-  exact SHA-256 renderer binaries. HC013A, HC0065, HC00C6, HC012E, HC02BC,
+  exact SHA-256 renderer binaries. HC013A, HC0065, HC00C6, HC012D, HC012E, HC02BC,
   HC02BE, HC02C2, HC0146, HC0157, and HC0158 currently have decoded branch
   subsets, not full HC parity.
   Other branch tables remain named gaps until their output constants and product
