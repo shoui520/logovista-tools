@@ -318,6 +318,29 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The example/collocation box branches, SQL original-search hooks, modifyHeadwordEx, and custom DIB paths remain named gaps.",
             )
         )
+    if code == "009D":
+        rows.append(
+            HcHookBehavior(
+                name="ceremony_section_and_kakomi_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC009D epwing2HtmlBodydata 1f09 lineinfo branch ladder",
+                    "HC009D 1f09 section-8 lookahead for B140/B142/B144/B146/B148/B14A/B150/B152/B154/B156/B158 kakomi markers",
+                    "HC009D B121/B125/B130-B13D literal and HTML marker branches",
+                    "Templates/0000009d.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to lineinfoN blocks, section-8 B14x lookahead opens "
+                    "the recovered kakomi wrappers and icon images, B121 renders the pointing-hand "
+                    "literal, B125 renders checkbox HTML, B130/B131/B138-B13D render line breaks, "
+                    "and internal links use lineLink"
+                ),
+                notes=(
+                    "The subset excludes custom DIB generation for remaining gaiji, exact table "
+                    "header/body lifecycle, loose HTMLs fallback, and broader representative visual parity."
+                ),
+            )
+        )
     if code == "012E":
         rows.append(
             HcHookBehavior(
@@ -527,6 +550,8 @@ def build_hc_behavior_profile(
         implemented.add("HC02C2_section_icons_and_template_gaiji")
     if code == "0065":
         implemented.add("HC0065_midashi_contents_and_grammar_labels")
+    if code == "009D":
+        implemented.add("HC009D_section_and_kakomi_layout")
     if code == "012E":
         implemented.add("HC012E_kanji_layout_and_gaijitemp_markers")
     if code == "012D":

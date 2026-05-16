@@ -405,6 +405,67 @@ def test_hc012d_maps_midashi_honbun_and_yorei_sections() -> None:
     assert rendered.stats["hc012d_noop_markers"] == 1
 
 
+def test_hc009d_maps_lineinfo_sections_and_suppresses_generic_heading() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_ascii("B")
+        + b"\x1f\x0a",
+        HcRenderOptions(renderer_code="009D"),
+    )
+
+    assert '<div class="lineinfo1">' in rendered.html
+    assert '<div class="contents_body">' in rendered.html
+    assert '<div class="lineinfo3">' in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.stats["hc009d_section_blocks"] == 2
+    assert rendered.stats["hc009d_nonprinting_controls"] == 1
+
+
+def test_hc009d_maps_kakomi_section_markers() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x08"
+        + b"\xb1\x44"
+        + b"\x1f\x0a"
+        + jis_ascii("K")
+        + b"\xb1\x45",
+        HcRenderOptions(renderer_code="009D", image_sources={"b144": "Templates/B144.gif"}),
+    )
+
+    assert '<div class="komattaKakomi">' in rendered.html
+    assert '<img src="Templates/B144.gif" class="img_kakomi">' in rendered.html
+    assert '<div class="lineinfo8">' in rendered.html
+    assert '<span class="lv-hc-halfwidth">K</span></div>' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc009d_section_blocks"] == 1
+    assert rendered.stats["hc009d_noop_markers"] == 1
+    assert rendered.stats["hc009d_kakomi_markers"] == 1
+
+
+def test_hc009d_maps_literals_breaks_checkbox_and_line_links() -> None:
+    body = (
+        b"\xb1\x21\xb1\x25\xb1\x30"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="009D"))
+
+    assert "☞" in rendered.html
+    assert '<input type="checkbox" name="chk" value="chk">' in rendered.html
+    assert "<br>" in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc009d_literal_markers"] == 1
+    assert rendered.stats["hc009d_html_markers"] == 1
+    assert rendered.stats["hc009d_break_markers"] == 1
+
+
 def test_hc012d_honbun_user_transition_does_not_emit_empty_block_before_section() -> None:
     section_follows = render_hc_body(
         b"\x1f\x41\x01\x00" + jis_ascii("H") + b"\x1f\x61" + b"\x1f\x09\x00\x02" + jis_ascii("B"),
@@ -966,6 +1027,34 @@ def test_hc0065_profile_records_midashi_subset_without_claiming_parity() -> None
     assert data["exact_hc_parity"] is False
     assert "sql_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
+
+
+def test_hc009d_profile_records_kakomi_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC009D.dll"),
+        code="009D",
+        expected_numeric_index="0000009D.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=(),
+        features={"custom_gaiji_dib": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC009D_section_and_kakomi_layout" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
 
 
 def test_hc012d_profile_records_section_subset_without_claiming_parity() -> None:

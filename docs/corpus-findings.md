@@ -1146,7 +1146,7 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             12   HC013A, HC0065, HC00C6, HC012D, HC012E, HC0145, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
+decoded branch subsets:             13   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC0145, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
 common semantics plus named gaps:    98
 full product visual parity:           0
 ```
@@ -1171,6 +1171,21 @@ product `lLink` class for internal links, renders A174 and A430-A433 as
 B/c/u/S/D grammar labels, and keeps A251/A253 as `img_gaiji` template-backed
 images. Example/collocation boxes, SQL original-search hooks, custom DIB
 generation, and `modifyHeadwordEx` remain named gaps, so exact HC0065 visual
+parity is not claimed.
+
+The GKCEREMO branch-subset proof case is `HC009D.dll`. Its body loop maps
+`1f09` section payloads to `lineinfoN` blocks. Section `0008` additionally
+looks ahead at B14x renderer markers: B142/B144/B146/B148/B14A and
+B150/B152/B154/B156/B158 open product kakomi wrappers such as `columnKakomi`,
+`komattaKakomi`, `tokuKakomi`, and `simpleKakomi`, with `img_kakomi` icons
+where the DLL template branch names one; the corresponding odd markers close
+the wrapper. The same branch subset renders B121 as a pointing-hand literal,
+B125 as a checkbox marker, and B130/B131/B138-B13D as explicit breaks. In the
+first 20-entry GKCEREMO sample, generic `lv-hc-heading` wrappers dropped from
+20 to 0, `lineinfo` blocks rose from 0 to 498, `lineLink` anchors from 0 to
+114, kakomi wrappers from 0 to 12, and generic gaiji placeholders from 104 to
+11. Remaining custom DIB gaiji, exact table header/body lifecycle, loose HTMLs
+fallback, and broader visual parity remain named gaps, so exact HC009D visual
 parity is not claimed.
 
 The third branch-subset proof case is `HC00C6.dll`. Its vertical body loop
