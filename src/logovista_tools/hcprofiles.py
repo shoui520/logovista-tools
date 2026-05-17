@@ -364,6 +364,30 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "012F":
+        rows.append(
+            HcHookBehavior(
+                name="yhougo4_bunnya_section_and_template_gaiji",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC012F epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    "HC012F 1f62 bunnya image/link branch",
+                    "HC012F 1f06 sizedown branch",
+                    "Templates/0000012F.css and Templates/bunnya_*.png resource paths",
+                ),
+                implementation=(
+                    "1f09 sections map to midashi/honbun/bunnya/menu blocks, section 0006 "
+                    "is consumed as renderer state, 1f62 replaces bunnya numeric link labels "
+                    "with bunnya_<id>.png images, section 0004/0005 insert link_1/link_2 "
+                    "icons, 1f06/1f07 render sizedown spans, and template-backed gaiji use "
+                    "the product image class"
+                ),
+                notes=(
+                    "The subset excludes exact previous/next entry navigation tables, custom "
+                    "DIB generation, modifyHeadword, and exact vertical fallback details."
+                ),
+            )
+        )
     if code == "012D":
         rows.append(
             HcHookBehavior(
@@ -836,6 +860,8 @@ def build_hc_behavior_profile(
         implemented.add("HC009D_section_and_kakomi_layout")
     if code == "012E":
         implemented.add("HC012E_kanji_layout_and_gaijitemp_markers")
+    if code == "012F":
+        implemented.add("HC012F_bunnya_section_and_template_gaiji")
     if code == "012D":
         implemented.add("HC012D_section_and_inline_image_markers")
     if code == "0145":

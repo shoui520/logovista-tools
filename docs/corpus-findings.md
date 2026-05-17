@@ -1146,7 +1146,7 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             24   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC0157, HC0158
+decoded branch subsets:             25   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC012F, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC0157, HC0158
 common semantics plus named gaps:    88
 full product visual parity:           0
 ```
@@ -1252,6 +1252,16 @@ as renderer state and emits internal links with the recovered `lineLink`
 class. Custom DIB generation, `modifyHeadwordEx`, Panel/SQL lifecycle hooks,
 exact ruby/smallcap state, and broader visual parity remain named gaps, so
 exact HC02BF visual parity is not claimed.
+
+The YHOUGO4 branch-subset proof case is `HC012F.dll`. Its vertical body loop
+maps `1f09` section payloads to `midashi`, `honbun`, `bunnya`, and menu blocks.
+Section `0006` is consumed as renderer state; section `0004` and `0005` insert
+`link_1.png` and `link_2.png`; `1f62` turns the captured bunnya numeric link
+label into a `bunnya_<id>.png` image; `1f06` opens a `sizedown` span; and
+template-backed gaiji use the product `img_gaiji` class. Previous/next
+navigation table scaffolding, custom DIB generation, `modifyHeadword`, exact
+vertical fallbacks, and broader visual parity remain named gaps, so exact
+HC012F visual parity is not claimed.
 
 The ninth branch-subset proof case is `HC012E.dll`. Its vertical body loop
 uses package-local `Gaijitemp/` image resources for most kanji-form glyphs.

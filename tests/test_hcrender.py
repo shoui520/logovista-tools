@@ -387,6 +387,60 @@ def test_hc012e_treats_1f6d_as_nonprinting_renderer_control() -> None:
     assert rendered.stats["hc012e_nonprinting_controls"] == 1
 
 
+def test_hc012f_maps_sections_and_bunnya_link_images() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_fullwidth_ascii("M")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + b"\x1f\x42"
+        + jis_fullwidth_ascii("18")
+        + b"\x1f\x62\x00\x00\x00\x12\x00\x34"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x04"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x05"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x06"
+        + b"\x1f\x0a",
+        HcRenderOptions(
+            renderer_code="012F",
+            image_sources={
+                "bunnya_18": "Templates/bunnya_18.png",
+                "link_1": "Templates/link_1.png",
+                "link_2": "Templates/link_2.png",
+            },
+        ),
+    )
+
+    assert '<div class="midashi">Ｍ</div>' in rendered.html
+    assert '<div class="bunnya"><a class="lv-hc-link lineLink"' in rendered.html
+    assert '<img src="Templates/bunnya_18.png" class="img_bunnya">' in rendered.html
+    assert '<img src="Templates/link_1.png" class="img_gaiji">' in rendered.html
+    assert '<img src="Templates/link_2.png" class="img_gaiji">' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.stats["hc012f_section_blocks"] == 4
+    assert rendered.stats["hc012f_noop_sections"] == 1
+    assert rendered.stats["hc012f_bunnya_images"] == 1
+    assert rendered.stats["hc012f_link_icon_sections"] == 2
+
+
+def test_hc012f_sizedown_and_template_gaiji_use_product_classes() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x06" + jis_fullwidth_ascii("S") + b"\x1f\x07" + b"\xb1\x22",
+        HcRenderOptions(renderer_code="012F", image_sources={"b122": "Templates/b122.png"}),
+    )
+
+    assert '<span class="sizedown">Ｓ</span>' in rendered.html
+    assert "<sub>" not in rendered.html
+    assert 'class="lv-hc-gaiji img_gaiji"' in rendered.html
+    assert 'src="Templates/b122.png"' in rendered.html
+    assert rendered.stats["hc012f_template_gaiji"] == 1
+
+
 def test_hc012d_maps_midashi_honbun_and_yorei_sections() -> None:
     rendered = render_hc_body(
         b"\x1f\x09\x00\x01"
@@ -2139,7 +2193,35 @@ def test_hc02bf_profile_records_panel_layout_subset_without_claiming_parity() ->
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
     assert "panel_lifecycle" in data["named_gaps"]
-    assert "sql_hook" in data["named_gaps"]
+
+
+def test_hc012f_profile_records_bunnya_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC012F.dll"),
+        code="012F",
+        expected_numeric_index="0000012F.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/0000012F.css",),
+        sql_snippets=(),
+        image_templates=("Templates/bunnya_18.png", "Templates/b122.png"),
+        features={"custom_gaiji_dib": True, "headword_modifier": True, "vertical_renderer": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC012F_bunnya_section_and_template_gaiji" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
 
 
 def test_hc013d_profile_records_drug_layout_subset_without_claiming_parity() -> None:

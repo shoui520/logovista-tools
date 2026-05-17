@@ -463,10 +463,18 @@ and non-SSED reader status are tracked separately in
   `moji-down` paragraphs where the body-loop state requires it, and internal
   links use `lineLink`. Custom DIB generation, Panel/SQL lifecycle hooks, exact
   ruby/smallcap state, and vertical template differences remain incomplete.
+- `HC012F.dll` now has a focused raw-HONMON branch-subset proof for YHOUGO4:
+  `1f09` sections map to `midashi`, `honbun`, `bunnya`, and menu containers;
+  section `0006` is consumed as renderer state; `1f62` replaces bunnya numeric
+  link labels with the corresponding `bunnya_<id>.png` image; sections `0004`
+  and `0005` insert the recovered `link_1.png`/`link_2.png` icons; `1f06`
+  opens `sizedown`; and template-backed gaiji use `img_gaiji`. Custom DIB
+  generation, `modifyHeadword`, previous/next navigation tables, and exact
+  vertical fallback details remain incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
   exact SHA-256 renderer binaries. HC013A, HC0065, HC009D, HC00C6, HC012D,
   HC012E, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8,
-  HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC0157, and HC0158
+  HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC012F, HC0157, and HC0158
   currently have decoded branch subsets, not full HC parity.
   Other branch tables remain named gaps until their output constants and product
   data paths are understood.
