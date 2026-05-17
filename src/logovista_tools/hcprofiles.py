@@ -766,6 +766,29 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "00B6":
+        rows.append(
+            HcHookBehavior(
+                name="genius43_section_and_template_marker_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC00B6 epwing2HtmlBodydata long decompile 1f09 section-state ladder",
+                    "HC00B6 B23D-B24A state marker skip branch",
+                    "HC00B6 B347/B348/B25C image marker branches and B146-B175/B353-B358 strong marker branches",
+                    "Templates/000000b6.css and Templates image resources",
+                ),
+                implementation=(
+                    "Common Genius43 section values map to midashi, indent h1, contents, CB, "
+                    "and margin blocks; known no-output state markers are suppressed; B347/B348/B25C "
+                    "use template image resources when present; strong number/letter markers render "
+                    "their recovered literal labels; internal links use lLink"
+                ),
+                notes=(
+                    "The subset excludes the generated custom-character bitmap path, exact index-menu "
+                    "reordering, original-search SQL hooks, and representative visual parity."
+                ),
+            )
+        )
     if code == "012F":
         rows.append(
             HcHookBehavior(
@@ -1366,6 +1389,8 @@ def build_hc_behavior_profile(
         implemented.add("HC009D_section_and_kakomi_layout")
     if code == "012E":
         implemented.add("HC012E_kanji_layout_and_gaijitemp_markers")
+    if code == "00B6":
+        implemented.add("HC00B6_section_and_template_markers")
     if code == "012F":
         implemented.add("HC012F_bunnya_section_and_template_gaiji")
     if code == "0131":

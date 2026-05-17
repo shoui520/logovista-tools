@@ -391,6 +391,48 @@ def test_hc012e_treats_1f6d_as_nonprinting_renderer_control() -> None:
     assert rendered.stats["hc012e_nonprinting_controls"] == 1
 
 
+def test_hc00b6_maps_sections_to_genius_blocks() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x01"
+        + jis_ascii("M")
+        + b"\x1f\x09\x00\x0a"
+        + jis_ascii("H")
+        + b"\x1f\x09\x00\x14"
+        + jis_ascii("C")
+        + b"\x1f\x09\x00\x46"
+        + jis_ascii("B")
+        + b"\x1f\x09\x00\x20"
+        + jis_ascii("S"),
+        HcRenderOptions(renderer_code="00B6", image_sources={"cb_w": "templates/CB_w.png"}),
+    )
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<h1 class="indent10">' in rendered.html
+    assert '<div class="contents">' in rendered.html
+    assert '<div class="CB_Title"><img src="templates/CB_w.png" class="img_mark4"></div>' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert rendered.stats["hc00b6_section_midashi"] == 1
+    assert rendered.stats["hc00b6_section_indent10"] == 1
+    assert rendered.stats["hc00b6_section_contents"] == 1
+    assert rendered.stats["hc00b6_section_cb"] == 1
+    assert rendered.stats["hc00b6_section_state_only"] == 1
+
+
+def test_hc00b6_renders_template_and_strong_markers() -> None:
+    rendered = render_hc_body(
+        b"\xb3\x47" + b"\xb3\x53" + b"\xb2\x3d" + b"\x1f\x42" + jis_ascii("L") + b"\x1f\x62\x00\x00\x00\x01\x00\x02",
+        HcRenderOptions(renderer_code="00B6", image_sources={"b347": "templates/b347.png"}),
+    )
+
+    assert '<img class="lv-hc-gaiji img_hinshi" src="templates/b347.png" alt="b347" data-gaiji-code="b347">' in rendered.html
+    assert "<strong>a</strong>" in rendered.html
+    assert 'data-gaiji-code="b23d"' not in rendered.html
+    assert 'class="lv-hc-link lLink"' in rendered.html
+    assert rendered.stats["hc00b6_image_markers"] == 1
+    assert rendered.stats["hc00b6_strong_markers"] == 1
+    assert rendered.stats["hc00b6_noop_markers"] == 1
+
+
 def test_hc012f_maps_sections_and_bunnya_link_images() -> None:
     rendered = render_hc_body(
         b"\x1f\x09\x00\x01"
