@@ -397,6 +397,8 @@ HC00C6_IMAGE_MARKERS = frozenset(
 
 HC00A6_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x6D}
 
+HC014A_NONPRINTING_CONTROL_OPS = {0x6D}
+
 
 def _hc00a6_honbun_div(indent: int) -> str:
     return f'<div class="honbun" style="margin-left:{indent:.6f}em;">'
@@ -425,6 +427,60 @@ def _hc00a6_section_parts(code: str, *, vertical: bool) -> tuple[list[str], str 
         suffix = "V" if vertical else "H"
         return ['<div class="header">', f'<img src="b12f{suffix}.gif" class="img_mark2">'], "</div>"
     return [_hc00a6_honbun_div(value)], "</div>"
+
+
+def _hc014a_section_value(code: str) -> int | None:
+    if not code:
+        return None
+    try:
+        if all(ch.isdigit() for ch in code):
+            return int(code, 10)
+        return int(code, 16)
+    except ValueError:
+        return None
+
+
+def _hc014a_section_parts(code: str) -> tuple[list[str], str | None, str | None]:
+    """Return the decoded HC014A section wrapper for the understood subset.
+
+    HC014A uses the section payload as a decimal-coded class/state value in
+    several branches: for example body bytes ``00 40`` map to CSS class
+    ``indent40``.  Non-decimal payloads such as ``002a`` still use their raw
+    numeric value for table-state controls.
+    """
+
+    value = _hc014a_section_value(code)
+    if value is None:
+        return [], None, None
+    if value == 1:
+        return [], None, "state_only"
+    if value == 3:
+        return ['<div style="font-size:1.0em; margin-top:13px;">'], "</div>", "body"
+    if value == 4:
+        return ['<div class="title3">'], "</div>", "title3"
+    if value == 6:
+        return ['<span class="med">'], "</span>", "med"
+    if value == 8:
+        return ['<div class="medblk">'], "</div>", "medblk"
+    if value == 10:
+        return ['<div class="medprice">'], "</div>", "medprice"
+    if value == 11:
+        return ['<div class="medimage">'], "</div>", "medimage"
+    if value in {14, 15, 16}:
+        return [f'<div class="mednamelist{value - 13}">'], "</div>", "mednamelist"
+    if value == 42:
+        return ['<table class="table_pc"><tr class="tr_pc"><td class="td_pc1">'], None, "table_open"
+    if value == 43:
+        return ['</td><td class="td_pc2">'], "</td></tr></table>", "table_cell"
+    if value in {40, 41} or 50 <= value < 70:
+        return [f'<div class="indent{value}">'], "</div>", "indent"
+    if value == 46:
+        return ['<div><span class="clickmenu">'], "</span></div>", "clickmenu"
+    if value == 47:
+        return ['<div style="display:none;">'], "</div>", "hidden_field"
+    if value == 48:
+        return ["</div>"], None, "field_close"
+    return [f'<div style="margin-left:{value * 4}px;">'], "</div>", "indented_fallback"
 
 
 def _private_directive_text(text: str) -> str:
@@ -1023,6 +1079,11 @@ def _is_hc_gen_year_renderer(options: HcRenderOptions) -> bool:
 
 
 def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
+    if _renderer_code(options) == "014A":
+        if start_op == 0x42:
+            return "lv-hc-link lineLink2"
+        if start_op in {0x43, 0x44}:
+            return "lv-hc-link lineLink"
     if _renderer_code(options) == "00A6" and start_op in {0x3B, 0x42, 0x43}:
         return "lv-hc-link lineLink"
     if _renderer_code(options) == "0065" and start_op in {0x42, 0x43, 0x44}:
@@ -1048,6 +1109,10 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
 
 
 def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | None:
+    if _renderer_code(options) == "014A" and op == 0x04:
+        return ("span", ' class="hankaku"')
+    if _renderer_code(options) == "014A" and op == 0x41:
+        return ("div", ' class="midashi"')
     if _renderer_code(options) == "00A6" and op == 0x04:
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "00A6" and op == 0x06:
@@ -1391,6 +1456,7 @@ def _append_gaiji_value(
             "0131",
             "013D",
             "0141",
+            "014A",
             "0144",
             "0145",
             "0151",
@@ -2158,6 +2224,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0141_section_close: str | None = None
     hc0144_section_close: str | None = None
     hc0145_section_close: str | None = None
+    hc014a_section_close: str | None = None
+    hc014a_table_open = False
     hc03e8_section_close: str | None = None
     hc00a6_section_close: str | None = None
     hc00a6_ruby_readings: list[str] = []
@@ -2316,6 +2384,28 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         root.extend(section_parts)
                         if section_parts:
                             stats["hc00a6_section_blocks"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "014A":
+                        if hc014a_section_close is not None:
+                            root.append(hc014a_section_close)
+                            hc014a_section_close = None
+                        section_parts, section_close, state = _hc014a_section_parts(code)
+                        if state not in {"table_cell"} and hc014a_table_open:
+                            root.append("</td></tr></table>")
+                            hc014a_table_open = False
+                        root.extend(section_parts)
+                        if state == "table_open":
+                            hc014a_table_open = True
+                        elif state == "table_cell":
+                            hc014a_table_open = False
+                            hc014a_section_close = section_close
+                        else:
+                            hc014a_section_close = section_close
+                        if section_parts:
+                            stats["hc014a_section_blocks"] += 1
+                        if state:
+                            stats[f"hc014a_section_{state}"] += 1
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "02BE":
@@ -2580,6 +2670,20 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     hc00a6_section_close = None
                     i += 2 + arg_len
                     continue
+                if _renderer_code(options) == "014A":
+                    if hc014a_section_close is not None:
+                        _current_parts(root_parts, contexts).append(hc014a_section_close)
+                        hc014a_section_close = None
+                        i += 2 + arg_len
+                        continue
+                    if hc014a_table_open:
+                        # HC014A table rows are encoded as a 0042 label section
+                        # followed by a 0043 body section, often with a 1f0a
+                        # separator between them.  Keep the first cell open
+                        # until the next section decides whether to transition
+                        # to td_pc2 or close the row.
+                        i += 2 + arg_len
+                        continue
                 if _renderer_code(options) == "02BE" and hc02be_section_open:
                     _current_parts(root_parts, contexts).append("</div>")
                     hc02be_section_open = False
@@ -2759,6 +2863,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "00A6" and op in HC00A6_NONPRINTING_CONTROL_OPS:
                 stats["hc00a6_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "014A" and op in HC014A_NONPRINTING_CONTROL_OPS:
+                stats["hc014a_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -4201,6 +4310,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc02bf_section_close)
     if hc_gen_year_section_close is not None:
         _current_parts(root_parts, contexts).append(hc_gen_year_section_close)
+    if hc014a_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc014a_section_close)
+    if hc014a_table_open:
+        _current_parts(root_parts, contexts).append("</td></tr></table>")
     if hc02c2_section_open:
         if hc02c2_moji_down_open:
             _current_parts(root_parts, contexts).append("</p>")

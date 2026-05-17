@@ -1176,6 +1176,65 @@ def test_hc00a6_maps_sections_ruby_and_line_links() -> None:
     assert rendered.stats["hc00a6_ruby_ends"] == 1
 
 
+def test_hc014a_maps_medical_sections_links_and_template_gaiji() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x04"
+        + jis_text("一般名")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x06"
+        + b"\xb1\x2a"
+        + jis_text("商品")
+        + b"\x1f\x09\x00\x10"
+        + b"".join(jis_ascii(ch) for ch in "100")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x11"
+        + b"\x1f\x4d"
+        + bytes.fromhex("000000000000000000000000000001230045")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x42"
+        + b"".join(jis_ascii(ch) for ch in "PC")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x43"
+        + jis_text("説明")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x40"
+        + jis_text("見出し")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="014A", image_sources={"b12a": "Templates/b12a.png"}),
+    )
+
+    assert '<div class="midashi"><span class="hankaku">H</span></div>' in rendered.html
+    assert '<div class="title3">一般名</div>' in rendered.html
+    assert '<span class="med"><img class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji"' in rendered.html
+    assert '<div class="medprice"><span class="hankaku">1</span><span class="hankaku">0</span><span class="hankaku">0</span></div>' in rendered.html
+    assert '<div class="medimage"><span class="lv-hc-media"' in rendered.html
+    assert '<table class="table_pc"><tr class="tr_pc"><td class="td_pc1"><span class="hankaku">P</span><span class="hankaku">C</span></td><td class="td_pc2">説明</td></tr></table>' in rendered.html
+    assert '<div class="indent40">見出し' in rendered.html
+    assert 'class="lv-hc-link lineLink2"' in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert "data-lv-section" not in rendered.html
+    assert rendered.stats["hc014a_section_title3"] == 1
+    assert rendered.stats["hc014a_section_med"] == 1
+    assert rendered.stats["hc014a_section_medprice"] == 1
+    assert rendered.stats["hc014a_section_medimage"] == 1
+    assert rendered.stats["hc014a_section_table_open"] == 1
+    assert rendered.stats["hc014a_section_table_cell"] == 1
+    assert rendered.stats["hc014a_section_indent"] == 1
+    assert rendered.stats["hc014a_nonprinting_controls"] == 1
+
+
 def test_hc_gen_year_maps_sections_icons_links_and_template_markers() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -2414,6 +2473,37 @@ def test_hc00a6_profile_records_hkkigak6_subset_without_claiming_parity() -> Non
     assert "HC00A6_sections_and_ruby_directives" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "modify_headword_hook" in data["named_gaps"]
+
+
+def test_hc014a_profile_records_medical_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC014A.dll"),
+        code="014A",
+        expected_numeric_index="0000014A.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/0000014a.css",),
+        sql_snippets=("SELECT ...",),
+        image_templates=("Templates/b12a.png", "Templates/midashi1.png"),
+        features={"custom_gaiji_dib": True, "headword_modifier": True, "panel_hooks": True, "sql_hooks": True, "vertical_renderer": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC014A_medical_section_layout" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+    assert "panel_lifecycle_hook" in data["named_gaps"]
+    assert "sql_hook" in data["named_gaps"]
 
 
 def test_hc_gen_year_profile_records_subset_without_claiming_parity() -> None:

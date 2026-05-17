@@ -21,8 +21,8 @@ Parity is only promoted when the relevant DLL code path or branch table is under
 | `common_controls_candidate_verify` | 1 |
 | `common_controls_plus_named_hooks` | 14 |
 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | 5 |
-| `needs_marker_branch_decode` | 63 |
-| `decoded_branch_subset_visual_incomplete` | 29 |
+| `needs_marker_branch_decode` | 62 |
+| `decoded_branch_subset_visual_incomplete` | 30 |
 
 | Family | Families |
 |---|---:|
@@ -51,6 +51,7 @@ Decoded branch subsets currently implemented:
 - `HC02C4.dll`: HC02C4 GEN2016 section/layout and template-marker subset; representative package `_DCT_GEN2016`; remaining gaps: custom DIB generation, modifyHeadword, exact fixed-HTML fallback selection, vertical navigation table scaffolding, and representative visual parity.
 - `HC02C7.dll`: HC02C7 GEN2017 section/layout and template-marker subset; representative package `_DCT_Gen2017`; remaining gaps: custom DIB generation, modifyHeadword, exact fixed-HTML fallback selection, vertical navigation table scaffolding, and representative visual parity.
 - `HC012D.dll`: HC012D MEIKYOU2 section/layout and inline-image marker subset; representative package `_DCT_MEIKYOU2`; remaining gaps: custom DIB generation, modifyHeadword hooks, SQL/original-search helpers, exact yindex/ruigo script lifecycle, and representative visual parity.
+- `HC014A.dll`: HC014A HKDKSR29 medical section/layout subset; representative package `_DCT_HKDKSR29`; remaining gaps: stateful `local_cc`/`local_fc` section modes, JIS-content-triggered section images, custom DIB generation, modifyHeadword, Panel hooks, SQL/search helpers, and representative visual parity.
 - `HC0145.dll`: HC0145 RDRSP2 decimal section/layout and marker subset; representative package `_DCT_RDRSP2`; remaining gaps: custom DIB generation, modifyHeadwordEx, SQL original-search plus D_Example/D_Idiom hooks, exact table/navigation wrapper lifecycle, and representative visual parity.
 - `HC013D.dll`: HC013D HKDKSR13 drug-layout and template-marker subset; representative package `_DCT_HKDKSR13`; remaining gaps: custom DIB generation, modifyHeadword, exact contents/table/click-menu lifecycle, complete picture extraction, and representative visual parity.
 - `HC0144.dll`: HC0144 RPLUSREV section/layout and marker subset; representative package `_DCT_RPLUSREV`; remaining gaps: custom DIB generation, modifyHeadwordEx, SQL D_Example/D_Idiom helpers, exact HTMLs/fix fallback lifecycle, custom-character image suffix selection, and representative visual parity.
@@ -109,7 +110,7 @@ The order below is heuristic. It weights package count, renderer-specific gaiji 
 | 26 | `HC02C4` | `4d2dd3f4ff6e` | `_DCT_GEN2016` | 2 | 120 | `decoded_branch_subset_visual_incomplete` | sample more entries; promote only additional recovered branches |
 | 27 | `HC02C7` | `7ee0f7dfa370` | `_DCT_Gen2017` | 2 | 120 | `decoded_branch_subset_visual_incomplete` | sample more entries; promote only additional recovered branches |
 | 28 | `HC00A6` | `76d0fc7c33fc` | `_DCT_HKKIGAK6` | 1 | 119 | `decoded_branch_subset_visual_incomplete` | sample more entries; promote only additional recovered branches |
-| 29 | `HC014A` | `db3868617977` | `_DCT_HKDKSR29` | 1 | 119 | `needs_marker_branch_decode` | map template hints to body-loop branches and compare representative entry |
+| 29 | `HC014A` | `db3868617977` | `_DCT_HKDKSR29` | 1 | 119 | `decoded_branch_subset_visual_incomplete` | sample more entries; promote only additional recovered branches |
 | 30 | `HC02C3` | `7bfaeec12bbc` | `_DCT_HKDKSR14` | 1 | 119 | `needs_marker_branch_decode` | map template hints to body-loop branches and compare representative entry |
 
 ## Full Matrix
@@ -208,7 +209,7 @@ The order below is heuristic. It weights package count, renderer-specific gaiji 
 | 90 | `HC02CC` | `d6421f9b1cf5` | `_DCT_GENMEM2` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=9, tmpl=28, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |
 | 91 | `HC015D` | `d8639eb90dc2` | `_DCT_SINJIGEN` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=17, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
 | 92 | `HC007D` | `db1211af8d58` | `_DCT_KQNEWEJ6` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=3, tmpl=17, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
-| 93 | `HC014A` | `db3868617977` | `_DCT_HKDKSR29` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=5, tmpl=50, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |
+| 93 | `HC014A` | `db3868617977` | `_DCT_HKDKSR29` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=5, tmpl=50, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook`, `sql_or_search_hook` | sample more entries; promote only additional recovered branches |
 | 94 | `HC014D` | `dcc44e6740c3` | `_DCT_NGYOKTUK` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=13 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
 | 95 | `HC02D0` | `dcdb356351e8` | `_DCT_IWKOKUG8` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=17, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
 | 96 | `HC015E` | `e0f7fbd8e77f` | `_DCT_DAIJIRN4` | 1 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | body-loop, tmpl=18, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | verify rendererdb path and inspect remaining hooks/search/media templates |
