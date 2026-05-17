@@ -1281,6 +1281,62 @@ def test_hc0094_maps_sections_color_blocks_template_gaiji_and_line_links() -> No
     assert rendered.stats["hc0094_color_div_markers"] == 1
 
 
+def test_hc0137_maps_iwanami_sections_and_line_links() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + jis_ascii("H")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x05"
+        + jis_text("副")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x06"
+        + jis_text("隠")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x08"
+        + jis_text("角")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x09"
+        + jis_text("丸")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x10"
+        + jis_text("太")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x12"
+        + jis_text("本")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x21"
+        + jis_text("山")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x1e"
+        + jis_text("文")
+        + b"\xb1\x21"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0137", image_sources={"b121": "Templates/b121.png"}))
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<font class="font_midashi_sub">' in rendered.html
+    assert '<div style="display:none">' in rendered.html
+    assert "［" in rendered.html and "］" in rendered.html
+    assert "（" in rendered.html and "）" in rendered.html
+    assert '<div style="margin-left: 10.000000em" class="honbunB">' in rendered.html
+    assert '<div style="margin-left: 12.000000em" class="honbun">' in rendered.html
+    assert "〈" in rendered.html and "〉" in rendered.html
+    assert '<div class="honbun">' in rendered.html
+    assert 'class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.stats["hc0137_section_midashi"] == 1
+    assert rendered.stats["hc0137_section_midashi_sub"] == 1
+    assert rendered.stats["hc0137_section_hidden"] == 1
+    assert rendered.stats["hc0137_section_honbunB"] == 1
+    assert rendered.stats["hc0137_section_honbun"] >= 2
+
+
 def test_hc00a6_maps_sections_ruby_and_line_links() -> None:
     ruby_start = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:S") + jis_text("よ") + b"\x1f\xe3\x00\x00"
     ruby_end = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:E") + b"\x1f\xe3\x00\x00"
@@ -2583,6 +2639,37 @@ def test_hc0094_profile_records_keigo_subset_without_claiming_parity() -> None:
 
     assert "HC0094_sections_color_blocks_and_template_gaiji" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
+def test_hc0137_profile_records_iwanami_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0137.dll"),
+        code="0137",
+        expected_numeric_index="00000137.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/00000137.css",),
+        sql_snippets=("initializeSQL",),
+        image_templates=("b1.png", "g1.png"),
+        features={"panel_hooks": True, "headword_modifier": True, "sql_hooks": True, "custom_gaiji_dib": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC0137_iwanami_section_margin_and_line_links" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "panel_lifecycle" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 

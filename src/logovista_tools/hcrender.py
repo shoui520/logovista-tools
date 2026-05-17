@@ -773,6 +773,7 @@ HC02C2_TEMPLATE_IMAGE_MARKERS = frozenset(f"b{value:03x}" for value in range(0x1
 HC02C2_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
 HC0147_TEMPLATE_IMAGE_MARKERS = frozenset(["a12e", *[f"b{value:03x}" for value in range(0x141, 0x146)]])
 HC0147_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
+HC0137_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
 HC02C1_ICON_SECTION_IMAGES = {
     "0003": "1.png",
     "0004": "2.png",
@@ -1223,6 +1224,8 @@ def _is_hc_hkdksr_medical_renderer(options: HcRenderOptions) -> bool:
 
 
 def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
+    if _renderer_code(options) == "0137" and start_op in {0x3B, 0x42, 0x43}:
+        return "lv-hc-link lineLink"
     if _renderer_code(options) == "0094" and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
     if _renderer_code(options) == "009B" and start_op in {0x3B, 0x42, 0x43, 0x44}:
@@ -1325,9 +1328,13 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "0094" and op == 0x04:
         return ("span", ' class="hankaku"')
+    if _renderer_code(options) == "0137" and op == 0x04:
+        return ("span", ' class="hankaku"')
     if _renderer_code(options) == "0147" and op == 0x41:
         return None
     if _renderer_code(options) == "0094" and op == 0x41:
+        return None
+    if _renderer_code(options) == "0137" and op == 0x41:
         return None
     if op == 0x41 and _renderer_code(options) == "0065":
         return None
@@ -1647,6 +1654,7 @@ def _append_gaiji_value(
             "013C",
             "013D",
             "0141",
+            "0137",
             "0147",
             "0144",
             "0145",
@@ -2312,6 +2320,44 @@ def _hc0094_section_parts(code: str) -> tuple[list[str], str | None, str | None]
     return ['<div class="contents_body">'], "</div>", "contents_body"
 
 
+def _hc0137_section_value(code: str) -> int | None:
+    if not code:
+        return None
+    try:
+        if all(ch in "0123456789" for ch in code):
+            return int(code, 10)
+        return int(code, 16)
+    except ValueError:
+        return None
+
+
+def _hc0137_section_parts(code: str) -> tuple[list[str], str | None, str | None, str | None]:
+    """Return the recovered HC0137 section wrapper subset."""
+
+    value = _hc0137_section_value(code)
+    if value is None:
+        return [], None, None, None
+    if value in {1, 2, 3, 4}:
+        return ['<div class="midashi">'], "</div>", "midashi", "</div>"
+    if value == 5:
+        return ['<font class="font_midashi_sub">'], "</font>", "midashi_sub", "</font>"
+    if value in {6, 7}:
+        return ['<div style="display:none">'], "</div>", "hidden", "</div>"
+    if value == 8:
+        return ["［"], "］", "bracket_square", "］"
+    if value == 9:
+        return ["（"], "）", "bracket_round", "）"
+    if value in {10, 18}:
+        return [f'<div style="margin-left: {value:f}em" class="honbunB">'], "</div>", "honbunB", "</div>"
+    if 11 <= value <= 20:
+        return [f'<div style="margin-left: {value:f}em" class="honbun">'], "</div>", "honbun", "</div>"
+    if value == 21:
+        return ["〈"], "〉", "bracket_angle", "〉"
+    if value == 30:
+        return ['<div class="honbun">'], "</div>", "honbun", None
+    return [f'<div class="honbun" style="margin-left:{value:f}em;">'], "</div>", "honbun_fallback", "</div>"
+
+
 def _safe_relative_path(value: str) -> Path | None:
     path = Path(value)
     if path.is_absolute() or ".." in path.parts:
@@ -2812,6 +2858,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc02c2_current_section: str | None = None
     hc0147_section_close: str | None = None
     hc0147_bunken_open = False
+    hc0137_section_close: str | None = None
+    hc0137_line_close: str | None = None
     hc0065_midashi_open = False
     hc0065_body_open = False
     hc0048_section_close: str | None = None
@@ -3340,6 +3388,19 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats[f"hc0147_section_{state}"] += 1
                         i += 2 + arg_len
                         continue
+                    if _renderer_code(options) == "0137":
+                        if hc0137_section_close is not None:
+                            root.append(hc0137_section_close)
+                            hc0137_section_close = None
+                            hc0137_line_close = None
+                        section_parts, hc0137_section_close, state, hc0137_line_close = _hc0137_section_parts(code)
+                        root.extend(section_parts)
+                        if section_parts:
+                            stats["hc0137_section_blocks"] += 1
+                        if state:
+                            stats[f"hc0137_section_{state}"] += 1
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "0065" and code == "0001" and not hc0065_midashi_open and not hc0065_body_open:
                         root.append('<div class="midashi">')
                         hc0065_midashi_open = True
@@ -3442,6 +3503,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats["hc0142_honbun_blocks"] += 1
                     else:
                         root.append("<br>")
+                        stats["line_breaks"] += 1
+                    i += 2 + arg_len
+                    continue
+                if _renderer_code(options) == "0137":
+                    if hc0137_line_close is not None:
+                        _current_parts(root_parts, contexts).append(hc0137_line_close)
+                        hc0137_section_close = None
+                        hc0137_line_close = None
+                    else:
+                        _current_parts(root_parts, contexts).append("<br>")
                         stats["line_breaks"] += 1
                     i += 2 + arg_len
                     continue
@@ -3601,6 +3672,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "0147" and op in HC0147_NONPRINTING_CONTROL_OPS:
                 stats["hc0147_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0137" and op in HC0137_NONPRINTING_CONTROL_OPS:
+                stats["hc0137_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -5403,6 +5479,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc0147_section_close)
     if hc0147_bunken_open:
         _current_parts(root_parts, contexts).append("</div>")
+    if hc0137_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc0137_section_close)
     if hc0048_midashi_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc0048_honbun_open:

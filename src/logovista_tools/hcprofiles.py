@@ -117,7 +117,7 @@ def _family_for_code(code: str | None, renderer: HcRendererClassification | None
         return "britannica_yearbook_array_renderer"
     if code in {"00D3", "00D5", "00DE"}:
         return "britannica_panel_media_renderer"
-    if code in {"013A", "013F", "0142", "0146", "0147", "02BE", "02BF", "02C1", "02C2", "02C4", "02C5", "02C7"}:
+    if code in {"013A", "0137", "013F", "0142", "0146", "0147", "02BE", "02BF", "02C1", "02C2", "02C4", "02C5", "02C7"}:
         return "panel_enabled_renderer"
     if code == "0190":
         return "sizk_readaloud_renderer"
@@ -217,7 +217,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Panel lifecycle and media HTML paths are product behavior; exact viewer UI callbacks are not emulated.",
             )
         )
-    if code in {"013A", "013F", "0142", "0146", "0147", "02BE", "02BF", "02C1", "02C2", "02C4", "02C5", "02C7"}:
+    if code in {"013A", "0137", "013F", "0142", "0146", "0147", "02BE", "02BF", "02C1", "02C2", "02C4", "02C5", "02C7"}:
         rows.append(
             HcHookBehavior(
                 name="panel_lifecycle",
@@ -1196,6 +1196,24 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Shared GEN renderer can prefer prebuilt HTML files for some entry resources.",
             )
         )
+    if code == "0137":
+        rows.append(
+            HcHookBehavior(
+                name="iwanami_section_margin_and_line_link_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0137 epwing2HtmlBodydataVertical 1f09 decoded section branch ladder",
+                    "HC0137 lineLink and image-backed gaiji template strings",
+                    "HC0137 1f41/1f4c/1f5c/1f6d renderer-state branches",
+                ),
+                implementation=(
+                    "1f09 sections map to midashi/font_midashi_sub/hidden/honbun/"
+                    "honbunB/bracket wrappers, image-backed gaiji use img_gaiji, "
+                    "and internal links carry the recovered lineLink class"
+                ),
+                notes="The subset excludes exact DAT_* formatting constants for every margin branch, SQL/helper hooks, Panel lifecycle, and custom DIB generation.",
+            )
+        )
     return rows
 
 
@@ -1255,6 +1273,8 @@ def build_hc_behavior_profile(
         implemented.add("HC02C2_section_icons_and_template_gaiji")
     if code == "0147":
         implemented.add("HC0147_contents_bunken_and_template_gaiji")
+    if code == "0137":
+        implemented.add("HC0137_iwanami_section_margin_and_line_links")
     if code == "00A6":
         implemented.add("HC00A6_sections_and_ruby_directives")
     if code in {"014A", "02C3", "02C6"}:
