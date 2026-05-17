@@ -715,6 +715,8 @@ HC02BC_OPEN_MARKERS: dict[str, _RendererGaijiRule] = {
 }
 HC02BC_CLOSE_MARKERS = frozenset(rule.close_code for rule in HC02BC_OPEN_MARKERS.values() if rule.close_code)
 HC02BC_NOOP_MARKERS = {"b13a", "b13b", "b13f", "b140", "b141", "b16e", "b16f"}
+HC02BC_NOOP_SECTION_VALUES = {9999}
+HC02BC_NONPRINTING_CONTROL_OPS = {0x41, 0x5C, 0x6D}
 HC02BC_LITERAL_MARKERS = {
     "a167": '<font face="Meiryo,MS UI Gothic">&#x2032;</font>',
     "b13c": "<br>",
@@ -1405,6 +1407,8 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
         or _is_hc_gen_year_renderer(options)
     ) and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
+    if _renderer_code(options) == "02BC" and start_op in {0x42, 0x43, 0x44}:
+        return "lv-hc-link lineLink"
     if _renderer_code(options) in {"009C", "009D", "012D", "013D", "0141", "0144", "0145", "02C2", "03E8"} and start_op in {
         0x42,
         0x43,
@@ -1904,22 +1908,31 @@ def _hc02be_section_parts(code: str) -> tuple[list[str], str | None, str | None]
     return [f'<span class="ind_{_escape_attr(code)}">'], "</span>", "span"
 
 
+def _hc02bc_section_value(code: str) -> int | None:
+    if not code:
+        return None
+    try:
+        if all(ch in "0123456789" for ch in code):
+            return int(code, 10)
+        return int(code, 16)
+    except ValueError:
+        return None
+
+
 def _hc02bc_section_parts(code: str, image_sources: dict[str, str]) -> list[str]:
-    if code == "270f":
+    value = _hc02bc_section_value(code)
+    if value is None or value in HC02BC_NOOP_SECTION_VALUES:
         return []
-    if code == "0001":
+    if value == 1:
         return ['<div class="midashi">']
-    if code == "0002":
+    if value == 2:
         parts: list[str] = []
         src = image_sources.get("fukumidashi") or image_sources.get("fukumidashi.png")
         if src:
             parts.append(f'<img src="{_escape_attr(src)}" class="img_mark2">')
         parts.append('<div class="komidashi"  style="margin-left:1.000000em;">')
         return parts
-    try:
-        digit = int(code, 16) % 10
-    except ValueError:
-        return []
+    digit = value % 10
     if digit in {1, 6}:
         margin = "1.000000" if digit == 1 else "0.000000"
         return [f'<div class="komidashi"  style="margin-left:{margin}em;">']
@@ -3476,6 +3489,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             hc02bc_section_open = True
                         if section_parts:
                             stats["hc02bc_section_divs"] += 1
+                        if code in {"9999", "270f"}:
+                            stats["hc02bc_noop_sections"] += 1
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "00B6":
                         if hc00b6_section_close is not None:
                             root.append(hc00b6_section_close)
@@ -4195,6 +4212,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "02C2" and op in HC02C2_NONPRINTING_CONTROL_OPS:
                 stats["hc02c2_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "02BC" and op in HC02BC_NONPRINTING_CONTROL_OPS:
+                stats["hc02bc_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 

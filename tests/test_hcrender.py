@@ -254,6 +254,7 @@ def test_hc02bc_maps_sections_to_stedman_blocks() -> None:
     rendered = render_hc_body(
         b"\x1f\x09\x00\x01" + jis_ascii("H")
         + b"\x1f\x09\x00\x02" + jis_ascii("K")
+        + b"\x1f\x09\x00\x13" + jis_ascii("B")
         + b"\x1f\x09\x00\x08" + jis_ascii("C"),
         HcRenderOptions(renderer_code="02BC", image_sources={"fukumidashi": "Templates/fukumidashi.png"}),
     )
@@ -261,8 +262,29 @@ def test_hc02bc_maps_sections_to_stedman_blocks() -> None:
     assert '<div class="midashi">' in rendered.html
     assert '<img src="Templates/fukumidashi.png" class="img_mark2">' in rendered.html
     assert '<div class="komidashi"  style="margin-left:1.000000em;">' in rendered.html
+    assert '<div class="honbun" style="margin-left:1.000000em;">' in rendered.html
     assert '<div class="contents" style="text-indent:0em;">' in rendered.html
-    assert rendered.stats["hc02bc_section_divs"] == 3
+    assert "lv-hc-section" not in rendered.html
+    assert rendered.stats["hc02bc_section_divs"] == 4
+
+
+def test_hc02bc_consumes_state_controls_and_uses_line_link() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x99\x99"
+        + b"\x1f\x41\x00\x00"
+        + b"\x1f\x6d"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30",
+        HcRenderOptions(renderer_code="02BC"),
+    )
+
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc02bc_noop_sections"] == 1
+    assert rendered.stats["hc02bc_nonprinting_controls"] == 2
 
 
 def test_hc02bc_renders_color_and_indent_marker_pairs() -> None:
