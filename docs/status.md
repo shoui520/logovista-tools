@@ -526,6 +526,15 @@ and non-SSED reader status are tracked separately in
   previous/next navigation footer generation, fixed HTML/body fallback
   loading, exact generated custom-bitmap output, and visual parity remain
   incomplete.
+- `HC00A0.dll` now has a focused raw-HONMON branch-subset proof for the
+  Gakken phrase/detail renderer used by GKBUSINE/GKTRAVEL: `1f09` section
+  `0001` fills the English detail slot, section `0002` fills the Japanese
+  detail slot, `HTMLs/Header.html` and `HTMLs/Detail.html` placeholders are
+  applied, package-local template image references are rewritten, and fullwidth
+  private `<PlaySound>####.mp3</PlaySound>` directives become loose `mp3/`
+  audio references. Interactive `lved.sql` menu/search generation, plugin
+  callbacks, user-data/play-count persistence, exact generated body-file
+  lifecycle, and visual parity remain incomplete.
 - `HC02C0.dll` now has a focused raw-HONMON branch-subset proof for GEN2015:
   `1f09` section `0001` is heading state, body sections open `honbun`
   margin containers, section `000c` opens `footer`, `1f41`/`1f61` wrap
@@ -548,7 +557,7 @@ and non-SSED reader status are tracked separately in
   exact SHA-256 renderer binaries. HC013A, HC0065, HC009B, HC00B3, HC02C0, HC013C, HC009D, HC00C6, HC012D,
   HC012E, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5,
   HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF,
-  HC012F, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, and HC0158
+  HC012F, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158, and HC00A0
   currently have decoded branch subsets, not full HC parity.
   Other branch tables remain named gaps until their output constants and product
   data paths are understood.

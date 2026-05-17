@@ -1468,6 +1468,65 @@ def test_hc00b3_maps_section_000c_to_header_container() -> None:
     assert rendered.stats["hc00b3_section_header"] == 1
 
 
+def test_hc00a0_applies_detail_template_and_play_sound_directive() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("HELLO")
+        + b"\x1f\x05"
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("こんにちは")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x10"
+        + b"\x1f\xe2\x00\x07"
+        + jis_text("＜ＰｌａｙＳｏｕｎｄ＞０００１．ｍｐ３＜／ＰｌａｙＳｏｕｎｄ＞")
+        + b"\x1f\xe3"
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="00A0",
+            image_sources={
+                "sound": "Templates/sound.png",
+                "eng": "Templates/eng.png",
+                "jpn": "Templates/jpn.png",
+                "play": "Templates/play.png",
+                "ok-2": "Templates/ok-2.png",
+                "ex-2": "Templates/ex-2.png",
+            },
+            html_templates={
+                "Header": '<div class="header"><img src="play.png">$$DISPLAY_MIDASHI$$$$MODE_EJ$$</div>',
+                "Detail": (
+                    '<table class="main" id="detail"><tr>'
+                    '<td><img src="sound.png" onclick="lvedPlay(\'$$DETAIL_NO$$\',\'$$DETAIL_PLAY$$\');"></td>'
+                    '<td class="english">$$ENGLISH$$</td>'
+                    '<td class="japanese">$$JAPANESE$$</td>'
+                    '<td><img src="ok-$$DETAIL_OK$$.png"><img src="ex-$$DETAIL_EX$$.png"></td>'
+                    "</tr></table>"
+                ),
+            },
+        ),
+    )
+
+    assert '<div class="header"><img src="Templates/play.png">none1</div>' in rendered.html
+    assert '<td class="english">HELLO</td>' in rendered.html
+    assert '<td class="japanese">こんにちは</td>' in rendered.html
+    assert 'src="Templates/sound.png"' in rendered.html
+    assert "lvedPlay('0001','0001.mp3')" in rendered.html
+    assert 'src="Templates/ok-2.png"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert rendered.plain == "HELLO\nこんにちは"
+    assert rendered.audio[0]["target"]["path"] == "mp3/0001.mp3"
+    assert rendered.private_directives[0]["kind"] == "play_sound"
+    assert rendered.stats["hc00a0_detail_rows"] == 1
+    assert rendered.stats["hc00a0_play_sound_directives"] == 1
+
+
 def test_hc02c1_maps_sections_icons_and_moji_down_markers() -> None:
     rendered = render_hc_body(
         b"\x1f\x09\x00\x01"
@@ -2821,6 +2880,35 @@ def test_hc00b3_profile_records_subset_without_claiming_parity() -> None:
 
     assert "HC00B3_honbun_margin_sections" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
+
+
+def test_hc00a0_profile_records_sql_detail_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC00A0.dll"),
+        code="00A0",
+        expected_numeric_index="000000A0.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="pe"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("HTMLs/Header.html", "HTMLs/Detail.html", "Templates/000000A0.css"),
+        sql_snippets=("SDicSQLSearchAndHtml",),
+        image_templates=("Templates/sound.png",),
+        features={"sql_hooks": True, "plugin_hooks": True, "user_data_hooks": True, "uses_body_api": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC00A0_phrase_detail_renderer" in data["implemented_semantics"]
+    assert data["family"] == "sql_hook_renderer"
+    assert data["exact_hc_parity"] is False
+    assert "sql_hook" in data["named_gaps"]
 
 
 def test_hc013d_profile_records_drug_layout_subset_without_claiming_parity() -> None:

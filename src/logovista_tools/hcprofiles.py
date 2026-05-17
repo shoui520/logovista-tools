@@ -433,6 +433,27 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset excludes exact previous/next navigation footer generation, fixed HTML/body fallback loading, exact generated custom-bitmap output, and broader visual parity.",
             )
         )
+    if code == "00A0":
+        rows.append(
+            HcHookBehavior(
+                name="gakken_phrase_sql_detail_renderer",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC00A0 epwing2HtmlBodydata internal SDicSQLSearchAndHtml/SDicGetBodyData path",
+                    "HC00A0 body loop stores 1f09 section 0001/0002 text slots",
+                    "HC00A0 private fullwidth <PlaySound> directive branch",
+                    "HTMLs/Header.html and HTMLs/Detail.html template placeholders",
+                    "Templates/GK*.db Data000000Ax Block/Offset menu mapping",
+                ),
+                implementation=(
+                    "section 0001 renders through the Detail.html English slot, section 0002 "
+                    "renders through the Japanese slot, the private PlaySound directive supplies "
+                    "the mp3 filename, package image assets are remapped to copied Template paths, "
+                    "and the profile records the SQL/menu and user-data hooks as non-emulated"
+                ),
+                notes="The subset excludes lved.sql interactive menu generation, user-data check/play-count persistence, and exact body%d.html lifecycle parity.",
+            )
+        )
     if code in {"02C4", "02C7"}:
         rows.append(
             HcHookBehavior(
@@ -1041,6 +1062,8 @@ def build_hc_behavior_profile(
         implemented.add("HC009B_honbun_margin_sections")
     if code == "00B3":
         implemented.add("HC00B3_honbun_margin_sections")
+    if code == "00A0":
+        implemented.add("HC00A0_phrase_detail_renderer")
     if code == "013C":
         implemented.add("HC013C_honbun_margin_sections")
     if code == "02C0":

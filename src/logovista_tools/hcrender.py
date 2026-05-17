@@ -131,6 +131,57 @@ HC_RENDER_BASE_CSS = """
 """.strip()
 
 
+HC00A0_HEADER_FALLBACK = """
+<table width="100%" border="0" cellpadding="10" cellspacing="0">
+<tr style="display:$$DISPLAY_MIDASHI$$;">
+<td colspan="2">
+<span class="title">$$MIDASHI$$</span>$$SUBMIDASHI$$
+</td>
+<td rowspan="2" style="width:48px;vertical-align:top">
+<img id="cmdPlay" alt="" height="48px" src="play.gif" onclick="lvedPlayAll();" style="display:inline;">
+<img id="cmdStop" alt="" height="48px" src="pause.gif" onclick="lvedStop();" style="display:none;">
+</td>
+</tr>
+<tr height="25px">
+<td><img src="ej-$$MODE_EJ$$.png" height="25px" width="55px" name="ej" id="ej">
+<img src="eng-$$MODE_E$$.png" height="25px" width="55px" name="eng" id="eng">
+<img src="jpn-$$MODE_J$$.png" height="25px" width="55px" name="jpn" id="jpn"></td>
+<td valign="bottom" style="text-align:right">
+<img src="al-$$MODE_ALL$$.png" height="25px" width="50px" name="al" id="al">
+<img src="ok-$$MODE_OK$$.png" height="25px" width="50px" name="ok" id="ok">
+<img src="qu-$$MODE_QU$$.png" height="25px" width="50px" name="qu" id="qu">
+<img src="ex-$$MODE_EX$$.png" height="25px" width="50px" name="ex" id="ex"></td>
+</tr>
+</table>
+""".strip()
+
+
+HC00A0_DETAIL_FALLBACK = """
+<div style="border-bottom:thin black solid;" id="$$DETAIL_NO$$">
+<span id="mp3" style="display:none;">$$DETAIL_PLAY$$</span>
+<span style="display:none;" id="LINE$$LINE_NO$$"></span>
+<div style="line-height:3px;">&nbsp;</div>
+<table class="main" id="detail" style="display:$$DISPLAY_DETAIL$$;">
+<tr>
+<td width="32px;"><img height="32px" src="sound.png" width="32px" onclick="lvedPlay('$$DETAIL_NO$$','$$DETAIL_PLAY$$');"></td>
+<td width="32px;"><img height="22px" src="eng.png" width="32px" id="eng_check_$$DETAIL_NO$$"></td>
+<td class="english" id="english" style="display:$$DISPLAY_ENGLISH$$;">$$ENGLISH$$</td>
+</tr>
+<tr>
+<td width="32px;"></td>
+<td width="32px;"><img height="22px" src="jpn.png" width="32px" id="jpn_check_$$DETAIL_NO$$"></td>
+<td class="japanese" id="japanese" style="display:$$DISPLAY_JAPANESE$$;">$$JAPANESE$$</td>
+</tr>
+</table>
+<div id="check">
+<img height="20" src="ok-$$DETAIL_OK$$.png" id="ok_check_$$DETAIL_NO$$">&nbsp;
+<img height="20" src="ex-$$DETAIL_EX$$.png" id="ex_check_$$DETAIL_NO$$">&nbsp;&nbsp;&nbsp;
+<img height="20" src="play.png" style="cursor:default;"><span id="$$DETAIL_NO$$_playcount">$$DETAIL_PLAYNUM$$</span>回
+</div>
+</div>
+""".strip()
+
+
 @dataclass(frozen=True)
 class HcRenderOptions:
     """Options for shared HC-style rendering."""
@@ -2203,6 +2254,16 @@ def _load_hc0190_templates(source: DictionarySource) -> dict[str, str]:
     return templates
 
 
+def _load_hc00a0_templates(source: DictionarySource) -> dict[str, str]:
+    templates: dict[str, str] = {}
+    for key in ("Header", "Detail"):
+        path = _resolve_package_relative(source, f"HTMLs/{key}.html")
+        if path is None:
+            continue
+        templates[key] = path.read_bytes().decode("cp932", errors="replace")
+    return templates
+
+
 def _add_hc009c_image_sources(source: DictionarySource, dict_out: Path, output_sources: dict[str, str]) -> int:
     copied = 0
     for dirname, prefix in (
@@ -2251,6 +2312,8 @@ def _prepare_hc_render_assets(
     html_templates: dict[str, str] = {}
     if renderer is not None and renderer.code.upper() == "0190":
         html_templates = _load_hc0190_templates(source)
+    if renderer is not None and renderer.code.upper() == "00A0":
+        html_templates = _load_hc00a0_templates(source)
     if renderer is not None and renderer.code.upper() == "009C":
         copied += _add_hc009c_image_sources(source, dict_out, output_sources)
     return output_sources, html_templates, stylesheet_output, copied
@@ -2268,10 +2331,264 @@ def _write_hc_html_footer(html_out: Any) -> None:
     html_out.write("</body>\n</html>\n")
 
 
+def _replace_template_values(template: str, replacements: dict[str, str]) -> str:
+    for key, value in replacements.items():
+        template = template.replace(key, value)
+    return template
+
+
+def _hc00a0_rewrite_asset_sources(fragment: str, options: HcRenderOptions) -> str:
+    def replace(match: re.Match[str]) -> str:
+        quote = match.group(1)
+        src = html.unescape(match.group(2))
+        if "/" in src or "\\" in src or ":" in src:
+            return match.group(0)
+        key = Path(src).stem.lower()
+        mapped = options.image_sources.get(key)
+        if mapped is None:
+            return match.group(0)
+        return f'src={quote}{_escape_attr(mapped)}{quote}'
+
+    return re.sub(r'src=(["\'])([^"\']+)\1', replace, fragment)
+
+
+def _hc00a0_extract_private_directive(text: str, stats: Counter[str]) -> str | None:
+    normalized = normalize_fullwidth_ascii(text).replace("：", ":")
+    match = re.search(r"<PlaySound>(?P<name>[^<]+)</PlaySound>", normalized, flags=re.IGNORECASE)
+    if not match:
+        return None
+    stats["hc00a0_play_sound_directives"] += 1
+    return match.group("name").strip()
+
+
+def _hc00a0_append_text(parts: list[str], text_parts: list[str], text: str) -> None:
+    parts.append(_escape_text(text))
+    text_parts.append(text)
+
+
+def _render_hc00a0_body(data: bytes, options: HcRenderOptions) -> HcRenderResult:
+    """Render HC00A0's phrase-detail template subset.
+
+    The decompiled DLL collects 1f09 sections into string slots and feeds
+    section 0001/0002 through HTMLs/Detail.html.  A private renderer directive
+    supplies the MP3 filename with a fullwidth ``<PlaySound>`` tag.
+    """
+
+    sections: dict[str, list[str]] = {}
+    section_text: dict[str, list[str]] = {}
+    current_section: str | None = None
+    style_stack: list[int] = []
+    halfwidth_depth = 0
+    stats: Counter[str] = Counter()
+    gaps: set[str] = set()
+    private_directives: list[dict[str, Any]] = []
+    play_sound: str | None = None
+
+    def parts_for(code: str | None) -> list[str]:
+        return sections.setdefault(code or "0000", [])
+
+    def text_for(code: str | None) -> list[str]:
+        return section_text.setdefault(code or "0000", [])
+
+    i = 0
+    while i < len(data):
+        byte = data[i]
+        if byte == 0:
+            i += 1
+            continue
+        if byte == 0x0A:
+            parts_for(current_section).append("<br>")
+            stats["line_breaks"] += 1
+            i += 1
+            continue
+        if byte == 0x1F and i + 1 < len(data):
+            op = data[i + 1]
+            arg_len = control_arg_length(data, i)
+            payload = data[i + 2 : i + 2 + arg_len]
+            stats["controls"] += 1
+            if len(payload) < arg_len:
+                stats["truncated_controls"] += 1
+                gaps.add(f"truncated_control_1f{op:02x}")
+                break
+            if op == 0x09:
+                current_section = payload.hex() if payload else "0000"
+                parts_for(current_section)
+                text_for(current_section)
+                stats["section_markers"] += 1
+                stats["hc00a0_sections_captured"] += 1
+                i += 2 + arg_len
+                continue
+            if op == 0x0A:
+                current_section = None
+                i += 2 + arg_len
+                continue
+            if op == 0x41 or op == 0x61:
+                stats["hc00a0_heading_controls"] += 1
+                i += 2 + arg_len
+                continue
+            if op == 0x04:
+                halfwidth_depth += 1
+                i += 2 + arg_len
+                continue
+            if op == 0x05:
+                halfwidth_depth = max(0, halfwidth_depth - 1)
+                i += 2 + arg_len
+                continue
+            if op in {0x06, 0x0E, 0x12, 0xE0}:
+                tag = {0x06: "sub", 0x0E: "sup", 0x12: "b", 0xE0: "b"}[op]
+                parts_for(current_section).append(f"<{tag}>")
+                style_stack.append(op)
+                i += 2 + arg_len
+                continue
+            if op in {0x07, 0x0F, 0x13, 0xE1}:
+                start_op = {0x07: 0x06, 0x0F: 0x0E, 0x13: 0x12, 0xE1: 0xE0}[op]
+                tag = {0x06: "sub", 0x0E: "sup", 0x12: "b", 0xE0: "b"}[start_op]
+                if start_op in style_stack:
+                    while style_stack:
+                        popped = style_stack.pop()
+                        popped_tag = {0x06: "sub", 0x0E: "sup", 0x12: "b", 0xE0: "b"}.get(popped)
+                        if popped_tag:
+                            parts_for(current_section).append(f"</{popped_tag}>")
+                        if popped == start_op:
+                            break
+                else:
+                    parts_for(current_section).append(f"</{tag}>")
+                i += 2 + arg_len
+                continue
+            if op == 0xE2:
+                end = data.find(b"\x1f\xe3", i + 2 + arg_len)
+                if end == -1:
+                    stats["private_directives"] += 1
+                    gaps.add("unterminated_private_directive")
+                    break
+                directive_bytes = data[i + 2 + arg_len : end]
+                chars: list[str] = []
+                j = 0
+                while j + 1 < len(directive_bytes):
+                    text = decode_jis_pair(directive_bytes[j : j + 2])
+                    if text:
+                        chars.append(text)
+                    j += 2
+                directive_text = "".join(chars)
+                play = _hc00a0_extract_private_directive(directive_text, stats)
+                if play:
+                    play_sound = play
+                private_directives.append(
+                    {
+                        "start_control": "1fe2",
+                        "end_control": "1fe3",
+                        "text_length": len(directive_text),
+                        "kind": "play_sound" if play else "renderer_private",
+                    }
+                )
+                stats["private_directives"] += 1
+                i = end + 2 + control_arg_length(data, end)
+                continue
+            if op in LINK_START_OPS | LINK_END_OPS | AUDIO_START_OPS | AUDIO_END_OPS | MEDIA_OPS:
+                stats["hc00a0_unsupported_inline_controls"] += 1
+                gaps.add(f"hc00a0_unimplemented_control_1f{op:02x}")
+                i += 2 + arg_len
+                continue
+            if op in VERTICAL_HINT_OPS | PRIVATE_RENDERER_DIRECTIVE_OPS | KNOWN_NONPRINTING_CONTROLS:
+                stats["nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+            stats["unknown_controls"] += 1
+            gaps.add(f"unknown_control_1f{op:02x}")
+            i += 2 + arg_len
+            continue
+
+        if i + 1 < len(data) and 0x21 <= byte <= 0x7E and 0x21 <= data[i + 1] <= 0x7E:
+            text = decode_jis_pair(data[i : i + 2])
+            if text:
+                stats["jis_pairs"] += 1
+                value = normalize_fullwidth_ascii(text) if halfwidth_depth else text
+                _hc00a0_append_text(parts_for(current_section), text_for(current_section), value)
+            else:
+                stats["invalid_jis_pairs"] += 1
+                gaps.add("invalid_jis_pair")
+            i += 2
+            continue
+
+        if i + 1 < len(data) and 0xA1 <= byte <= 0xFE:
+            key = f"{byte:02x}{data[i + 1]:02x}"
+            before = len(parts_for(current_section))
+            _append_gaiji_value(parts_for(current_section), text_for(current_section), key, options, stats)
+            if len(parts_for(current_section)) == before:
+                gaps.add(f"hc00a0_unresolved_gaiji_{key}")
+            i += 2
+            continue
+
+        stats["unknown_bytes"] += 1
+        i += 1
+
+    english_html = "".join(sections.get("0001", []))
+    japanese_html = "".join(sections.get("0002", []))
+    english_text = "".join(section_text.get("0001", []))
+    japanese_text = "".join(section_text.get("0002", []))
+    detail_no = Path(play_sound or "0000.mp3").stem
+    if not re.fullmatch(r"\d{4}", detail_no):
+        detail_no = "0000"
+    if play_sound is None:
+        gaps.add("hc00a0_missing_play_sound_directive")
+
+    replacements = {
+        "$$DISPLAY_MIDASHI$$": "none",
+        "$$MIDASHI$$": "",
+        "$$SUBMIDASHI$$": "",
+        "$$MODE_EJ$$": "1",
+        "$$MODE_E$$": "2",
+        "$$MODE_J$$": "2",
+        "$$MODE_ALL$$": "1",
+        "$$MODE_OK$$": "2",
+        "$$MODE_QU$$": "2",
+        "$$MODE_EX$$": "2",
+        "$$DISPLAY_DETAIL$$": "inline",
+        "$$DISPLAY_ENGLISH$$": "inline",
+        "$$DISPLAY_JAPANESE$$": "inline",
+        "$$DETAIL_PLAY$$": play_sound or "",
+        "$$DETAIL_PLAYNUM$$": "0",
+        "$$DETAIL_EX$$": "2",
+        "$$DETAIL_OK$$": "2",
+        "$$JAPANESE$$": japanese_html,
+        "$$ENGLISH$$": english_html,
+        "$$LINE_NO$$": detail_no,
+        "$$DETAIL_NO$$": detail_no,
+    }
+    header = _replace_template_values(options.html_templates.get("Header", HC00A0_HEADER_FALLBACK), replacements)
+    detail = _replace_template_values(options.html_templates.get("Detail", HC00A0_DETAIL_FALLBACK), replacements)
+    html_body = _hc00a0_rewrite_asset_sources(header + "\n" + detail, options)
+    stats["hc00a0_detail_rows"] += 1
+    if play_sound:
+        stats["hc00a0_audio_links"] += 1
+    plain = "\n".join(part for part in (english_text, japanese_text) if part)
+    return HcRenderResult(
+        html=f'<div class="lv-hc-render hc00a0">{html_body}</div>',
+        plain=plain,
+        stats=dict(stats),
+        audio=(
+            {
+                "target": {
+                    "component": "mp3",
+                    "resource_id": f"file:mp3/{play_sound}",
+                    "path": f"mp3/{play_sound}",
+                },
+                "status": "file_reference",
+            },
+        )
+        if play_sound
+        else (),
+        private_directives=tuple(private_directives),
+        named_behavior_gaps=tuple(sorted(gaps)),
+    )
+
+
 def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRenderResult:
     """Render one expanded HONMON body slice with common HC semantics."""
 
     options = options or HcRenderOptions()
+    if _renderer_code(options) == "00A0":
+        return _render_hc00a0_body(data, options)
     section_rules = _renderer_section_rules(options)
     active_section_image_rules: set[str] = set()
     root_parts: list[str] = []
@@ -4742,6 +5059,9 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
             body = reader.read(start, end - start)
             result = render_hc_body(body, options)
             totals.update(result.stats)
+            totals["rendered_links"] += len(result.links)
+            totals["rendered_media_references"] += len(result.media)
+            totals["rendered_audio_references"] += len(result.audio)
             named_gaps.update(result.named_behavior_gaps)
             record = {
                 "dict_id": source.dict_id,
@@ -4857,11 +5177,12 @@ def extract_hc_render_for_sources(args: argparse.Namespace) -> list[dict[str, An
 
     def log_summary(row: dict[str, Any]) -> None:
         stats = row.get("raw_honmon_stats") or {}
-        media_count = int(stats.get("media_placeholders", 0) or 0)
-        audio_count = int(stats.get("audio_links", 0) or 0)
+        media_count = int(stats.get("rendered_media_references", stats.get("media_placeholders", 0)) or 0)
+        audio_count = int(stats.get("rendered_audio_references", stats.get("audio_links", 0)) or 0)
+        link_count = int(stats.get("rendered_links", stats.get("links", 0)) or 0)
         print(
             f"{row['dict_id']:12s} hc_entries={row.get('raw_honmon_entries_emitted', 0):5d} "
-            f"links={stats.get('links', 0):5d} media={media_count:5d} audio={audio_count:5d} "
+            f"links={link_count:5d} media={media_count:5d} audio={audio_count:5d} "
             f"gaps={len(row.get('named_behavior_gaps') or [])}",
             file=sys.stderr,
         )

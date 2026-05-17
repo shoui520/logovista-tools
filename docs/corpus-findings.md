@@ -1146,10 +1146,10 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             35   HC013A, HC0065, HC009B, HC00B3, HC02C0, HC013C, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
-needs marker branch decode:          57
+decoded branch subsets:             36   HC013A, HC0065, HC009B, HC00B3, HC00A0, HC02C0, HC013C, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
+needs marker branch decode:          54
 common controls plus named gaps:     14
-common controls candidate verify:     1
+common controls candidate verify:     0
 exact-body sidecar HC hooks unprofiled: 5
 full product visual parity:           0
 ```
@@ -1530,6 +1530,17 @@ number gaiji inside a red span. Its `1f4a`/`1f6a` path also uses the
 implementation, not a string-only inference, and it remains visually incomplete
 until the product wrapper, section/layout state, and remaining custom hooks are
 validated.
+
+The GKBUSINE/GKTRAVEL branch-subset proof case is `HC00A0.dll`. Its phrase
+renderer uses `HTMLs/Header.html` and `HTMLs/Detail.html` as templates. The
+raw body loop stores `1f09` section `0001` as the English phrase slot and
+section `0002` as the Japanese phrase slot, while a fullwidth private
+`<PlaySound>####.mp3</PlaySound>` directive supplies a loose `mp3/` audio file
+reference. The implemented subset applies those template placeholders and
+rewrites package-local image references such as `sound.png` through the copied
+Template assets. The interactive SQL/menu path, plugin callbacks, user-data
+state, generated body-file lifecycle, and representative visual parity remain
+named gaps.
 
 The PROYAL43 branch-subset proof case is `HC0146.dll`. Its vertical body
 loop maps B232/B233 to a `color_font` delimiter pair, B240 to the literal

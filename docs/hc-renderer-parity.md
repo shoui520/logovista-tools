@@ -18,11 +18,11 @@ Parity is only promoted when the relevant DLL code path or branch table is under
 
 | Status | Families |
 |---|---:|
-| `common_controls_candidate_verify` | 1 |
+| `common_controls_candidate_verify` | 0 |
 | `common_controls_plus_named_hooks` | 14 |
 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | 5 |
-| `needs_marker_branch_decode` | 59 |
-| `decoded_branch_subset_visual_incomplete` | 33 |
+| `needs_marker_branch_decode` | 54 |
+| `decoded_branch_subset_visual_incomplete` | 36 |
 
 | Family | Families |
 |---|---:|
@@ -53,6 +53,7 @@ Decoded branch subsets currently implemented:
 - `HC012D.dll`: HC012D MEIKYOU2 section/layout and inline-image marker subset; representative package `_DCT_MEIKYOU2`; remaining gaps: custom DIB generation, modifyHeadword hooks, SQL/original-search helpers, exact yindex/ruigo script lifecycle, and representative visual parity.
 - `HC009B.dll`: HC009B GEN2001 honbun-margin section/layout subset; representative package `_DCT_GEN2001`; remaining gaps: fixed HTML/body fallback loading, custom DIB file generation, exact previous/next navigation footer generation, and representative visual parity.
 - `HC00B3.dll`: HC00B3 GEN2012 honbun-margin section/layout subset; representative package `_DCT_GEN2012`; implemented subset maps `1f09` heading/body/header/honbun state, `1f41` midashi ranges, `1f42`/`1f43` `lineLink` links, image-backed gaiji classes, and state-only `1f5c`/`1f6d`; remaining gaps: exact previous/next navigation footer generation, fixed HTML/body fallback loading, exact generated custom-bitmap output, and representative visual parity.
+- `HC00A0.dll`: HC00A0 phrase/detail template subset; representative package `_DCT_GKBUSINE`; implemented subset maps `1f09` section `0001` to the English detail slot, section `0002` to the Japanese detail slot, suppresses `1f41`/`1f61` heading wrappers used inside those slots, applies `HTMLs/Header.html` and `HTMLs/Detail.html` placeholders, rewrites package-local template image references, and resolves fullwidth private `<PlaySound>####.mp3</PlaySound>` directives to loose `mp3/` audio file references. Remaining gaps: interactive `lved.sql` menu/search generation, plugin lifecycle callbacks, user-data/play-count persistence, exact generated `body%d.html` lifecycle, and representative visual parity.
 - `HC014A.dll`: HC014A HKDKSR29 medical section/layout subset; representative package `_DCT_HKDKSR29`; remaining gaps: stateful `local_cc`/`local_fc` section modes, JIS-content-triggered section images, custom DIB generation, modifyHeadword, Panel hooks, SQL/search helpers, and representative visual parity.
 - `HC02C3.dll`: HC02C3 HKDKSR14 medical section/layout subset; representative package `_DCT_HKDKSR14`; it shares the same recovered medical branch grammar and stylesheet as HC014A; remaining gaps are the same stateful section modes, JIS-content-triggered section images, custom DIB generation, modifyHeadword, Panel hooks, SQL/search helpers, and representative visual parity.
 - `HC02C0.dll`: HC02C0 GEN2015 honbun-margin section/layout subset; representative package `_DCT_GEN2015`; implemented subset maps `1f09` heading/body/footer state, `1f41` midashi ranges, `1f42`/`1f43` `lineLink` links, `1fe2` `2331..2334` icon directives, image-backed gaiji classes, and state-only `B138`/`B14C`/`B14D`/`1f5c`/`1f6d`; remaining gaps: JIS-content-triggered `img_mark` branches, custom DIB generation, modifyHeadword, exact navigation footer generation, and representative visual parity.
@@ -129,7 +130,7 @@ The order below is heuristic. It weights package count, renderer-specific gaiji 
 | 5 | `HC02C4` | `4d2dd3f4ff6e` | `_DCT_GEN2016` | 2 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=15, tmpl=28, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | sample more entries; promote only additional recovered branches |
 | 6 | `HC00B3` | `74a23f0857ee` | `_DCT_GEN2012` | 2 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=1, tmpl=24, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `visual_parity_unverified` | sample more entries; promote only additional recovered branches |
 | 7 | `HC02C7` | `7ee0f7dfa370` | `_DCT_Gen2017` | 2 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=15, tmpl=28, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | sample more entries; promote only additional recovered branches |
-| 8 | `HC00A0` | `91289f09eb84` | `_DCT_GKBUSINE` | 2 | `common_controls_candidate_verify` | body-loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 8 | `HC00A0` | `91289f09eb84` | `_DCT_GKBUSINE` | 2 | `decoded_branch_subset_visual_incomplete` | body-loop, tmpl=2, sql_menu=Data000000Ax, play_sound_directive, section_control_seen_in_body_loop | `lved.sql_menu_hook`, `plugin_lifecycle_hook`, `user_data_hook`, `visual_parity_unverified` | sample GKTRAVEL and recover exact menu/plugin/user-state lifecycle |
 | 9 | `HC02CA` | `93ffe27c9ead` | `_DCT_GEN2019` | 2 | `needs_marker_branch_decode` | body-loop, gaiji=9, tmpl=28, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |
 | 10 | `HC0136` | `c9748b34a5ed` | `_DCT_GEN2013` | 2 | `needs_marker_branch_decode` | body-loop, gaiji=3, tmpl=39, section_control_seen_in_body_loop | none | map template hints to body-loop branches and compare representative entry |
 | 11 | `HC0048` | `d1d8bdb7b564` | `_DCT_SPEECH` | 2 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=11, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
