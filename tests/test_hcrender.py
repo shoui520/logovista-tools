@@ -1173,6 +1173,8 @@ def test_hc013d_maps_sections_to_drug_layout_classes() -> None:
         + jis_ascii("I")
         + b"\x1f\x09\x00\x41"
         + jis_ascii("S")
+        + b"\x1f\x09\x00\x42"
+        + jis_ascii("T")
     )
 
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="013D"))
@@ -1184,7 +1186,10 @@ def test_hc013d_maps_sections_to_drug_layout_classes() -> None:
     assert '<div class="medprice">' in rendered.html
     assert '<div class="medimage">' in rendered.html
     assert '<div class="indent41">' in rendered.html
-    assert rendered.stats["hc013d_section_blocks"] == 6
+    assert '<div class="indent42">' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert rendered.stats["hc013d_section_blocks"] == 7
+    assert rendered.stats["hc013d_midashi_state_sections"] == 1
 
 
 def test_hc013d_internal_links_use_line_link_class_and_1f6d_is_nonprinting() -> None:

@@ -1277,7 +1277,14 @@ HC013D_MED_SECTION_CLASSES = {
     "0015": ("div", ' class="mednamelist2"'),
     "0016": ("div", ' class="mednamelist3"'),
 }
-HC013D_INDENT_SECTION_CODES = {"0040", "0041", "0050", "0051", "0052", "0060", "0061"}
+HC013D_INDENT_SECTION_CODES = {
+    *(f"{value:04x}" for value in range(0x32, 0x46)),
+    "0050",
+    "0051",
+    "0052",
+    "0060",
+    "0061",
+}
 HC013D_TITLE_TRIGGER_SEQUENCES = {
     ("4a2c", "4e60"),
     ("3d68", "4a7d"),
@@ -3818,6 +3825,13 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         hc013d_section_close = section_close
                         if section_parts:
                             stats["hc013d_section_blocks"] += 1
+                        elif code == "0001":
+                            stats["hc013d_midashi_state_sections"] += 1
+                        else:
+                            stats["hc013d_unmapped_sections"] += 1
+                            gaps.add(f"hc013d_unmapped_section_{code}")
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "0144":
                         if hc0144_section_close is not None:
                             root.append(hc0144_section_close)
