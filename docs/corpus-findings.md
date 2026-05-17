@@ -1146,8 +1146,11 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             25   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC012F, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC0157, HC0158
-common semantics plus named gaps:    88
+decoded branch subsets:             26   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC0157, HC0158
+needs marker branch decode:          66
+common controls plus named gaps:     14
+common controls candidate verify:     1
+exact-body sidecar HC hooks unprofiled: 5
 full product visual parity:           0
 ```
 
@@ -1262,6 +1265,16 @@ template-backed gaiji use the product `img_gaiji` class. Previous/next
 navigation table scaffolding, custom DIB generation, `modifyHeadword`, exact
 vertical fallbacks, and broader visual parity remain named gaps, so exact
 HC012F visual parity is not claimed.
+
+The KQEBHOU branch-subset proof case is `HC0131.dll`. Its vertical body loop
+uses `1f41`/`1f61` for the product `midashi` block, maps recovered `1f09`
+sections to `content_IND*` and `contents` containers, injects the `b132.png`
+marker in section `0012` when the stream did not already carry it, maps
+`1f06`/`1f07` to `sizedown` subscript spans, uses `lineLink` for internal
+links, and renders template-backed gaiji with the product `img_gaiji` class.
+Exact conditional HR/state transitions, custom DIB generation, SQL search
+hooks, `modifyHeadword`, vertical color-variant image generation, and broader
+visual parity remain named gaps, so exact HC0131 visual parity is not claimed.
 
 The ninth branch-subset proof case is `HC012E.dll`. Its vertical body loop
 uses package-local `Gaijitemp/` image resources for most kanji-form glyphs.

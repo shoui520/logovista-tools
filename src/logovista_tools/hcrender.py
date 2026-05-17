@@ -568,6 +568,21 @@ HC012F_TEMPLATE_GAIJI_MARKERS = frozenset(
 )
 HC012F_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x61}
 
+HC0131_SECTION_CLASSES = {
+    "0004": "content_IND4",
+    "0005": "content_IND5",
+    "0006": "content_IND6",
+    "000a": "content_IND10",
+    "000b": "content_IND11",
+    "000c": "content_IND12",
+    "000e": "content_IND14",
+    "000f": "content_IND15",
+    "0011": "contents",
+    "0012": "content_IND18",
+}
+HC0131_SECTION_HR_CODES = {"0004", "0006", "000e"}
+HC0131_NONPRINTING_CONTROL_OPS = {0x4C, 0x6D}
+
 HC02C2_ICON_SECTION_IMAGES = {
     "0007": "1.png",
     "0008": "2.png",
@@ -964,7 +979,7 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
             return "lv-hc-link Link"
         if start_op == 0x43:
             return "lv-hc-link lineLink"
-    if _renderer_code(options) in {"012F", "0142", "02BF", "02C1"} and start_op in {0x42, 0x43}:
+    if _renderer_code(options) in {"012F", "0131", "0142", "02BF", "02C1"} and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
     if _renderer_code(options) in {"009C", "009D", "012D", "013D", "0141", "0144", "0145", "02C2", "03E8"} and start_op in {
         0x42,
@@ -991,6 +1006,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "012F" and op == 0x06:
         return ("span", ' class="sizedown"')
+    if _renderer_code(options) == "0131" and op == 0x04:
+        return ("span", ' class="hankaku"')
     if _renderer_code(options) == "0151" and op == 0x04:
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "0142" and op == 0x04:
@@ -1031,6 +1048,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
 def _style_close_tag(start_op: int, options: HcRenderOptions) -> str | None:
     if _renderer_code(options) == "0142" and start_op == 0x10:
         return "label"
+    if _renderer_code(options) == "0131" and start_op == 0x41:
+        return "div"
     spec = _style_start_spec(start_op, options)
     return spec[0] if spec else None
 
@@ -1296,6 +1315,7 @@ def _append_gaiji_value(
             "009D",
             "012E",
             "012F",
+            "0131",
             "013D",
             "0141",
             "0144",
@@ -1480,6 +1500,24 @@ def _hc012f_bunnya_image_html(key: str, options: HcRenderOptions) -> str:
     src = options.image_sources.get(stem.lower()) or options.image_sources.get(fallback.lower()) or fallback
     css_class = "img_bunnya_V" if options.vertical else "img_bunnya"
     return f'<img src="{_escape_attr(src)}" class="{css_class}">'
+
+
+def _hc0131_image_tag(image_name: str, css_class: str, options: HcRenderOptions) -> str:
+    stem = image_name.rsplit(".", 1)[0].lower()
+    src = options.image_sources.get(stem) or options.image_sources.get(image_name.lower()) or image_name
+    return f'<img src="{_escape_attr(src)}" class="{_escape_attr(css_class)}">'
+
+
+def _hc0131_section_parts(code: str, data: bytes, offset: int, options: HcRenderOptions) -> tuple[list[str], str | None]:
+    css_class = HC0131_SECTION_CLASSES.get(code)
+    if css_class is None:
+        return [], None
+    parts = [f'<div class="{css_class}">']
+    if code in HC0131_SECTION_HR_CODES:
+        parts.append('<HR style="border-style: dotted;">')
+    if code == "0012" and _jis_key_at(data, offset + 4) != "b132":
+        parts.append(_hc0131_image_tag("b132_V.png" if options.vertical else "b132.png", "img_gaiji", options))
+    return parts, "</div>"
 
 
 def _hc012d_honbun_starts_with_marker(data: bytes, control_offset: int) -> bool:
@@ -2033,6 +2071,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc03e8_section_close: str | None = None
     hc012f_section_close: str | None = None
     hc012f_current_section: str | None = None
+    hc0131_section_close: str | None = None
     hc012e_section_close: str | None = None
     hc012e_current_section: str | None = None
     hc02c1_section_close: str | None = None
@@ -2277,6 +2316,20 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats["hc012f_link_icon_sections"] += 1
                         i += 2 + arg_len
                         continue
+                    if _renderer_code(options) == "0131":
+                        if hc0131_section_close is not None:
+                            root.append(hc0131_section_close)
+                            hc0131_section_close = None
+                        section_parts, hc0131_section_close = _hc0131_section_parts(code, data, i, options)
+                        root.extend(section_parts)
+                        if section_parts:
+                            stats["hc0131_section_blocks"] += 1
+                        else:
+                            stats["hc0131_state_sections"] += 1
+                        if code == "0012":
+                            stats["hc0131_content_ind18_sections"] += 1
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "02C1":
                         if hc02c1_moji_down_open:
                             root.append("</p>")
@@ -2454,6 +2507,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         hc012f_section_close = None
                     i += 2 + arg_len
                     continue
+                if _renderer_code(options) == "0131":
+                    if hc0131_section_close is not None:
+                        _current_parts(root_parts, contexts).append(hc0131_section_close)
+                        hc0131_section_close = None
+                    else:
+                        _current_parts(root_parts, contexts).append("<br>")
+                        stats["line_breaks"] += 1
+                    i += 2 + arg_len
+                    continue
                 if _renderer_code(options) == "02C1":
                     if hc02c1_moji_down_open:
                         _current_parts(root_parts, contexts).append("</p>")
@@ -2560,6 +2622,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if _renderer_code(options) == "0131" and op in HC0131_NONPRINTING_CONTROL_OPS:
+                stats["hc0131_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
             if _renderer_code(options) == "012D" and op in HC012D_NONPRINTING_CONTROL_OPS:
                 stats["hc012d_nonprinting_controls"] += 1
                 i += 2 + arg_len
@@ -2629,6 +2696,48 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "0065" and op in HC0065_NONPRINTING_CONTROL_OPS:
                 stats["hc0065_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0131" and op == 0x41:
+                _current_parts(root_parts, contexts).append('<div class="midashi">')
+                style_stack.append(op)
+                stats["headings"] += 1
+                stats["hc0131_heading_blocks"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0131" and op == 0x61:
+                if 0x41 in style_stack:
+                    while style_stack:
+                        popped = style_stack.pop()
+                        if popped == 0x41:
+                            _current_parts(root_parts, contexts).append("</div>")
+                            break
+                        close_tag = _style_close_tag(popped, options)
+                        if close_tag:
+                            _current_parts(root_parts, contexts).append(f"</{close_tag}>")
+                stats["hc0131_heading_closures"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0131" and op == 0x06:
+                _current_parts(root_parts, contexts).append('<span class="sizedown"><sub>')
+                style_stack.append(op)
+                stats["hc0131_sizedown_spans"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0131" and op == 0x07:
+                if 0x06 in style_stack:
+                    while style_stack:
+                        popped = style_stack.pop()
+                        if popped == 0x06:
+                            _current_parts(root_parts, contexts).append("</sub></span>")
+                            break
+                        close_tag = _style_close_tag(popped, options)
+                        if close_tag:
+                            _current_parts(root_parts, contexts).append(f"</{close_tag}>")
                 i += 2 + arg_len
                 continue
 
@@ -3239,6 +3348,14 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 stats["hc012f_template_gaiji"] += 1
                 i += 2
                 continue
+            if _renderer_code(options) == "0131":
+                image_src = _image_source_for_key(key, options)
+                if image_src is not None:
+                    css_class = "img_gaiji_V" if options.vertical else "img_gaiji"
+                    _append_renderer_image_gaiji(_current_parts(root_parts, contexts), key, image_src, css_class, stats)
+                    stats["hc0131_template_gaiji"] += 1
+                    i += 2
+                    continue
             if _renderer_code(options) == "02C2" and key in HC02C2_TEMPLATE_IMAGE_MARKERS:
                 image_src = _image_source_for_key(key, options)
                 if image_src is not None:
@@ -3739,7 +3856,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         i += 1
 
     while style_stack:
-        close_tag = _style_close_tag(style_stack.pop(), options)
+        popped = style_stack.pop()
+        if _renderer_code(options) == "0131" and popped == 0x06:
+            _current_parts(root_parts, contexts).append("</sub></span>")
+            continue
+        close_tag = _style_close_tag(popped, options)
         if close_tag:
             _current_parts(root_parts, contexts).append(f"</{close_tag}>")
     while hc0158_marker_stack:
@@ -3835,6 +3956,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc012e_section_close)
     if hc012f_section_close is not None:
         _current_parts(root_parts, contexts).append(hc012f_section_close)
+    if hc0131_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc0131_section_close)
     if hc02c1_moji_down_open:
         _current_parts(root_parts, contexts).append("</p>")
     if hc02c1_section_close is not None:

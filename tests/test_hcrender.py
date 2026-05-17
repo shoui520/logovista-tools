@@ -441,6 +441,50 @@ def test_hc012f_sizedown_and_template_gaiji_use_product_classes() -> None:
     assert rendered.stats["hc012f_template_gaiji"] == 1
 
 
+def test_hc0131_maps_midashi_sections_and_template_gaiji() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_fullwidth_ascii("A")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x04"
+        + jis_fullwidth_ascii("1")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x12"
+        + jis_fullwidth_ascii("E")
+        + b"\x1f\x0a"
+        + b"\xb1\x32",
+        HcRenderOptions(renderer_code="0131", image_sources={"b132": "Templates/b132.png"}),
+    )
+
+    assert '<div class="midashi">Ａ</div>' in rendered.html
+    assert '<div class="content_IND4"><HR style="border-style: dotted;">' in rendered.html
+    assert '<div class="content_IND18"><img src="Templates/b132.png" class="img_gaiji">' in rendered.html
+    assert '<img class="lv-hc-gaiji img_gaiji" src="Templates/b132.png"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.stats["hc0131_heading_blocks"] == 1
+    assert rendered.stats["hc0131_section_blocks"] == 2
+    assert rendered.stats["hc0131_content_ind18_sections"] == 1
+    assert rendered.stats["hc0131_template_gaiji"] == 1
+
+
+def test_hc0131_sizedown_and_link_class() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x06"
+        + jis_fullwidth_ascii("S")
+        + b"\x1f\x07"
+        + b"\x1f\x42"
+        + jis_fullwidth_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x12\x00\x34",
+        HcRenderOptions(renderer_code="0131"),
+    )
+
+    assert '<span class="sizedown"><sub>Ｓ</sub></span>' in rendered.html
+    assert '<a class="lv-hc-link lineLink"' in rendered.html
+    assert rendered.stats["hc0131_sizedown_spans"] == 1
+
+
 def test_hc012d_maps_midashi_honbun_and_yorei_sections() -> None:
     rendered = render_hc_body(
         b"\x1f\x09\x00\x01"
@@ -2222,6 +2266,36 @@ def test_hc012f_profile_records_bunnya_subset_without_claiming_parity() -> None:
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
+
+
+def test_hc0131_profile_records_kqebhou_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0131.dll"),
+        code="0131",
+        expected_numeric_index="00000131.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/00000131.css",),
+        sql_snippets=("SELECT ...",),
+        image_templates=("Templates/b132.png",),
+        features={"custom_gaiji_dib": True, "headword_modifier": True, "sql_hooks": True, "vertical_renderer": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC0131_kqebhou_section_and_template_gaiji" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+    assert "sql_hook" in data["named_gaps"]
 
 
 def test_hc013d_profile_records_drug_layout_subset_without_claiming_parity() -> None:

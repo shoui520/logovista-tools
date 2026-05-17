@@ -388,6 +388,32 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "0131":
+        rows.append(
+            HcHookBehavior(
+                name="kqebhou_section_and_template_gaiji",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0131 epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    "HC0131 1f41/1f61 midashi branch",
+                    "HC0131 1f06/1f07 sizedown subscript branch",
+                    "HC0131 template gaiji filename branches for %04x[_W][_C][_V].png",
+                    "Templates/00000131.css and Templates/b132.png resource paths",
+                ),
+                implementation=(
+                    "1f41/1f61 render midashi blocks, recovered 1f09 content_IND and "
+                    "contents sections are consumed into product classes, section 0012 "
+                    "injects the b132 marker image when the stream did not already carry "
+                    "it, 1f06/1f07 render sizedown subscript spans, internal links use "
+                    "lineLink, and template-backed gaiji use the product image class"
+                ),
+                notes=(
+                    "The subset excludes exact conditional HR/state transitions, custom "
+                    "DIB generation, SQL search hooks, modifyHeadword, and exact vertical "
+                    "color-variant image generation."
+                ),
+            )
+        )
     if code == "012D":
         rows.append(
             HcHookBehavior(
@@ -862,6 +888,8 @@ def build_hc_behavior_profile(
         implemented.add("HC012E_kanji_layout_and_gaijitemp_markers")
     if code == "012F":
         implemented.add("HC012F_bunnya_section_and_template_gaiji")
+    if code == "0131":
+        implemented.add("HC0131_kqebhou_section_and_template_gaiji")
     if code == "012D":
         implemented.add("HC012D_section_and_inline_image_markers")
     if code == "0145":

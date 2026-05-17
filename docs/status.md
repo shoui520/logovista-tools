@@ -471,10 +471,19 @@ and non-SSED reader status are tracked separately in
   opens `sizedown`; and template-backed gaiji use `img_gaiji`. Custom DIB
   generation, `modifyHeadword`, previous/next navigation tables, and exact
   vertical fallback details remain incomplete.
+- `HC0131.dll` now has a focused raw-HONMON branch-subset proof for KQEBHOU:
+  `1f41`/`1f61` render `midashi` blocks, recovered `1f09` sections map to
+  `content_IND*`/`contents` containers, section `0012` inserts the recovered
+  `b132.png` marker when the stream did not already carry it, `1f06`/`1f07`
+  render `sizedown` subscript spans, internal links use `lineLink`, and
+  template-backed gaiji use `img_gaiji`. Exact conditional HR/state
+  transitions, custom DIB generation, SQL search hooks, `modifyHeadword`, and
+  vertical color-variant image generation remain incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
   exact SHA-256 renderer binaries. HC013A, HC0065, HC009D, HC00C6, HC012D,
-  HC012E, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8,
-  HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC012F, HC0157, and HC0158
+  HC012E, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5,
+  HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF,
+  HC012F, HC0157, and HC0158
   currently have decoded branch subsets, not full HC parity.
   Other branch tables remain named gaps until their output constants and product
   data paths are understood.
