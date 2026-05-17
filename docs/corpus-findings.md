@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             36   HC013A, HC0065, HC009B, HC00B3, HC00A0, HC02C0, HC013C, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
-needs marker branch decode:          54
+decoded branch subsets:             37   HC013A, HC0065, HC009B, HC00B3, HC00A0, HC02C0, HC013C, HC02CA, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
+needs marker branch decode:          53
 common controls plus named gaps:     14
 common controls candidate verify:     0
 exact-body sidecar HC hooks unprofiled: 5
@@ -1540,6 +1540,16 @@ reference. The implemented subset applies those template placeholders and
 rewrites package-local image references such as `sound.png` through the copied
 Template assets. The interactive SQL/menu path, plugin callbacks, user-data
 state, generated body-file lifecycle, and representative visual parity remain
+named gaps.
+
+The GEN2019 branch-subset proof case is `HC02CA.dll`. Its body loop follows
+the margin-based GEN renderer shape: `1f09` section `0001` is heading state,
+body sections open `honbun` margin containers, section `000c` opens `footer`,
+`1f41`/`1f61` wrap `midashi`, and internal links use `lineLink`. The recovered
+marker branches render `1fe2` `2331..2334` as `img_icon` templates,
+`B12D`/`B12E`/`B12F` as `img_mark` templates, consume `B130`/`B131` as
+renderer state, and emit U+20BB7 for `B135`. Custom DIB generation,
+`modifyHeadword`, exact navigation footer generation, and visual parity remain
 named gaps.
 
 The PROYAL43 branch-subset proof case is `HC0146.dll`. Its vertical body
