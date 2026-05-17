@@ -801,6 +801,7 @@ def test_hc0144_maps_sections_and_consumes_heading_state() -> None:
         + jis_ascii("S")
         + b"\x1f\x09\x00\x08"
         + jis_ascii("C")
+        + b"\x1f\x09\x00\x40"
     )
 
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="0144"))
@@ -813,7 +814,9 @@ def test_hc0144_maps_sections_and_consumes_heading_state() -> None:
     assert "lv-hc-section" not in rendered.html
     assert "lv-hc-heading" not in rendered.html
     assert "unknown_control_1f41" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc0144_state_sections"] == 1
     assert rendered.stats["hc0144_nonprinting_controls"] == 1
+    assert "hc0144_unmapped_section_0040" not in rendered.named_behavior_gaps
 
 
 def test_hc0144_marker_subset_matches_decompiled_branch_table() -> None:
@@ -863,6 +866,7 @@ def test_hc03e8_maps_sections_and_consumes_heading_state() -> None:
         + jis_ascii("P")
         + b"\x1f\x09\x00\x08"
         + jis_ascii("C")
+        + b"\x1f\x09\x00\x40"
     )
 
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="03E8"))
@@ -874,7 +878,9 @@ def test_hc03e8_maps_sections_and_consumes_heading_state() -> None:
     assert "lv-hc-heading" not in rendered.html
     assert "unknown_control_1f41" not in rendered.named_behavior_gaps
     assert rendered.stats["hc03e8_section_blocks"] == 3
+    assert rendered.stats["hc03e8_state_sections"] == 1
     assert rendered.stats["hc03e8_nonprinting_controls"] == 1
+    assert "hc03e8_unmapped_section_0040" not in rendered.named_behavior_gaps
 
 
 def test_hc03e8_marker_subset_matches_decompiled_branch_table() -> None:
@@ -925,6 +931,7 @@ def test_hc0141_maps_sections_and_consumes_heading_state() -> None:
         + jis_ascii("P")
         + b"\x1f\x09\x00\x08"
         + jis_ascii("C")
+        + b"\x1f\x09\x00\x40"
     )
 
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="0141"))
@@ -932,10 +939,13 @@ def test_hc0141_maps_sections_and_consumes_heading_state() -> None:
     assert '<div class="midashi">' in rendered.html
     assert '<div class="honbun" style="margin-left:2.000000em;">' in rendered.html
     assert '<div class="contents" style="text-indent:0em;">' in rendered.html
+    assert "lv-hc-section" not in rendered.html
     assert "lv-hc-heading" not in rendered.html
     assert "unknown_control_1f41" not in rendered.named_behavior_gaps
     assert rendered.stats["hc0141_section_blocks"] == 3
+    assert rendered.stats["hc0141_state_sections"] == 1
     assert rendered.stats["hc0141_nonprinting_controls"] == 1
+    assert "hc0141_unmapped_section_0040" not in rendered.named_behavior_gaps
 
 
 def test_hc0141_marker_subset_matches_decompiled_branch_table() -> None:

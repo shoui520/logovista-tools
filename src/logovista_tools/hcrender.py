@@ -2408,6 +2408,15 @@ def _hc0145_section_close_for_parts(parts: list[str]) -> str | None:
     return None
 
 
+def _hc0145_section_is_known_state(code: str) -> bool:
+    value = _hc0145_section_value(code)
+    if value is None:
+        return False
+    if value == 9999:
+        return True
+    return value % 10 == 0
+
+
 def _hc0144_section_parts(code: str) -> list[str]:
     return _hc0145_section_parts(code)
 
@@ -3841,6 +3850,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         hc0144_section_close = _hc0144_section_close_for_parts(section_parts)
                         if section_parts:
                             stats["hc0144_section_blocks"] += 1
+                        elif _hc0145_section_is_known_state(code):
+                            stats["hc0144_state_sections"] += 1
                         else:
                             stats["hc0144_unmapped_sections"] += 1
                             gaps.add(f"hc0144_unmapped_section_{code}")
@@ -3855,6 +3866,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         hc0145_section_close = _hc0145_section_close_for_parts(section_parts)
                         if section_parts:
                             stats["hc0145_section_blocks"] += 1
+                        elif _hc0145_section_is_known_state(code):
+                            stats["hc0145_state_sections"] += 1
                         else:
                             stats["hc0145_unmapped_sections"] += 1
                             gaps.add(f"hc0145_unmapped_section_{code}")
@@ -3869,6 +3882,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         hc03e8_section_close = _hc03e8_section_close_for_parts(section_parts)
                         if section_parts:
                             stats["hc03e8_section_blocks"] += 1
+                        elif _hc0145_section_is_known_state(code):
+                            stats["hc03e8_state_sections"] += 1
                         else:
                             stats["hc03e8_unmapped_sections"] += 1
                             gaps.add(f"hc03e8_unmapped_section_{code}")
@@ -3883,6 +3898,13 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         hc0141_section_close = _hc0141_section_close_for_parts(section_parts)
                         if section_parts:
                             stats["hc0141_section_blocks"] += 1
+                        elif _hc0145_section_is_known_state(code):
+                            stats["hc0141_state_sections"] += 1
+                        else:
+                            stats["hc0141_unmapped_sections"] += 1
+                            gaps.add(f"hc0141_unmapped_section_{code}")
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "012E":
                         if code == "0054":
                             if hc012e_section_close is not None:
