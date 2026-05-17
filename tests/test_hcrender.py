@@ -405,6 +405,28 @@ def test_hc012e_renders_color_size_direct_image_and_literal_markers() -> None:
     assert rendered.stats["hc012e_literal_markers"] == 1
 
 
+def test_hc012e_ignores_unmatched_style_close_marker() -> None:
+    rendered = render_hc_body(
+        b"\xb2\x42" + jis_ascii("T"),
+        HcRenderOptions(renderer_code="012E"),
+    )
+
+    assert "</span><span" not in rendered.html
+    assert rendered.html.count("<span") == rendered.html.count("</span>")
+    assert rendered.stats["hc012e_unmatched_style_markers"] == 1
+
+
+def test_hc012e_explicit_column_close_does_not_double_close_section() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x53" + jis_ascii("C") + b"\x1f\x09\x00\x54" + jis_ascii("T"),
+        HcRenderOptions(renderer_code="012E"),
+    )
+
+    assert '<div class="column_Tsukaiwake">' in rendered.html
+    assert rendered.html.count("<div") == rendered.html.count("</div>")
+    assert rendered.stats["hc012e_explicit_section_closures"] == 1
+
+
 def test_hc012e_treats_1f6d_as_nonprinting_renderer_control() -> None:
     rendered = render_hc_body(jis_ascii("A") + b"\x1f\x6d" + jis_ascii("B"), HcRenderOptions(renderer_code="012E"))
 

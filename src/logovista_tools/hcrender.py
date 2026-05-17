@@ -2185,8 +2185,6 @@ def _hc012e_section_parts(code: str, options: HcRenderOptions) -> list[str]:
         return ['<div class="exam" style="margin-left:0.000000em; margin-top:0.5em; margin-bottom:0.5em; margin-right:0.5em;">']
     if code == "0053":
         return ['<div class="column_Tsukaiwake">']
-    if code == "0054":
-        return ["</div>"]
     if code == "005a":
         return ["<br>", _hc012e_honbun_div()]
     return []
@@ -3851,6 +3849,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         if section_parts:
                             stats["hc0141_section_blocks"] += 1
                     if _renderer_code(options) == "012E":
+                        if code == "0054":
+                            if hc012e_section_close is not None:
+                                root.append(hc012e_section_close)
+                                hc012e_section_close = None
+                                stats["hc012e_explicit_section_closures"] += 1
+                            else:
+                                stats["hc012e_unmatched_section_closures"] += 1
+                            hc012e_current_section = code
+                            i += 2 + arg_len
+                            continue
                         if hc012e_section_close is not None:
                             root.append(hc012e_section_close)
                             hc012e_section_close = None
@@ -5778,7 +5786,6 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     if hc012e_marker_stack and hc012e_marker_stack[-1][0] == key:
                         parts.append(hc012e_marker_stack.pop()[1])
                     else:
-                        parts.append("</span>")
                         stats["hc012e_unmatched_style_markers"] += 1
                     stats["hc012e_style_markers"] += 1
                     i += 2
