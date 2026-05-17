@@ -870,6 +870,7 @@ def test_hc03e8_maps_sections_and_consumes_heading_state() -> None:
     assert '<div class="midashi">' in rendered.html
     assert '<div class="honbun" style="margin-left:2.000000em;">' in rendered.html
     assert '<div class="contents" style="text-indent:0em;">' in rendered.html
+    assert "lv-hc-section" not in rendered.html
     assert "lv-hc-heading" not in rendered.html
     assert "unknown_control_1f41" not in rendered.named_behavior_gaps
     assert rendered.stats["hc03e8_section_blocks"] == 3
