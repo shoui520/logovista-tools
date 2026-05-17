@@ -2781,6 +2781,32 @@ def test_hc0146_renders_abbreviation_marker_as_literal_text() -> None:
     assert rendered.stats["hc0146_literal_markers"] == 1
 
 
+def test_hc0146_maps_common_body_sections_and_links() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x99\x99"
+        + b"\x1f\x09\x01\x80"
+        + jis_text("本文")
+        + b"\x1f\x0a"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x03\x00\x40"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0146"))
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<div class="honbun" style="margin-left:0.000000em;">本文</div>' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.stats["hc0146_state_sections"] == 2
+    assert rendered.stats["hc0146_honbun_sections"] == 1
+
+
 def test_hc_render_assets_copy_images_and_normalise_product_css(tmp_path: Path) -> None:
     package = tmp_path / "_DCT_TEST"
     templates = package / "Templates"

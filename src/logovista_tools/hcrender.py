@@ -353,6 +353,15 @@ HC0157_SIMPLE_SECTION_CLASSES = {
     4: "textline gogi_je",
 }
 
+
+def _hc0146_section_value(code: str) -> int | None:
+    try:
+        if code.isdigit():
+            return int(code, 10)
+        return int(code, 16)
+    except ValueError:
+        return None
+
 HC0158_OPEN_MARKERS: dict[str, tuple[str, str, str]] = {
     # These B3xx values are not display glyphs for HC0158. The DLL maps them
     # directly to CSS spans while normal image gaiji such as B253/B347 still
@@ -1460,6 +1469,7 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
             "0136",
             "013C",
             "0142",
+            "0146",
             "0147",
             "0157",
             "02BF",
@@ -1603,9 +1613,9 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return None
     if op == 0x41 and _renderer_code(options) == "00C6":
         return None
-    if op == 0x41 and _renderer_code(options) == "0157":
+    if op == 0x41 and _renderer_code(options) in {"0146", "0157"}:
         return ("div", ' class="midashi"')
-    if op == 0x41 and _renderer_code(options) in {"0146", "0158"}:
+    if op == 0x41 and _renderer_code(options) == "0158":
         return ("span", ' class="lv-hc-heading midashi"')
     return STYLE_START_TAGS.get(op)
 
@@ -3314,6 +3324,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0151_table_open = False
     hc0151_contents_open = False
     hc0151_small_depth = 0
+    hc0146_section_close: str | None = None
     hc0157_section_close: str | None = None
     hc0157_group_close: str | None = None
     hc0142_honbun_open = False
@@ -3552,6 +3563,21 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         stats["hc00ac_honbun_sections"] += 1
                         i += 2 + arg_len
                         continue
+                    if _renderer_code(options) == "0146":
+                        if hc0146_section_close is not None:
+                            root.append(hc0146_section_close)
+                            hc0146_section_close = None
+                        value = _hc0146_section_value(code)
+                        if value in {1, 9999, 730}:
+                            stats["hc0146_state_sections"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if value is not None:
+                            root.append('<div class="honbun" style="margin-left:0.000000em;">')
+                            hc0146_section_close = "</div>"
+                            stats["hc0146_honbun_sections"] += 1
+                            i += 2 + arg_len
+                            continue
                     if _renderer_code(options) == "0157":
                         if hc0157_section_close is not None:
                             root.append(hc0157_section_close)
@@ -4138,6 +4164,17 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         parts.append(hc0132_section_close)
                         hc0132_section_close = None
                         stats["hc0132_section_closures"] += 1
+                    else:
+                        parts.append("<br>")
+                        stats["line_breaks"] += 1
+                    i += 2 + arg_len
+                    continue
+                if _renderer_code(options) == "0146":
+                    parts = _current_parts(root_parts, contexts)
+                    if hc0146_section_close is not None:
+                        parts.append(hc0146_section_close)
+                        hc0146_section_close = None
+                        stats["hc0146_section_closures"] += 1
                     else:
                         parts.append("<br>")
                         stats["line_breaks"] += 1
@@ -6571,6 +6608,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc0132_section_close)
     if hc0132_honbun_open:
         _current_parts(root_parts, contexts).append("</div>")
+    if hc0146_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc0146_section_close)
     if hc0157_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0157_section_close)
     if hc0157_group_close is not None:

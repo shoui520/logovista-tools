@@ -1198,13 +1198,15 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 name="proyal43_inline_marker_gaiji",
                 status="branch_subset_implemented",
                 evidence=(
+                    "HC0146 epwing2HtmlBodydataVertical 1f09 body-section branch",
                     "HC0146 epwing2HtmlBodydataVertical B232/B233 color-font branches",
                     "HC0146 B157-B159, B25A-B351, B23B, and B357-B424 image-template branches",
                     "Templates/00000146.css class definitions",
                 ),
                 implementation=(
-                    "B232/B233 color_font delimiter pair, B240 literal abbreviation label, "
-                    "nonprinting template selectors, and classed image gaiji templates"
+                    "1f09 ordinary body sections render as HC0146 honbun blocks, B232/B233 "
+                    "color_font delimiter pair, B240 literal abbreviation label, nonprinting "
+                    "template selectors, and classed image gaiji templates"
                 ),
                 notes="The implementation covers branches whose destination template is recovered from the body loop and package CSS; unresolved BSS-backed open spans remain named gaps.",
             )
@@ -1505,6 +1507,7 @@ def build_hc_behavior_profile(
         implemented.add("HC0142_panel_body_marker_layout")
     if code == "0146":
         implemented.add("HC0146_inline_marker_gaiji")
+        implemented.add("HC0146_common_honbun_section_blocks")
     if code == "0158":
         implemented.add("HC0158_inline_style_gaiji")
         implemented.add("HC0158_sound_icon_audio_link")
