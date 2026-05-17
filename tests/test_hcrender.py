@@ -955,6 +955,40 @@ def test_hc009c_table_marker_outputs_balanced_product_table() -> None:
     assert rendered.stats["hc009c_table_markers"] == 1
 
 
+def test_hc009b_maps_header_honbun_links_and_template_gaiji() -> None:
+    body = (
+        b"\x1f\x09\x00\x0c"
+        + b"\x1f\x41"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_ascii("B")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\xb1\x21"
+        + b"\x1f\x6d"
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="009B", image_sources={"b121": "b121.gif"}),
+    )
+
+    assert '<div class="header"><div class="midashi">Ｈ</div></div>' in rendered.html
+    assert '<div class="honbun" style="margin-top:12px">' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert '<img class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji"' in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert "lv-hc-section" not in rendered.html
+    assert rendered.stats["hc009b_section_header"] == 1
+    assert rendered.stats["hc009b_section_honbun"] == 1
+    assert rendered.stats["hc009b_nonprinting_controls"] == 1
+
+
 def test_hc009c_asset_preparation_copies_thumbnail_and_icon_dirs(tmp_path: Path) -> None:
     package = tmp_path / "_DCT_SESGRASS"
     package.mkdir()
@@ -2004,6 +2038,34 @@ def test_hc0065_profile_records_midashi_subset_without_claiming_parity() -> None
     assert data["exact_hc_parity"] is False
     assert "sql_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
+
+
+def test_hc009b_profile_records_honbun_margin_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC009B.dll"),
+        code="009B",
+        expected_numeric_index="0000009B.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("%sHTMLs\\%d-%d.html", "%s\\body%d.html"),
+        sql_snippets=(),
+        image_templates=("<img src=\"%4x.gif\" class=\"img_gaiji\">",),
+        features={"uses_picture_api": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC009B_honbun_margin_sections" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "block_offset_htmls_template" in data["named_gaps"]
 
 
 def test_hc009d_profile_records_kakomi_subset_without_claiming_parity() -> None:

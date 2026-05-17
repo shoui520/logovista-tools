@@ -342,6 +342,26 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset does not emulate stateful local_cc/local_fc branches, JIS-content-triggered section images, custom DIB generation, modifyHeadword, panel hooks, or product SQL helpers.",
             )
         )
+    if code == "009B":
+        rows.append(
+            HcHookBehavior(
+                name="gen2001_honbun_margin_sections",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC009B epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    "HC009B 1f41 midashi branch",
+                    "HC009B 1f42/1f43 lineLink branch",
+                    "HC009B image gaiji template branch",
+                ),
+                implementation=(
+                    "1f09 sections open honbun margin containers or header blocks, "
+                    "1f0a closes the active section, 1f41/1f61 wrap midashi text, "
+                    "1f42/1f43 links use lineLink, image-backed gaiji use img_gaiji, "
+                    "and 1f5c/1f6d are consumed as renderer state"
+                ),
+                notes="The subset excludes fixed HTMLs/body fallback loading, custom DIB file generation, exact previous/next navigation footer generation, and broader visual parity.",
+            )
+        )
     if code in {"02C4", "02C7"}:
         rows.append(
             HcHookBehavior(
@@ -946,6 +966,8 @@ def build_hc_behavior_profile(
         implemented.add("HC00A6_sections_and_ruby_directives")
     if code in {"014A", "02C3"}:
         implemented.add("HC_HKDKSR_medical_section_layout")
+    if code == "009B":
+        implemented.add("HC009B_honbun_margin_sections")
     if code in {"02C4", "02C7"}:
         implemented.add("HC_GEN_YEAR_section_icons_and_template_markers")
     if code == "02C1":

@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             31   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
-needs marker branch decode:          61
+decoded branch subsets:             32   HC013A, HC0065, HC009B, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
+needs marker branch decode:          60
 common controls plus named gaps:     14
 common controls candidate verify:     1
 exact-body sidecar HC hooks unprofiled: 5
@@ -1307,6 +1307,15 @@ template-backed gaiji, and consumes `1f6d` as renderer state. Stateful
 as `midashi1.png`, custom DIB generation, `modifyHeadword`, Panel hooks,
 SQL/search helpers, and broader visual parity remain named gaps, so exact
 HC014A/HC02C3 visual parity is not claimed.
+
+The GEN2001 branch-subset proof case is `HC009B.dll`, shared by the early
+annual GEN dictionaries. Its body loop maps `1f09` to `honbun` margin
+containers or `header` blocks, closes the active section on `1f0a`, maps
+`1f41`/`1f61` to `midashi`, uses `lineLink` for internal address links, uses
+`img_gaiji` for image-backed gaiji, and consumes `1f5c`/`1f6d` as renderer
+state. Fixed HTML/body fallback loading, custom DIB file generation, exact
+previous/next navigation footer generation, and broader visual parity remain
+named gaps, so exact HC009B visual parity is not claimed.
 
 The NKGORIN2 branch-subset proof case is `HC012E.dll`. Its vertical body loop
 uses package-local `Gaijitemp/` image resources for most kanji-form glyphs.
