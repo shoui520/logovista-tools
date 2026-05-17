@@ -623,6 +623,17 @@ HC02BF_ICON_SECTION_IMAGES = {
 HC02BF_NOOP_SECTION_CODES = {"270f", "9999"}
 HC02BF_MOJI_DOWN_MARKERS = frozenset(f"b{value:03x}" for value in range(0x128, 0x151))
 HC02BF_NONPRINTING_CONTROL_OPS = {0x02, 0x41, 0x4C, 0x61}
+HC02C4_NOOP_SECTION_CODES = {"270f", "9999"}
+HC02C4_NONPRINTING_CONTROL_OPS = {0x02, 0x4C}
+HC02C4_ICON_DIRECTIVES = {
+    "2331": "1.png",
+    "2332": "2.png",
+    "2333": "3.png",
+    "2334": "4.png",
+}
+HC02C4_IMG_MARK_MARKERS = {"b12d", "b12e", "b12f"}
+HC02C4_IMG_MARK2_MARKERS = frozenset(f"b{value:03x}" for value in range(0x132, 0x138))
+HC02C4_NOOP_MARKERS = {"b130", "b131", "b138"}
 
 HC0065_LITERAL_MARKERS = {
     # HC0065 routes these grammar-label gaiji through short literal branches.
@@ -979,7 +990,7 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
             return "lv-hc-link Link"
         if start_op == 0x43:
             return "lv-hc-link lineLink"
-    if _renderer_code(options) in {"012F", "0131", "0142", "02BF", "02C1"} and start_op in {0x42, 0x43}:
+    if _renderer_code(options) in {"012F", "0131", "0142", "02BF", "02C1", "02C4"} and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
     if _renderer_code(options) in {"009C", "009D", "012D", "013D", "0141", "0144", "0145", "02C2", "03E8"} and start_op in {
         0x42,
@@ -1008,6 +1019,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("span", ' class="sizedown"')
     if _renderer_code(options) == "0131" and op == 0x04:
         return ("span", ' class="hankaku"')
+    if _renderer_code(options) == "02C4" and op == 0x04:
+        return ("span", ' class="hankaku"')
     if _renderer_code(options) == "0151" and op == 0x04:
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "0142" and op == 0x04:
@@ -1031,6 +1044,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
     if op == 0x41 and _renderer_code(options) == "009D":
         return None
     if op == 0x41 and _renderer_code(options) == "013D":
+        return ("div", ' class="midashi"')
+    if op == 0x41 and _renderer_code(options) == "02C4":
         return ("div", ' class="midashi"')
     if op == 0x41 and _renderer_code(options) == "0144":
         return None
@@ -1291,6 +1306,10 @@ def _image_source_for_key(key: str, options: HcRenderOptions) -> str | None:
     return options.image_sources.get(lower)
 
 
+def _image_or_named_template(key: str, options: HcRenderOptions) -> str:
+    return _image_source_for_key(key, options) or f"{key.upper()}.png"
+
+
 def _append_gaiji_value(
     parts: list[str],
     text_parts: list[str] | None,
@@ -1324,6 +1343,7 @@ def _append_gaiji_value(
             "02BF",
             "02C1",
             "02C2",
+            "02C4",
             "03E8",
         }:
             css_class += " img_gaiji"
@@ -1839,6 +1859,21 @@ def _hc02bf_section_parts(code: str, previous_code: str | None) -> tuple[list[st
     return parts, "</div>"
 
 
+def _hc02c4_honbun_div() -> str:
+    return '<div class="honbun" style="margin-left:0.000000em;">'
+
+
+def _hc02c4_section_parts(code: str) -> tuple[list[str], str | None]:
+    if code in HC02C4_NOOP_SECTION_CODES:
+        return [], None
+    if code == "0001":
+        # HC02C4 uses the following 1f41/1f61 span for the visible heading.
+        return [], None
+    if code == "000c":
+        return ['<div class="footer">'], "</div>"
+    return [_hc02c4_honbun_div()], "</div>"
+
+
 def _hc02c2_icon_section_parts(code: str) -> list[str]:
     image_name = HC02C2_ICON_SECTION_IMAGES.get(code)
     if image_name is None:
@@ -2082,6 +2117,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc02bf_current_section: str | None = None
     hc02bf_moji_down_open = False
     hc02bf_section_just_opened = False
+    hc02c4_section_close: str | None = None
     hc02c2_section_open = False
     hc02c2_moji_down_open = False
     hc02c2_current_section: str | None = None
@@ -2370,6 +2406,18 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats["hc02bf_section_icons"] += 1
                         i += 2 + arg_len
                         continue
+                    if _renderer_code(options) == "02C4":
+                        if hc02c4_section_close is not None:
+                            root.append(hc02c4_section_close)
+                            hc02c4_section_close = None
+                        section_parts, hc02c4_section_close = _hc02c4_section_parts(code)
+                        root.extend(section_parts)
+                        if section_parts:
+                            stats["hc02c4_section_blocks"] += 1
+                        if code in HC02C4_NOOP_SECTION_CODES:
+                            stats["hc02c4_noop_sections"] += 1
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "02C2":
                         if hc02c2_section_open:
                             if hc02c2_moji_down_open:
@@ -2536,6 +2584,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         hc02bf_section_just_opened = False
                         i += 2 + arg_len
                         continue
+                if _renderer_code(options) == "02C4" and hc02c4_section_close is not None:
+                    _current_parts(root_parts, contexts).append(hc02c4_section_close)
+                    hc02c4_section_close = None
+                    i += 2 + arg_len
+                    continue
                 if _renderer_code(options) == "02C2" and hc02c2_section_open:
                     if hc02c2_moji_down_open:
                         _current_parts(root_parts, contexts).append("</p>")
@@ -2624,6 +2677,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "0131" and op in HC0131_NONPRINTING_CONTROL_OPS:
                 stats["hc0131_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "02C4" and op in HC02C4_NONPRINTING_CONTROL_OPS:
+                stats["hc02c4_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -2974,6 +3032,27 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 stats["media_placeholders"] += 1
                 i += 2 + arg_len
                 continue
+
+            if _renderer_code(options) == "02C4" and op in PRIVATE_START_OPS:
+                directive = payload.hex()
+                icon_name = HC02C4_ICON_DIRECTIVES.get(directive)
+                if icon_name is not None:
+                    src = _image_or_named_template(icon_name.removesuffix(".png"), options)
+                    _current_parts(root_parts, contexts).append(
+                        f'<img src="{_escape_attr(src)}" class="img_icon"/><br>'
+                    )
+                    stats["hc02c4_private_icons"] += 1
+                    private_directives.append(
+                        {
+                            "start_control": "1fe2",
+                            "end_control": "1fe3",
+                            "directive": directive,
+                            "status": "rendered_icon",
+                        }
+                    )
+                    end = data.find(b"\x1f\xe3", i + 2 + arg_len)
+                    i = (end + 2) if end != -1 else (i + 2 + arg_len)
+                    continue
 
             if op in PRIVATE_START_OPS:
                 contexts.append(
@@ -3365,6 +3444,23 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 stats["hc02c2_template_image_markers"] += 1
                 i += 2
                 continue
+            if _renderer_code(options) == "02C4":
+                if key in HC02C4_NOOP_MARKERS:
+                    stats["hc02c4_noop_markers"] += 1
+                    i += 2
+                    continue
+                if key in HC02C4_IMG_MARK_MARKERS:
+                    image_src = _image_or_named_template(key, options)
+                    _append_renderer_image_gaiji(_current_parts(root_parts, contexts), key, image_src, "img_mark", stats)
+                    stats["hc02c4_img_mark_markers"] += 1
+                    i += 2
+                    continue
+                if key in HC02C4_IMG_MARK2_MARKERS:
+                    image_src = _image_or_named_template(key, options)
+                    _append_renderer_image_gaiji(_current_parts(root_parts, contexts), key, image_src, "img_mark2", stats)
+                    stats["hc02c4_img_mark2_markers"] += 1
+                    i += 2
+                    continue
             if _renderer_code(options) == "0065":
                 literal = HC0065_LITERAL_MARKERS.get(key)
                 if literal is not None:
@@ -3966,6 +4062,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append("</p>")
     if hc02bf_section_close is not None:
         _current_parts(root_parts, contexts).append(hc02bf_section_close)
+    if hc02c4_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc02c4_section_close)
     if hc02c2_section_open:
         if hc02c2_moji_down_open:
             _current_parts(root_parts, contexts).append("</p>")

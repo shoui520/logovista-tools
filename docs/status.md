@@ -479,11 +479,19 @@ and non-SSED reader status are tracked separately in
   template-backed gaiji use `img_gaiji`. Exact conditional HR/state
   transitions, custom DIB generation, SQL search hooks, `modifyHeadword`, and
   vertical color-variant image generation remain incomplete.
+- `HC02C4.dll` now has a focused raw-HONMON branch-subset proof for GEN2016:
+  `1f41`/`1f61` render `midashi`, `1f09` section payloads open
+  `honbun`/`footer` containers where the body-loop branch does so,
+  B12D-B12F render `img_mark`, B132-B137 render `img_mark2`, B130/B131/B138
+  are consumed as renderer state, internal links use `lineLink`, and the
+  recovered `1fe2` 2331-2334 path emits `1.png`-`4.png` `img_icon` markers.
+  Custom DIB generation, `modifyHeadword`, exact fixed-HTML fallback
+  selection, and vertical navigation table scaffolding remain incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
   exact SHA-256 renderer binaries. HC013A, HC0065, HC009D, HC00C6, HC012D,
   HC012E, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5,
   HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF,
-  HC012F, HC0157, and HC0158
+  HC012F, HC02C4, HC0157, and HC0158
   currently have decoded branch subsets, not full HC parity.
   Other branch tables remain named gaps until their output constants and product
   data paths are understood.
