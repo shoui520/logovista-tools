@@ -3226,6 +3226,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats["hc02c2_section_blocks"] += 1
                         if icon_emitted:
                             stats["hc02c2_section_icons"] += 1
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "0065" and code == "0001" and not hc0065_midashi_open and not hc0065_body_open:
                         root.append('<div class="midashi">')
                         hc0065_midashi_open = True

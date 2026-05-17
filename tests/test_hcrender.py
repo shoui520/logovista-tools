@@ -1154,6 +1154,7 @@ def test_hc02c2_maps_section_icons_and_moji_down_blocks() -> None:
     assert '<img src="4.png" class="img_icon"/><br>' in rendered.html
     assert '<p class="moji-down">' in rendered.html
     assert '<span class="lv-hc-halfwidth">A</span></p>' in rendered.html
+    assert "lv-hc-section" not in rendered.html
     assert rendered.stats["hc02c2_section_blocks"] == 5
     assert rendered.stats["hc02c2_section_icons"] == 4
 
