@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             32   HC013A, HC0065, HC009B, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
-needs marker branch decode:          60
+decoded branch subsets:             33   HC013A, HC0065, HC009B, HC02C0, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
+needs marker branch decode:          59
 common controls plus named gaps:     14
 common controls candidate verify:     1
 exact-body sidecar HC hooks unprofiled: 5
@@ -1316,6 +1316,17 @@ containers or `header` blocks, closes the active section on `1f0a`, maps
 state. Fixed HTML/body fallback loading, custom DIB file generation, exact
 previous/next navigation footer generation, and broader visual parity remain
 named gaps, so exact HC009B visual parity is not claimed.
+
+The GEN2015 branch-subset proof case is `HC02C0.dll`. Its body loop maps
+`1f09` section `0001` to heading state, maps normal body sections to `honbun`
+margin containers, maps section `000c` to `footer`, closes the active section
+on `1f0a`, maps `1f41`/`1f61` to `midashi`, uses `lineLink` for internal
+address links, emits `1.png` through `4.png` for understood `1fe2`
+`2331..2334` icon directives, uses `img_gaiji` for image-backed gaiji, and
+consumes `B138`/`B14C`/`B14D` plus `1f5c`/`1f6d` as renderer state.
+JIS-content-triggered `img_mark` branches, custom DIB file generation,
+`modifyHeadword`, exact navigation footer generation, and broader visual
+parity remain named gaps.
 
 The NKGORIN2 branch-subset proof case is `HC012E.dll`. Its vertical body loop
 uses package-local `Gaijitemp/` image resources for most kanji-form glyphs.
