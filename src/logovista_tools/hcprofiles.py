@@ -1251,6 +1251,30 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "005C":
+        rows.append(
+            HcHookBehavior(
+                name="kene7j5_heading_section_and_marker_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC005C epwing2HtmlBodydata heading 1f41/1f61 branches",
+                    "HC005C 1f09 margin-section branch",
+                    "HC005C 【語法】/【発音】 marker-image branch ladder",
+                    "Templates/0000005C.css class definitions",
+                ),
+                implementation=(
+                    "1f41/1f61 render eMidashi/jMidashi blocks, non-heading "
+                    "1f09 sections open margin containers, internal links use "
+                    "lineLink, image links use image.png, and custom gaiji "
+                    "fallbacks use HC005C img_gaiji/img_gaiji_midashi templates"
+                ),
+                notes=(
+                    "The subset uses body-local heading-script inference because "
+                    "the DLL also consults entry address ranges. Context-sensitive "
+                    "exam.gif/bunrei.gif content block generation remains a named gap."
+                ),
+            )
+        )
     if code == "0190":
         rows.append(
             HcHookBehavior(
@@ -1402,6 +1426,8 @@ def build_hc_behavior_profile(
         implemented.add("HC_GEN_YEAR_section_icons_and_template_markers")
     if code == "00C4":
         implemented.add("HC00C4_section_icon_and_gaiji_layout")
+    if code == "005C":
+        implemented.add("HC005C_heading_section_marker_and_gaiji_layout")
     if code == "02C1":
         implemented.add("HC02C1_section_icons_and_template_gaiji")
     if code == "02BF":

@@ -4118,3 +4118,94 @@ def test_hc_behavior_profile_names_exact_body_without_claiming_full_parity() -> 
     assert "schema_backed_exact_entry_html" in row["implemented_semantics"]
     assert "ziptomedia_reference_extraction" in row["implemented_semantics"]
     assert "royal_example_search_helpers" in row["named_gaps"]
+
+
+def test_hc005c_maps_heading_sections_links_and_custom_gaiji_templates() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii("A")
+        + b"\xa1\x34"
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x03"
+        + b"\xb1\x25"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x01\x00\x20"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="005C", image_sources={"dummy": "Templates/dummy.GIF"}),
+    )
+
+    assert '<div class="eMidashi">' in rendered.html
+    assert '<span class="hankakuMidashi">A</span>' in rendered.html
+    assert 'class="lv-hc-gaiji img_gaiji_midashi"' in rendered.html
+    assert 'src="a134.gif"' in rendered.html
+    assert '<div style="margin: 9px">' in rendered.html
+    assert 'src="b125.gif"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc005c_section_blocks"] == 1
+    assert rendered.stats["hc005c_custom_gaiji"] == 2
+
+
+def test_hc005c_renders_label_marker_images_and_image_links() -> None:
+    body = (
+        b"\x21\x5a"
+        + jis_text("語法")
+        + b"\x1f\x44"
+        + b"\x00\x00\x00\x00\x00\x00\x00\x02\x00\x40"
+        + b"\x1f\x64\x00\x00\x00\x02\x00\x40"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="005C",
+            image_sources={
+                "dummy": "Templates/dummy.GIF",
+                "gohou": "Templates/gohou.gif",
+                "image": "Templates/image.png",
+            },
+        ),
+    )
+
+    assert 'src="Templates/gohou.gif" class="img_mark"' in rendered.html
+    assert "語法" not in rendered.html
+    assert '<img src="Templates/image.png" class="img_mark"></a>' in rendered.html
+    assert "lvaddr://00000002/0064" in rendered.html
+    assert rendered.stats["hc005c_mark_images"] == 1
+    assert rendered.stats["hc005c_image_links"] == 1
+
+
+def test_hc005c_profile_records_branch_subset_without_full_parity_claim() -> None:
+    renderer = HcRendererClassification(
+        path=Path("HC005C.dll"),
+        code="005C",
+        expected_numeric_index="0000005C.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="pe", exports=("epwing2HtmlBodydata",)),
+        exinfo_html_dll="HC005C.dll",
+        exinfo_declares_this=True,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=("sound.gif", "image.png", "gohou.gif"),
+        features={"html_body_renderer": True},
+    )
+
+    profile = build_hc_behavior_profile(renderer)
+    row = profile.as_dict()
+
+    assert "HC005C_heading_section_marker_and_gaiji_layout" in row["implemented_semantics"]
+    assert row["exact_hc_parity"] is False
+    assert any(hook["name"] == "kene7j5_heading_section_and_marker_layout" for hook in row["hook_behaviors"])
