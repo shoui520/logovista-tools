@@ -344,6 +344,7 @@ def test_hc012e_closes_table_sections_on_section_transition() -> None:
     assert rendered.html.count("</td>") == 2
     assert '<table class="table_oyaji"><tr><td><div class="Oyaji">' in rendered.html
     assert '</div></td></tr></table><table class="table_itaiji_2"><tr><td><div class="Itaiji">' in rendered.html
+    assert "lv-hc-section" not in rendered.html
 
 
 def test_hc012e_keeps_common_kun_section_normal_sized() -> None:
@@ -355,6 +356,7 @@ def test_hc012e_keeps_common_kun_section_normal_sized() -> None:
     assert '<div class="honbun" style="margin-left:0.000000em;">' in rendered.html
     assert "table_itaiji" not in rendered.html
     assert 'class="Itaiji"' not in rendered.html
+    assert "lv-hc-section" not in rendered.html
 
 
 def test_hc012e_renders_color_size_direct_image_and_literal_markers() -> None:

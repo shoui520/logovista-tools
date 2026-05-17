@@ -3064,6 +3064,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats["hc012e_section_blocks"] += 1
                             if "hitsujun start" in "".join(section_parts):
                                 stats["hc012e_hitsujun_sections"] += 1
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "012F":
                         if hc012f_section_close is not None:
                             root.append(hc012f_section_close)
