@@ -527,8 +527,17 @@ and non-SSED reader status are tracked separately in
   JIS-content-triggered `img_mark` branches, custom DIB generation,
   `modifyHeadword`, exact navigation footer generation, and visual parity
   remain incomplete.
+- `HC013C.dll` now has the corresponding GEN2014 branch-subset proof:
+  `1f09` section `0001` is heading state, body sections open `honbun`
+  margin containers, section `000c` opens `footer`, `1f41`/`1f61` wrap
+  `midashi`, internal links use `lineLink`, `1fe2` `2331..2334` maps to
+  `img_icon` markers where those directives occur, image-backed gaiji use
+  `img_gaiji`, and `A435`/`A436` plus `1f5c`/`1f6d` are consumed as renderer
+  state. JIS-content-triggered `img_mark` branches, exact generated
+  custom-bitmap output, `modifyHeadword` application to hit-list headings,
+  exact navigation footer generation, and visual parity remain incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
-  exact SHA-256 renderer binaries. HC013A, HC0065, HC009B, HC02C0, HC009D, HC00C6, HC012D,
+  exact SHA-256 renderer binaries. HC013A, HC0065, HC009B, HC02C0, HC013C, HC009D, HC00C6, HC012D,
   HC012E, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5,
   HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF,
   HC012F, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, and HC0158

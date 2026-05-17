@@ -747,6 +747,14 @@ HC02C0_ICON_DIRECTIVES = {
     "2334": "4.png",
 }
 HC02C0_NOOP_MARKERS = {"b138", "b14c", "b14d"}
+HC013C_NONPRINTING_CONTROL_OPS = {0x02, 0x4C, 0x6D}
+HC013C_ICON_DIRECTIVES = {
+    "2331": "1.png",
+    "2332": "2.png",
+    "2333": "3.png",
+    "2334": "4.png",
+}
+HC013C_NOOP_MARKERS = {"a435", "a436"}
 HC_GEN_YEAR_RENDERERS = {"02C4", "02C7"}
 HC_GEN_YEAR_NOOP_SECTION_CODES = {"270f", "9999"}
 HC_GEN_YEAR_NONPRINTING_CONTROL_OPS = {0x02, 0x4C}
@@ -1133,7 +1141,7 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
         if start_op == 0x43:
             return "lv-hc-link lineLink"
     if (
-        _renderer_code(options) in {"012F", "0131", "0142", "02BF", "02C0", "02C1"}
+        _renderer_code(options) in {"012F", "0131", "013C", "0142", "02BF", "02C0", "02C1"}
         or _is_hc_gen_year_renderer(options)
     ) and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
@@ -1172,7 +1180,7 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "02BF" and op == 0x04:
         return ("span", ' class="hankaku"')
-    if _renderer_code(options) == "02C0" and op == 0x04:
+    if _renderer_code(options) in {"013C", "02C0"} and op == 0x04:
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "012F" and op == 0x04:
         return ("span", ' class="hankaku"')
@@ -1204,7 +1212,7 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("div", ' class="midashi"')
     if op == 0x41 and _renderer_code(options) == "009D":
         return None
-    if op == 0x41 and _renderer_code(options) == "02C0":
+    if op == 0x41 and _renderer_code(options) in {"013C", "02C0"}:
         return ("div", ' class="midashi"')
     if op == 0x41 and _renderer_code(options) == "013D":
         return ("div", ' class="midashi"')
@@ -1500,6 +1508,7 @@ def _append_gaiji_value(
             "012E",
             "012F",
             "0131",
+            "013C",
             "013D",
             "0141",
             "0144",
@@ -2322,6 +2331,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc02bf_moji_down_open = False
     hc02bf_section_just_opened = False
     hc02c0_section_close: str | None = None
+    hc013c_section_close: str | None = None
     hc_gen_year_section_close: str | None = None
     hc02c2_section_open = False
     hc02c2_moji_down_open = False
@@ -2667,6 +2677,18 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats[f"hc02c0_section_{state}"] += 1
                         i += 2 + arg_len
                         continue
+                    if _renderer_code(options) == "013C":
+                        if hc013c_section_close is not None:
+                            root.append(hc013c_section_close)
+                            hc013c_section_close = None
+                        section_parts, hc013c_section_close, state = _hc02c0_section_parts(code, vertical=options.vertical)
+                        root.extend(section_parts)
+                        if section_parts:
+                            stats["hc013c_section_blocks"] += 1
+                        if state:
+                            stats[f"hc013c_section_{state}"] += 1
+                        i += 2 + arg_len
+                        continue
                     if _is_hc_gen_year_renderer(options):
                         if hc_gen_year_section_close is not None:
                             root.append(hc_gen_year_section_close)
@@ -2874,6 +2896,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     hc02c0_section_close = None
                     i += 2 + arg_len
                     continue
+                if _renderer_code(options) == "013C" and hc013c_section_close is not None:
+                    _current_parts(root_parts, contexts).append(hc013c_section_close)
+                    hc013c_section_close = None
+                    i += 2 + arg_len
+                    continue
                 if _is_hc_gen_year_renderer(options) and hc_gen_year_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc_gen_year_section_close)
                     hc_gen_year_section_close = None
@@ -2962,6 +2989,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "02C0" and op in HC02C0_NONPRINTING_CONTROL_OPS:
                 stats["hc02c0_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "013C" and op in HC013C_NONPRINTING_CONTROL_OPS:
+                stats["hc013c_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -3364,6 +3396,27 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     i = (end + 2) if end != -1 else (i + 2 + arg_len)
                     continue
 
+            if _renderer_code(options) == "013C" and op in PRIVATE_START_OPS:
+                directive = payload.hex()
+                icon_name = HC013C_ICON_DIRECTIVES.get(directive)
+                if icon_name is not None:
+                    src = _image_or_named_template(icon_name.removesuffix(".png"), options)
+                    _current_parts(root_parts, contexts).append(
+                        f'<img src="{_escape_attr(src)}" class="img_icon"/><br>'
+                    )
+                    stats["hc013c_private_icons"] += 1
+                    private_directives.append(
+                        {
+                            "start_control": "1fe2",
+                            "end_control": "1fe3",
+                            "directive": directive,
+                            "status": "rendered_icon",
+                        }
+                    )
+                    end = data.find(b"\x1f\xe3", i + 2 + arg_len)
+                    i = (end + 2) if end != -1 else (i + 2 + arg_len)
+                    continue
+
             if _is_hc_gen_year_renderer(options) and op in PRIVATE_START_OPS:
                 directive = payload.hex()
                 icon_name = HC_GEN_YEAR_ICON_DIRECTIVES.get(directive)
@@ -3695,6 +3748,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     continue
             if _renderer_code(options) == "02C0" and key in HC02C0_NOOP_MARKERS:
                 stats["hc02c0_noop_markers"] += 1
+                i += 2
+                continue
+            if _renderer_code(options) == "013C" and key in HC013C_NOOP_MARKERS:
+                stats["hc013c_noop_markers"] += 1
                 i += 2
                 continue
             if _renderer_code(options) == "0142":
@@ -4461,6 +4518,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc02bf_section_close)
     if hc02c0_section_close is not None:
         _current_parts(root_parts, contexts).append(hc02c0_section_close)
+    if hc013c_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc013c_section_close)
     if hc_gen_year_section_close is not None:
         _current_parts(root_parts, contexts).append(hc_gen_year_section_close)
     if hc_hkdksr_medical_section_close is not None:

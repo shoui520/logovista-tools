@@ -1378,6 +1378,54 @@ def test_hc02c0_uses_vertical_margin_axis() -> None:
     assert '<div class="honbun" style="margin-top:12px">' in rendered.html
 
 
+def test_hc013c_maps_sections_icons_links_and_state_markers() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + b"\x1f\xe2\x23\x31\x1f\xe3"
+        + b"\xb1\x21"
+        + jis_text("本文")
+        + b"\xa4\x35\xa4\x36"
+        + b"\x1f\x6d"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="013C", image_sources={"1": "Templates/1.png", "b121": "Templates/B121.png"}),
+    )
+
+    assert '<div class="midashi"><span class="hankaku">H</span></div>' in rendered.html
+    assert '<div class="honbun" style="margin-left:12px">' in rendered.html
+    assert '<img src="Templates/1.png" class="img_icon"/><br>' in rendered.html
+    assert '<img class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji" src="Templates/B121.png"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'data-lv-section' not in rendered.html
+    assert 'data-gaiji-code="a435"' not in rendered.html
+    assert 'data-gaiji-code="a436"' not in rendered.html
+    assert rendered.stats["hc013c_section_blocks"] == 1
+    assert rendered.stats["hc013c_section_state"] == 1
+    assert rendered.stats["hc013c_private_icons"] == 1
+    assert rendered.stats["hc013c_noop_markers"] == 2
+    assert rendered.stats["hc013c_nonprinting_controls"] == 1
+
+
+def test_hc013c_uses_vertical_margin_axis() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x03" + jis_text("本文"),
+        HcRenderOptions(renderer_code="013C", vertical=True),
+    )
+
+    assert '<div class="honbun" style="margin-top:12px">' in rendered.html
+
+
 def test_hc02c1_maps_sections_icons_and_moji_down_markers() -> None:
     rendered = render_hc_body(
         b"\x1f\x09\x00\x01"
@@ -2675,6 +2723,34 @@ def test_hc02c0_profile_records_subset_without_claiming_parity() -> None:
     assert "HC02C0_honbun_margin_sections" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+
+
+def test_hc013c_profile_records_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC013C.dll"),
+        code="013C",
+        expected_numeric_index="0000013C.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/0000013C.css",),
+        sql_snippets=(),
+        image_templates=("Templates/B121.png",),
+        features={"headword_modifier": True, "vertical_renderer": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC013C_honbun_margin_sections" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
     assert "modify_headword_hook" in data["named_gaps"]
 
 

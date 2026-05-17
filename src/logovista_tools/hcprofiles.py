@@ -386,6 +386,31 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset excludes JIS-content-triggered img_mark branches, custom DIB file generation, modifyHeadword, exact previous/next navigation footer generation, and broader visual parity.",
             )
         )
+    if code == "013C":
+        rows.append(
+            HcHookBehavior(
+                name="gen2014_honbun_margin_sections",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC013C epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    "HC013C 1f41 midashi branch",
+                    "HC013C 1f42/1f43 lineLink branch",
+                    "HC013C 1fe2 2331-2334 img_icon directive branch",
+                    "HC013C image-backed gaiji template branch",
+                    "HC013C modifyHeadword removes B121/B122/A435 and suppresses A436-delimited ranges",
+                    "Templates/0000013C.css class definitions",
+                ),
+                implementation=(
+                    "1f09 section 0001 is treated as heading state, body sections "
+                    "open honbun margin containers, section 000c opens footer, 1f0a "
+                    "closes the active section, 1f41/1f61 wrap midashi text, internal "
+                    "links use lineLink, 1fe2 2331-2334 emit 1.png-4.png img_icon "
+                    "markers, image-backed gaiji use img_gaiji, and A435/A436 plus "
+                    "1f5c/1f6d are consumed as renderer state"
+                ),
+                notes="The subset excludes JIS-content-triggered img_mark branches, exact generated custom-bitmap output, modifyHeadword application to external hit lists, exact previous/next navigation footer generation, and broader visual parity.",
+            )
+        )
     if code in {"02C4", "02C7"}:
         rows.append(
             HcHookBehavior(
@@ -992,6 +1017,8 @@ def build_hc_behavior_profile(
         implemented.add("HC_HKDKSR_medical_section_layout")
     if code == "009B":
         implemented.add("HC009B_honbun_margin_sections")
+    if code == "013C":
+        implemented.add("HC013C_honbun_margin_sections")
     if code == "02C0":
         implemented.add("HC02C0_honbun_margin_sections")
     if code in {"02C4", "02C7"}:
