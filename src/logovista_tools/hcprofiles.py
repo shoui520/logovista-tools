@@ -411,6 +411,30 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset excludes custom DIB generation, modifyHeadword, exact previous/next navigation footer generation, and broader visual parity.",
             )
         )
+    if code == "0136":
+        rows.append(
+            HcHookBehavior(
+                name="gen2013_honbun_margin_sections",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0136 epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    "HC0136 1f41 midashi branch",
+                    "HC0136 1f42/1f43 lineLink branch",
+                    "HC0136 1fe2 2331-2334 img_icon directive branch",
+                    "HC0136 1f5c/1f6d renderer-state branch",
+                    "Templates/00000136.css class definitions",
+                ),
+                implementation=(
+                    "1f09 section 0001 is treated as heading state, body sections "
+                    "open honbun margin containers, section 000c opens footer, 1f0a "
+                    "closes the active section, 1f41/1f61 wrap midashi text, internal "
+                    "links use lineLink, 1fe2 2331-2334 emit 1.png-4.png img_icon "
+                    "markers, image-backed gaiji use img_gaiji, and 1f5c/1f6d are "
+                    "consumed as renderer state"
+                ),
+                notes="The subset excludes exact previous/next navigation footer generation and broader visual parity.",
+            )
+        )
     if code == "013C":
         rows.append(
             HcHookBehavior(
@@ -1095,6 +1119,8 @@ def build_hc_behavior_profile(
         implemented.add("HC02C0_honbun_margin_sections")
     if code == "02CA":
         implemented.add("HC02CA_honbun_margin_sections")
+    if code == "0136":
+        implemented.add("HC0136_honbun_margin_sections")
     if code in {"02C4", "02C7"}:
         implemented.add("HC_GEN_YEAR_section_icons_and_template_markers")
     if code == "02C1":

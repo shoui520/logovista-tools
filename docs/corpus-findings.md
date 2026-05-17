@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             37   HC013A, HC0065, HC009B, HC00B3, HC00A0, HC02C0, HC013C, HC02CA, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
-needs marker branch decode:          53
+decoded branch subsets:             38   HC013A, HC0065, HC009B, HC00B3, HC00A0, HC02C0, HC013C, HC02CA, HC0136, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
+needs marker branch decode:          52
 common controls plus named gaps:     14
 common controls candidate verify:     0
 exact-body sidecar HC hooks unprofiled: 5
@@ -1551,6 +1551,14 @@ marker branches render `1fe2` `2331..2334` as `img_icon` templates,
 renderer state, and emit U+20BB7 for `B135`. Custom DIB generation,
 `modifyHeadword`, exact navigation footer generation, and visual parity remain
 named gaps.
+
+The GEN2013 branch-subset proof case is `HC0136.dll`. It uses the same
+margin-based section model: `1f09` section `0001` is heading state, other body
+sections open `honbun` margin containers, section `000c` opens `footer`,
+`1f41`/`1f61` wrap `midashi`, internal links use `lineLink`, `1fe2`
+`2331..2334` emits `img_icon` templates, image-backed gaiji use `img_gaiji`,
+and `1f5c`/`1f6d` are renderer-state controls. Exact previous/next navigation
+footer generation and visual parity remain named gaps.
 
 The PROYAL43 branch-subset proof case is `HC0146.dll`. Its vertical body
 loop maps B232/B233 to a `color_font` delimiter pair, B240 to the literal

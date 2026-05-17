@@ -561,11 +561,18 @@ and non-SSED reader status are tracked separately in
   `B130`/`B131` are consumed as renderer state, and `B135` emits U+20BB7.
   Custom DIB generation, `modifyHeadword`, exact navigation footer generation,
   and visual parity remain incomplete.
+- `HC0136.dll` now has a focused GEN2013 branch-subset proof: `1f09`
+  section `0001` is heading state, body sections open `honbun` margin
+  containers, section `000c` opens `footer`, `1f41`/`1f61` wrap `midashi`,
+  internal links use `lineLink`, `1fe2` `2331..2334` maps to `img_icon`
+  markers, image-backed gaiji use `img_gaiji`, and `1f5c`/`1f6d` are consumed
+  as renderer state. Exact previous/next navigation footer generation and
+  visual parity remain incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
   exact SHA-256 renderer binaries. HC013A, HC0065, HC009B, HC00B3, HC02C0, HC013C, HC009D, HC00C6, HC012D,
   HC012E, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5,
   HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF,
-  HC012F, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158, HC00A0, and HC02CA
+  HC012F, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158, HC00A0, HC02CA, and HC0136
   currently have decoded branch subsets, not full HC parity.
   Other branch tables remain named gaps until their output constants and product
   data paths are understood.
