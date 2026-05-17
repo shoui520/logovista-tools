@@ -3311,6 +3311,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0094_color_div_close: str | None = None
     hc009d_section_close: str | None = None
     hc009d_current_section_value: int | None = None
+    hc009d_table_header_open = False
     hc009b_section_close: str | None = None
     hc009c_section_close: str | None = None
     hc009c_marker_stack: list[str] = []
@@ -3660,6 +3661,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             hc009d_marker_stack.append(wrapper_stack)
                         if section_parts:
                             stats["hc009d_section_blocks"] += 1
+                        else:
+                            stats["hc009d_unmapped_sections"] += 1
+                            gaps.add(f"hc009d_unmapped_section_{code}")
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "00C6":
                         if hc00c6_section_open:
                             while hc00c6_marker_stack:
@@ -4318,6 +4324,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     i += 2 + arg_len
                     continue
                 if _renderer_code(options) == "009D" and hc009d_section_close is not None:
+                    if hc009d_table_header_open:
+                        _current_parts(root_parts, contexts).append("</th></tr></thead><tbody><tr><td>")
+                        hc009d_table_header_open = False
+                        stats["hc009d_table_body_starts"] += 1
                     _current_parts(root_parts, contexts).append(hc009d_section_close)
                     hc009d_section_close = None
                     i += 2 + arg_len
@@ -5984,11 +5994,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     continue
                 if key == HC009D_TABLE_HEADER_MARKER and hc009d_marker_stack and hc009d_marker_stack[-1][0] == HC009D_TABLE_CLOSE_MARKER:
                     parts.append("<thead><tr><th>")
+                    hc009d_table_header_open = True
                     stats["hc009d_table_markers"] += 1
                     i += 2
                     continue
                 if key == HC009D_TABLE_CLOSE_MARKER:
                     if hc009d_marker_stack and hc009d_marker_stack[-1][0] == key:
+                        if hc009d_table_header_open:
+                            parts.append("</th></tr></thead><tbody><tr><td>")
+                            hc009d_table_header_open = False
+                            stats["hc009d_table_body_starts"] += 1
                         parts.append(hc009d_marker_stack.pop()[1])
                         stats["hc009d_kakomi_markers"] += 1
                     else:
@@ -6456,6 +6471,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         close_code, close_html = hc0142_marker_stack.pop()
         _current_parts(root_parts, contexts).append(close_html)
         gaps.add(f"unterminated_hc0142_marker_{close_code}")
+    if hc009d_table_header_open:
+        _current_parts(root_parts, contexts).append("</th></tr></thead><tbody><tr><td>")
+        hc009d_table_header_open = False
+        stats["hc009d_table_body_starts"] += 1
     while hc009d_marker_stack:
         close_code, close_html = hc009d_marker_stack.pop()
         _current_parts(root_parts, contexts).append(close_html)

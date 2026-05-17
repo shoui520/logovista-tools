@@ -640,9 +640,25 @@ def test_hc009d_maps_kakomi_section_markers() -> None:
     assert '<div class="lineinfo8">' in rendered.html
     assert '<span class="lv-hc-halfwidth">K</span></div>' in rendered.html
     assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert "lv-hc-section" not in rendered.html
     assert rendered.stats["hc009d_section_blocks"] == 1
     assert rendered.stats["hc009d_noop_markers"] == 1
     assert rendered.stats["hc009d_kakomi_markers"] == 1
+
+
+def test_hc009d_table_header_linebreak_starts_balanced_tbody() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x08" + b"\xb1\x40" + b"\xb1\x4f" + jis_ascii("H") + b"\x1f\x0a" + jis_ascii("B") + b"\xb1\x41",
+        HcRenderOptions(renderer_code="009D"),
+    )
+
+    assert "<thead><tr><th>" in rendered.html
+    assert "</th></tr></thead><tbody><tr><td>" in rendered.html
+    assert "</td></tr></tbody></table>" in rendered.html
+    assert rendered.html.count("<td") == rendered.html.count("</td>")
+    assert rendered.html.count("<tr") == rendered.html.count("</tr>")
+    assert rendered.html.count("<table") == rendered.html.count("</table>")
+    assert rendered.stats["hc009d_table_body_starts"] == 1
 
 
 def test_hc009d_maps_literals_breaks_checkbox_and_line_links() -> None:
