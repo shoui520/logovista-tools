@@ -319,17 +319,17 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Custom DIB generation, private HTM/IMG directive file loading, media-image special cases, and modifyHeadword remain named gaps.",
             )
         )
-    if code == "014A":
+    if code in {"014A", "02C3"}:
         rows.append(
             HcHookBehavior(
                 name="hkdk_medical_section_layout",
                 status="branch_subset_implemented",
                 evidence=(
-                    "HC014A epwing2HtmlBodydataVertical 1f09 section branch ladder",
-                    "HC014A 1f41 midashi branch",
-                    "HC014A 1f42/1f43 lineLink/lineLink2/lineLink3 branch",
-                    "HC014A image gaiji template branch",
-                    "Templates/0000014a.css class definitions",
+                    f"HC{code} epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    f"HC{code} 1f41 midashi branch",
+                    f"HC{code} 1f42/1f43 lineLink/lineLink2/lineLink3 branch",
+                    f"HC{code} image gaiji template branch",
+                    "HKDKSR medical CSS class definitions",
                 ),
                 implementation=(
                     "1f09 sections map the understood medical-entry subset to "
@@ -944,8 +944,8 @@ def build_hc_behavior_profile(
         implemented.add("HC02C2_section_icons_and_template_gaiji")
     if code == "00A6":
         implemented.add("HC00A6_sections_and_ruby_directives")
-    if code == "014A":
-        implemented.add("HC014A_medical_section_layout")
+    if code in {"014A", "02C3"}:
+        implemented.add("HC_HKDKSR_medical_section_layout")
     if code in {"02C4", "02C7"}:
         implemented.add("HC_GEN_YEAR_section_icons_and_template_markers")
     if code == "02C1":

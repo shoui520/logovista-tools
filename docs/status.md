@@ -501,20 +501,20 @@ and non-SSED reader status are tracked separately in
   `1f6d` is consumed as renderer state. Custom DIB generation, private
   HTM/IMG directive file loading, media-image special cases, and
   `modifyHeadword` remain incomplete.
-- `HC014A.dll` now has a focused raw-HONMON branch-subset proof for HKDKSR29:
-  recovered medical-entry `1f09` states map to product `midashi`, body,
-  `title3`, `med`, `medblk`, `medprice`, `medimage`, `mednamelist`,
-  `table_pc`, decimal `indentNN`, click-menu, and hidden-field containers;
-  internal links use recovered `lineLink`/`lineLink2` classes; image-backed
-  gaiji use `img_gaiji`; and `1f6d` is consumed as renderer state. Stateful
-  section mode branches, JIS-content-triggered title images, custom DIB
-  generation, `modifyHeadword`, Panel hooks, and SQL/search helpers remain
-  incomplete.
+- `HC014A.dll` and `HC02C3.dll` now have focused raw-HONMON branch-subset
+  proofs for the HKDKSR medical renderer family. Their recovered medical-entry
+  `1f09` states map to product `midashi`, body, `title3`, `med`, `medblk`,
+  `medprice`, `medimage`, `mednamelist`, `table_pc`, decimal `indentNN`,
+  click-menu, and hidden-field containers; internal links use recovered
+  `lineLink`/`lineLink2` classes; image-backed gaiji use `img_gaiji`; and
+  `1f6d` is consumed as renderer state. Stateful section mode branches,
+  JIS-content-triggered title images, custom DIB generation, `modifyHeadword`,
+  Panel hooks, and SQL/search helpers remain incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
   exact SHA-256 renderer binaries. HC013A, HC0065, HC009D, HC00C6, HC012D,
   HC012E, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5,
   HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF,
-  HC012F, HC00A6, HC014A, HC02C4, HC02C7, HC0157, and HC0158
+  HC012F, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, and HC0158
   currently have decoded branch subsets, not full HC parity.
   Other branch tables remain named gaps until their output constants and product
   data paths are understood.

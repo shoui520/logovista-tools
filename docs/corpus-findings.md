@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             30   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C4, HC02C7, HC0157, HC0158
-needs marker branch decode:          62
+decoded branch subsets:             31   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
+needs marker branch decode:          61
 common controls plus named gaps:     14
 common controls candidate verify:     1
 exact-body sidecar HC hooks unprofiled: 5
@@ -1295,17 +1295,18 @@ generation, private HTM/IMG directive file loading, media-image special cases,
 `modifyHeadword`, and ruby nesting edge cases remain named gaps, so exact
 HC00A6 visual parity is not claimed.
 
-The HKDKSR29 branch-subset proof case is `HC014A.dll`. Its body loop uses
-decimal-coded `1f09` section states for medical-entry layout: `midashi`,
-body paragraphs, `title3`, `med` product labels, `medblk`, `medprice`,
-`medimage`, `mednamelist`, `table_pc`, and decimal `indentNN` containers.
-The toolkit now preserves the 0042-to-0043 table-cell lifecycle across an
-intervening `1f0a`, applies `lineLink`/`lineLink2` classes to internal links,
-uses `img_gaiji` for template-backed gaiji, and consumes `1f6d` as renderer
-state. Stateful `local_cc`/`local_fc` mode branches, JIS-content-triggered
-heading images such as `midashi1.png`, custom DIB generation, `modifyHeadword`,
-Panel hooks, SQL/search helpers, and broader visual parity remain named gaps,
-so exact HC014A visual parity is not claimed.
+The HKDKSR medical branch-subset proof cases are `HC014A.dll` and
+`HC02C3.dll`. Their body loops share the same decimal-coded `1f09` section
+states for medical-entry layout: `midashi`, body paragraphs, `title3`, `med`
+product labels, `medblk`, `medprice`, `medimage`, `mednamelist`, `table_pc`,
+and decimal `indentNN` containers. The toolkit now preserves the 0042-to-0043
+table-cell lifecycle across an intervening `1f0a`, applies
+`lineLink`/`lineLink2` classes to internal links, uses `img_gaiji` for
+template-backed gaiji, and consumes `1f6d` as renderer state. Stateful
+`local_cc`/`local_fc` mode branches, JIS-content-triggered heading images such
+as `midashi1.png`, custom DIB generation, `modifyHeadword`, Panel hooks,
+SQL/search helpers, and broader visual parity remain named gaps, so exact
+HC014A/HC02C3 visual parity is not claimed.
 
 The NKGORIN2 branch-subset proof case is `HC012E.dll`. Its vertical body loop
 uses package-local `Gaijitemp/` image resources for most kanji-form glyphs.
