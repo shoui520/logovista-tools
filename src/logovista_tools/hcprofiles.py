@@ -403,6 +403,33 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset does not emulate stateful local_cc/local_fc branches, JIS-content-triggered section images, custom DIB generation, modifyHeadword, panel hooks, or product SQL helpers.",
             )
         )
+    if code == "008C":
+        rows.append(
+            HcHookBehavior(
+                name="hkdk_2010_medical_section_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC008C epwing2HtmlBodydata 1f09 section branch ladder",
+                    "HC008C 1f41 midashi branch and 1f0a contents_body transition",
+                    "HC008C 1f42/1f43/1f44 lineLink/lineLink2/lineLink3 branch",
+                    "HC008C image gaiji template branch",
+                ),
+                implementation=(
+                    "1f41 opens midashi and 1f61 is consumed as renderer state; "
+                    "the first 1f0a transitions into contents_body; understood "
+                    "1f09 body sections map to medblk, medblkcaution, medprice, "
+                    "medimage, medcaution, and margin-left blocks; internal links "
+                    "carry the recovered lineLink/lineLink2 classes and image-backed "
+                    "gaiji use img_gaiji"
+                ),
+                notes=(
+                    "The subset does not emulate HC008C's neighboring-JIS conditional "
+                    "lineLink/lineLink2/lineLink3 selection, title/title2 text-trigger "
+                    "state machine, generated gaiji GIF emission, custom DIB generation, "
+                    "fixed HTMLs fallback loading, or previous/next navigation footer."
+                ),
+            )
+        )
     if code == "009B":
         rows.append(
             HcHookBehavior(
@@ -1299,6 +1326,8 @@ def build_hc_behavior_profile(
         implemented.add("HC00A6_sections_and_ruby_directives")
     if code in {"014A", "02C3", "02C6"}:
         implemented.add("HC_HKDKSR_medical_section_layout")
+    if code == "008C":
+        implemented.add("HC008C_medical_section_layout")
     if code == "009B":
         implemented.add("HC009B_honbun_margin_sections")
     if code == "00B3":

@@ -128,6 +128,25 @@ HC_RENDER_BASE_CSS = """
 .lv-hc-render .lv-hc-audio {
   text-decoration: none;
 }
+.lv-hc-render .midashi {
+  font-weight: 700;
+  font-size: 1.15em;
+  margin: 0.2em 0 0.35em;
+}
+.lv-hc-render .contents_body {
+  margin-top: 0.25em;
+}
+.lv-hc-render .medblk,
+.lv-hc-render .medblkcaution,
+.lv-hc-render .medprice,
+.lv-hc-render .medimage,
+.lv-hc-render .medcaution,
+.lv-hc-render .notmedblock {
+  margin: 0.25em 0;
+}
+.lv-hc-render .med {
+  font-weight: 600;
+}
 """.strip()
 
 
@@ -450,6 +469,8 @@ HC00A6_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x6D}
 
 HC009B_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
 
+HC008C_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x61, 0x6D}
+
 HC_HKDKSR_MEDICAL_RENDERERS = {"014A", "02C3", "02C6"}
 HC_HKDKSR_MEDICAL_NONPRINTING_CONTROL_OPS = {0x6D}
 
@@ -568,6 +589,44 @@ def _hc_hkdksr_medical_section_parts(code: str) -> tuple[list[str], str | None, 
     if value == 48:
         return ["</div>"], None, "field_close"
     return [f'<div style="margin-left:{value * 4}px;">'], "</div>", "indented_fallback"
+
+
+def _hc008c_section_value(code: str) -> int | None:
+    if not code:
+        return None
+    try:
+        return int(code, 16)
+    except ValueError:
+        return None
+
+
+def _hc008c_section_parts(code: str) -> tuple[list[str], str | None, str | None]:
+    """Return the decoded HC008C body-section wrapper for the understood branch.
+
+    HC008C reads the raw two-byte 1f09 payload as an integer.  The DLL has
+    stateful title/medicine branches, so this maps only code paths whose
+    emitted tags are directly visible in the decompile; unknown states fall
+    back to the renderer's documented margin-left rule.
+    """
+
+    value = _hc008c_section_value(code)
+    if value is None:
+        return [], None, None
+    if value == 0:
+        return [], None, "state_only"
+    if value == 4:
+        return ['<div class="medblk">'], "</div>", "medblk"
+    if value == 6:
+        return [f'<div style="margin-left:{value * 4}px;">'], "</div>", "indent"
+    if value == 10:
+        return ['<div class="medprice">'], "</div>", "medprice"
+    if value == 11:
+        return ['<div class="medimage">'], "</div>", "medimage"
+    if value == 12:
+        return ['<div class="medblkcaution">'], "</div>", "medblkcaution"
+    if value == 13:
+        return ['<div class="medcaution">'], "</div>", "medcaution"
+    return [f'<div style="margin-left:{value * 4}px;">'], "</div>", "indent"
 
 
 def _private_directive_text(text: str) -> str:
@@ -1226,6 +1285,11 @@ def _is_hc_hkdksr_medical_renderer(options: HcRenderOptions) -> bool:
 
 
 def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
+    if _renderer_code(options) == "008C":
+        if start_op == 0x42:
+            return "lv-hc-link lineLink2"
+        if start_op in {0x43, 0x44}:
+            return "lv-hc-link lineLink"
     if _renderer_code(options) == "0137" and start_op in {0x3B, 0x42, 0x43}:
         return "lv-hc-link lineLink"
     if _renderer_code(options) == "0094" and start_op in {0x42, 0x43}:
@@ -1273,6 +1337,10 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
 
 
 def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | None:
+    if _renderer_code(options) == "008C" and op == 0x04:
+        return ("span", ' class="hankaku"')
+    if _renderer_code(options) == "008C" and op == 0x41:
+        return ("div", ' class="midashi"')
     if _is_hc_hkdksr_medical_renderer(options) and op == 0x04:
         return ("span", ' class="hankaku"')
     if _is_hc_hkdksr_medical_renderer(options) and op == 0x41:
@@ -1656,6 +1724,7 @@ def _append_gaiji_value(
             "009B",
             "00A6",
             "00B3",
+            "008C",
             "009C",
             "009D",
             "012E",
@@ -2889,6 +2958,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0145_section_close: str | None = None
     hc_hkdksr_medical_section_close: str | None = None
     hc_hkdksr_medical_table_open = False
+    hc008c_section_close: str | None = None
+    hc008c_heading_phase = _renderer_code(options) == "008C"
+    hc008c_contents_body_open = False
     hc03e8_section_close: str | None = None
     hc00a6_section_close: str | None = None
     hc00a6_ruby_readings: list[str] = []
@@ -3154,6 +3226,23 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         root.extend(section_parts)
                         if section_parts:
                             stats["hc00a6_section_blocks"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "008C":
+                        if hc008c_heading_phase:
+                            stats["hc008c_heading_section_controls"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if hc008c_section_close is not None:
+                            root.append(hc008c_section_close)
+                            hc008c_section_close = None
+                        section_parts, section_close, state = _hc008c_section_parts(code)
+                        root.extend(section_parts)
+                        hc008c_section_close = section_close
+                        if section_parts:
+                            stats["hc008c_section_blocks"] += 1
+                        if state:
+                            stats[f"hc008c_section_{state}"] += 1
                         i += 2 + arg_len
                         continue
                     if _is_hc_hkdksr_medical_renderer(options):
@@ -3718,6 +3807,32 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     hc_gen_year_section_close = None
                     i += 2 + arg_len
                     continue
+                if _renderer_code(options) == "008C":
+                    parts = _current_parts(root_parts, contexts)
+                    if hc008c_heading_phase:
+                        while style_stack:
+                            popped = style_stack.pop()
+                            close_tag = _style_close_tag(popped, options)
+                            if popped == 0x41:
+                                parts.append("</div>")
+                                break
+                            if close_tag:
+                                parts.append(f"</{close_tag}>")
+                        hc008c_heading_phase = False
+                        if not hc008c_contents_body_open:
+                            parts.append('<div class="contents_body">')
+                            hc008c_contents_body_open = True
+                            stats["hc008c_contents_body_blocks"] += 1
+                        stats["hc008c_heading_line_breaks"] += 1
+                    elif hc008c_section_close is not None:
+                        parts.append(hc008c_section_close)
+                        hc008c_section_close = None
+                        stats["hc008c_section_line_breaks"] += 1
+                    else:
+                        parts.append("<br>")
+                        stats["line_breaks"] += 1
+                    i += 2 + arg_len
+                    continue
                 if _renderer_code(options) == "02C8":
                     if hc02c8_current_value in HC02C8_NO_BREAK_SECTION_VALUES:
                         i += 2 + arg_len
@@ -3763,6 +3878,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "0137" and op in HC0137_NONPRINTING_CONTROL_OPS:
                 stats["hc0137_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "008C" and op in HC008C_NONPRINTING_CONTROL_OPS:
+                stats["hc008c_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -4149,6 +4269,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 continue
 
             if op in LINK_START_OPS:
+                if _renderer_code(options) == "008C" and 0x04 in style_stack:
+                    while style_stack:
+                        popped = style_stack.pop()
+                        close_tag = _style_close_tag(popped, options)
+                        if close_tag:
+                            _current_parts(root_parts, contexts).append(f"</{close_tag}>")
+                        if popped == 0x04:
+                            halfwidth_depth = max(0, halfwidth_depth - 1)
+                            break
                 contexts.append(_Context(kind="link", start_op=op, payload=payload, parent=_current_parts(root_parts, contexts), start_offset=i))
                 stats["links"] += 1
                 i += 2 + arg_len
@@ -5557,6 +5686,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc_hkdksr_medical_section_close)
     if hc_hkdksr_medical_table_open:
         _current_parts(root_parts, contexts).append("</td></tr></table>")
+    if hc008c_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc008c_section_close)
+    if hc008c_contents_body_open:
+        _current_parts(root_parts, contexts).append("</div>")
     if hc02c8_section_close is not None:
         _current_parts(root_parts, contexts).append(hc02c8_section_close)
     if hc02c2_section_open:

@@ -1265,6 +1265,43 @@ def test_hc02c8_private_sections_do_not_leak_visible_close_state() -> None:
     assert rendered.stats["hc02c8_private_section_controls"] == 1
 
 
+def test_hc008c_maps_midashi_contents_body_medical_sections_and_links() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("本文")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x04"
+        + jis_text("薬")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x0c"
+        + jis_text("注")
+        + b"\x1f\x0a"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\xb1\x70"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="008C", image_sources={"b170": "Templates/b170.gif"}))
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<div class="contents_body">' in rendered.html
+    assert '<div style="margin-left:12px;">' in rendered.html
+    assert '<div class="medblk">' in rendered.html
+    assert '<div class="medblkcaution">' in rendered.html
+    assert 'class="lv-hc-link lineLink2"' in rendered.html
+    assert 'class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert rendered.stats["hc008c_contents_body_blocks"] == 1
+    assert rendered.stats["hc008c_section_medblk"] == 1
+    assert rendered.stats["hc008c_nonprinting_controls"] == 1
+
+
 def test_hc0147_maps_bcd_sections_bunken_blocks_and_line_links() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -2782,6 +2819,35 @@ def test_hc02c8_profile_records_zukaiho_subset_without_claiming_parity() -> None
     assert "HC02C8_zukaiho_section_table_and_indent_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "modify_headword_hook" in data["named_gaps"]
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
+def test_hc008c_profile_records_hkdk_2010_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC008C.dll"),
+        code="008C",
+        expected_numeric_index="0000008C.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("0000008C.css",),
+        sql_snippets=(),
+        image_templates=("b170.gif", "sound.png"),
+        features={"custom_gaiji_dib": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC008C_medical_section_layout" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
