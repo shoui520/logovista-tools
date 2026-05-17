@@ -1234,12 +1234,14 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 name="dconci98_inline_style_gaiji",
                 status="branch_subset_implemented",
                 evidence=(
+                    "HC0157 epwing2HtmlBodydataVertical 1f09 section branch ladder",
                     "HC0157 epwing2HtmlBodydataVertical A14D/A14E accent branches",
                     "HC0157 B156-B241 CSS span branch ladder",
                     "Templates/00000157.css class definitions",
                 ),
                 implementation=(
-                    "A14D/A14E accent markers, B156-B241 CSS span delimiters, "
+                    "1f09 sections map to komidashi/gogi/example/phrase/derivative/compound "
+                    "layout blocks, A14D/A14E accent markers, B156-B241 CSS span delimiters, "
                     "and B22D-B23B red circled-number gaiji wrappers"
                 ),
                 notes="Branches that call the custom-character path render the same gaiji code inside the opened span instead of swallowing it as metadata.",
@@ -1509,6 +1511,7 @@ def build_hc_behavior_profile(
     if code == "0157":
         implemented.add("HC0157_inline_style_gaiji")
         implemented.add("HC0157_sound_icon_audio_link")
+        implemented.add("HC0157_section_layout")
 
     feature_gaps = {
         "panel_hooks": "panel_lifecycle_hook",

@@ -327,6 +327,31 @@ HC0157_STANDALONE_MARKERS = {
 }
 HC0157_NOOP_MARKERS = {"b17e"}
 HC0157_RED_GAIJI_RANGE = range(0xB22D, 0xB23C)
+HC0157_GROUP_START_CLASSES = {
+    10: "yourei_ej",
+    20: "seiku",
+    30: "haseigo",
+    40: "yourei_je",
+    50: "hukugou",
+}
+HC0157_GROUP_END_VALUES = {11, 21, 31, 41, 51}
+HC0157_TEXTLINE_CLASSES = {
+    12: "yourei_ej_main",
+    13: "yourei_ej_sub",
+    22: "seiku_main",
+    23: "seiku_sub",
+    32: "haseigo_main",
+    33: "haseigo_sub",
+    42: "yourei_je_main",
+    43: "yourei_je_sub",
+    52: "hukugou_main",
+    53: "hukugou_sub",
+}
+HC0157_SIMPLE_SECTION_CLASSES = {
+    2: "komidashi",
+    3: "textline gogi_ej",
+    4: "textline gogi_je",
+}
 
 HC0158_OPEN_MARKERS: dict[str, tuple[str, str, str]] = {
     # These B3xx values are not display glyphs for HC0158. The DLL maps them
@@ -1425,7 +1450,23 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
             return "lv-hc-link lineLink"
     if (
         _renderer_code(options)
-        in {"0048", "00AC", "00B3", "012F", "0131", "0132", "0136", "013C", "0142", "0147", "02BF", "02C0", "02C1", "02CA"}
+        in {
+            "0048",
+            "00AC",
+            "00B3",
+            "012F",
+            "0131",
+            "0132",
+            "0136",
+            "013C",
+            "0142",
+            "0147",
+            "0157",
+            "02BF",
+            "02C0",
+            "02C1",
+            "02CA",
+        }
         or _is_hc_gen_year_renderer(options)
     ) and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
@@ -1562,7 +1603,9 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return None
     if op == 0x41 and _renderer_code(options) == "00C6":
         return None
-    if op == 0x41 and _renderer_code(options) in {"0146", "0157", "0158"}:
+    if op == 0x41 and _renderer_code(options) == "0157":
+        return ("div", ' class="midashi"')
+    if op == 0x41 and _renderer_code(options) in {"0146", "0158"}:
         return ("span", ' class="lv-hc-heading midashi"')
     return STYLE_START_TAGS.get(op)
 
@@ -2414,6 +2457,15 @@ def _hc0132_section_class(value: int, *, next_private_directive: bool = False) -
     }.get(value)
 
 
+def _hc0157_section_value(code: str) -> int | None:
+    try:
+        if code.isdigit():
+            return int(code, 10)
+        return int(code, 16)
+    except ValueError:
+        return None
+
+
 def _image_tag_for_key(
     key: str,
     options: HcRenderOptions,
@@ -3262,6 +3314,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0151_table_open = False
     hc0151_contents_open = False
     hc0151_small_depth = 0
+    hc0157_section_close: str | None = None
+    hc0157_group_close: str | None = None
     hc0142_honbun_open = False
     hc0142_current_section: str | None = None
     hc0142_marker_stack: list[tuple[str, str]] = []
@@ -3498,6 +3552,54 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         stats["hc00ac_honbun_sections"] += 1
                         i += 2 + arg_len
                         continue
+                    if _renderer_code(options) == "0157":
+                        if hc0157_section_close is not None:
+                            root.append(hc0157_section_close)
+                            hc0157_section_close = None
+                        value = _hc0157_section_value(code)
+                        if value in HC0157_GROUP_END_VALUES:
+                            if hc0157_group_close is not None:
+                                root.append(hc0157_group_close)
+                                hc0157_group_close = None
+                                stats["hc0157_group_closures"] += 1
+                            stats["hc0157_state_sections"] += 1
+                            i += 2 + arg_len
+                            continue
+                        group_class = HC0157_GROUP_START_CLASSES.get(value) if value is not None else None
+                        if group_class is not None:
+                            if hc0157_group_close is not None:
+                                root.append(hc0157_group_close)
+                            root.append(f'<div class="{_escape_attr(group_class)}"><div>')
+                            hc0157_section_close = "</div>"
+                            hc0157_group_close = "</div>"
+                            stats["hc0157_group_sections"] += 1
+                            stats[f"hc0157_section_{group_class}"] += 1
+                            i += 2 + arg_len
+                            continue
+                        css_class = None
+                        if value is not None:
+                            css_class = HC0157_SIMPLE_SECTION_CLASSES.get(value) or (
+                                f"textline {HC0157_TEXTLINE_CLASSES[value]}" if value in HC0157_TEXTLINE_CLASSES else None
+                            )
+                        if css_class is not None:
+                            if value in HC0157_SIMPLE_SECTION_CLASSES and hc0157_group_close is not None:
+                                root.append(hc0157_group_close)
+                                hc0157_group_close = None
+                            root.append(f'<div class="{_escape_attr(css_class)}">')
+                            hc0157_section_close = "</div>"
+                            stats["hc0157_section_blocks"] += 1
+                            stats[f"hc0157_section_{css_class.replace(' ', '_')}"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if value == 1:
+                            stats["hc0157_midashi_section_state"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if value is not None:
+                            stats["hc0157_unmapped_sections"] += 1
+                            gaps.add(f"hc0157_unmapped_section_{code}")
+                            i += 2 + arg_len
+                            continue
                     if _renderer_code(options) == "0151":
                         if hc0151_section_close is not None:
                             root.append(hc0151_section_close)
@@ -4036,6 +4138,17 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         parts.append(hc0132_section_close)
                         hc0132_section_close = None
                         stats["hc0132_section_closures"] += 1
+                    else:
+                        parts.append("<br>")
+                        stats["line_breaks"] += 1
+                    i += 2 + arg_len
+                    continue
+                if _renderer_code(options) == "0157":
+                    parts = _current_parts(root_parts, contexts)
+                    if hc0157_section_close is not None:
+                        parts.append(hc0157_section_close)
+                        hc0157_section_close = None
+                        stats["hc0157_section_closures"] += 1
                     else:
                         parts.append("<br>")
                         stats["line_breaks"] += 1
@@ -6458,6 +6571,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc0132_section_close)
     if hc0132_honbun_open:
         _current_parts(root_parts, contexts).append("</div>")
+    if hc0157_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc0157_section_close)
+    if hc0157_group_close is not None:
+        _current_parts(root_parts, contexts).append(hc0157_group_close)
     _hc0190_close_section(contexts, hc0190_sections, stats)
     while contexts:
         ctx = contexts.pop()

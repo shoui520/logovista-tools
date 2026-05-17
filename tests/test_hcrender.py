@@ -2659,6 +2659,14 @@ def test_hc0157_renders_accent_and_sound_icon_templates() -> None:
     assert rendered.stats["audio_images"] == 1
 
 
+def test_hc0157_uses_line_link_for_internal_addresses() -> None:
+    body = b"\x1f\x42" + jis_ascii("L") + b"\x1f\x62\x00\x00\x00\x03\x00\x40"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0157"))
+
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+
+
 def test_hc0157_treats_1f12_1f13_as_noop_controls() -> None:
     rendered = render_hc_body(b"\x1f\x12" + jis_ascii("A") + b"\x1f\x13", HcRenderOptions(renderer_code="0157"))
 
@@ -2666,6 +2674,57 @@ def test_hc0157_treats_1f12_1f13_as_noop_controls() -> None:
     assert rendered.plain == "A"
     assert rendered.stats["hc0157_noop_controls"] == 2
     assert "unknown_control_1f12" not in rendered.named_behavior_gaps
+
+
+def test_hc0157_maps_dconci98_section_layout() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x02"
+        + jis_ascii("K")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_ascii("G")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x10"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x12"
+        + jis_ascii("M")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x13"
+        + jis_ascii("S")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x11"
+        + b"\x1f\x09\x00\x30"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x32"
+        + jis_ascii("D")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x33"
+        + jis_ascii("E")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x31"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0157"))
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<div class="komidashi">' in rendered.html
+    assert '<div class="textline gogi_ej">' in rendered.html
+    assert '<div class="yourei_ej"><div>' in rendered.html
+    assert '<div class="textline yourei_ej_main">' in rendered.html
+    assert '<div class="textline yourei_ej_sub">' in rendered.html
+    assert '<div class="haseigo"><div>' in rendered.html
+    assert '<div class="textline haseigo_main">' in rendered.html
+    assert '<div class="textline haseigo_sub">' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.html.count("<div") == rendered.html.count("</div>")
+    assert rendered.stats["hc0157_group_sections"] == 2
+    assert rendered.stats["hc0157_section_blocks"] == 6
+    assert rendered.stats["hc0157_group_closures"] == 2
 
 
 def test_hc0146_renders_color_font_markers_without_gaiji_placeholders() -> None:
