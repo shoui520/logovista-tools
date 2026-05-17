@@ -731,6 +731,7 @@ def test_hc0145_maps_decimal_sections_without_generic_heading() -> None:
     assert '<div class="contents" style="text-indent:0em;">' in rendered.html
     assert '<div class="honbun" style="text-indent:-1.0em;margin-left:2.000000em;">' in rendered.html
     assert "lv-hc-heading" not in rendered.html
+    assert "lv-hc-section" not in rendered.html
     assert rendered.stats["hc0145_section_blocks"] == 5
     assert rendered.stats["hc0145_nonprinting_controls"] == 1
 

@@ -3830,6 +3830,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         hc0145_section_close = _hc0145_section_close_for_parts(section_parts)
                         if section_parts:
                             stats["hc0145_section_blocks"] += 1
+                        else:
+                            stats["hc0145_unmapped_sections"] += 1
+                            gaps.add(f"hc0145_unmapped_section_{code}")
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "03E8":
                         if hc03e8_section_close is not None:
                             root.append(hc03e8_section_close)
