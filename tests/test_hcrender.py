@@ -3175,6 +3175,51 @@ def test_hc00a0_profile_records_sql_detail_subset_without_claiming_parity() -> N
     assert "sql_hook" in data["named_gaps"]
 
 
+def test_hc0159_profile_records_exact_rendererdb_body_without_claiming_hook_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0159.dll"),
+        code="0159",
+        expected_numeric_index="00000159.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=("vlpljblF",),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/00000159.css",),
+        sql_snippets=("SELECT f_Html FROM t_contents WHERE f_DataId = ?", "SELECT * FROM kisoku;"),
+        image_templates=("back.gif", "forward.gif"),
+        features={
+            "custom_gaiji_dib": True,
+            "dictionary_original_search": True,
+            "fulltext_search": True,
+            "headword_modifier": True,
+            "sql_hooks": True,
+            "user_data_hooks": True,
+            "vertical_renderer": True,
+        },
+    )
+
+    data = build_hc_behavior_profile(
+        row,
+        rendererdb_summary={"status": "ok", "t_contents_rows": 10, "entries_matched_to_raw_honmon": 10},
+    ).as_dict()
+
+    assert data["body_strategy"] == "rendererdb_html"
+    assert data["body_strategy_status"] == "exact_entry_body_html"
+    assert "HC0159_t_contents_exact_body_html" in data["implemented_semantics"]
+    assert "schema_backed_exact_entry_html" in data["implemented_semantics"]
+    hooks = {row["name"]: row for row in data["hook_behaviors"]}
+    assert hooks["habgespa_t_contents_body_lookup"]["status"] == "implemented_when_sidecar_present"
+    assert hooks["habgespa_sql_search_helpers"]["status"] == "classified_not_emulated"
+    assert data["exact_hc_parity"] is False
+    assert "modify_headword_hook" in data["named_gaps"]
+
+
 def test_hc013d_profile_records_drug_layout_subset_without_claiming_parity() -> None:
     row = HcRendererClassification(
         path=Path("HC013D.dll"),

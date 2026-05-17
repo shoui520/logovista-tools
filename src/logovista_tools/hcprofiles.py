@@ -142,6 +142,25 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="HC code selects f_Html/f_Title_SS/f_Keyword by f_DataId and related group IDs.",
             )
         )
+    if code == "0159":
+        rows.extend(
+            [
+                HcHookBehavior(
+                    name="habgespa_t_contents_body_lookup",
+                    status="implemented_when_sidecar_present",
+                    evidence=("t_contents f_DataId/f_Html SQL", "dense HONMON decimal ID anchors", "vlpljblF LogoFontCipher sidecar"),
+                    implementation="rendererdb data_id join",
+                    notes="Normal entry body HTML is supplied by the renderer/app sidecar; raw HONMON records are decimal ID anchors.",
+                ),
+                HcHookBehavior(
+                    name="habgespa_sql_search_helpers",
+                    status="classified_not_emulated",
+                    evidence=("execDicOrgSearchEx", "execDicZenbunSearch", "kisoku/t_contents SQL strings"),
+                    implementation=None,
+                    notes="The DLL includes product-specific dictionary-original and full-text search helpers distinct from normal entry body rendering.",
+                ),
+            ]
+        )
     if code == "015F":
         rows.extend(
             [
@@ -1157,6 +1176,8 @@ def build_hc_behavior_profile(
         implemented.add("HC00B3_honbun_margin_sections")
     if code == "00A0":
         implemented.add("HC00A0_phrase_detail_renderer")
+    if code == "0159" and rendererdb_ok:
+        implemented.add("HC0159_t_contents_exact_body_html")
     if code == "013C":
         implemented.add("HC013C_honbun_margin_sections")
     if code == "02C0":
