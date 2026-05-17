@@ -2813,6 +2813,9 @@ def test_hc_renderer_product_hooks_are_named_gaps() -> None:
     )
 
     assert _renderer_behavior_gaps(row) == ["panel_hooks", "plugin_hooks", "sql_search_or_helper_hooks"]
+    row.features["plugin_hooks"] = False
+    row.features["user_data_hooks"] = False
+    assert _renderer_behavior_gaps(row) == ["panel_hooks", "sql_search_or_helper_hooks"]
 
 
 def test_branch_subset_profiles_do_not_claim_visual_parity() -> None:
@@ -3937,6 +3940,51 @@ def test_hc0159_profile_records_exact_rendererdb_body_without_claiming_hook_pari
     assert hooks["habgespa_sql_search_helpers"]["status"] == "classified_not_emulated"
     assert data["exact_hc_parity"] is False
     assert "modify_headword_hook" in data["named_gaps"]
+
+
+def test_hc013f_profile_records_block_offset_rendererdb_body_without_claiming_hook_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC013F.dll"),
+        code="013F",
+        expected_numeric_index="0000013F.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=("vlpljblF",),
+        dic_tokens=(),
+        vlpljbl_tokens=("vlpljblF",),
+        html_templates=("%sHTMLs\\%d-%d.html", "%sHTMLs\\%d-%d_v.html"),
+        sql_snippets=("SELECT Body FROM",),
+        image_templates=("b16c.png", "forwardV.gif"),
+        features={
+            "custom_gaiji_dib": True,
+            "headword_modifier": True,
+            "panel_hooks": True,
+            "sql_hooks": True,
+            "uses_body_api": True,
+            "vertical_renderer": True,
+        },
+    )
+
+    data = build_hc_behavior_profile(
+        row,
+        rendererdb_summary={"status": "ok_block_offset_body", "block_offset_body_rows": 2},
+        raw_gaps={"unknown_control_1f6d": 1},
+    ).as_dict()
+
+    assert data["body_strategy"] == "rendererdb_html"
+    assert data["body_strategy_status"] == "exact_entry_body_html"
+    assert "HC013F_block_offset_exact_body_html" in data["implemented_semantics"]
+    hooks = {row["name"]: row for row in data["hook_behaviors"]}
+    assert hooks["block_offset_body_lookup"]["status"] == "implemented_when_sidecar_present"
+    assert hooks["panel_lifecycle"]["status"] == "classified_not_emulated"
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "unknown_control_1f6d" not in data["named_gaps"]
 
 
 def test_hc013d_profile_records_drug_layout_subset_without_claiming_parity() -> None:

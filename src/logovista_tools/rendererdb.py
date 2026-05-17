@@ -326,6 +326,23 @@ def html_to_plain(value: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
+def write_rendererdb_html_header(out: Any, *, title: str) -> None:
+    out.write(
+        "<!doctype html>\n"
+        "<html><head><meta charset=\"utf-8\">\n"
+        f"<title>{html.escape(title)}</title>\n"
+        "<style>\n"
+        "body{font-family:'Yu Mincho','Hiragino Mincho ProN','Meiryo',serif;line-height:1.7;margin:1.5rem;}\n"
+        ".rendererdb-entry{border-bottom:1px solid #ddd;padding:0.75rem 0;}\n"
+        ".rendererdb-entry img{max-height:1.6em;vertical-align:middle;}\n"
+        "</style></head><body>\n"
+    )
+
+
+def write_rendererdb_html_footer(out: Any) -> None:
+    out.write("</body></html>\n")
+
+
 def prepare_sidecar_database(sidecar: RendererSidecar, dict_out: Path, args: argparse.Namespace) -> Path:
     if sidecar.storage == "plain":
         return sidecar.path
@@ -421,6 +438,63 @@ def honbun_columns(con: sqlite3.Connection) -> dict[str, str]:
         "LEVEL3",
     ]
     return {canonical: columns[canonical.lower()] for canonical in wanted if canonical.lower() in columns}
+
+
+def block_offset_body_columns(con: sqlite3.Connection, table: str) -> dict[str, str]:
+    """Return canonical column names for renderer HTML rows keyed by body address."""
+
+    columns = table_column_map(con, table)
+    aliases = {
+        "ID": ("id", "no", "rowid"),
+        "Ver": ("ver", "version"),
+        "Block": ("block", "f_block"),
+        "Offset": ("offset", "f_offset"),
+        "Body": ("body", "html", "f_html", "contents", "contents_html"),
+    }
+    resolved: dict[str, str] = {}
+    for canonical, candidates in aliases.items():
+        for candidate in candidates:
+            if candidate == "rowid":
+                resolved[canonical] = "rowid"
+                break
+            if candidate in columns:
+                resolved[canonical] = columns[candidate]
+                break
+    if {"Block", "Offset", "Body"} <= set(resolved):
+        return resolved
+    return {}
+
+
+def block_offset_body_tables(con: sqlite3.Connection) -> list[tuple[str, dict[str, str]]]:
+    """Find clear ``Block``/``Offset``/``Body`` renderer HTML tables."""
+
+    try:
+        tables = [str(row[0]) for row in con.execute("select name from sqlite_master where type='table' order by name")]
+    except sqlite3.DatabaseError:
+        return []
+    rows: list[tuple[str, dict[str, str]]] = []
+    for table in tables:
+        columns = block_offset_body_columns(con, table)
+        if columns:
+            rows.append((table, columns))
+    return rows
+
+
+def choose_block_offset_body_table(
+    tables: list[tuple[str, dict[str, str]]],
+    *,
+    vertical: bool = False,
+) -> tuple[str, dict[str, str]] | None:
+    """Choose the horizontal/vertical address-keyed body table deterministically."""
+
+    if not tables:
+        return None
+    suffixes = ("_T", "_V") if vertical else ("_Y", "_H")
+    for suffix in suffixes:
+        for table, columns in tables:
+            if table.upper().endswith(suffix):
+                return (table, columns)
+    return tables[0]
 
 
 def html_rows_matching(con: sqlite3.Connection, pattern: str) -> int | None:
@@ -627,6 +701,146 @@ def extract_honbun_ordered_database(
     return summary
 
 
+def extract_block_offset_body_database(
+    source: DictionarySource,
+    summary: dict[str, Any],
+    expanded: bytes,
+    db_path: Path,
+    con: sqlite3.Connection,
+    dict_out: Path,
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    """Extract renderer HTML rows addressed by HONMON block/offset pairs."""
+
+    tables = block_offset_body_tables(con)
+    chosen = choose_block_offset_body_table(tables, vertical=bool(getattr(args, "vertical", False)))
+    if chosen is None:
+        summary.update({"status": "unsupported_block_offset_body_schema", "entries_emitted": 0})
+        return summary
+    table, columns = chosen
+    block_col = columns["Block"]
+    offset_col = columns["Offset"]
+    body_col = columns["Body"]
+    id_col = columns.get("ID")
+    ver_col = columns.get("Ver")
+
+    raw_slices = list(iter_entry_slices_with_boundaries(expanded))
+    raw_by_address: dict[tuple[int, int], dict[str, int]] = {}
+    for entry_index, (start, end) in enumerate(raw_slices, start=1):
+        block = source.honmon_start_block + start // BLOCK_SIZE
+        offset = start % BLOCK_SIZE
+        raw_by_address[(block, offset)] = {
+            "entry_index": entry_index,
+            "start_offset": start,
+            "end_offset": end,
+            "start_block": block,
+            "start_block_offset": offset,
+        }
+
+    select_parts = [
+        f"{quote_identifier(block_col)} as {quote_identifier('Block')}",
+        f"{quote_identifier(offset_col)} as {quote_identifier('Offset')}",
+        f"{quote_identifier(body_col)} as {quote_identifier('Body')}",
+    ]
+    if id_col is not None:
+        select_parts.append(f"{quote_identifier(id_col)} as {quote_identifier('ID')}")
+    if ver_col is not None:
+        select_parts.append(f"{quote_identifier(ver_col)} as {quote_identifier('Ver')}")
+    query = (
+        f"select {', '.join(select_parts)} from {quote_identifier(table)} "
+        f"order by cast({quote_identifier(block_col)} as integer), "
+        f"cast({quote_identifier(offset_col)} as integer), rowid"
+    )
+
+    emitted = 0
+    matched = 0
+    unmatched = 0
+    malformed_address_rows = 0
+    ziptomedia_refs: Counter[str] = Counter()
+    matched_addresses: set[tuple[int, int]] = set()
+    html_path = dict_out / "rendererdb_entries.html"
+    html_out = html_path.open("w", encoding="utf-8") if args.include_html else None
+    if html_out is not None:
+        write_rendererdb_html_header(html_out, title=f"{source.dict_id} rendererdb")
+    try:
+        with (dict_out / "rendererdb_entries.jsonl").open("w", encoding="utf-8") as out:
+            for row in con.execute(query):
+                block = parse_decimal_int(row["Block"])
+                offset = parse_decimal_int(row["Offset"])
+                html_value = row["Body"] or ""
+                ziptomedia_refs.update(ziptomedia_reference_names(html_value))
+                if block is None or offset is None:
+                    malformed_address_rows += 1
+                    continue
+                raw = raw_by_address.get((block, offset))
+                if raw is None:
+                    unmatched += 1
+                    continue
+                matched += 1
+                matched_addresses.add((block, offset))
+                if args.limit is None or emitted < args.limit:
+                    record: dict[str, Any] = {
+                        "dict_id": source.dict_id,
+                        "dict_title": source.title,
+                        "table": table,
+                        "id": row["ID"] if "ID" in row.keys() else None,
+                        "version": row["Ver"] if "Ver" in row.keys() else None,
+                        "block": block,
+                        "offset": offset,
+                        "raw_honmon": raw,
+                        "plain": html_to_plain(html_value),
+                    }
+                    if args.include_html:
+                        record["html"] = html_value
+                    out.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    if html_out is not None:
+                        label = html.escape(str(record["id"] or f"{block}:{offset}"))
+                        html_out.write(f"<!-- {source.dict_id} {label} -->\n<div class=\"rendererdb-entry\">{html_value}</div>\n")
+                    emitted += 1
+    finally:
+        if html_out is not None:
+            write_rendererdb_html_footer(html_out)
+            html_out.close()
+
+    table_rows = table_count(con, table) or 0
+    ziptomedia_summary = summarize_ziptomedia_refs(source.idx, ziptomedia_refs)
+    summary.update(
+        {
+            "status": "ok_block_offset_body",
+            "sqlite_path": str(db_path),
+            "rendererdb_html_path": str(html_path) if args.include_html else None,
+            "block_offset_body_table": table,
+            "block_offset_body_candidate_tables": [name for name, _columns in tables],
+            "block_offset_body_rows": table_rows,
+            "raw_honmon_entry_slices": len(raw_slices),
+            "entries_matched_to_raw_honmon": matched,
+            "entries_emitted": emitted,
+            "db_rows_without_raw_honmon_address": unmatched,
+            "db_rows_with_malformed_address": malformed_address_rows,
+            "raw_honmon_entries_missing_in_db": max(0, len(raw_slices) - len(matched_addresses)),
+            "media_table": media_table_name(con),
+            "media_rows": table_count(con, media_table_name(con)) if media_table_name(con) else None,
+            "media_type_counts": media_type_counts(con),
+            "html_rows_with_media_references": None,
+            "html_rows_with_ziptomedia_references": None,
+            **ziptomedia_summary,
+        }
+    )
+    if args.write_media:
+        summary.update(write_media_records(con, dict_out / "media", limit=args.media_limit))
+    if args.write_ziptomedia:
+        sound_dir = Path(ziptomedia_summary["ziptomedia_dir"]) if ziptomedia_summary["ziptomedia_dir"] else None
+        summary.update(
+            write_ziptomedia_records(
+                sound_dir,
+                ziptomedia_refs,
+                dict_out / "ziptomedia",
+                limit=args.ziptomedia_limit,
+            )
+        )
+    return summary
+
+
 def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
     dict_out = out_dir / source.dict_id
     dict_out.mkdir(parents=True, exist_ok=True)
@@ -682,6 +896,13 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
         if not table_exists(con, "t_contents"):
             if table_exists(con, "HONBUN"):
                 summary = extract_honbun_ordered_database(source, summary, expanded, db_path, con, dict_out, args)
+                (dict_out / "rendererdb_summary.json").write_text(
+                    json.dumps(summary, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                return summary
+            if block_offset_body_tables(con):
+                summary = extract_block_offset_body_database(source, summary, expanded, db_path, con, dict_out, args)
                 (dict_out / "rendererdb_summary.json").write_text(
                     json.dumps(summary, ensure_ascii=False, indent=2),
                     encoding="utf-8",

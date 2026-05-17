@@ -6446,7 +6446,6 @@ def _renderer_for_source(source: DictionarySource, *, compute_hash: bool = False
 def _renderer_behavior_gaps(renderer: HcRendererClassification | None) -> list[str]:
     if renderer is None:
         return ["no_hc_renderer_plugin_declared"]
-    features = set(renderer.features)
     gaps: list[str] = []
     for feature, gap in (
         ("panel_hooks", "panel_hooks"),
@@ -6456,7 +6455,7 @@ def _renderer_behavior_gaps(renderer: HcRendererClassification | None) -> list[s
         ("headword_modifier", "modify_headword_hook"),
         ("custom_gaiji_dib", "custom_gaiji_bitmap_hook"),
     ):
-        if feature in features:
+        if renderer.features.get(feature):
             gaps.append(gap)
     return sorted(gaps)
 
@@ -6588,6 +6587,7 @@ def _rendererdb_args(args: argparse.Namespace) -> argparse.Namespace:
     return argparse.Namespace(
         decrypted_db=None,
         include_html=True,
+        vertical=bool(getattr(args, "vertical", False)),
         write_media=bool(args.write_sidecar_media),
         media_limit=args.media_limit,
         write_ziptomedia=bool(args.write_ziptomedia),
@@ -6617,7 +6617,8 @@ def extract_hc_render_for_source(source: DictionarySource, out_dir: Path, args: 
         raw_gaps=raw_summary.get("raw_honmon_named_behavior_gaps", {}),
     )
     behavior_gaps = _renderer_behavior_gaps(renderer)
-    behavior_gaps.extend(raw_summary.get("raw_honmon_named_behavior_gaps", {}).keys())
+    if not profile.exact_body_html_available:
+        behavior_gaps.extend(raw_summary.get("raw_honmon_named_behavior_gaps", {}).keys())
     summary = {
         "schema": "logovista-hc-render-summary-v1",
         "dict_id": source.dict_id,

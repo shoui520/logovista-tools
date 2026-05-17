@@ -12,6 +12,7 @@ from logovista_tools.colscr import (
     validate_bmp_header,
 )
 from logovista_tools.entries import (
+    DictionarySource,
     decode_tokens,
     discover_dictionaries,
     iter_entry_slices_reader,
@@ -62,9 +63,13 @@ from logovista_tools.pcmdata import (
 )
 from logovista_tools.profiles import ProfileTarget, build_profile
 from logovista_tools.rendererdb import (
+    block_offset_body_columns,
+    block_offset_body_tables,
     blob_extension,
+    choose_block_offset_body_table,
     discover_android_body_databases,
     discover_ziptomedia_dir,
+    extract_block_offset_body_database,
     html_media_reference_rows,
     html_to_plain,
     html_ziptomedia_reference_rows,
@@ -1525,6 +1530,77 @@ def test_rendererdb_honbun_columns_are_case_insensitive() -> None:
     assert columns["ID"] == "id"
     assert columns["Title_UTF8"] == "title_utf8"
     assert columns["Contents_HTML_box"] == "contents_html_box"
+
+    con.close()
+
+
+def test_rendererdb_block_offset_body_tables_are_selected_by_orientation() -> None:
+    con = sqlite3.connect(":memory:")
+    con.execute("create table DICT_MAIN_T (id text, Ver text, Block text, Offset text, Body text)")
+    con.execute("create table DICT_MAIN_Y (id text, Ver text, Block text, Offset text, Body text)")
+    con.execute("create table OTHER (id text, payload text)")
+
+    tables = block_offset_body_tables(con)
+
+    assert [name for name, _columns in tables] == ["DICT_MAIN_T", "DICT_MAIN_Y"]
+    assert block_offset_body_columns(con, "DICT_MAIN_T")["Body"] == "Body"
+    assert choose_block_offset_body_table(tables, vertical=False)[0] == "DICT_MAIN_Y"
+    assert choose_block_offset_body_table(tables, vertical=True)[0] == "DICT_MAIN_T"
+
+    con.close()
+
+
+def test_rendererdb_extracts_block_offset_body_rows(tmp_path: Path) -> None:
+    db_path = tmp_path / "vlpljblF.sqlite"
+    con = sqlite3.connect(db_path)
+    con.execute("create table DICT_MAIN_Y (id text, Ver text, Block text, Offset text, Body text)")
+    con.execute("create table DICT_MAIN_T (id text, Ver text, Block text, Offset text, Body text)")
+    con.execute("insert into DICT_MAIN_Y values ('00000001', '01.000', '4', '0', '<div>horizontal one</div>')")
+    con.execute("insert into DICT_MAIN_Y values ('00000002', '01.000', '4', '24', '<div>horizontal two<br></div>')")
+    con.execute("insert into DICT_MAIN_T values ('00000001', '01.000', '4', '0', '<div>vertical one</div>')")
+    con.commit()
+    con.row_factory = sqlite3.Row
+
+    source = DictionarySource(
+        dict_id="DICT",
+        idx=tmp_path / "DICT.IDX",
+        title="test",
+        honmon=tmp_path / "HONMON.DIC",
+        honmon_start_block=4,
+        gaiji_map={},
+    )
+    def jis_ascii(text: str) -> bytes:
+        return b"".join(bytes((0x23, ord(ch))) for ch in text)
+
+    entry_one = b"\x1f\x09\x00\x01\x1f\x41" + jis_ascii("one") + b"\x1f\x61"
+    entry_one += b"\x00" * (24 - len(entry_one))
+    entry_two = b"\x1f\x09\x00\x01\x1f\x41" + jis_ascii("two") + b"\x1f\x61"
+    expanded = entry_one + entry_two
+    args = Namespace(
+        include_html=True,
+        limit=None,
+        media_limit=None,
+        vertical=False,
+        write_media=False,
+        write_ziptomedia=False,
+        ziptomedia_limit=None,
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    summary = extract_block_offset_body_database(source, {}, expanded, db_path, con, out_dir, args)
+
+    assert summary["status"] == "ok_block_offset_body"
+    assert summary["block_offset_body_table"] == "DICT_MAIN_Y"
+    assert summary["entries_matched_to_raw_honmon"] == 2
+    assert summary["entries_emitted"] == 2
+    rows = (out_dir / "rendererdb_entries.jsonl").read_text(encoding="utf-8").splitlines()
+    assert '"plain": "horizontal one"' in rows[0]
+    assert '"start_block": 4' in rows[0]
+    assert '"start_block_offset": 24' in rows[1]
+    html_out = (out_dir / "rendererdb_entries.html").read_text(encoding="utf-8")
+    assert "horizontal one" in html_out
+    assert summary["rendererdb_html_path"].endswith("rendererdb_entries.html")
 
     con.close()
 

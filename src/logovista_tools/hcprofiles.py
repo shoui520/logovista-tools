@@ -227,6 +227,16 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The DLL initializes product panel UI state; normal entry body rendering does not require running the panel hook.",
             )
         )
+    if code == "013F":
+        rows.append(
+            HcHookBehavior(
+                name="block_offset_body_lookup",
+                status="implemented_when_sidecar_present",
+                evidence=("Block/Offset/Body SQL tables", "HC013F SDicGetBodyData fallback and HTMLs path logic"),
+                implementation="rendererdb block/offset body join",
+                notes="The renderer sidecar stores horizontal and vertical body HTML keyed by HONMON block/offset.",
+            )
+        )
     if code == "013A":
         rows.append(
             HcHookBehavior(
@@ -1408,6 +1418,8 @@ def build_hc_behavior_profile(
         implemented.add("HC00A0_phrase_detail_renderer")
     if code == "0159" and rendererdb_ok:
         implemented.add("HC0159_t_contents_exact_body_html")
+    if code == "013F" and rendererdb_ok:
+        implemented.add("HC013F_block_offset_exact_body_html")
     if code == "013C":
         implemented.add("HC013C_honbun_margin_sections")
     if code == "02C0":
@@ -1516,7 +1528,7 @@ def build_hc_behavior_profile(
             )
         )
 
-    raw_gap_names = tuple(sorted(str(key) for key in (raw_gaps or {}).keys()))
+    raw_gap_names = () if rendererdb_ok else tuple(sorted(str(key) for key in (raw_gaps or {}).keys()))
     non_gap_status_prefixes = ("implemented", "branch_subset_implemented")
     hook_gap_names = tuple(sorted(hook.name for hook in hooks if not hook.status.startswith(non_gap_status_prefixes)))
     branch_subset_names = tuple(sorted(hook.name for hook in hooks if hook.status.startswith("branch_subset_implemented")))
