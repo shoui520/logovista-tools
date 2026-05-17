@@ -450,11 +450,18 @@ and non-SSED reader status are tracked separately in
   `math`, `plain_text`, `icotype_1`, `margin`, or classed gaiji image markup.
   Panel lifecycle, HTMLs/fix fallback, math/formula media lookahead, custom DIB
   generation, and vertical template differences remain incomplete.
+- `HC02C1.dll` now has a focused raw-HONMON branch-subset proof: `1f09` maps
+  KQJCOLLO sections to `midashi`/`honbun` containers, sections `0003`-`0006`
+  insert the recovered `1.png`/`2.png`/`3.png`/`5.png` icon headers,
+  B121-B138 marker gaiji open `moji-down` paragraphs where the body-loop state
+  requires it, B13E-B14D template image gaiji use `img_mark4`, and internal
+  links use `lineLink`. Custom DIB generation, Panel lifecycle, exact
+  ruby/smallcap state, and vertical template differences remain incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
   exact SHA-256 renderer binaries. HC013A, HC0065, HC009D, HC00C6, HC012D,
   HC012E, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8,
-  HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC0157, and HC0158 currently have decoded
-  branch subsets, not full HC parity.
+  HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC0157, and HC0158 currently
+  have decoded branch subsets, not full HC parity.
   Other branch tables remain named gaps until their output constants and product
   data paths are understood.
 - The default raw-resource gaiji readiness pass intentionally does not use

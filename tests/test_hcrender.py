@@ -649,7 +649,7 @@ def test_hc0144_internal_links_use_line_link_class() -> None:
 def test_hc03e8_maps_sections_and_consumes_heading_state() -> None:
     body = (
         b"\x1f\x09\x00\x01"
-        + b"\x1f\x41"
+        + b"\x1f\x41\x01\x00"
         + jis_ascii("H")
         + b"\x1f\x09\x00\x02"
         + jis_ascii("P")
@@ -710,7 +710,7 @@ def test_hc03e8_internal_links_use_line_link_class() -> None:
 def test_hc0141_maps_sections_and_consumes_heading_state() -> None:
     body = (
         b"\x1f\x09\x00\x01"
-        + b"\x1f\x41"
+        + b"\x1f\x41\x01\x00"
         + jis_ascii("H")
         + b"\x1f\x09\x00\x02"
         + jis_ascii("P")
@@ -1045,6 +1045,62 @@ def test_hc02c2_line_links_use_product_class() -> None:
 
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert 'href="lvaddr://00000002/0048"' in rendered.html
+
+
+def test_hc02c1_maps_sections_icons_and_moji_down_markers() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + b"\xb1\x21"
+        + jis_text("本文")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x04"
+        + b"\xb1\x22"
+        + jis_text("続き"),
+        HcRenderOptions(renderer_code="02C1", gaiji_map={"b121": "❶", "b122": "❷"}),
+    )
+
+    assert '<div class="midashi"><span class="hankaku">H</span></div>' in rendered.html
+    assert '<img src="1.png" class="img_icon"/><br>' in rendered.html
+    assert '<img src="2.png" class="img_icon"/><br>' in rendered.html
+    assert '<p class="moji-down">❶' in rendered.html
+    assert '<p class="moji-down">❷' in rendered.html
+    assert 'class="lv-hc-section"' not in rendered.html
+    assert rendered.stats["hc02c1_section_blocks"] == 3
+    assert rendered.stats["hc02c1_section_icons"] == 2
+    assert rendered.stats["hc02c1_moji_down_blocks"] == 2
+    assert rendered.stats["hc02c1_nonprinting_controls"] == 2
+
+
+def test_hc02c1_uses_line_links_and_template_image_gaiji() -> None:
+    body = (
+        b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\xb1\x4c"
+        + b"\xb1\x35"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="02C1",
+            image_sources={"b14c": "Templates/B14C.png", "b135": "Templates/b135.png"},
+        ),
+    )
+
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'src="Templates/B14C.png"' in rendered.html
+    assert 'class="lv-hc-gaiji img_mark4"' in rendered.html
+    assert 'src="Templates/b135.png"' in rendered.html
+    assert 'class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji"' in rendered.html
+    assert rendered.stats["hc02c1_template_image_markers"] == 1
+    assert rendered.stats["hc02c1_moji_down_markers"] == 1
 
 
 def test_hc02c5_wraps_headings_and_decoded_sections() -> None:
@@ -1982,6 +2038,36 @@ def test_hc0142_profile_records_panel_layout_subset_without_claiming_parity() ->
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0142_panel_body_marker_layout" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+    assert "panel_lifecycle" in data["named_gaps"]
+
+
+def test_hc02c1_profile_records_panel_layout_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC02C1.dll"),
+        code="02C1",
+        expected_numeric_index="000002C1.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/000002C1.css",),
+        sql_snippets=(),
+        image_templates=("Templates/B14C.png",),
+        features={"custom_gaiji_dib": True, "headword_modifier": True, "panel_hooks": True, "vertical_renderer": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC02C1_section_icons_and_template_gaiji" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]

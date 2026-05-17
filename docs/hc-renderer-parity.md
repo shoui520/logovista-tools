@@ -21,8 +21,8 @@ Parity is only promoted when the relevant DLL code path or branch table is under
 | `common_controls_candidate_verify` | 1 |
 | `common_controls_plus_named_hooks` | 14 |
 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | 5 |
-| `needs_marker_branch_decode` | 70 |
-| `decoded_branch_subset_visual_incomplete` | 19 |
+| `needs_marker_branch_decode` | 69 |
+| `decoded_branch_subset_visual_incomplete` | 20 |
 
 | Family | Families |
 |---|---:|
@@ -43,6 +43,7 @@ Decoded branch subsets currently implemented:
 - `HC00C6.dll`: HC00C6 section/layout and marker subset; representative package `_DCT_Dconci87`; remaining gaps: custom_gaiji_dib_hook, unresolved literal/DIB branches, and representative visual parity.
 - `HC02BC.dll`: HC02BC STEDMAN6 section/layout and medical-marker subset; representative package `_DCT_STEDMAN6`; remaining gaps: custom DIB generation, modifyHeadwordEx, vertical-navigation wrapper scaffolding, and representative visual parity.
 - `HC02C2.dll`: HC02C2 KQCOLEXP section-icon and template-gaiji subset; representative package `_DCT_KQCOLEXP`; remaining gaps: custom DIB generation, modifyHeadwordEx, Panel lifecycle hooks, and representative visual parity.
+- `HC02C1.dll`: HC02C1 KQJCOLLO section-icon, moji-down, and template-gaiji subset; representative package `_DCT_KQJCOLLO`; remaining gaps: custom DIB generation, modifyHeadwordEx, Panel lifecycle hooks, exact ruby/smallcap state, and representative visual parity.
 - `HC012D.dll`: HC012D MEIKYOU2 section/layout and inline-image marker subset; representative package `_DCT_MEIKYOU2`; remaining gaps: custom DIB generation, modifyHeadword hooks, SQL/original-search helpers, exact yindex/ruigo script lifecycle, and representative visual parity.
 - `HC0145.dll`: HC0145 RDRSP2 decimal section/layout and marker subset; representative package `_DCT_RDRSP2`; remaining gaps: custom DIB generation, modifyHeadwordEx, SQL original-search plus D_Example/D_Idiom hooks, exact table/navigation wrapper lifecycle, and representative visual parity.
 - `HC013D.dll`: HC013D HKDKSR13 drug-layout and template-marker subset; representative package `_DCT_HKDKSR13`; remaining gaps: custom DIB generation, modifyHeadword, exact contents/table/click-menu lifecycle, complete picture extraction, and representative visual parity.
@@ -94,7 +95,7 @@ The order below is heuristic. It weights package count, renderer-specific gaiji 
 | 18 | `HC02C5` | `ce183b2fc4c4` | `_DCT_GENIUS53` | 1 | 138 | `decoded_branch_subset_visual_incomplete` | sample more entries; promote only additional recovered branches |
 | 19 | `HC0151` | `148f7d9a4fdc` | `_DCT_IBIO5` | 1 | 137 | `decoded_branch_subset_visual_incomplete` | sample more entries; promote only additional recovered branches |
 | 20 | `HC0142` | `f5c9669416f3` | `_DCT_YUECONO5` | 1 | 130 | `decoded_branch_subset_visual_incomplete` | sample more entries; promote only additional recovered branches |
-| 21 | `HC02C1` | `cd453a74ba53` | `_DCT_KQJCOLLO` | 1 | 130 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 21 | `HC02C1` | `cd453a74ba53` | `_DCT_KQJCOLLO` | 1 | 130 | `decoded_branch_subset_visual_incomplete` | sample more entries; promote only additional recovered branches |
 | 22 | `HC02BF` | `9633e65277fa` | `_DCT_KQLATINO` | 1 | 129 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
 | 23 | `HC012F` | `1dbabcd98bc0` | `_DCT_YHOUGO4` | 1 | 124 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
 | 24 | `HC0131` | `37cefa29ed5c` | `_DCT_KQEBHOU` | 1 | 123 | `needs_marker_branch_decode` | recover SQL/search hooks and decide entry-render impact |
@@ -195,7 +196,7 @@ The order below is heuristic. It weights package count, renderer-specific gaiji 
 | 84 | `HC0146` | `bd6644ef5906` | `_DCT_PROYAL43` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=46, tmpl=15, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook`, `sql_or_search_hook` | sample more entries; promote only additional recovered branches |
 | 85 | `HC00C7` | `c93d6813af27` | `_DCT_GKKNJPZL` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=2 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
 | 86 | `HC00A9` | `ca2f02ad4023` | `_DCT_GEN2011` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=23, section_control_seen_in_body_loop | none | map template hints to body-loop branches and compare representative entry |
-| 87 | `HC02C1` | `cd453a74ba53` | `_DCT_KQJCOLLO` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=18, tmpl=27, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 87 | `HC02C1` | `cd453a74ba53` | `_DCT_KQJCOLLO` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=18, tmpl=27, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook` | sample more entries; promote only additional recovered branches |
 | 88 | `HC02C5` | `ce183b2fc4c4` | `_DCT_GENIUS53` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=31, tmpl=1, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook`, `sql_or_search_hook` | sample more entries; promote only additional recovered branches |
 | 89 | `HC0095` | `d142ef45c591` | `_DCT_GKSAHOU` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=9, tmpl=18, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
 | 90 | `HC02CC` | `d6421f9b1cf5` | `_DCT_GENMEM2` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=9, tmpl=28, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook` | map template hints to body-loop branches and compare representative entry |

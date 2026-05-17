@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             22   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC0157, HC0158
-common semantics plus named gaps:    90
+decoded branch subsets:             23   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC0157, HC0158
+common semantics plus named gaps:    89
 full product visual parity:           0
 ```
 
@@ -1232,7 +1232,18 @@ state controls, and emits internal links with the recovered `lineLink` class.
 Custom DIB generation, `modifyHeadwordEx`, Panel lifecycle hooks, and broader
 visual parity remain named gaps, so exact HC02C2 visual parity is not claimed.
 
-The seventh branch-subset proof case is `HC012E.dll`. Its vertical body loop
+The seventh branch-subset proof case is `HC02C1.dll`. Its vertical body loop
+maps `1f09` section payloads to KQJCOLLO `midashi` and `honbun` blocks.
+Sections `0003`, `0004`, `0005`, and `0006` emit `1.png`, `2.png`, `3.png`,
+and `5.png` `img_icon` markers respectively; B121-B138 marker gaiji open
+`moji-down` paragraphs when they directly follow section state; and B13E-B14D
+template image gaiji render with `img_mark4`. The same branch subset consumes
+`1f41`/`1f61` as renderer state and emits internal links with the recovered
+`lineLink` class. Custom DIB generation, `modifyHeadwordEx`, Panel lifecycle
+hooks, exact ruby/smallcap state, and broader visual parity remain named gaps,
+so exact HC02C1 visual parity is not claimed.
+
+The eighth branch-subset proof case is `HC012E.dll`. Its vertical body loop
 uses package-local `Gaijitemp/` image resources for most kanji-form glyphs.
 The implemented subset maps common `1f09` section payloads to `honbun`,
 `bushu`, `kaku_midashi`, `exam`, `Oyaji`, and `Itaiji_2` block/table shapes;
