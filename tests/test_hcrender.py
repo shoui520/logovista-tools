@@ -21,6 +21,15 @@ def jis_ascii(letter: str) -> bytes:
     return b"\x1f\x04" + bytes((0x23, ord(letter))) + b"\x1f\x05"
 
 
+def jis_fullwidth_ascii(text: str) -> bytes:
+    return b"".join(bytes((0x23, ord(ch))) for ch in text)
+
+
+def jis_text(text: str) -> bytes:
+    encoded = text.encode("iso2022_jp")
+    return encoded.replace(b"\x1b$B", b"").replace(b"\x1b(B", b"")
+
+
 def test_hc_render_internal_link_uses_end_payload_target() -> None:
     body = b"\x1f\x42" + jis_ascii("A") + b"\x1f\x62\x00\x00\x00\x01\x00\x20"
 
@@ -787,6 +796,124 @@ def test_hc0190_applies_html_template_section_placeholders() -> None:
     assert rendered.stats["hc0190_template_placeholders_empty"] == 1
 
 
+def test_hc009c_maps_sections_links_private_images_and_marker_images() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x01"
+        + jis_fullwidth_ascii("TITLE")
+        + b"\x1f\x61"
+        + b"\xb1\x48"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + b"\xb1\x39"
+        + b"\x1f\xe2\x00\x07"
+        + jis_text("ＩＭＧ：Ｉ７１０４２１００．ＰＮＧ")
+        + b"\x1f\xe3"
+        + b"\x1f\x42"
+        + jis_fullwidth_ascii("A")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="009C",
+            image_sources={
+                "b148m": "Templates/B148m.gif",
+                "50042100": "images/50042100.jpg",
+                "hc009c_thumb_50042100": "images_thumb/50042100.png",
+            },
+        ),
+    )
+
+    assert '<div class="midashi">ＴＩＴＬＥ<img src="Templates/B148m.gif" class="img_season" alt="b148"></div>' in rendered.html
+    assert '<div class="honbun" style="margin-left:3em">' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert '<a class="hc009c-image-link" href="images/50042100.jpg">' in rendered.html
+    assert '<img src="images_thumb/50042100.png" class="img_button" alt="50042100">' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert 'data-gaiji-code="b139"' not in rendered.html
+    assert rendered.stats["hc009c_section_blocks"] == 2
+    assert rendered.stats["hc009c_private_images"] == 1
+    assert rendered.stats["hc009c_noop_markers"] == 1
+    assert rendered.stats["hc009c_season_image_markers"] == 1
+
+
+def test_hc009c_table_marker_outputs_balanced_product_table() -> None:
+    body = b"\x1f\x09\x00\x04" + b"\xb1\x2a" + jis_fullwidth_ascii("TEXT") + b"\x1f\x0a"
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="009C", image_sources={"b12a": "Templates/B12A.gif"}),
+    )
+
+    assert '<table class="feature-table">' in rendered.html
+    assert '<td class="subtitle"><img src="Templates/B12A.gif" class="img_mark2" alt="b12a"></td>' in rendered.html
+    assert '<td class="honbun">ＴＥＸＴ</td>' in rendered.html
+    assert rendered.html.count("<table") == rendered.html.count("</table>")
+    assert rendered.html.count("<td") == rendered.html.count("</td>")
+    assert rendered.stats["hc009c_table_markers"] == 1
+
+
+def test_hc009c_asset_preparation_copies_thumbnail_and_icon_dirs(tmp_path: Path) -> None:
+    package = tmp_path / "_DCT_SESGRASS"
+    package.mkdir()
+    idx = package / "SESGRASS.IDX"
+    idx.write_bytes(b"")
+    honmon = package / "HONMON.DIC"
+    honmon.write_bytes(b"")
+    for dirname, filename in (
+        ("images_thumb", "50042100.png"),
+        ("images_icon", "71042100.png"),
+        ("images_icon_hanrei", "71042100.png"),
+    ):
+        directory = package / dirname
+        directory.mkdir()
+        (directory / filename).write_bytes(dirname.encode("ascii"))
+    source = DictionarySource(
+        dict_id="SESGRASS",
+        idx=idx,
+        title="SESGRASS",
+        honmon=honmon,
+        honmon_start_block=0,
+        gaiji_map={},
+        image_sources={"50042100": "images/50042100.jpg"},
+    )
+    renderer = HcRendererClassification(
+        path=package / "HC009C.dll",
+        code="009C",
+        expected_numeric_index="0000009C.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=(),
+        features={},
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    image_sources, _, _, copied = _prepare_hc_render_assets(source, out_dir, renderer)
+
+    assert image_sources["hc009c_thumb_50042100"] == "images_thumb/50042100.png"
+    assert image_sources["hc009c_icon_71042100"] == "images_icon/71042100.png"
+    assert image_sources["hc009c_hanrei_71042100"] == "images_icon_hanrei/71042100.png"
+    assert (out_dir / "images_thumb" / "50042100.png").read_bytes() == b"images_thumb"
+    assert (out_dir / "images_icon" / "71042100.png").read_bytes() == b"images_icon"
+    assert (out_dir / "images_icon_hanrei" / "71042100.png").read_bytes() == b"images_icon_hanrei"
+    assert copied >= 3
+
+
 def test_hc013d_maps_sections_to_drug_layout_classes() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -1532,6 +1659,34 @@ def test_hc0190_profile_records_template_subset_without_claiming_parity() -> Non
 
     assert "HC0190_html_template_section_substitution" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
+
+
+def test_hc009c_profile_records_section_image_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC009C.dll"),
+        code="009C",
+        expected_numeric_index="0000009C.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=("Templates/B122.gif",),
+        features={"custom_gaiji_dib": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC009C_section_image_index_layout" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
 
 
 def test_hc013d_profile_records_drug_layout_subset_without_claiming_parity() -> None:

@@ -1146,7 +1146,7 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             18   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0141, HC0144, HC0145, HC0190, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
+decoded branch subsets:             19   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
 common semantics plus named gaps:    93
 full product visual parity:           0
 ```
@@ -1333,6 +1333,23 @@ as `roudoku.png` and `haikei.png` appear through the selected HTML; and all
 JavaScript audio-player lifecycle, runtime `fix/` override behavior, original
 viewer temp-file output, and visual coverage across all read-aloud set volumes
 remain named gaps, so exact HC0190 visual parity is not claimed.
+
+The SESGRASS image-index branch-subset proof case is `HC009C.dll`. Its body
+loop maps `1f09` section payloads to product `midashi` and margin-adjusted
+`honbun` blocks, consumes `1f41` as renderer state, and renders internal links
+with the recovered `lineLink` class. The same branch table treats B122 as a
+direct `img_mark2` image marker, B128/B129 as `ko-midashi` wrappers, B13A as
+`page_comment`, B12A-B137 as product table wrappers, B148-B14B as season
+images, and B139/B140-B147/B14C/B14D as selector/no-output markers. Private
+`IMG:I########.PNG` directives resolve to full image links with thumbnail
+preview images from the package `images_thumb` tree. In the first 50-entry
+SESGRASS sample, generic `lv-hc-heading` and `lv-hc-section` wrappers dropped
+to 0, product `honbun` blocks rose to 4,470, `midashi` blocks to 67,
+`lineLink` anchors to 4,090, thumbnail-backed image buttons to 4,032, and
+generic gaiji placeholders fell from 4,201 to 24. Custom gaiji bitmap
+generation, `modifyHeadword` hooks, Panel/plugin/user-data hooks, SQL/search
+helpers, and broader visual parity remain named gaps, so exact HC009C visual
+parity is not claimed.
 
 The HKDKSR13 branch-subset proof case is `HC013D.dll`. Its vertical body loop
 maps `1f09` section payloads to product drug-layout classes such as `title3`,

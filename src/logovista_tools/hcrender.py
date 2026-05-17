@@ -674,6 +674,29 @@ HC0141_CLOSE_MARKERS = HC0145_CLOSE_MARKERS
 HC0141_NOOP_MARKERS = HC0145_NOOP_MARKERS
 HC0190_TEMPLATE_MARKERS = {"b121", "b122", "b123", "b124"}
 HC0190_BREAK_SECTIONS = {3, 7, 0x1C}
+HC009C_NONPRINTING_CONTROL_OPS = {0x41, 0xE0, 0xE1}
+HC009C_DIRECT_IMAGE_MARKERS = {
+    "b122": "img_mark2",
+}
+HC009C_SEASON_IMAGE_MARKERS = {"b148", "b149", "b14a", "b14b"}
+HC009C_KO_MIDASHI_MARKERS = {"b128", "b129"}
+HC009C_FEATURE_TABLE_MARKERS = {"b12a", "b12b", "b12c", "b12d"}
+HC009C_DATA_TABLE_MARKERS = {"b12e", "b12f", "b130", "b131", "b132", "b133", "b134", "b135", "b136"}
+HC009C_MEMO_TABLE_MARKERS = {"b137"}
+HC009C_NOOP_MARKERS = {
+    "b138",
+    "b139",
+    "b140",
+    "b141",
+    "b142",
+    "b143",
+    "b144",
+    "b145",
+    "b146",
+    "b147",
+    "b14c",
+    "b14d",
+}
 HC013D_NONPRINTING_CONTROL_OPS = {0x6D}
 HC013D_MED_SECTION_CLASSES = {
     "0004": ("div", ' class="title3"'),
@@ -795,7 +818,10 @@ def _renderer_code(options: HcRenderOptions) -> str:
 def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
     if _renderer_code(options) == "0065" and start_op in {0x42, 0x43, 0x44}:
         return "lv-hc-link lLink"
-    if _renderer_code(options) in {"009D", "012D", "013D", "0141", "0144", "0145", "02C2", "03E8"} and start_op in {0x42, 0x43}:
+    if _renderer_code(options) in {"009C", "009D", "012D", "013D", "0141", "0144", "0145", "02C2", "03E8"} and start_op in {
+        0x42,
+        0x43,
+    }:
         return "lv-hc-link lineLink"
     return "lv-hc-link"
 
@@ -805,7 +831,11 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return None
     if _renderer_code(options) == "0158" and op == 0x12:
         return ("b", "")
+    if _renderer_code(options) == "009C" and op == 0x04:
+        return ("span", ' class="hankaku"')
     if op == 0x41 and _renderer_code(options) == "0065":
+        return None
+    if op in {0x41, 0xE0, 0xE1} and _renderer_code(options) == "009C":
         return None
     if op in {0x41, 0x4C} and _renderer_code(options) == "02C2":
         return None
@@ -918,6 +948,72 @@ def _hc0190_apply_template(template: str, sections: dict[int, str], stats: Count
     return re.sub(r"<!--&IND(\d{4});-->", replace, template)
 
 
+def _hc009c_section_parts(code: str, options: HcRenderOptions) -> tuple[list[str], str | None]:
+    try:
+        value = int(code, 16)
+    except ValueError:
+        return [], None
+    if value == 1:
+        return ['<div class="midashi">'], "</div>"
+    margin_axis = "margin-top" if options.vertical else "margin-left"
+    return [f'<div class="honbun" style="{margin_axis}:{value}em">'], "</div>"
+
+
+def _hc009c_close_section(parts: list[str], marker_stack: list[str], section_close: str | None) -> None:
+    while marker_stack:
+        parts.append(marker_stack.pop())
+    if section_close is not None:
+        parts.append(section_close)
+
+
+def _hc009c_marker_image_src(key: str, options: HcRenderOptions, *, midashi: bool = False) -> str | None:
+    if midashi:
+        return _image_source_for_key(f"{key}m", options) or _image_source_for_key(key, options)
+    return _image_source_for_key(key, options)
+
+
+def _hc009c_table_marker_html(key: str, table_class: str, options: HcRenderOptions) -> tuple[str, str]:
+    src = _hc009c_marker_image_src(key, options)
+    image_html = ""
+    if src is not None:
+        image_html = f'<img src="{_escape_attr(src)}" class="img_mark2" alt="{_escape_attr(key)}">'
+    open_html = f'<table class="{table_class}"><tr><td class="subtitle">{image_html}</td><td class="honbun">'
+    return open_html, "</td></tr></table>"
+
+
+def _hc009c_private_image_key(text: str) -> tuple[str, str] | None:
+    normalized = normalize_fullwidth_ascii(text).upper()
+    match = re.search(r"IMG:\s*I([0-9]{8})\.(?:PNG|JPG|JPEG|GIF)", normalized)
+    if match is None:
+        return None
+    raw_key = match.group(1).lower()
+    if len(raw_key) != 8:
+        return None
+    image_key = ("50" + raw_key[2:]).lower()
+    return raw_key, image_key
+
+
+def _hc009c_private_image_html(text: str, options: HcRenderOptions, stats: Counter[str]) -> str | None:
+    keys = _hc009c_private_image_key(text)
+    if keys is None:
+        return None
+    raw_key, image_key = keys
+    thumb = options.image_sources.get(f"hc009c_thumb_{image_key}")
+    full = options.image_sources.get(image_key)
+    icon = options.image_sources.get(f"hc009c_icon_{raw_key}")
+    src = thumb or icon or full
+    if src is None:
+        stats["hc009c_private_image_missing"] += 1
+        return None
+    href = full or src
+    stats["hc009c_private_images"] += 1
+    return (
+        f'<a class="hc009c-image-link" href="{_escape_attr(href)}">'
+        f'<img src="{_escape_attr(src)}" class="img_button" alt="{_escape_attr(image_key)}">'
+        "</a>"
+    )
+
+
 def _renderer_section_rules(options: HcRenderOptions) -> dict[str, _SectionImageRule]:
     code = (options.renderer_code or "").upper()
     return HC_SECTION_IMAGE_RULES.get(code, {})
@@ -956,7 +1052,7 @@ def _append_gaiji_value(
     if image_src:
         stats["gaiji_image"] += 1
         css_class = "lv-hc-gaiji lv-hc-gaiji-image"
-        if _renderer_code(options) in {"0065", "009D", "012E", "013D", "0141", "0144", "0145", "02C2", "03E8"}:
+        if _renderer_code(options) in {"0065", "009C", "009D", "012E", "013D", "0141", "0144", "0145", "02C2", "03E8"}:
             css_class += " img_gaiji"
         if _renderer_code(options) == "012D":
             css_class += " gaiji"
@@ -1391,6 +1487,17 @@ def _resolve_package_relative(source: DictionarySource, value: str) -> Path | No
     return None
 
 
+def _resolve_package_relative_dir(source: DictionarySource, value: str) -> Path | None:
+    relative = _safe_relative_path(value)
+    if relative is None:
+        return None
+    for root in candidate_package_roots(source.idx):
+        found = resolve_case_insensitive_path(root, relative)
+        if found is not None and found.is_dir():
+            return found
+    return None
+
+
 def _copy_package_asset(source: DictionarySource, value: str, out_dir: Path) -> bool:
     relative = _safe_relative_path(value)
     if relative is None:
@@ -1445,6 +1552,26 @@ def _load_hc0190_templates(source: DictionarySource) -> dict[str, str]:
     return templates
 
 
+def _add_hc009c_image_sources(source: DictionarySource, dict_out: Path, output_sources: dict[str, str]) -> int:
+    copied = 0
+    for dirname, prefix in (
+        ("images_thumb", "hc009c_thumb"),
+        ("images_icon", "hc009c_icon"),
+        ("images_icon_hanrei", "hc009c_hanrei"),
+    ):
+        directory = _resolve_package_relative_dir(source, dirname)
+        if directory is None:
+            continue
+        for path in sorted(directory.iterdir(), key=lambda item: item.name.casefold()):
+            if not path.is_file():
+                continue
+            rel = f"{dirname}/{path.name}"
+            output_sources[f"{prefix}_{path.stem.lower()}"] = rel
+            if _copy_package_asset(source, rel, dict_out):
+                copied += 1
+    return copied
+
+
 def _prepare_hc_render_assets(
     source: DictionarySource,
     dict_out: Path,
@@ -1473,6 +1600,8 @@ def _prepare_hc_render_assets(
     html_templates: dict[str, str] = {}
     if renderer is not None and renderer.code.upper() == "0190":
         html_templates = _load_hc0190_templates(source)
+    if renderer is not None and renderer.code.upper() == "009C":
+        copied += _add_hc009c_image_sources(source, dict_out, output_sources)
     return output_sources, html_templates, stylesheet_output, copied
 
 
@@ -1521,6 +1650,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc00c6_supab_pending = False
     hc009d_section_close: str | None = None
     hc009d_current_section_value: int | None = None
+    hc009c_section_close: str | None = None
+    hc009c_marker_stack: list[str] = []
     hc02bc_section_open = False
     hc02be_section_open = False
     hc0190_sections: dict[int, str] = {}
@@ -1584,6 +1715,14 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         i += 2 + arg_len
                         continue
                     root = _current_parts(root_parts, contexts)
+                    if _renderer_code(options) == "009C":
+                        _hc009c_close_section(root, hc009c_marker_stack, hc009c_section_close)
+                        section_parts, hc009c_section_close = _hc009c_section_parts(code, options)
+                        root.extend(section_parts)
+                        if section_parts:
+                            stats["hc009c_section_blocks"] += 1
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "009D":
                         if hc009d_section_close is not None:
                             root.append(hc009d_section_close)
@@ -1753,6 +1892,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if _renderer_code(options) == "0190" and _hc0190_close_section(contexts, hc0190_sections, stats):
                     i += 2 + arg_len
                     continue
+                if _renderer_code(options) == "009C":
+                    _hc009c_close_section(_current_parts(root_parts, contexts), hc009c_marker_stack, hc009c_section_close)
+                    hc009c_section_close = None
+                    i += 2 + arg_len
+                    continue
                 if _renderer_code(options) == "009D" and hc009d_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc009d_section_close)
                     hc009d_section_close = None
@@ -1847,6 +1991,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "009D" and op in HC009D_NONPRINTING_CONTROL_OPS:
                 stats["hc009d_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "009C" and op in HC009C_NONPRINTING_CONTROL_OPS:
+                stats["hc009c_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -2061,6 +2210,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if op in PRIVATE_END_OPS:
                 ctx = _pop_context(contexts, "private")
                 if ctx is not None:
+                    if _renderer_code(options) == "009C":
+                        image_html = _hc009c_private_image_html("".join(ctx.text_parts), options, stats)
+                        if image_html is not None:
+                            ctx.parent.append(image_html)
                     private_directives.append(
                         {
                             "start_control": f"1f{ctx.start_op:02x}",
@@ -2156,6 +2309,58 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 stats["hc0190_template_markers"] += 1
                 i += 2
                 continue
+            if _renderer_code(options) == "009C":
+                parts = _current_parts(root_parts, contexts)
+                text_parts = _current_text_parts(contexts)
+                direct_class = HC009C_DIRECT_IMAGE_MARKERS.get(key)
+                if direct_class is not None:
+                    image_src = _hc009c_marker_image_src(key, options)
+                    if image_src is not None:
+                        _append_renderer_image_gaiji(parts, key, image_src, direct_class, stats)
+                    else:
+                        _append_gaiji_value(parts, text_parts, key, options, stats)
+                    stats["hc009c_direct_image_markers"] += 1
+                    i += 2
+                    continue
+                if key in HC009C_SEASON_IMAGE_MARKERS:
+                    image_src = _hc009c_marker_image_src(key, options, midashi=True)
+                    if image_src is not None:
+                        parts.append(f'<img src="{_escape_attr(image_src)}" class="img_season" alt="{_escape_attr(key)}">')
+                        stats["hc009c_season_image_markers"] += 1
+                    else:
+                        stats["hc009c_missing_season_images"] += 1
+                    i += 2
+                    continue
+                if key in HC009C_KO_MIDASHI_MARKERS:
+                    parts.append('<span class="ko-midashi">')
+                    hc009c_marker_stack.append("</span>")
+                    stats["hc009c_ko_midashi_markers"] += 1
+                    i += 2
+                    continue
+                if key == "b13a":
+                    parts.append('<div class="page_comment">')
+                    hc009c_marker_stack.append("</div>")
+                    stats["hc009c_page_comment_markers"] += 1
+                    i += 2
+                    continue
+                table_class = None
+                if key in HC009C_FEATURE_TABLE_MARKERS:
+                    table_class = "feature-table"
+                elif key in HC009C_DATA_TABLE_MARKERS:
+                    table_class = "data-table"
+                elif key in HC009C_MEMO_TABLE_MARKERS:
+                    table_class = "memo-table"
+                if table_class is not None:
+                    open_html, close_html = _hc009c_table_marker_html(key, table_class, options)
+                    parts.append(open_html)
+                    hc009c_marker_stack.append(close_html)
+                    stats["hc009c_table_markers"] += 1
+                    i += 2
+                    continue
+                if key in HC009C_NOOP_MARKERS:
+                    stats["hc009c_noop_markers"] += 1
+                    i += 2
+                    continue
             if _renderer_code(options) == "012E":
                 parts = _current_parts(root_parts, contexts)
                 text_parts = _current_text_parts(contexts)
@@ -2769,6 +2974,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append("</div>")
     if hc009d_section_close is not None:
         _current_parts(root_parts, contexts).append(hc009d_section_close)
+    if hc009c_marker_stack or hc009c_section_close is not None:
+        _hc009c_close_section(_current_parts(root_parts, contexts), hc009c_marker_stack, hc009c_section_close)
     if hc012d_section_close is not None:
         _current_parts(root_parts, contexts).append(hc012d_section_close)
     if hc013d_section_close is not None:

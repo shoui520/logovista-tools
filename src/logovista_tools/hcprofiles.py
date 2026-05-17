@@ -537,6 +537,30 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "009C":
+        rows.append(
+            HcHookBehavior(
+                name="sesgrass_section_image_index_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC009C epwing2HtmlBodydataVertical 1f09 honbun/midashi section branch",
+                    "HC009C B122/B128-B13A/B148-B14D marker branch ladder",
+                    "HC009C private IMG:I########.PNG image-link path using images/images_thumb/images_icon directories",
+                    "Templates/0000009C.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections produce product midashi/honbun blocks, 1f41 is consumed "
+                    "as renderer state, internal links use lineLink, decoded B12x/B13x/B14x "
+                    "markers produce product image/table/comment classes or no-output selector "
+                    "state, and private IMG directives resolve to package image thumbnails/full images"
+                ),
+                notes=(
+                    "The subset excludes exact previous/next footer lifecycle, popup JavaScript "
+                    "window behavior, full background-image toggle state, custom DIB fallback, "
+                    "and representative visual parity for every SESGRASS entry shape."
+                ),
+            )
+        )
     if code == "0146":
         rows.append(
             HcHookBehavior(
@@ -694,6 +718,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0141_section_and_marker_layout")
     if code == "0190":
         implemented.add("HC0190_html_template_section_substitution")
+    if code == "009C":
+        implemented.add("HC009C_section_image_index_layout")
     if code == "0146":
         implemented.add("HC0146_inline_marker_gaiji")
     if code == "0158":
