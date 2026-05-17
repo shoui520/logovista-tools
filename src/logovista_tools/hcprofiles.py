@@ -237,6 +237,23 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The renderer sidecar stores horizontal and vertical body HTML keyed by HONMON block/offset.",
             )
         )
+    if code == "0132":
+        rows.append(
+            HcHookBehavior(
+                name="ngfinanc_section_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0132 epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    "HC0132 HTML template strings for midashi/honbun/gogi/sansho/kanren/example/kaisetsu blocks",
+                    "Templates/00000132.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to the decoded finance dictionary div classes, "
+                    "1f41 starts midashi, 1f04 uses hankaku, and address links use lineLink"
+                ),
+                notes="This is a raw HONMON branch subset; product-specific search and non-body helper hooks remain named gaps where present.",
+            )
+        )
     if code == "013A":
         rows.append(
             HcHookBehavior(
@@ -1420,6 +1437,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0159_t_contents_exact_body_html")
     if code == "013F" and rendererdb_ok:
         implemented.add("HC013F_block_offset_exact_body_html")
+    if code == "0132":
+        implemented.add("HC0132_finance_section_layout")
     if code == "013C":
         implemented.add("HC013C_honbun_margin_sections")
     if code == "02C0":

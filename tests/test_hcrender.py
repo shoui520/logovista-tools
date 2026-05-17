@@ -4257,3 +4257,100 @@ def test_hc005c_profile_records_branch_subset_without_full_parity_claim() -> Non
     assert "HC005C_heading_section_marker_and_gaiji_layout" in row["implemented_semantics"]
     assert row["exact_hc_parity"] is False
     assert any(hook["name"] == "kene7j5_heading_section_and_marker_layout" for hook in row["hook_behaviors"])
+
+
+def test_hc0132_maps_finance_sections_and_heading_layout() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x02"
+        + jis_ascii("G")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x12"
+        + jis_ascii("S")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x13"
+        + jis_ascii("K")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x14"
+        + jis_ascii("Y")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x15"
+        + jis_ascii("R")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x16"
+        + jis_ascii("E")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x17"
+        + jis_ascii("J")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x18"
+        + jis_ascii("C")
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0132"))
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<div class="honbun">' in rendered.html
+    assert '<div class="gogi">' in rendered.html
+    assert '<div class="sansho">' in rendered.html
+    assert '<div class="kanren_h">' in rendered.html
+    assert '<div class="kanren_y">' in rendered.html
+    assert '<div class="kanren_sansho">' in rendered.html
+    assert '<div class="example_h">' in rendered.html
+    assert '<div class="example_y">' in rendered.html
+    assert '<div class="kaisetsu">' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.stats["hc0132_honbun_blocks"] == 1
+    assert rendered.stats["hc0132_section_blocks"] == 8
+
+
+def test_hc0132_maps_hankaku_and_line_links() -> None:
+    body = (
+        b"\x1f\x09\x00\x02"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("ABC")
+        + b"\x1f\x05"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x03\x00\x40"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0132"))
+
+    assert '<span class="hankaku">ABC</span>' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+
+
+def test_hc0132_profile_records_branch_subset_without_full_parity_claim() -> None:
+    renderer = HcRendererClassification(
+        path=Path("HC0132.dll"),
+        code="0132",
+        expected_numeric_index="00000132.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="pe", exports=("epwing2HtmlBodydata",)),
+        exinfo_html_dll="HC0132.dll",
+        exinfo_declares_this=True,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=("sound.png", "image.png"),
+        features={"html_body_renderer": True},
+    )
+
+    profile = build_hc_behavior_profile(renderer)
+    row = profile.as_dict()
+
+    assert "HC0132_finance_section_layout" in row["implemented_semantics"]
+    assert row["exact_hc_parity"] is False
+    assert any(hook["name"] == "ngfinanc_section_layout" for hook in row["hook_behaviors"])
