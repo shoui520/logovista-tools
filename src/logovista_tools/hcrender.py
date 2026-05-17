@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import re
 import shutil
 import sys
 from collections import Counter
@@ -136,6 +137,7 @@ class HcRenderOptions:
 
     gaiji_map: dict[str, str] = field(default_factory=dict)
     image_sources: dict[str, str] = field(default_factory=dict)
+    html_templates: dict[str, str] = field(default_factory=dict)
     renderer_code: str | None = None
     vertical: bool = False
     include_debug_metadata: bool = False
@@ -670,6 +672,8 @@ HC0141_LITERAL_MARKERS = HC03E8_LITERAL_MARKERS
 HC0141_OPEN_MARKERS = HC0145_OPEN_MARKERS
 HC0141_CLOSE_MARKERS = HC0145_CLOSE_MARKERS
 HC0141_NOOP_MARKERS = HC0145_NOOP_MARKERS
+HC0190_TEMPLATE_MARKERS = {"b121", "b122", "b123", "b124"}
+HC0190_BREAK_SECTIONS = {3, 7, 0x1C}
 HC013D_NONPRINTING_CONTROL_OPS = {0x6D}
 HC013D_MED_SECTION_CLASSES = {
     "0004": ("div", ' class="title3"'),
@@ -888,6 +892,30 @@ def _current_parts(root_parts: list[str], contexts: list[_Context]) -> list[str]
 
 def _current_text_parts(contexts: list[_Context]) -> list[str] | None:
     return contexts[-1].text_parts if contexts else None
+
+
+def _hc0190_close_section(contexts: list[_Context], sections: dict[int, str], stats: Counter[str]) -> bool:
+    if not contexts or contexts[-1].kind != "hc0190_section":
+        return False
+    ctx = contexts.pop()
+    section = ctx.start_offset
+    if section in HC0190_BREAK_SECTIONS:
+        ctx.parts.append("<br>")
+    sections[section] = "".join(ctx.parts)
+    stats["hc0190_sections_captured"] += 1
+    return True
+
+
+def _hc0190_apply_template(template: str, sections: dict[int, str], stats: Counter[str]) -> str:
+    def replace(match: re.Match[str]) -> str:
+        section = int(match.group(1), 10)
+        if section in sections:
+            stats["hc0190_template_placeholders_filled"] += 1
+            return sections[section]
+        stats["hc0190_template_placeholders_empty"] += 1
+        return ""
+
+    return re.sub(r"<!--&IND(\d{4});-->", replace, template)
 
 
 def _renderer_section_rules(options: HcRenderOptions) -> dict[str, _SectionImageRule]:
@@ -1398,11 +1426,30 @@ def _normalise_hc_css(css: str) -> str:
     return css
 
 
+def _html_body_inner(text: str) -> str:
+    match = re.search(r"<body\b[^>]*>(?P<body>.*)</body>", text, flags=re.IGNORECASE | re.DOTALL)
+    if match:
+        return match.group("body")
+    return text
+
+
+def _load_hc0190_templates(source: DictionarySource) -> dict[str, str]:
+    templates: dict[str, str] = {}
+    for key in ("b121", "b122", "b123", "b124"):
+        rel = f"HTMLs/{key}.html"
+        path = _resolve_package_relative(source, rel)
+        if path is None:
+            continue
+        text = path.read_bytes().decode("cp932", errors="replace")
+        templates[key] = _html_body_inner(text).replace("&cssPath;", "hc-renderer.css")
+    return templates
+
+
 def _prepare_hc_render_assets(
     source: DictionarySource,
     dict_out: Path,
     renderer: HcRendererClassification | None,
-) -> tuple[dict[str, str], str | None, int]:
+) -> tuple[dict[str, str], dict[str, str], str | None, int]:
     """Copy package assets needed by the generated standalone HC HTML."""
 
     copied = 0
@@ -1423,7 +1470,10 @@ def _prepare_hc_render_assets(
         stylesheet_output = "hc-renderer.css"
         (dict_out / stylesheet_output).write_text("\n\n".join(css_parts) + "\n", encoding="utf-8")
         copied += 1
-    return output_sources, stylesheet_output, copied
+    html_templates: dict[str, str] = {}
+    if renderer is not None and renderer.code.upper() == "0190":
+        html_templates = _load_hc0190_templates(source)
+    return output_sources, html_templates, stylesheet_output, copied
 
 
 def _write_hc_html_header(html_out: Any, *, stylesheet: str | None, vertical: bool) -> None:
@@ -1473,6 +1523,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc009d_current_section_value: int | None = None
     hc02bc_section_open = False
     hc02be_section_open = False
+    hc0190_sections: dict[int, str] = {}
+    hc0190_template_key: str | None = None
     hc012d_section_close: str | None = None
     hc012d_pending_honbun_user = False
     hc013d_section_close: str | None = None
@@ -1516,6 +1568,21 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 stats["section_markers"] += 1
                 if payload:
                     code = payload.hex()
+                    if _renderer_code(options) == "0190":
+                        _hc0190_close_section(contexts, hc0190_sections, stats)
+                        section = int.from_bytes(payload, "big")
+                        contexts.append(
+                            _Context(
+                                kind="hc0190_section",
+                                start_op=op,
+                                payload=payload,
+                                parent=root_parts,
+                                start_offset=section,
+                            )
+                        )
+                        stats["hc0190_section_blocks"] += 1
+                        i += 2 + arg_len
+                        continue
                     root = _current_parts(root_parts, contexts)
                     if _renderer_code(options) == "009D":
                         if hc009d_section_close is not None:
@@ -1683,6 +1750,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 continue
 
             if op == 0x0A:
+                if _renderer_code(options) == "0190" and _hc0190_close_section(contexts, hc0190_sections, stats):
+                    i += 2 + arg_len
+                    continue
                 if _renderer_code(options) == "009D" and hc009d_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc009d_section_close)
                     hc009d_section_close = None
@@ -2081,6 +2151,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 hc012d_section_close = "</div>"
                 hc012d_pending_honbun_user = False
             key = f"{byte:02x}{data[i + 1]:02x}"
+            if _renderer_code(options) == "0190" and key in HC0190_TEMPLATE_MARKERS:
+                hc0190_template_key = key
+                stats["hc0190_template_markers"] += 1
+                i += 2
+                continue
             if _renderer_code(options) == "012E":
                 parts = _current_parts(root_parts, contexts)
                 text_parts = _current_text_parts(contexts)
@@ -2716,6 +2791,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append("</div>")
     if hc0065_body_open:
         _current_parts(root_parts, contexts).append("</div>")
+    _hc0190_close_section(contexts, hc0190_sections, stats)
     while contexts:
         ctx = contexts.pop()
         if ctx.kind == "private":
@@ -2736,6 +2812,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     if options.vertical:
         classes.append("lv-hc-vertical")
     body = "".join(root_parts)
+    if _renderer_code(options) == "0190" and hc0190_template_key is not None:
+        template = options.html_templates.get(hc0190_template_key)
+        if template is not None:
+            body = _hc0190_apply_template(template, hc0190_sections, stats)
+            stats["hc0190_templates_applied"] += 1
+        else:
+            gaps.add(f"missing_hc0190_template_{hc0190_template_key}")
+    elif _renderer_code(options) == "0190" and hc0190_sections:
+        body = "".join(value for _, value in sorted(hc0190_sections.items()))
+        gaps.add("missing_hc0190_template_marker")
     rendered_html = f'<div class="{" ".join(classes)}">{body}</div>'
     return HcRenderResult(
         html=rendered_html,
@@ -2856,10 +2942,11 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
     reader = SsedRandomReader(source.honmon)
     entries_path = dict_out / "hc_entries.jsonl"
     html_path = dict_out / "hc_entries.html"
-    image_sources, stylesheet, copied_assets = _prepare_hc_render_assets(source, dict_out, renderer)
+    image_sources, html_templates, stylesheet, copied_assets = _prepare_hc_render_assets(source, dict_out, renderer)
     options = HcRenderOptions(
         gaiji_map=source.gaiji_map,
         image_sources=image_sources,
+        html_templates=html_templates,
         renderer_code=renderer.code if renderer is not None else None,
         vertical=bool(getattr(args, "vertical", False)),
     )

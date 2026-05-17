@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             17   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0141, HC0144, HC0145, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
-common semantics plus named gaps:    94
+decoded branch subsets:             18   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0141, HC0144, HC0145, HC0190, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
+common semantics plus named gaps:    93
 full product visual parity:           0
 ```
 
@@ -1318,6 +1318,21 @@ dictionary-original SQL search, D_Example/D_Idiom helper integration, exact
 body-file/fix fallback lifecycle, custom-character image suffix selection, and
 broader visual parity remain named gaps, so exact HC0141 visual parity is not
 claimed.
+
+The SIZK read-aloud branch-subset proof case is `HC0190.dll`. Its body loop
+does not render the raw body stream directly as a normal entry. Instead,
+B121-B124 select package HTML templates under `HTMLs/`, `1f09` sections are
+captured into numeric buckets, and the renderer substitutes those buckets into
+`<!--&IND####;-->` placeholders in the selected template. The implemented
+subset decodes that template path for the representative SIZK0101 package and
+uses the product HTML table/image layout rather than showing B121-B124 as
+missing gaiji. In the SIZK0101 sample, generic `lv-hc-heading` wrappers and
+B121-B124 gaiji placeholders dropped from 4 to 0; package template images such
+as `roudoku.png` and `haikei.png` appear through the selected HTML; and all
+`IND` placeholders are either filled or intentionally emptied. Exact
+JavaScript audio-player lifecycle, runtime `fix/` override behavior, original
+viewer temp-file output, and visual coverage across all read-aloud set volumes
+remain named gaps, so exact HC0190 visual parity is not claimed.
 
 The HKDKSR13 branch-subset proof case is `HC013D.dll`. Its vertical body loop
 maps `1f09` section payloads to product drug-layout classes such as `title3`,

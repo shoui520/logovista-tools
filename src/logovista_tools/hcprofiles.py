@@ -514,6 +514,29 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "0190":
+        rows.append(
+            HcHookBehavior(
+                name="sizk_html_template_section_substitution",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0190 epwing2HtmlBodydataVertical B121-B124 template selector branch",
+                    "HC0190 section-bucket replacement of <!--&IND####;--> placeholders",
+                    "HC0190 HTMLs/%04lx.html fallback path",
+                    "HTMLs/b121.html through HTMLs/b124.html and Templates/00000190.css",
+                ),
+                implementation=(
+                    "B121-B124 select package HTML templates, 1f09 sections are bucketed "
+                    "by numeric section id, captured section HTML replaces matching "
+                    "<!--&IND####;--> placeholders, and missing placeholders are left empty"
+                ),
+                notes=(
+                    "The subset excludes exact JavaScript audio-player lifecycle, runtime "
+                    "fix-directory override behavior, original viewer temp-file output, and "
+                    "full visual parity across all read-aloud set volumes."
+                ),
+            )
+        )
     if code == "0146":
         rows.append(
             HcHookBehavior(
@@ -669,6 +692,8 @@ def build_hc_behavior_profile(
         implemented.add("HC03E8_section_and_marker_layout")
     if code == "0141":
         implemented.add("HC0141_section_and_marker_layout")
+    if code == "0190":
+        implemented.add("HC0190_html_template_section_substitution")
     if code == "0146":
         implemented.add("HC0146_inline_marker_gaiji")
     if code == "0158":

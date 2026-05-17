@@ -371,6 +371,14 @@ and non-SSED reader status are tracked separately in
   D_Example/D_Idiom helper integration, exact body-file/fix fallback lifecycle,
   custom-character image suffix selection, and broader visual parity remain
   named gaps.
+- `HC0190.dll` now has a focused branch-subset proof for the SIZK read-aloud
+  dictionaries: B121-B124 choose package `HTMLs/` templates, `1f09` sections
+  are bucketed by numeric section id, and `<!--&IND####;-->` placeholders are
+  replaced with the captured section HTML. The SIZK0101 sample now renders
+  product table/image template output instead of B121-B124 missing-gaiji
+  placeholders. Exact JavaScript audio-player lifecycle, runtime `fix/`
+  override behavior, original viewer temp-file output, and visual coverage
+  across all read-aloud volumes remain named gaps.
 - `HC013D.dll` now has a focused raw-HONMON branch-subset proof for HKDKSR13:
   `1f09` section payloads map to drug-layout classes such as `title3`,
   `medblk`, `med`, `medprice`, `medimage`, `mednamelist*`, and `indent##`;
@@ -410,7 +418,7 @@ and non-SSED reader status are tracked separately in
   wrapper, section/layout state, and custom hooks remain visually incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
   exact SHA-256 renderer binaries. HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E,
-  HC013D, HC0141, HC0144, HC0145, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0157, and HC0158 currently have decoded branch
+  HC013D, HC0141, HC0144, HC0145, HC0190, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0157, and HC0158 currently have decoded branch
   subsets, not full HC parity.
   Other branch tables remain named gaps until their output constants and product
   data paths are understood.

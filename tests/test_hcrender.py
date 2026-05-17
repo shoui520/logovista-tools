@@ -759,6 +759,34 @@ def test_hc0141_internal_links_use_line_link_class_and_img_gaiji() -> None:
     assert 'href="lvaddr://00000002/0048"' in rendered.html
 
 
+def test_hc0190_applies_html_template_section_placeholders() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + jis_ascii("T")
+        + b"\xb1\x21"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x04"
+        + jis_ascii("B")
+        + b"\x1f\x0a"
+    )
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0190",
+            html_templates={"b121": "<body><h1><!--&IND0001;--></h1><p><!--&IND0004;--></p><!--&IND0099;--></body>"},
+        ),
+    )
+
+    assert '<h1><span class="lv-hc-halfwidth">T</span></h1>' in rendered.html
+    assert '<p><span class="lv-hc-halfwidth">B</span></p>' in rendered.html
+    assert "IND0001" not in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc0190_template_markers"] == 1
+    assert rendered.stats["hc0190_templates_applied"] == 1
+    assert rendered.stats["hc0190_template_placeholders_filled"] == 2
+    assert rendered.stats["hc0190_template_placeholders_empty"] == 1
+
+
 def test_hc013d_maps_sections_to_drug_layout_classes() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -1159,9 +1187,10 @@ def test_hc_render_assets_copy_images_and_normalise_product_css(tmp_path: Path) 
         features={},
     )
 
-    image_sources, stylesheet, copied = _prepare_hc_render_assets(source, tmp_path / "out", renderer)
+    image_sources, html_templates, stylesheet, copied = _prepare_hc_render_assets(source, tmp_path / "out", renderer)
 
     assert image_sources == {"b157": "Templates/b157_M.png"}
+    assert html_templates == {}
     assert stylesheet == "hc-renderer.css"
     assert (tmp_path / "out" / "Templates" / "b157_M.png").read_bytes() == b"PNGDATA"
     css = (tmp_path / "out" / "hc-renderer.css").read_text(encoding="utf-8")
@@ -1476,6 +1505,33 @@ def test_hc0141_profile_records_section_subset_without_claiming_parity() -> None
     assert "dictionary_original_search_hook" in data["named_gaps"]
     assert "sql_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
+
+
+def test_hc0190_profile_records_template_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0190.dll"),
+        code="0190",
+        expected_numeric_index="00000190.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("HTMLs/b121.html", "HTMLs/b122.html"),
+        sql_snippets=(),
+        image_templates=(),
+        features={},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC0190_html_template_section_substitution" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
 
 
 def test_hc013d_profile_records_drug_layout_subset_without_claiming_parity() -> None:
