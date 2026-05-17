@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             34   HC013A, HC0065, HC009B, HC02C0, HC013C, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
-needs marker branch decode:          58
+decoded branch subsets:             35   HC013A, HC0065, HC009B, HC00B3, HC02C0, HC013C, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
+needs marker branch decode:          57
 common controls plus named gaps:     14
 common controls candidate verify:     1
 exact-body sidecar HC hooks unprofiled: 5
@@ -1337,6 +1337,14 @@ normal sections open `honbun` containers, section `000c` opens `footer`, and
 `img_icon` branch where those directives occur. Exact generated custom-bitmap
 output, `modifyHeadword` application to external hit-list headings, navigation
 footer generation, and full visual parity remain named gaps.
+
+The GEN2012 branch-subset proof case is `HC00B3.dll`. Its recovered body loop
+uses the same honbun-margin shape for normal `1f09` sections, treats section
+`0001` as heading state, treats section `000c` as a `header` container, maps
+`1f41`/`1f61` to `midashi`, uses `lineLink` for internal address links, and
+consumes `1f5c`/`1f6d` as renderer state. Exact previous/next navigation
+footer generation, fixed HTML/body fallback loading, exact generated
+custom-bitmap output, and full visual parity remain named gaps.
 
 The NKGORIN2 branch-subset proof case is `HC012E.dll`. Its vertical body loop
 uses package-local `Gaijitemp/` image resources for most kanji-form glyphs.

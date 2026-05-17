@@ -755,6 +755,7 @@ HC013C_ICON_DIRECTIVES = {
     "2334": "4.png",
 }
 HC013C_NOOP_MARKERS = {"a435", "a436"}
+HC00B3_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
 HC_GEN_YEAR_RENDERERS = {"02C4", "02C7"}
 HC_GEN_YEAR_NOOP_SECTION_CODES = {"270f", "9999"}
 HC_GEN_YEAR_NONPRINTING_CONTROL_OPS = {0x02, 0x4C}
@@ -1141,7 +1142,7 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
         if start_op == 0x43:
             return "lv-hc-link lineLink"
     if (
-        _renderer_code(options) in {"012F", "0131", "013C", "0142", "02BF", "02C0", "02C1"}
+        _renderer_code(options) in {"00B3", "012F", "0131", "013C", "0142", "02BF", "02C0", "02C1"}
         or _is_hc_gen_year_renderer(options)
     ) and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
@@ -1180,7 +1181,7 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "02BF" and op == 0x04:
         return ("span", ' class="hankaku"')
-    if _renderer_code(options) in {"013C", "02C0"} and op == 0x04:
+    if _renderer_code(options) in {"00B3", "013C", "02C0"} and op == 0x04:
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "012F" and op == 0x04:
         return ("span", ' class="hankaku"')
@@ -1212,7 +1213,7 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("div", ' class="midashi"')
     if op == 0x41 and _renderer_code(options) == "009D":
         return None
-    if op == 0x41 and _renderer_code(options) in {"013C", "02C0"}:
+    if op == 0x41 and _renderer_code(options) in {"00B3", "013C", "02C0"}:
         return ("div", ' class="midashi"')
     if op == 0x41 and _renderer_code(options) == "013D":
         return ("div", ' class="midashi"')
@@ -1503,6 +1504,7 @@ def _append_gaiji_value(
             "0065",
             "009B",
             "00A6",
+            "00B3",
             "009C",
             "009D",
             "012E",
@@ -2067,6 +2069,17 @@ def _hc02c0_section_parts(code: str, *, vertical: bool) -> tuple[list[str], str 
     return [_hc02c0_honbun_div(value, vertical=vertical)], "</div>", "honbun"
 
 
+def _hc00b3_section_parts(code: str, *, vertical: bool) -> tuple[list[str], str | None, str | None]:
+    value = _hc02c0_section_value(code)
+    if value is None:
+        return [], None, None
+    if value == 1:
+        return [], None, "state"
+    if value == 0x0C:
+        return ['<div class="header">'], "</div>", "header"
+    return [_hc02c0_honbun_div(value, vertical=vertical)], "</div>", "honbun"
+
+
 def _hc_gen_year_honbun_div() -> str:
     return '<div class="honbun" style="margin-left:0.000000em;">'
 
@@ -2332,6 +2345,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc02bf_section_just_opened = False
     hc02c0_section_close: str | None = None
     hc013c_section_close: str | None = None
+    hc00b3_section_close: str | None = None
     hc_gen_year_section_close: str | None = None
     hc02c2_section_open = False
     hc02c2_moji_down_open = False
@@ -2689,6 +2703,18 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats[f"hc013c_section_{state}"] += 1
                         i += 2 + arg_len
                         continue
+                    if _renderer_code(options) == "00B3":
+                        if hc00b3_section_close is not None:
+                            root.append(hc00b3_section_close)
+                            hc00b3_section_close = None
+                        section_parts, hc00b3_section_close, state = _hc00b3_section_parts(code, vertical=options.vertical)
+                        root.extend(section_parts)
+                        if section_parts:
+                            stats["hc00b3_section_blocks"] += 1
+                        if state:
+                            stats[f"hc00b3_section_{state}"] += 1
+                        i += 2 + arg_len
+                        continue
                     if _is_hc_gen_year_renderer(options):
                         if hc_gen_year_section_close is not None:
                             root.append(hc_gen_year_section_close)
@@ -2901,6 +2927,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     hc013c_section_close = None
                     i += 2 + arg_len
                     continue
+                if _renderer_code(options) == "00B3" and hc00b3_section_close is not None:
+                    _current_parts(root_parts, contexts).append(hc00b3_section_close)
+                    hc00b3_section_close = None
+                    i += 2 + arg_len
+                    continue
                 if _is_hc_gen_year_renderer(options) and hc_gen_year_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc_gen_year_section_close)
                     hc_gen_year_section_close = None
@@ -2994,6 +3025,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "013C" and op in HC013C_NONPRINTING_CONTROL_OPS:
                 stats["hc013c_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "00B3" and op in HC00B3_NONPRINTING_CONTROL_OPS:
+                stats["hc00b3_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -4520,6 +4556,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc02c0_section_close)
     if hc013c_section_close is not None:
         _current_parts(root_parts, contexts).append(hc013c_section_close)
+    if hc00b3_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc00b3_section_close)
     if hc_gen_year_section_close is not None:
         _current_parts(root_parts, contexts).append(hc_gen_year_section_close)
     if hc_hkdksr_medical_section_close is not None:
