@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             20   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
-common semantics plus named gaps:    92
+decoded branch subsets:             21   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
+common semantics plus named gaps:    91
 full product visual parity:           0
 ```
 
@@ -1366,6 +1366,20 @@ and raw `unknown_control_1f6d` gaps dropped to 0. Exact select-menu lifecycle,
 full `gohou`/`gohou2` lookahead branches, custom character DIB generation,
 `modifyHeadword`, Panel hooks, SQL/search helper hooks, and broader visual
 parity remain named gaps, so exact HC02C5 visual parity is not claimed.
+
+The IBIO5 branch-subset proof case is `HC0151.dll`. Its body loop maps `1f41`
+to product `midashi`, `1f61` to product `contents`, uses `Link` for `1f42`
+internal links and `lineLink` for `1f43` links, consumes `1f6d` as renderer
+state, maps clear `1f09` payloads to `indent##` blocks or table row/cell
+wrappers, and treats B156/B157 as small-text delimiters plus B159 as a table
+cell transition in table sections. In a 50-entry IBIO5 sample, generic
+`lv-hc-heading` and `lv-hc-section` wrappers dropped to 0, `midashi` blocks
+rose to 50, `contents` blocks to 50, `indent23` blocks to 97, product `Link`
+anchors to 105, image-backed gaiji gained the product `img_gaiji` class, and
+raw `unknown_control_1f6d` gaps dropped to 0. Exact previous/next navigation,
+HTMLs/fix fallback lifecycle, custom DIB character generation,
+`modifyHeadwordEx`, Panel hooks, SQL/search helper hooks, and broader visual
+parity remain named gaps, so exact HC0151 visual parity is not claimed.
 
 The HKDKSR13 branch-subset proof case is `HC013D.dll`. Its vertical body loop
 maps `1f09` section payloads to product drug-layout classes such as `title3`,

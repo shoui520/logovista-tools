@@ -754,6 +754,35 @@ HC02C5_SMALL_MARKERS = {
     "b422": "k",
     "b423": "l",
 }
+HC0151_NONPRINTING_CONTROL_OPS = {0x6D}
+HC0151_SECTION_DIV_CLASSES = {
+    "0011": "indent17",
+    "0013": "indent19",
+    "0017": "indent23",
+    "0019": "indent25",
+    "001b": "indent27",
+    "001d": "indent29",
+    "001e": "indent30",
+    "001f": "indent31",
+    "0021": "indent33",
+    "0023": "indent35",
+    "0024": "indent36",
+    "0025": "indent37",
+    "0026": "indent38",
+    "0027": "indent39",
+    "0029": "indent41",
+    "002b": "indent43",
+    "002d": "indent45",
+    "0032": "indent50",
+    "0088": "indent136",
+}
+HC0151_NOOP_SECTION_CODES = {"0001", "270f"}
+HC0151_TABLE_HEADER_SECTION = "0020"
+HC0151_TABLE_ROW_SECTION = "0022"
+HC0151_TABLE_CLOSE_SECTION = "0087"
+HC0151_SMALL_OPEN_MARKER = "b156"
+HC0151_SMALL_CLOSE_MARKER = "b157"
+HC0151_TABLE_CELL_MARKER = "b159"
 HC013D_NONPRINTING_CONTROL_OPS = {0x6D}
 HC013D_MED_SECTION_CLASSES = {
     "0004": ("div", ' class="title3"'),
@@ -877,6 +906,11 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
         return "lv-hc-link lLink"
     if _renderer_code(options) == "02C5" and start_op in {0x42, 0x43}:
         return "lv-hc-link lLink"
+    if _renderer_code(options) == "0151":
+        if start_op == 0x42:
+            return "lv-hc-link Link"
+        if start_op == 0x43:
+            return "lv-hc-link lineLink"
     if _renderer_code(options) in {"009C", "009D", "012D", "013D", "0141", "0144", "0145", "02C2", "03E8"} and start_op in {
         0x42,
         0x43,
@@ -894,7 +928,11 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "02C5" and op == 0x04:
         return ("span", ' class="hankaku"')
+    if _renderer_code(options) == "0151" and op == 0x04:
+        return ("span", ' class="hankaku"')
     if _renderer_code(options) == "02C5" and op == 0x41:
+        return ("div", ' class="midashi"')
+    if _renderer_code(options) == "0151" and op == 0x41:
         return ("div", ' class="midashi"')
     if op == 0x41 and _renderer_code(options) == "0065":
         return None
@@ -1074,6 +1112,29 @@ def _hc02c5_section_parts(code: str, *, hr_seen: bool) -> tuple[list[str], str |
     return [], None, hr_seen
 
 
+def _hc0151_section_parts(code: str, *, table_open: bool) -> tuple[list[str], str | None, bool]:
+    """Return the HC0151 section wrapper recovered from the body-loop ladder.
+
+    HC0151 uses numeric 1f09 payloads mostly as CSS-indent selectors. Two
+    section codes create table rows and a later code closes the table. The
+    function returns the opening fragments, the matching close fragment for
+    1f0a, and the updated table-open state.
+    """
+
+    if code in HC0151_NOOP_SECTION_CODES:
+        return [], None, table_open
+    css_class = HC0151_SECTION_DIV_CLASSES.get(code)
+    if css_class is not None:
+        return [f'<div class="{css_class}">'], "</div>", table_open
+    if code == HC0151_TABLE_HEADER_SECTION:
+        return ["<table><tr><th>"], "</th></tr>", True
+    if code == HC0151_TABLE_ROW_SECTION:
+        return ["<tr><td>"], "</td></tr>", table_open
+    if code == HC0151_TABLE_CLOSE_SECTION:
+        return (["</table><br>"] if table_open else ["<br>"]), None, False
+    return [], None, table_open
+
+
 def _hc009c_marker_image_src(key: str, options: HcRenderOptions, *, midashi: bool = False) -> str | None:
     if midashi:
         return _image_source_for_key(f"{key}m", options) or _image_source_for_key(key, options)
@@ -1160,7 +1221,7 @@ def _append_gaiji_value(
     if image_src:
         stats["gaiji_image"] += 1
         css_class = "lv-hc-gaiji lv-hc-gaiji-image"
-        if _renderer_code(options) in {"0065", "009C", "009D", "012E", "013D", "0141", "0144", "0145", "02C2", "03E8"}:
+        if _renderer_code(options) in {"0065", "009C", "009D", "012E", "013D", "0141", "0144", "0145", "0151", "02C2", "03E8"}:
             css_class += " img_gaiji"
         if _renderer_code(options) == "012D":
             css_class += " gaiji"
@@ -1763,6 +1824,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc02c5_section_close: str | None = None
     hc02c5_current_section: str | None = None
     hc02c5_hr_seen = False
+    hc0151_section_close: str | None = None
+    hc0151_current_section: str | None = None
+    hc0151_table_open = False
+    hc0151_contents_open = False
+    hc0151_small_depth = 0
     hc02bc_section_open = False
     hc02be_section_open = False
     hc0190_sections: dict[int, str] = {}
@@ -1845,6 +1911,19 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         root.extend(section_parts)
                         if section_parts:
                             stats["hc02c5_section_blocks"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "0151":
+                        if hc0151_section_close is not None:
+                            root.append(hc0151_section_close)
+                            hc0151_section_close = None
+                        hc0151_current_section = code
+                        section_parts, hc0151_section_close, hc0151_table_open = _hc0151_section_parts(
+                            code, table_open=hc0151_table_open
+                        )
+                        root.extend(section_parts)
+                        if section_parts:
+                            stats["hc0151_section_blocks"] += 1
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "009D":
@@ -2026,6 +2105,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     hc02c5_section_close = None
                     i += 2 + arg_len
                     continue
+                if _renderer_code(options) == "0151":
+                    if hc0151_section_close is not None:
+                        _current_parts(root_parts, contexts).append(hc0151_section_close)
+                        hc0151_section_close = None
+                    elif hc0151_current_section in HC0151_NOOP_SECTION_CODES:
+                        i += 2 + arg_len
+                        continue
+                    i += 2 + arg_len
+                    continue
                 if _renderer_code(options) == "009D" and hc009d_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc009d_section_close)
                     hc009d_section_close = None
@@ -2133,6 +2221,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if _renderer_code(options) == "0151" and op in HC0151_NONPRINTING_CONTROL_OPS:
+                stats["hc0151_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
             if _renderer_code(options) == "013D" and op in HC013D_NONPRINTING_CONTROL_OPS:
                 stats["hc013d_nonprinting_controls"] += 1
                 i += 2 + arg_len
@@ -2193,6 +2286,31 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 style_stack.append(op)
                 stats["headings"] += 1
                 stats["hc02c5_heading_blocks"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0151" and op == 0x41:
+                _current_parts(root_parts, contexts).append('<div class="midashi">')
+                style_stack.append(op)
+                stats["headings"] += 1
+                stats["hc0151_heading_blocks"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0151" and op == 0x61:
+                if 0x41 in style_stack:
+                    while style_stack:
+                        popped = style_stack.pop()
+                        close_tag = _style_close_tag(popped, options)
+                        if popped == 0x41:
+                            _current_parts(root_parts, contexts).append("</div>")
+                            break
+                        if close_tag:
+                            _current_parts(root_parts, contexts).append(f"</{close_tag}>")
+                if not hc0151_contents_open:
+                    _current_parts(root_parts, contexts).append('<div class="contents">')
+                    hc0151_contents_open = True
+                    stats["hc0151_contents_blocks"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -2545,6 +2663,34 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     stats["hc02c5_small_markers"] += 1
                     i += 2
                     continue
+            if _renderer_code(options) == "0151":
+                parts = _current_parts(root_parts, contexts)
+                if key == HC0151_SMALL_OPEN_MARKER:
+                    parts.append("<small><small><small>")
+                    hc0151_small_depth += 1
+                    stats["hc0151_small_markers"] += 1
+                    i += 2
+                    continue
+                if key == HC0151_SMALL_CLOSE_MARKER:
+                    if hc0151_small_depth:
+                        hc0151_small_depth -= 1
+                    else:
+                        stats["hc0151_unmatched_small_markers"] += 1
+                    parts.append("</small></small></small>")
+                    stats["hc0151_small_markers"] += 1
+                    i += 2
+                    continue
+                if key == HC0151_TABLE_CELL_MARKER:
+                    if hc0151_current_section == HC0151_TABLE_HEADER_SECTION:
+                        parts.append("</th><th>")
+                        stats["hc0151_table_cell_markers"] += 1
+                        i += 2
+                        continue
+                    if hc0151_current_section == HC0151_TABLE_ROW_SECTION:
+                        parts.append("</td><td>")
+                        stats["hc0151_table_cell_markers"] += 1
+                        i += 2
+                        continue
             if _renderer_code(options) == "012E":
                 parts = _current_parts(root_parts, contexts)
                 text_parts = _current_text_parts(contexts)
@@ -3162,6 +3308,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _hc009c_close_section(_current_parts(root_parts, contexts), hc009c_marker_stack, hc009c_section_close)
     if hc02c5_section_close is not None:
         _current_parts(root_parts, contexts).append(hc02c5_section_close)
+    while hc0151_small_depth:
+        _current_parts(root_parts, contexts).append("</small></small></small>")
+        hc0151_small_depth -= 1
+        gaps.add("unterminated_hc0151_small_marker")
+    if hc0151_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc0151_section_close)
+    if hc0151_table_open:
+        _current_parts(root_parts, contexts).append("</table>")
+    if hc0151_contents_open:
+        _current_parts(root_parts, contexts).append("</div>")
     if hc012d_section_close is not None:
         _current_parts(root_parts, contexts).append(hc012d_section_close)
     if hc013d_section_close is not None:

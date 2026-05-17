@@ -588,6 +588,31 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "0151":
+        rows.append(
+            HcHookBehavior(
+                name="ibio5_section_table_marker_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0151 epwing2HtmlBodydata 1f09 indent/table section ladder",
+                    "HC0151 1f41 midashi and 1f61 contents branch",
+                    "HC0151 1f42 Link and 1f43 lineLink anchor branches",
+                    "HC0151 B156/B157 small-text and B159 table-cell transition branches",
+                    "Templates/00000151.css class definitions",
+                ),
+                implementation=(
+                    "1f41/1f61 split entries into midashi and contents blocks, 1f09 "
+                    "sections map to recovered indent/table wrappers, internal links use "
+                    "Link/lineLink classes, 1f6d is consumed as renderer state, and "
+                    "B156/B157/B159 produce recovered small/table-cell markup"
+                ),
+                notes=(
+                    "The subset excludes exact previous/next navigation anchors, HTMLs/fix "
+                    "fallback lifecycle, custom character DIB generation, modifyHeadwordEx, "
+                    "Panel hooks, and SQL/search helper hooks."
+                ),
+            )
+        )
     if code == "0146":
         rows.append(
             HcHookBehavior(
@@ -749,6 +774,8 @@ def build_hc_behavior_profile(
         implemented.add("HC009C_section_image_index_layout")
     if code == "02C5":
         implemented.add("HC02C5_section_marker_layout")
+    if code == "0151":
+        implemented.add("HC0151_section_table_marker_layout")
     if code == "0146":
         implemented.add("HC0146_inline_marker_gaiji")
     if code == "0158":

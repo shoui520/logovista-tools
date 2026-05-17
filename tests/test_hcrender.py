@@ -1119,6 +1119,75 @@ def test_hc02c5_renders_marker_numerals_letters_and_hin_images() -> None:
     assert rendered.stats["hc02c5_img_hin_markers"] == 2
 
 
+def test_hc0151_maps_heading_contents_sections_and_links() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x17"
+        + jis_ascii("B")
+        + b"\x1f\x0a"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x43"
+        + jis_ascii("R")
+        + b"\x1f\x63\x00\x00\x00\x03\x00\x40"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0151"))
+
+    assert '<div class="midashi"><span class="hankaku">H</span></div><div class="contents">' in rendered.html
+    assert '<div class="indent23"><span class="hankaku">B</span></div>' in rendered.html
+    assert 'class="lv-hc-link Link"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'class="lv-hc-heading"' not in rendered.html
+    assert 'class="lv-hc-section"' not in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc0151_heading_blocks"] == 1
+    assert rendered.stats["hc0151_contents_blocks"] == 1
+    assert rendered.stats["hc0151_section_blocks"] == 1
+    assert rendered.stats["hc0151_nonprinting_controls"] == 1
+
+
+def test_hc0151_table_sections_and_small_markers_are_balanced() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x20"
+        + jis_ascii("A")
+        + b"\xb1\x59"
+        + jis_ascii("B")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x22"
+        + jis_ascii("C")
+        + b"\xb1\x59"
+        + jis_ascii("D")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x87"
+        + b"\xb1\x56"
+        + jis_ascii("S")
+        + b"\xb1\x57",
+        HcRenderOptions(renderer_code="0151"),
+    )
+
+    assert "<table><tr><th>" in rendered.html
+    assert "</th><th>" in rendered.html
+    assert "</th></tr>" in rendered.html
+    assert "<tr><td>" in rendered.html
+    assert "</td><td>" in rendered.html
+    assert "</td></tr>" in rendered.html
+    assert "</table><br>" in rendered.html
+    assert "<small><small><small>" in rendered.html
+    assert "</small></small></small>" in rendered.html
+    assert rendered.html.count("<table") == rendered.html.count("</table>")
+    assert rendered.html.count("<th") == rendered.html.count("</th>")
+    assert rendered.html.count("<td") == rendered.html.count("</td>")
+    assert rendered.stats["hc0151_section_blocks"] == 3
+    assert rendered.stats["hc0151_table_cell_markers"] == 2
+    assert rendered.stats["hc0151_small_markers"] == 2
+
+
 def test_hc0065_wraps_midashi_and_contents_body() -> None:
     rendered = render_hc_body(
         b"\x1f\x09\x00\x01"
@@ -1789,6 +1858,36 @@ def test_hc02c5_profile_records_section_marker_subset_without_claiming_parity() 
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
     assert "panel_lifecycle" in data["named_gaps"]
+
+
+def test_hc0151_profile_records_biology_layout_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0151.dll"),
+        code="0151",
+        expected_numeric_index="00000151.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/00000151.css",),
+        sql_snippets=(),
+        image_templates=("Templates/B156.png",),
+        features={"custom_gaiji_dib": True, "headword_modifier": True, "panel_hooks": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC0151_section_table_marker_layout" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+    assert "panel_lifecycle_hook" in data["named_gaps"]
 
 
 def test_hc013d_profile_records_drug_layout_subset_without_claiming_parity() -> None:
