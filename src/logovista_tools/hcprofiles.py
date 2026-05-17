@@ -117,7 +117,7 @@ def _family_for_code(code: str | None, renderer: HcRendererClassification | None
         return "britannica_yearbook_array_renderer"
     if code in {"00D3", "00D5", "00DE"}:
         return "britannica_panel_media_renderer"
-    if code in {"013A", "0137", "013F", "0142", "0146", "0147", "02BE", "02BF", "02C1", "02C2", "02C4", "02C5", "02C7"}:
+    if code in {"013A", "0137", "013F", "0142", "0146", "0147", "02BE", "02BF", "02C1", "02C2", "02C4", "02C5", "02C7", "02C9", "02CB", "02CC", "02CD", "02D1"}:
         return "panel_enabled_renderer"
     if code == "0190":
         return "sizk_readaloud_renderer"
@@ -217,7 +217,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Panel lifecycle and media HTML paths are product behavior; exact viewer UI callbacks are not emulated.",
             )
         )
-    if code in {"013A", "0137", "013F", "0142", "0146", "0147", "02BE", "02BF", "02C1", "02C2", "02C4", "02C5", "02C7"}:
+    if code in {"013A", "0137", "013F", "0142", "0146", "0147", "02BE", "02BF", "02C1", "02C2", "02C4", "02C5", "02C7", "02C9", "02CB", "02CC", "02CD", "02D1"}:
         rows.append(
             HcHookBehavior(
                 name="panel_lifecycle",
@@ -678,7 +678,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset excludes lved.sql interactive menu generation, user-data check/play-count persistence, and exact body%d.html lifecycle parity.",
             )
         )
-    if code in {"02C4", "02C7"}:
+    if code in {"02C4", "02C7", "02C9", "02CB", "02CC", "02CD", "02D1"}:
         rows.append(
             HcHookBehavior(
                 name="gen_year_section_icons_and_template_markers",
@@ -694,8 +694,9 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "1f09 sections map to midashi/honbun/footer containers, 1f41/1f61 "
                     "wrap midashi text, internal links use lineLink, 1fe2 2331-2334 "
                     "emit 1.png-4.png img_icon markers, B12D-B12F render as img_mark, "
-                    "B132-B137 render as img_mark2, and B130/B131/B138 are consumed as "
-                    "renderer state markers"
+                    "B132-B137 render as img_mark2, B130/B131/B138 are consumed as "
+                    "renderer state markers, and HC02CB/HC02CC/HC02CD special-case B135 "
+                    "as U+20BB7 before the image-marker range"
                 ),
                 notes="The subset excludes custom DIB generation, modifyHeadword, exact fixed-HTML fallback selection, and vertical navigation table scaffolding.",
             )
@@ -1373,7 +1374,7 @@ def build_hc_behavior_profile(
     if code == "00AC":
         implemented.add("HC00AC_honbun_margin_sections")
         implemented.add("HC00AC_marker_suppression")
-    if code in {"02C4", "02C7"}:
+    if code in {"02C4", "02C7", "02C9", "02CB", "02CC", "02CD", "02D1"}:
         implemented.add("HC_GEN_YEAR_section_icons_and_template_markers")
     if code == "02C1":
         implemented.add("HC02C1_section_icons_and_template_gaiji")

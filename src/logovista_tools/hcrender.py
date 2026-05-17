@@ -934,9 +934,9 @@ HC013C_ICON_DIRECTIVES = {
 }
 HC013C_NOOP_MARKERS = {"a435", "a436"}
 HC00B3_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
-HC_GEN_YEAR_RENDERERS = {"02C4", "02C7"}
+HC_GEN_YEAR_RENDERERS = {"02C4", "02C7", "02C9", "02CB", "02CC", "02CD", "02D1"}
 HC_GEN_YEAR_NOOP_SECTION_CODES = {"270f", "9999"}
-HC_GEN_YEAR_NONPRINTING_CONTROL_OPS = {0x02, 0x4C}
+HC_GEN_YEAR_NONPRINTING_CONTROL_OPS = {0x02, 0x4C, 0x6D}
 HC_GEN_YEAR_ICON_DIRECTIVES = {
     "2331": "1.png",
     "2332": "2.png",
@@ -946,6 +946,12 @@ HC_GEN_YEAR_ICON_DIRECTIVES = {
 HC_GEN_YEAR_IMG_MARK_MARKERS = {"b12d", "b12e", "b12f"}
 HC_GEN_YEAR_IMG_MARK2_MARKERS = frozenset(f"b{value:03x}" for value in range(0x132, 0x138))
 HC_GEN_YEAR_NOOP_MARKERS = {"b130", "b131", "b138"}
+HC_GEN_YEAR_LITERAL_MARKERS_BY_RENDERER = {
+    # HC02CB/HC02CC/HC02CD special-case B135 before the B132-B137 image-marker range.
+    "02CB": {"b135": "\U00020bb7"},
+    "02CC": {"b135": "\U00020bb7"},
+    "02CD": {"b135": "\U00020bb7"},
+}
 
 HC0065_LITERAL_MARKERS = {
     # HC0065 routes these grammar-label gaiji through short literal branches.
@@ -2413,7 +2419,7 @@ def _hc_gen_year_section_parts(code: str) -> tuple[list[str], str | None]:
     if code in HC_GEN_YEAR_NOOP_SECTION_CODES:
         return [], None
     if code == "0001":
-        # HC02C4/HC02C7 use the following 1f41/1f61 span for the visible heading.
+        # GEN year-family renderers use the following 1f41/1f61 span for the visible heading.
         return [], None
     if code == "000c":
         return ['<div class="footer">'], "</div>"
@@ -5216,6 +5222,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if _is_hc_gen_year_renderer(options):
                 if key in HC_GEN_YEAR_NOOP_MARKERS:
                     stats["hc_gen_year_noop_markers"] += 1
+                    i += 2
+                    continue
+                literal = HC_GEN_YEAR_LITERAL_MARKERS_BY_RENDERER.get(_renderer_code(options), {}).get(key)
+                if literal is not None:
+                    _append_text(_current_parts(root_parts, contexts), literal)
+                    text_parts = _current_text_parts(contexts)
+                    if text_parts is not None:
+                        text_parts.append(literal)
+                    stats["hc_gen_year_literal_markers"] += 1
                     i += 2
                     continue
                 if key in HC_GEN_YEAR_IMG_MARK_MARKERS:

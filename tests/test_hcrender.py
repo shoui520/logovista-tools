@@ -1610,7 +1610,7 @@ def test_hc_gen_year_maps_sections_icons_links_and_template_markers() -> None:
         + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
     )
 
-    for code in ("02C4", "02C7"):
+    for code in ("02C4", "02C7", "02C9", "02CB", "02CC", "02CD", "02D1"):
         rendered = render_hc_body(
             body,
             HcRenderOptions(
@@ -1635,8 +1635,15 @@ def test_hc_gen_year_maps_sections_icons_links_and_template_markers() -> None:
         assert rendered.stats["hc_gen_year_noop_markers"] == 3
 
 
+def test_hc_gen_year_consumes_1f6d_as_renderer_state() -> None:
+    rendered = render_hc_body(b"\x1f\x6d", HcRenderOptions(renderer_code="02D1"))
+
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc_gen_year_nonprinting_controls"] == 1
+
+
 def test_hc_gen_year_distinguishes_marker_image_classes() -> None:
-    for code in ("02C4", "02C7"):
+    for code in ("02C4", "02C7", "02C9", "02D1"):
         rendered = render_hc_body(
             b"\xb1\x2d\xb1\x2e\xb1\x2f\xb1\x32",
             HcRenderOptions(renderer_code=code, image_sources={"b132": "Templates/B132.png"}),
@@ -1649,6 +1656,16 @@ def test_hc_gen_year_distinguishes_marker_image_classes() -> None:
         assert 'class="lv-hc-gaiji img_mark2"' in rendered.html
         assert rendered.stats["hc_gen_year_img_mark_markers"] == 3
         assert rendered.stats["hc_gen_year_img_mark2_markers"] == 1
+
+
+def test_hc_gen_year_late_variants_special_case_b135_literal() -> None:
+    for code in ("02CB", "02CC", "02CD"):
+        rendered = render_hc_body(b"\xb1\x35", HcRenderOptions(renderer_code=code))
+
+        assert "\U00020bb7" in rendered.html
+        assert 'data-gaiji-code="b135"' not in rendered.html
+        assert rendered.stats["hc_gen_year_literal_markers"] == 1
+        assert "hc_gen_year_img_mark2_markers" not in rendered.stats
 
 
 def test_hc02c0_maps_sections_icons_links_and_state_markers() -> None:
@@ -3512,7 +3529,7 @@ def test_hkdksr_medical_profiles_record_subset_without_claiming_parity() -> None
 
 
 def test_hc_gen_year_profile_records_subset_without_claiming_parity() -> None:
-    for code in ("02C4", "02C7"):
+    for code in ("02C4", "02C7", "02C9", "02CB", "02CC", "02CD", "02D1"):
         row = HcRendererClassification(
             path=Path(f"HC{code}.dll"),
             code=code,
