@@ -1240,6 +1240,47 @@ def test_hc0147_renders_template_gaiji_and_rubar_marker() -> None:
     assert rendered.stats["hc0147_rubar_markers"] == 1
 
 
+def test_hc0094_maps_sections_color_blocks_template_gaiji_and_line_links() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + jis_ascii("H")
+        + b"\x1f\x09\x00\x03"
+        + jis_text("本文")
+        + b"\xb1\x21"
+        + b"\xb1\x3e"
+        + jis_text("赤")
+        + b"\x1f\x09\x00\x09"
+        + jis_text("行")
+        + b"\x1f\x09\x00\x12"
+        + jis_text("脚注")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="0094", image_sources={"b121": "Templates/B121.gif"}),
+    )
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<div class="contents_body">' in rendered.html
+    assert '<div class="lineinfo">' in rendered.html
+    assert '<div class="footer">' in rendered.html
+    assert '<div class="aka">' in rendered.html
+    assert 'src="Templates/B121.gif"' in rendered.html
+    assert 'class="lv-hc-gaiji img_gaiji"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.stats["hc0094_section_midashi"] == 1
+    assert rendered.stats["hc0094_section_contents_body"] == 1
+    assert rendered.stats["hc0094_section_lineinfo"] == 1
+    assert rendered.stats["hc0094_section_footer"] == 1
+    assert rendered.stats["hc0094_template_image_markers"] == 1
+    assert rendered.stats["hc0094_color_div_markers"] == 1
+
+
 def test_hc00a6_maps_sections_ruby_and_line_links() -> None:
     ruby_start = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:S") + jis_text("よ") + b"\x1f\xe3\x00\x00"
     ruby_end = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:E") + b"\x1f\xe3\x00\x00"
@@ -2515,6 +2556,34 @@ def test_hc0147_profile_records_contents_bunken_subset_without_claiming_parity()
     assert data["exact_hc_parity"] is False
     assert "panel_lifecycle" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
+
+
+def test_hc0094_profile_records_keigo_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0094.dll"),
+        code="0094",
+        expected_numeric_index="00000094.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/00000094.css",),
+        sql_snippets=(),
+        image_templates=("B121.gif", "B13E.gif", "class_arrow.gif"),
+        features={},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC0094_sections_color_blocks_and_template_gaiji" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "visual_parity_unverified" in data["named_gaps"]
 
 
 def test_hc0065_profile_records_midashi_subset_without_claiming_parity() -> None:

@@ -339,6 +339,26 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Panel lifecycle, modifyHeadword, custom DIB generation, and exact nested bunken anchor bookkeeping remain named gaps.",
             )
         )
+    if code == "0094":
+        rows.append(
+            HcHookBehavior(
+                name="gkkeigo_sections_color_blocks_and_template_gaiji",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0094 epwing2HtmlBodydata 1f09 section branch ladder",
+                    "HC0094 B121-B13D template image branch",
+                    "HC0094 B13E/B13F aka/beni color div branch",
+                    "HC0094 1f42/1f43 lineLink template",
+                    "Templates/00000094.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to midashi, contents_body, lineinfo, and footer blocks; "
+                    "B121-B13D render as img_gaiji template images, B13E/B13F open aka/beni "
+                    "color divs, and internal links carry the recovered lineLink class"
+                ),
+                notes="Exact footer previous/next table generation, custom bitmap export, and visual parity remain named gaps.",
+            )
+        )
     if code == "00A6":
         rows.append(
             HcHookBehavior(
@@ -1225,6 +1245,8 @@ def build_hc_behavior_profile(
         implemented.add("HC013A_example_section_badge")
     if code == "00C6":
         implemented.add("HC00C6_section_and_marker_layout")
+    if code == "0094":
+        implemented.add("HC0094_sections_color_blocks_and_template_gaiji")
     if code == "02BE":
         implemented.add("HC02BE_section_and_phonetic_markers")
     if code == "02BC":
