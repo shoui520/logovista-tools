@@ -1441,7 +1441,9 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return None
     if op == 0x41 and _renderer_code(options) == "0141":
         return None
-    if op == 0x41 and _renderer_code(options) in {"00C6", "0146", "0157", "0158"}:
+    if op == 0x41 and _renderer_code(options) == "00C6":
+        return None
+    if op == 0x41 and _renderer_code(options) in {"0146", "0157", "0158"}:
         return ("span", ' class="lv-hc-heading midashi"')
     return STYLE_START_TAGS.get(op)
 
@@ -3194,6 +3196,13 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats["hc009d_section_blocks"] += 1
                     if _renderer_code(options) == "00C6":
                         if hc00c6_section_open:
+                            while hc00c6_marker_stack:
+                                root.append(hc00c6_marker_stack.pop()[1])
+                            while style_stack:
+                                close_tag = _style_close_tag(style_stack.pop(), options)
+                                if close_tag:
+                                    root.append(f"</{close_tag}>")
+                            halfwidth_depth = 0
                             root.append("</div>")
                             hc00c6_section_open = False
                         if code not in {"0007", "0008"}:
@@ -3218,6 +3227,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             root.append(div_html)
                             hc00c6_section_open = True
                             stats["hc00c6_section_divs"] += 1
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "00A6":
                         if hc00a6_section_close is not None:
                             root.append(hc00a6_section_close)
@@ -3690,7 +3701,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     i += 2 + arg_len
                     continue
                 if _renderer_code(options) == "00C6" and hc00c6_section_open:
-                    _current_parts(root_parts, contexts).append("</div>")
+                    parts = _current_parts(root_parts, contexts)
+                    while hc00c6_marker_stack:
+                        parts.append(hc00c6_marker_stack.pop()[1])
+                    while style_stack:
+                        close_tag = _style_close_tag(style_stack.pop(), options)
+                        if close_tag:
+                            parts.append(f"</{close_tag}>")
+                    halfwidth_depth = 0
+                    parts.append("</div>")
                     hc00c6_section_open = False
                 if _renderer_code(options) == "00A6" and hc00a6_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc00a6_section_close)
