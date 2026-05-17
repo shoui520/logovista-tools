@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             27   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC02C4, HC0157, HC0158
-needs marker branch decode:          65
+decoded branch subsets:             28   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC02C4, HC02C7, HC0157, HC0158
+needs marker branch decode:          64
 common controls plus named gaps:     14
 common controls candidate verify:     1
 exact-body sidecar HC hooks unprofiled: 5
@@ -1276,15 +1276,15 @@ Exact conditional HR/state transitions, custom DIB generation, SQL search
 hooks, `modifyHeadword`, vertical color-variant image generation, and broader
 visual parity remain named gaps, so exact HC0131 visual parity is not claimed.
 
-The GEN2016 branch-subset proof case is `HC02C4.dll`. Its body loop uses
-`1f41`/`1f61` for the product `midashi` block, maps ordinary `1f09` content
-sections to `honbun` containers, uses `lineLink` for internal links, maps
-B12D-B12F to `img_mark`, maps B132-B137 to `img_mark2`, consumes B130/B131/B138
-as renderer state, and maps the recovered `1fe2` 2331-2334 directive path to
-`1.png`-`4.png` `img_icon` markers. Custom DIB generation, `modifyHeadword`,
-exact fixed-HTML fallback selection, vertical navigation table scaffolding, and
-broader visual parity remain named gaps, so exact HC02C4 visual parity is not
-claimed.
+The GEN2016/GEN2017 branch-subset proof cases are `HC02C4.dll` and
+`HC02C7.dll`. Their body loops use `1f41`/`1f61` for the product `midashi`
+block, map ordinary `1f09` content sections to `honbun` containers, use
+`lineLink` for internal links, map B12D-B12F to `img_mark`, map B132-B137 to
+`img_mark2`, consume B130/B131/B138 as renderer state, and map the recovered
+`1fe2` 2331-2334 directive path to `1.png`-`4.png` `img_icon` markers. Custom
+DIB generation, `modifyHeadword`, exact fixed-HTML fallback selection, vertical
+navigation table scaffolding, and broader visual parity remain named gaps, so
+exact HC02C4/HC02C7 visual parity is not claimed.
 
 The ninth branch-subset proof case is `HC012E.dll`. Its vertical body loop
 uses package-local `Gaijitemp/` image resources for most kanji-form glyphs.

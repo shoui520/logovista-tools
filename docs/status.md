@@ -487,11 +487,17 @@ and non-SSED reader status are tracked separately in
   recovered `1fe2` 2331-2334 path emits `1.png`-`4.png` `img_icon` markers.
   Custom DIB generation, `modifyHeadword`, exact fixed-HTML fallback
   selection, and vertical navigation table scaffolding remain incomplete.
+- `HC02C7.dll` now has the matching focused raw-HONMON branch-subset proof
+  for GEN2017: the same recovered section, line-link, private-icon, and
+  B12D-B137 template-marker branch table is implemented against
+  `000002C7.css` and the GEN2017 template assets. B13F/B145 assets and
+  other unproven renderer hooks remain named gaps until their code paths are
+  recovered.
 - The all-family HC pass has decompiled a representative for each of the 109
   exact SHA-256 renderer binaries. HC013A, HC0065, HC009D, HC00C6, HC012D,
   HC012E, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5,
   HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF,
-  HC012F, HC02C4, HC0157, and HC0158
+  HC012F, HC02C4, HC02C7, HC0157, and HC0158
   currently have decoded branch subsets, not full HC parity.
   Other branch tables remain named gaps until their output constants and product
   data paths are understood.

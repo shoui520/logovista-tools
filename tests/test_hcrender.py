@@ -1145,7 +1145,7 @@ def test_hc02c2_line_links_use_product_class() -> None:
     assert 'href="lvaddr://00000002/0048"' in rendered.html
 
 
-def test_hc02c4_maps_sections_icons_links_and_template_markers() -> None:
+def test_hc_gen_year_maps_sections_icons_links_and_template_markers() -> None:
     body = (
         b"\x1f\x09\x00\x01"
         + b"\x1f\x41\x00\x00"
@@ -1163,43 +1163,45 @@ def test_hc02c4_maps_sections_icons_links_and_template_markers() -> None:
         + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
     )
 
-    rendered = render_hc_body(
-        body,
-        HcRenderOptions(
-            renderer_code="02C4",
-            image_sources={"b132": "Templates/B132.png", "b133": "Templates/B133.png"},
-        ),
-    )
+    for code in ("02C4", "02C7"):
+        rendered = render_hc_body(
+            body,
+            HcRenderOptions(
+                renderer_code=code,
+                image_sources={"b132": "Templates/B132.png", "b133": "Templates/B133.png"},
+            ),
+        )
 
-    assert '<div class="midashi"><span class="hankaku">H</span></div>' in rendered.html
-    assert '<div class="honbun" style="margin-left:0.000000em;">' in rendered.html
-    assert '<img src="1.png" class="img_icon"/><br>' in rendered.html
-    assert 'src="Templates/B132.png"' in rendered.html
-    assert 'src="Templates/B133.png"' in rendered.html
-    assert 'class="lv-hc-gaiji img_mark2"' in rendered.html
-    assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
-    assert 'data-lv-section' not in rendered.html
-    assert 'data-gaiji-code="b130"' not in rendered.html
-    assert rendered.stats["hc02c4_section_blocks"] == 1
-    assert rendered.stats["hc02c4_private_icons"] == 1
-    assert rendered.stats["hc02c4_img_mark2_markers"] == 2
-    assert rendered.stats["hc02c4_noop_markers"] == 3
+        assert '<div class="midashi"><span class="hankaku">H</span></div>' in rendered.html
+        assert '<div class="honbun" style="margin-left:0.000000em;">' in rendered.html
+        assert '<img src="1.png" class="img_icon"/><br>' in rendered.html
+        assert 'src="Templates/B132.png"' in rendered.html
+        assert 'src="Templates/B133.png"' in rendered.html
+        assert 'class="lv-hc-gaiji img_mark2"' in rendered.html
+        assert 'class="lv-hc-link lineLink"' in rendered.html
+        assert 'href="lvaddr://00000002/0048"' in rendered.html
+        assert 'data-lv-section' not in rendered.html
+        assert 'data-gaiji-code="b130"' not in rendered.html
+        assert rendered.stats["hc_gen_year_section_blocks"] == 1
+        assert rendered.stats["hc_gen_year_private_icons"] == 1
+        assert rendered.stats["hc_gen_year_img_mark2_markers"] == 2
+        assert rendered.stats["hc_gen_year_noop_markers"] == 3
 
 
-def test_hc02c4_distinguishes_marker_image_classes() -> None:
-    rendered = render_hc_body(
-        b"\xb1\x2d\xb1\x2e\xb1\x2f\xb1\x32",
-        HcRenderOptions(renderer_code="02C4", image_sources={"b132": "Templates/B132.png"}),
-    )
+def test_hc_gen_year_distinguishes_marker_image_classes() -> None:
+    for code in ("02C4", "02C7"):
+        rendered = render_hc_body(
+            b"\xb1\x2d\xb1\x2e\xb1\x2f\xb1\x32",
+            HcRenderOptions(renderer_code=code, image_sources={"b132": "Templates/B132.png"}),
+        )
 
-    assert rendered.html.count('class="lv-hc-gaiji img_mark"') == 3
-    assert 'src="B12D.png"' in rendered.html
-    assert 'src="B12E.png"' in rendered.html
-    assert 'src="B12F.png"' in rendered.html
-    assert 'class="lv-hc-gaiji img_mark2"' in rendered.html
-    assert rendered.stats["hc02c4_img_mark_markers"] == 3
-    assert rendered.stats["hc02c4_img_mark2_markers"] == 1
+        assert rendered.html.count('class="lv-hc-gaiji img_mark"') == 3
+        assert 'src="B12D.png"' in rendered.html
+        assert 'src="B12E.png"' in rendered.html
+        assert 'src="B12F.png"' in rendered.html
+        assert 'class="lv-hc-gaiji img_mark2"' in rendered.html
+        assert rendered.stats["hc_gen_year_img_mark_markers"] == 3
+        assert rendered.stats["hc_gen_year_img_mark2_markers"] == 1
 
 
 def test_hc02c1_maps_sections_icons_and_moji_down_markers() -> None:
@@ -2355,33 +2357,34 @@ def test_hc0131_profile_records_kqebhou_subset_without_claiming_parity() -> None
     assert "sql_hook" in data["named_gaps"]
 
 
-def test_hc02c4_profile_records_gen2016_subset_without_claiming_parity() -> None:
-    row = HcRendererClassification(
-        path=Path("HC02C4.dll"),
-        code="02C4",
-        expected_numeric_index="000002C4.idx",
-        size=1,
-        sha256=None,
-        pe=PeSummary(kind="unknown"),
-        exinfo_html_dll=None,
-        exinfo_declares_this=None,
-        numeric_indexes=(),
-        expected_numeric_index_present=False,
-        vlpljbl_siblings=(),
-        dic_tokens=(),
-        vlpljbl_tokens=(),
-        html_templates=("Templates/000002C4.css",),
-        sql_snippets=(),
-        image_templates=("Templates/B132.png",),
-        features={"custom_gaiji_dib": True, "headword_modifier": True, "vertical_renderer": True},
-    )
+def test_hc_gen_year_profile_records_subset_without_claiming_parity() -> None:
+    for code in ("02C4", "02C7"):
+        row = HcRendererClassification(
+            path=Path(f"HC{code}.dll"),
+            code=code,
+            expected_numeric_index=f"0000{code}.idx",
+            size=1,
+            sha256=None,
+            pe=PeSummary(kind="unknown"),
+            exinfo_html_dll=None,
+            exinfo_declares_this=None,
+            numeric_indexes=(),
+            expected_numeric_index_present=False,
+            vlpljbl_siblings=(),
+            dic_tokens=(),
+            vlpljbl_tokens=(),
+            html_templates=(f"Templates/0000{code}.css",),
+            sql_snippets=(),
+            image_templates=("Templates/B132.png",),
+            features={"custom_gaiji_dib": True, "headword_modifier": True, "vertical_renderer": True},
+        )
 
-    data = build_hc_behavior_profile(row).as_dict()
+        data = build_hc_behavior_profile(row).as_dict()
 
-    assert "HC02C4_section_icons_and_template_markers" in data["implemented_semantics"]
-    assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
-    assert "modify_headword_hook" in data["named_gaps"]
+        assert "HC_GEN_YEAR_section_icons_and_template_markers" in data["implemented_semantics"]
+        assert data["exact_hc_parity"] is False
+        assert "custom_gaiji_dib_hook" in data["named_gaps"]
+        assert "modify_headword_hook" in data["named_gaps"]
 
 
 def test_hc013d_profile_records_drug_layout_subset_without_claiming_parity() -> None:

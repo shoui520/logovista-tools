@@ -117,7 +117,7 @@ def _family_for_code(code: str | None, renderer: HcRendererClassification | None
         return "britannica_yearbook_array_renderer"
     if code in {"00D3", "00D5", "00DE"}:
         return "britannica_panel_media_renderer"
-    if code in {"013A", "013F", "0142", "0146", "0147", "02BE", "02BF", "02C1", "02C2", "02C4", "02C5"}:
+    if code in {"013A", "013F", "0142", "0146", "0147", "02BE", "02BF", "02C1", "02C2", "02C4", "02C5", "02C7"}:
         return "panel_enabled_renderer"
     if code == "0190":
         return "sizk_readaloud_renderer"
@@ -198,7 +198,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Panel lifecycle and media HTML paths are product behavior; exact viewer UI callbacks are not emulated.",
             )
         )
-    if code in {"013A", "013F", "0142", "0146", "0147", "02BE", "02BF", "02C1", "02C2", "02C4", "02C5"}:
+    if code in {"013A", "013F", "0142", "0146", "0147", "02BE", "02BF", "02C1", "02C2", "02C4", "02C5", "02C7"}:
         rows.append(
             HcHookBehavior(
                 name="panel_lifecycle",
@@ -298,17 +298,17 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Panel lifecycle, modifyHeadwordEx, and custom DIB generation remain named gaps.",
             )
         )
-    if code == "02C4":
+    if code in {"02C4", "02C7"}:
         rows.append(
             HcHookBehavior(
-                name="gen2016_section_icons_and_template_markers",
+                name="gen_year_section_icons_and_template_markers",
                 status="branch_subset_implemented",
                 evidence=(
-                    "HC02C4 epwing2HtmlBodydataVertical 1f09 section branch ladder",
-                    "HC02C4 1f42/1f43 lineLink branch",
-                    "HC02C4 1fe2 2331-2334 img_icon directive branch",
-                    "HC02C4 B12D-B12F and B132-B137 template marker branches",
-                    "Templates/000002C4.css class definitions",
+                    f"HC{code} epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    f"HC{code} 1f42/1f43 lineLink branch",
+                    f"HC{code} 1fe2 2331-2334 img_icon directive branch",
+                    f"HC{code} B12D-B12F and B132-B137 template marker branches",
+                    f"Templates/0000{code}.css class definitions",
                 ),
                 implementation=(
                     "1f09 sections map to midashi/honbun/footer containers, 1f41/1f61 "
@@ -898,8 +898,8 @@ def build_hc_behavior_profile(
         implemented.add("HC02BC_section_and_medical_markers")
     if code == "02C2":
         implemented.add("HC02C2_section_icons_and_template_gaiji")
-    if code == "02C4":
-        implemented.add("HC02C4_section_icons_and_template_markers")
+    if code in {"02C4", "02C7"}:
+        implemented.add("HC_GEN_YEAR_section_icons_and_template_markers")
     if code == "02C1":
         implemented.add("HC02C1_section_icons_and_template_gaiji")
     if code == "02BF":
