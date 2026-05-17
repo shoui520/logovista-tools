@@ -2441,9 +2441,11 @@ def test_hc0065_wraps_midashi_and_contents_body() -> None:
     assert '<span class="lv-hc-halfwidth">A</span>' in rendered.html
     assert '<div class="contents_body">' in rendered.html
     assert '<span class="lv-hc-halfwidth">C</span></div>' in rendered.html
+    assert "lv-hc-section" not in rendered.html
     assert 'class="lv-hc-heading"' not in rendered.html
     assert rendered.stats["hc0065_midashi_blocks"] == 1
     assert rendered.stats["hc0065_contents_body_blocks"] == 1
+    assert rendered.stats["hc0065_state_sections"] == 2
 
 
 def test_hc0067_wraps_midashi_contents_margin_sections_and_line_links() -> None:

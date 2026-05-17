@@ -4124,10 +4124,14 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats[f"hc0137_section_{state}"] += 1
                         i += 2 + arg_len
                         continue
-                    if _renderer_code(options) == "0065" and code == "0001" and not hc0065_midashi_open and not hc0065_body_open:
-                        root.append('<div class="midashi">')
-                        hc0065_midashi_open = True
-                        stats["hc0065_midashi_blocks"] += 1
+                    if _renderer_code(options) == "0065" and code in {"0001", "0002"}:
+                        if code == "0001" and not hc0065_midashi_open and not hc0065_body_open:
+                            root.append('<div class="midashi">')
+                            hc0065_midashi_open = True
+                            stats["hc0065_midashi_blocks"] += 1
+                        stats["hc0065_state_sections"] += 1
+                        i += 2 + arg_len
+                        continue
                     if active_section_image_rules and all(
                         code not in section_rules[active].group_codes for active in active_section_image_rules
                     ):
