@@ -1182,6 +1182,89 @@ def test_hc02c2_line_links_use_product_class() -> None:
     assert 'href="lvaddr://00000002/0048"' in rendered.html
 
 
+def test_hc02c8_maps_zukaiho_sections_tables_and_links() -> None:
+    body = (
+        b"\x1f\x41"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("三")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x04"
+        + jis_text("二")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x12"
+        + jis_text("頭")
+        + b"\x1f\x09\x00\x31"
+        + jis_text("三一")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x33"
+        + jis_text("三三")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x01\x00"
+        + jis_text("本文")
+        + b"\xb1\x36"
+        + b"\x1f\x09\x00\x50"
+        + b"\x1f\x09\x00\x60"
+        + b"\x1f\x09\x00\x70"
+        + jis_text("表")
+        + b"\x1f\x09\x00\x71"
+        + b"\x1f\x09\x00\x61"
+        + b"\x1f\x09\x00\x51"
+        + b"\x1f\x42"
+        + jis_ascii("A")
+        + b"\x1f\x62\x00\x00\x00\x01\x00\x20"
+        + b"\x1f\x43"
+        + jis_ascii("B")
+        + b"\x1f\x63\x00\x00\x00\x02\x00\x30"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="02C8", image_sources={"b136": "Templates/B136.png"}))
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<div class="indent3">' in rendered.html
+    assert '<div class="midashi_2nd">' in rendered.html
+    assert '<div class="header" >' in rendered.html
+    assert '<div class="indent31">' in rendered.html
+    assert '<div class="indent33">' in rendered.html
+    assert '<div class="contents">' in rendered.html
+    assert "<table>" in rendered.html and "</table>" in rendered.html
+    assert "<tr>" in rendered.html and "</tr>" in rendered.html
+    assert "<td>" in rendered.html and "</td>" in rendered.html
+    assert 'class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji"' in rendered.html
+    assert 'class="lv-hc-link Link"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert rendered.stats["hc02c8_section_indent3"] == 1
+    assert rendered.stats["hc02c8_section_midashi_2nd"] == 1
+    assert rendered.stats["hc02c8_section_header"] == 1
+    assert rendered.stats["hc02c8_section_table_open"] == 1
+
+
+def test_hc02c8_private_sections_do_not_leak_visible_close_state() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\xe2\x00\x07"
+        + b"\x1f\x09\x00\x12"
+        + jis_text("hidden")
+        + b"\x1f\xe3"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("visible")
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="02C8"))
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<br/></div><div class="indent3">' not in rendered.html
+    assert '<br/><div class="indent3">' in rendered.html
+    assert rendered.stats["hc02c8_private_section_controls"] == 1
+
+
 def test_hc0147_maps_bcd_sections_bunken_blocks_and_line_links() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -2668,6 +2751,36 @@ def test_hc0137_profile_records_iwanami_subset_without_claiming_parity() -> None
     assert "HC0137_iwanami_section_margin_and_line_links" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "panel_lifecycle" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
+def test_hc02c8_profile_records_zukaiho_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC02C8.dll"),
+        code="02C8",
+        expected_numeric_index="000002C8.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/000002C8.css",),
+        sql_snippets=("initializeSQL",),
+        image_templates=("B136.png", "B146.png", "mlink.gif"),
+        features={"headword_modifier": True, "sql_hooks": True, "custom_gaiji_dib": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC02C8_zukaiho_section_table_and_indent_layout" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
     assert "modify_headword_hook" in data["named_gaps"]
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]

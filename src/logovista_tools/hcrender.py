@@ -771,6 +771,8 @@ HC02C2_ICON_SECTION_IMAGES = {
 }
 HC02C2_TEMPLATE_IMAGE_MARKERS = frozenset(f"b{value:03x}" for value in range(0x13E, 0x15E))
 HC02C2_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
+HC02C8_NOOP_SECTION_VALUES = {1, 8, 32, 34}
+HC02C8_NO_BREAK_SECTION_VALUES = {12, 50, 51, 60, 61, 70, 71}
 HC0147_TEMPLATE_IMAGE_MARKERS = frozenset(["a12e", *[f"b{value:03x}" for value in range(0x141, 0x146)]])
 HC0147_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
 HC0137_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
@@ -1246,6 +1248,11 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
             return "lv-hc-link lineLink"
     if _renderer_code(options) == "02C5" and start_op in {0x42, 0x43}:
         return "lv-hc-link lLink"
+    if _renderer_code(options) == "02C8":
+        if start_op == 0x42:
+            return "lv-hc-link Link"
+        if start_op == 0x43:
+            return "lv-hc-link lineLink"
     if _renderer_code(options) == "0151":
         if start_op == 0x42:
             return "lv-hc-link Link"
@@ -1300,6 +1307,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("div", ' class="midashi"')
     if _renderer_code(options) == "02C5" and op == 0x04:
         return ("span", ' class="hankaku"')
+    if _renderer_code(options) == "02C8" and op == 0x04:
+        return ("span", ' class="hankaku"')
     if _renderer_code(options) == "02C1" and op == 0x04:
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "02BF" and op == 0x04:
@@ -1319,6 +1328,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
     if _renderer_code(options) == "0142" and op == 0x04:
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "02C5" and op == 0x41:
+        return ("div", ' class="midashi"')
+    if _renderer_code(options) == "02C8" and op == 0x41:
         return ("div", ' class="midashi"')
     if _renderer_code(options) == "0151" and op == 0x41:
         return ("div", ' class="midashi"')
@@ -1659,6 +1670,7 @@ def _append_gaiji_value(
             "0144",
             "0145",
             "0151",
+            "02C8",
             "02BF",
             "02C0",
             "02C1",
@@ -2264,6 +2276,50 @@ def _hc02c2_section_parts(code: str, previous_code: str | None) -> tuple[list[st
     return parts, moji_down
 
 
+def _hc02c8_section_value(code: str) -> int | None:
+    if not code:
+        return None
+    try:
+        if all(ch in "0123456789" for ch in code):
+            return int(code, 10)
+        return int(code, 16)
+    except ValueError:
+        return None
+
+
+def _hc02c8_section_parts(code: str) -> tuple[list[str], str | None, str | None, int | None]:
+    value = _hc02c8_section_value(code)
+    if value is None:
+        return [], None, None, None
+    if value in HC02C8_NOOP_SECTION_VALUES:
+        return [], None, "noop", value
+    if value == 3:
+        return ['<div class="indent3">　 '], "</div>", "indent3", value
+    if value == 4:
+        return ['<div class="midashi_2nd">'], "</div>", "midashi_2nd", value
+    if value in {5, 6, 30, 31}:
+        return [f'<div class="indent{value}">'], "</div>", f"indent{value}", value
+    if value == 7:
+        return ['<div class="indent7">　 '], "</div>", "indent7", value
+    if value == 12:
+        return ['<div class="header" >'], "</div>", "header", value
+    if value == 33:
+        return ['<hr>', '<div class="indent33">'], "</div>", "indent33", value
+    if value == 50:
+        return ["<table>"], None, "table_open", value
+    if value == 51:
+        return ["</table>"], None, "table_close", value
+    if value == 60:
+        return ["<tr>"], None, "row_open", value
+    if value == 61:
+        return ["</tr>"], None, "row_close", value
+    if value == 70:
+        return ["<td>"], None, "cell_open", value
+    if value == 71:
+        return ["</td>"], None, "cell_close", value
+    return ['<div class="contents">'], "</div>", "contents", value
+
+
 def _hc0147_section_value(code: str) -> int | None:
     if not code:
         return None
@@ -2856,6 +2912,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc02c2_section_open = False
     hc02c2_moji_down_open = False
     hc02c2_current_section: str | None = None
+    hc02c8_section_close: str | None = None
+    hc02c8_current_value: int | None = None
     hc0147_section_close: str | None = None
     hc0147_bunken_open = False
     hc0137_section_close: str | None = None
@@ -3349,6 +3407,22 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats["hc_gen_year_noop_sections"] += 1
                         i += 2 + arg_len
                         continue
+                    if _renderer_code(options) == "02C8":
+                        if contexts and contexts[-1].kind == "private":
+                            stats["hc02c8_private_section_controls"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if hc02c8_section_close is not None:
+                            root.append(hc02c8_section_close)
+                            hc02c8_section_close = None
+                        section_parts, hc02c8_section_close, state, hc02c8_current_value = _hc02c8_section_parts(code)
+                        root.extend(section_parts)
+                        if section_parts:
+                            stats["hc02c8_section_blocks"] += 1
+                        if state:
+                            stats[f"hc02c8_section_{state}"] += 1
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "02C2":
                         if hc02c2_section_open:
                             if hc02c2_moji_down_open:
@@ -3642,6 +3716,18 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if _is_hc_gen_year_renderer(options) and hc_gen_year_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc_gen_year_section_close)
                     hc_gen_year_section_close = None
+                    i += 2 + arg_len
+                    continue
+                if _renderer_code(options) == "02C8":
+                    if hc02c8_current_value in HC02C8_NO_BREAK_SECTION_VALUES:
+                        i += 2 + arg_len
+                        continue
+                    if hc02c8_current_value in {3, 4, 5, 6, 7, 30, 31, 33} and hc02c8_section_close is not None:
+                        _current_parts(root_parts, contexts).append(hc02c8_section_close)
+                        hc02c8_section_close = None
+                    else:
+                        _current_parts(root_parts, contexts).append("<br/>")
+                        stats["line_breaks"] += 1
                     i += 2 + arg_len
                     continue
                 if _renderer_code(options) == "02C2" and hc02c2_section_open:
@@ -5471,6 +5557,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc_hkdksr_medical_section_close)
     if hc_hkdksr_medical_table_open:
         _current_parts(root_parts, contexts).append("</td></tr></table>")
+    if hc02c8_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc02c8_section_close)
     if hc02c2_section_open:
         if hc02c2_moji_down_open:
             _current_parts(root_parts, contexts).append("</p>")
