@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             23   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC0157, HC0158
-common semantics plus named gaps:    89
+decoded branch subsets:             24   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC0157, HC0158
+common semantics plus named gaps:    88
 full product visual parity:           0
 ```
 
@@ -1243,7 +1243,17 @@ template image gaiji render with `img_mark4`. The same branch subset consumes
 hooks, exact ruby/smallcap state, and broader visual parity remain named gaps,
 so exact HC02C1 visual parity is not claimed.
 
-The eighth branch-subset proof case is `HC012E.dll`. Its vertical body loop
+The eighth branch-subset proof case is `HC02BF.dll`. Its vertical body loop
+maps `1f09` section payloads to KQLATINO `midashi` and `honbun` blocks.
+Section `0005` emits the `hasei.png` `img_icon` marker before the following
+body block, and B128-B150 marker gaiji open `moji-down` paragraphs when they
+directly follow section state. The same branch subset consumes `1f41`/`1f61`
+as renderer state and emits internal links with the recovered `lineLink`
+class. Custom DIB generation, `modifyHeadwordEx`, Panel/SQL lifecycle hooks,
+exact ruby/smallcap state, and broader visual parity remain named gaps, so
+exact HC02BF visual parity is not claimed.
+
+The ninth branch-subset proof case is `HC012E.dll`. Its vertical body loop
 uses package-local `Gaijitemp/` image resources for most kanji-form glyphs.
 The implemented subset maps common `1f09` section payloads to `honbun`,
 `bushu`, `kaku_midashi`, `exam`, `Oyaji`, and `Itaiji_2` block/table shapes;

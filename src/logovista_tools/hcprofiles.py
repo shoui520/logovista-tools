@@ -663,6 +663,32 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "02BF":
+        rows.append(
+            HcHookBehavior(
+                name="kqlatino_panel_body_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC02BF epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    "HC02BF 1f42/1f43 lineLink branch",
+                    "HC02BF B128-B150 moji-down marker branch",
+                    "Templates/000002BF.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to midashi/honbun containers, section 0005 "
+                    "inserts the recovered hasei.png icon header, B128-B150 markers "
+                    "open moji-down paragraphs when they directly follow section state, "
+                    "1f41/1f61 are consumed as renderer state, and internal links use "
+                    "lineLink"
+                ),
+                notes=(
+                    "The subset excludes exact custom DIB generation, Panel and SQL "
+                    "lifecycle hooks, HTMLs/fix fallback lifecycle, modifyHeadwordEx, "
+                    "exact ruby/smallcap state transitions, and full vertical template "
+                    "differences."
+                ),
+            )
+        )
     if code == "0146":
         rows.append(
             HcHookBehavior(
@@ -802,6 +828,8 @@ def build_hc_behavior_profile(
         implemented.add("HC02C2_section_icons_and_template_gaiji")
     if code == "02C1":
         implemented.add("HC02C1_section_icons_and_template_gaiji")
+    if code == "02BF":
+        implemented.add("HC02BF_section_icon_and_moji_down_layout")
     if code == "0065":
         implemented.add("HC0065_midashi_contents_and_grammar_labels")
     if code == "009D":

@@ -1103,6 +1103,43 @@ def test_hc02c1_uses_line_links_and_template_image_gaiji() -> None:
     assert rendered.stats["hc02c1_moji_down_markers"] == 1
 
 
+def test_hc02bf_maps_sections_hasei_icon_and_moji_down_markers() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x05"
+        + b"\xb1\x28"
+        + jis_text("派生")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x09"
+        + b"\xb1\x29"
+        + jis_text("続き"),
+        HcRenderOptions(renderer_code="02BF", gaiji_map={"b128": "①", "b129": "②"}),
+    )
+
+    assert '<div class="midashi"><span class="hankaku">H</span></div>' in rendered.html
+    assert '<img src="hasei.png" class="img_icon"/><br>' in rendered.html
+    assert '<p class="moji-down">①' in rendered.html
+    assert '<p class="moji-down">②' in rendered.html
+    assert 'class="lv-hc-section"' not in rendered.html
+    assert rendered.stats["hc02bf_section_blocks"] == 3
+    assert rendered.stats["hc02bf_section_icons"] == 1
+    assert rendered.stats["hc02bf_moji_down_blocks"] == 2
+    assert rendered.stats["hc02bf_nonprinting_controls"] == 2
+
+
+def test_hc02bf_line_links_use_product_class() -> None:
+    body = b"\x1f\x42" + jis_ascii("L") + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="02BF"))
+
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'href="lvaddr://00000002/0048"' in rendered.html
+
+
 def test_hc02c5_wraps_headings_and_decoded_sections() -> None:
     rendered = render_hc_body(
         b"\x1f\x09\x00\x01"
@@ -2072,6 +2109,37 @@ def test_hc02c1_profile_records_panel_layout_subset_without_claiming_parity() ->
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
     assert "panel_lifecycle" in data["named_gaps"]
+
+
+def test_hc02bf_profile_records_panel_layout_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC02BF.dll"),
+        code="02BF",
+        expected_numeric_index="000002BF.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/000002BF.css",),
+        sql_snippets=("SELECT ...",),
+        image_templates=("Templates/hasei.png",),
+        features={"custom_gaiji_dib": True, "headword_modifier": True, "panel_hooks": True, "sql_hooks": True, "vertical_renderer": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC02BF_section_icon_and_moji_down_layout" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+    assert "panel_lifecycle" in data["named_gaps"]
+    assert "sql_hook" in data["named_gaps"]
 
 
 def test_hc013d_profile_records_drug_layout_subset_without_claiming_parity() -> None:
