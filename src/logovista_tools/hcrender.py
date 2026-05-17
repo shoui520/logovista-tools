@@ -1433,6 +1433,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("div", ' class="midashi"')
     if op == 0x41 and _is_hc_gen_year_renderer(options):
         return ("div", ' class="midashi"')
+    if op == 0x41 and _renderer_code(options) == "02BE":
+        return None
     if op == 0x41 and _renderer_code(options) == "0144":
         return None
     if op == 0x41 and _renderer_code(options) == "0145":
@@ -1803,6 +1805,18 @@ def _hc02be_accent_html(rule: tuple[str, str, str, str], image_sources: dict[str
         f'<span class="{_escape_attr(wrapper_class)}">{base_html}'
         f'<img class="{_escape_attr(image_class)}" src="{_escape_attr(src)}"></span>'
     )
+
+
+def _hc02be_section_parts(code: str) -> tuple[list[str], str | None, str | None]:
+    try:
+        value = int(code, 16)
+    except ValueError:
+        return [], None, None
+    if value in {0x67, 0x71, 0x7B, 0x270F}:
+        return [], None, "state_only"
+    if value == 1:
+        return [f'<div class="ind_{_escape_attr(code)}">'], "</div>", "div"
+    return [f'<span class="ind_{_escape_attr(code)}">'], "</span>", "span"
 
 
 def _hc02bc_section_parts(code: str, image_sources: dict[str, str]) -> list[str]:
@@ -2950,6 +2964,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0142_marker_stack: list[tuple[str, str]] = []
     hc02bc_section_open = False
     hc02be_section_open = False
+    hc02be_section_close: str | None = None
     hc0190_sections: dict[int, str] = {}
     hc0190_template_key: str | None = None
     hc012d_section_close: str | None = None
@@ -3279,12 +3294,20 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "02BE":
-                        if hc02be_section_open:
-                            root.append("</div>")
+                        if hc02be_section_close is not None:
+                            root.append(hc02be_section_close)
+                            hc02be_section_close = None
                             hc02be_section_open = False
-                        root.append(f'<div class="ind_{_escape_attr(code)}">')
-                        hc02be_section_open = True
-                        stats["hc02be_section_divs"] += 1
+                        section_parts, section_close, state = _hc02be_section_parts(code)
+                        root.extend(section_parts)
+                        hc02be_section_close = section_close
+                        hc02be_section_open = section_close is not None
+                        if section_parts:
+                            stats["hc02be_section_blocks"] += 1
+                        if state:
+                            stats[f"hc02be_section_{state}"] += 1
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "02BC":
                         if hc02bc_section_open:
                             root.append("</div>")
@@ -3731,7 +3754,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         i += 2 + arg_len
                         continue
                 if _renderer_code(options) == "02BE" and hc02be_section_open:
-                    _current_parts(root_parts, contexts).append("</div>")
+                    if hc02be_section_close is not None:
+                        _current_parts(root_parts, contexts).append(hc02be_section_close)
+                        hc02be_section_close = None
                     hc02be_section_open = False
                 if _renderer_code(options) == "02BC" and hc02bc_section_open:
                     _current_parts(root_parts, contexts).append("</div>")
@@ -5635,8 +5660,6 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc0094_section_close)
     if hc02bc_section_open:
         _current_parts(root_parts, contexts).append("</div>")
-    if hc02be_section_open:
-        _current_parts(root_parts, contexts).append("</div>")
     if hc009d_section_close is not None:
         _current_parts(root_parts, contexts).append(hc009d_section_close)
     if hc009b_section_close is not None:
@@ -5695,6 +5718,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc02bf_section_close)
     if hc02c0_section_close is not None:
         _current_parts(root_parts, contexts).append(hc02c0_section_close)
+    if hc02be_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc02be_section_close)
     if hc013c_section_close is not None:
         _current_parts(root_parts, contexts).append(hc013c_section_close)
     if hc00b3_section_close is not None:

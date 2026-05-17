@@ -210,8 +210,10 @@ def test_hc02be_maps_sections_to_ind_blocks() -> None:
     )
 
     assert '<div class="ind_0001">' in rendered.html
-    assert '<div class="ind_0010">' in rendered.html
-    assert rendered.stats["hc02be_section_divs"] == 2
+    assert '<span class="ind_0010">' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert rendered.stats["hc02be_section_div"] == 1
+    assert rendered.stats["hc02be_section_span"] == 1
 
 
 def test_hc02be_renders_phonetic_accent_composite_markers() -> None:
