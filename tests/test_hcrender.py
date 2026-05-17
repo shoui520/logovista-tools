@@ -1999,6 +1999,39 @@ def test_hc0065_wraps_midashi_and_contents_body() -> None:
     assert rendered.stats["hc0065_contents_body_blocks"] == 1
 
 
+def test_hc0067_wraps_midashi_contents_margin_sections_and_line_links() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("本文")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x43"
+        + jis_ascii("R")
+        + b"\x1f\x63\x00\x00\x00\x03\x00\x40"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0067"))
+
+    assert '<div class="midashi"><span class="hankaku">H</span></div><div class="contents_body">' in rendered.html
+    assert '<div style="margin-left: 9px">' in rendered.html
+    assert 'class="lv-hc-link lineLink2"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc0067_midashi_blocks"] == 1
+    assert rendered.stats["hc0067_contents_body_blocks"] == 1
+    assert rendered.stats["hc0067_margin_sections"] == 1
+    assert rendered.stats["hc0067_nonprinting_controls"] == 2
+
+
 def test_hc0065_renders_grammar_label_and_template_image_markers() -> None:
     rendered = render_hc_body(
         b"\xa1\x74\xa4\x30\xa4\x31\xa4\x32\xa4\x33\xa2\x51\xa2\x53",
@@ -2385,6 +2418,34 @@ def test_hc0065_profile_records_midashi_subset_without_claiming_parity() -> None
     assert data["exact_hc_parity"] is False
     assert "sql_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
+
+
+def test_hc0067_profile_records_contents_layout_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0067.dll"),
+        code="0067",
+        expected_numeric_index="00000067.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/00000067.css",),
+        sql_snippets=(),
+        image_templates=("sound.png", "image.png"),
+        features={"vertical_renderer": False},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC0067_midashi_contents_and_margin_sections" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "visual_parity_unverified" in data["named_gaps"]
 
 
 def test_hc009b_profile_records_honbun_margin_subset_without_claiming_parity() -> None:

@@ -498,6 +498,28 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset excludes exact indent constants, previous/next navigation footer generation, external HTML private directives, vertical-wrapper lifecycle, and broader visual parity.",
             )
         )
+    if code == "0067":
+        rows.append(
+            HcHookBehavior(
+                name="iphysical_chemistry_contents_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0067 epwing2HtmlBodydata 1f09 margin branch",
+                    "HC0067 1f41 midashi branch",
+                    "HC0067 1f0a contents_body transition branch",
+                    "HC0067 1f42/1f43 lineLink/lineLink2 branch",
+                    "HC0067 image gaiji template branch",
+                    "Templates/00000067.css class definitions",
+                ),
+                implementation=(
+                    "Initial 1f41 opens midashi, first 1f0a opens contents_body, "
+                    "non-heading 1f09 sections open margin-left containers, 1f42 "
+                    "uses lineLink2 by default, 1f43 uses lineLink, image-backed "
+                    "gaiji use img_gaiji, and 1f6d is consumed as renderer state"
+                ),
+                notes="The subset excludes the exact neighboring-JIS conditional lineLink/lineLink2 selection, fixed HTMLs/fix fallback loading, generated gaiji GIF emission, and broader visual parity.",
+            )
+        )
     if code == "013C":
         rows.append(
             HcHookBehavior(
@@ -1200,6 +1222,8 @@ def build_hc_behavior_profile(
         implemented.add("HC02BF_section_icon_and_moji_down_layout")
     if code == "0065":
         implemented.add("HC0065_midashi_contents_and_grammar_labels")
+    if code == "0067":
+        implemented.add("HC0067_midashi_contents_and_margin_sections")
     if code == "009D":
         implemented.add("HC009D_section_and_kakomi_layout")
     if code == "012E":
