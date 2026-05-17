@@ -771,6 +771,8 @@ HC02C2_ICON_SECTION_IMAGES = {
 }
 HC02C2_TEMPLATE_IMAGE_MARKERS = frozenset(f"b{value:03x}" for value in range(0x13E, 0x15E))
 HC02C2_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
+HC0147_TEMPLATE_IMAGE_MARKERS = frozenset(["a12e", *[f"b{value:03x}" for value in range(0x141, 0x146)]])
+HC0147_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
 HC02C1_ICON_SECTION_IMAGES = {
     "0003": "1.png",
     "0004": "2.png",
@@ -1243,7 +1245,7 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
             return "lv-hc-link lineLink"
     if (
         _renderer_code(options)
-        in {"0048", "00AC", "00B3", "012F", "0131", "0136", "013C", "0142", "02BF", "02C0", "02C1", "02CA"}
+        in {"0048", "00AC", "00B3", "012F", "0131", "0136", "013C", "0142", "0147", "02BF", "02C0", "02C1", "02CA"}
         or _is_hc_gen_year_renderer(options)
     ) and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
@@ -1314,6 +1316,10 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("div", ' class="midashi"')
     if _renderer_code(options) == "0142" and op == 0x41:
         return ("div", ' class="midashi"')
+    if _renderer_code(options) == "0147" and op == 0x04:
+        return ("span", ' class="hankaku"')
+    if _renderer_code(options) == "0147" and op == 0x41:
+        return None
     if op == 0x41 and _renderer_code(options) == "0065":
         return None
     if op in {0x41, 0xE0, 0xE1} and _renderer_code(options) == "009C":
@@ -1346,7 +1352,7 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
 
 
 def _style_close_tag(start_op: int, options: HcRenderOptions) -> str | None:
-    if _renderer_code(options) == "0142" and start_op == 0x10:
+    if _renderer_code(options) in {"0142", "0147"} and start_op == 0x10:
         return "label"
     if _renderer_code(options) == "0131" and start_op == 0x41:
         return "div"
@@ -1631,6 +1637,7 @@ def _append_gaiji_value(
             "013C",
             "013D",
             "0141",
+            "0147",
             "0144",
             "0145",
             "0151",
@@ -2239,6 +2246,38 @@ def _hc02c2_section_parts(code: str, previous_code: str | None) -> tuple[list[st
     return parts, moji_down
 
 
+def _hc0147_section_value(code: str) -> int | None:
+    if not code:
+        return None
+    try:
+        if all(ch in "0123456789" for ch in code):
+            return int(code, 10)
+        return int(code, 16)
+    except ValueError:
+        return None
+
+
+def _hc0147_section_parts(code: str) -> tuple[list[str], str | None, str | None]:
+    value = _hc0147_section_value(code)
+    if value is None:
+        return [], None, None
+    if value == 9999:
+        return [], None, "close"
+    if value == 1:
+        return ['<div class="midashi">'], "</div>", "midashi"
+    if value == 3 or value == 200:
+        return ['<div class="contents">'], "</div>", "contents"
+    if value == 5:
+        return ['<div class="bunken_title">'], "</div>", "bunken_title"
+    if value == 6 or value % 10 == 6:
+        return ['<div class="bunken_contents">'], "</div>", "bunken_contents"
+    if value == 7:
+        return ['<div class="cyosha">'], "</div>", "cyosha"
+    if value == 8 or value == 100:
+        return ['<div class="contents_title">'], "</div>", "contents_title"
+    return ['<div class="contents_body">'], "</div>", "contents_body"
+
+
 def _safe_relative_path(value: str) -> Path | None:
     path = Path(value)
     if path.is_absolute() or ".." in path.parts:
@@ -2735,6 +2774,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc02c2_section_open = False
     hc02c2_moji_down_open = False
     hc02c2_current_section: str | None = None
+    hc0147_section_close: str | None = None
+    hc0147_bunken_open = False
     hc0065_midashi_open = False
     hc0065_body_open = False
     hc0048_section_close: str | None = None
@@ -3228,6 +3269,26 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats["hc02c2_section_icons"] += 1
                         i += 2 + arg_len
                         continue
+                    if _renderer_code(options) == "0147":
+                        if hc0147_section_close is not None:
+                            root.append(hc0147_section_close)
+                            hc0147_section_close = None
+                        section_parts, hc0147_section_close, state = _hc0147_section_parts(code)
+                        bunken_state = state in {"bunken_title", "bunken_contents", "cyosha"}
+                        if not bunken_state and hc0147_bunken_open:
+                            root.append("</div>")
+                            hc0147_bunken_open = False
+                        if bunken_state and not hc0147_bunken_open:
+                            root.append('<div class="bunken">')
+                            hc0147_bunken_open = True
+                            stats["hc0147_bunken_groups"] += 1
+                        root.extend(section_parts)
+                        if section_parts:
+                            stats["hc0147_section_blocks"] += 1
+                        if state:
+                            stats[f"hc0147_section_{state}"] += 1
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "0065" and code == "0001" and not hc0065_midashi_open and not hc0065_body_open:
                         root.append('<div class="midashi">')
                         hc0065_midashi_open = True
@@ -3482,22 +3543,27 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
-            if _renderer_code(options) == "0142" and op == 0x10:
+            if _renderer_code(options) == "0147" and op in HC0147_NONPRINTING_CONTROL_OPS:
+                stats["hc0147_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) in {"0142", "0147"} and op == 0x10:
                 if _jis_key_at(data, i + 2) == "2372" and _jis_key_at(data, i + 4) == "2375":
                     src = _image_source_for_key("rubar", options) or "rubar.png"
                     _current_parts(root_parts, contexts).append(
                         f'<img src="{_escape_attr(src)}" class="img_mark">'
                     )
-                    stats["hc0142_rubar_markers"] += 1
+                    stats[f"hc{_renderer_code(options).lower()}_rubar_markers"] += 1
                     i += 2 + arg_len + 4
                 else:
                     _current_parts(root_parts, contexts).append('<label class="overline">')
                     style_stack.append(op)
-                    stats["hc0142_overline_markers"] += 1
+                    stats[f"hc{_renderer_code(options).lower()}_overline_markers"] += 1
                     i += 2 + arg_len
                 continue
 
-            if _renderer_code(options) == "0142" and op == 0x11:
+            if _renderer_code(options) in {"0142", "0147"} and op == 0x11:
                 if 0x10 in style_stack:
                     while style_stack:
                         popped = style_stack.pop()
@@ -4598,6 +4664,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 stats["hc02c2_template_image_markers"] += 1
                 i += 2
                 continue
+            if _renderer_code(options) == "0147" and key in HC0147_TEMPLATE_IMAGE_MARKERS:
+                image_src = _image_source_for_key(key, options)
+                if image_src is not None:
+                    _append_renderer_image_gaiji(_current_parts(root_parts, contexts), key, image_src, "img_gaiji", stats)
+                else:
+                    _append_gaiji_value(_current_parts(root_parts, contexts), _current_text_parts(contexts), key, options, stats)
+                stats["hc0147_template_image_markers"] += 1
+                i += 2
+                continue
             if _is_hc_gen_year_renderer(options):
                 if key in HC_GEN_YEAR_NOOP_MARKERS:
                     stats["hc_gen_year_noop_markers"] += 1
@@ -5243,6 +5318,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     if hc02c2_section_open:
         if hc02c2_moji_down_open:
             _current_parts(root_parts, contexts).append("</p>")
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc0147_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc0147_section_close)
+    if hc0147_bunken_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc0048_midashi_open:
         _current_parts(root_parts, contexts).append("</div>")

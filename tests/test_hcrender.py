@@ -1182,6 +1182,64 @@ def test_hc02c2_line_links_use_product_class() -> None:
     assert 'href="lvaddr://00000002/0048"' in rendered.html
 
 
+def test_hc0147_maps_bcd_sections_bunken_blocks_and_line_links() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + jis_ascii("H")
+        + b"\x1f\x09\x01\x00"
+        + jis_text("題")
+        + b"\x1f\x09\x02\x00"
+        + jis_text("本文")
+        + b"\x1f\x09\x00\x05"
+        + jis_text("文献")
+        + b"\x1f\x09\x00\x16"
+        + jis_text("項目")
+        + b"\x1f\x09\x00\x07"
+        + jis_text("著者")
+        + b"\x1f\x09\x99\x99"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0147"))
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<div class="contents_title">' in rendered.html
+    assert '<div class="contents">' in rendered.html
+    assert '<div class="bunken"><div class="bunken_title">' in rendered.html
+    assert '<div class="bunken_contents">' in rendered.html
+    assert '<div class="cyosha">' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.stats["hc0147_section_midashi"] == 1
+    assert rendered.stats["hc0147_section_contents_title"] == 1
+    assert rendered.stats["hc0147_section_contents"] == 1
+    assert rendered.stats["hc0147_section_bunken_title"] == 1
+    assert rendered.stats["hc0147_section_bunken_contents"] == 1
+    assert rendered.stats["hc0147_section_cyosha"] == 1
+    assert rendered.stats["hc0147_section_close"] == 1
+
+
+def test_hc0147_renders_template_gaiji_and_rubar_marker() -> None:
+    rendered = render_hc_body(
+        b"\xa1\x2e\xb1\x41\x1f\x10\x23\x72\x23\x75",
+        HcRenderOptions(
+            renderer_code="0147",
+            image_sources={"a12e": "Templates/a12e.png", "b141": "Templates/b141.png", "rubar": "Templates/rubar.png"},
+        ),
+    )
+
+    assert 'src="Templates/a12e.png"' in rendered.html
+    assert 'src="Templates/b141.png"' in rendered.html
+    assert 'class="lv-hc-gaiji img_gaiji"' in rendered.html
+    assert '<img src="Templates/rubar.png" class="img_mark">' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc0147_template_image_markers"] == 2
+    assert rendered.stats["hc0147_rubar_markers"] == 1
+
+
 def test_hc00a6_maps_sections_ruby_and_line_links() -> None:
     ruby_start = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:S") + jis_text("よ") + b"\x1f\xe3\x00\x00"
     ruby_end = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:E") + b"\x1f\xe3\x00\x00"
@@ -2425,6 +2483,35 @@ def test_hc02c2_profile_records_section_icon_subset_without_claiming_parity() ->
     data = profile.as_dict()
 
     assert "HC02C2_section_icons_and_template_gaiji" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "panel_lifecycle" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+
+
+def test_hc0147_profile_records_contents_bunken_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0147.dll"),
+        code="0147",
+        expected_numeric_index="00000147.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/00000147.css",),
+        sql_snippets=(),
+        image_templates=("a12e.png", "b141.png", "rubar.png"),
+        features={"panel_hooks": True, "headword_modifier": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC0147_contents_bunken_and_template_gaiji" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "panel_lifecycle" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]

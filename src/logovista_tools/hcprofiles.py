@@ -317,6 +317,28 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Panel lifecycle, modifyHeadwordEx, and custom DIB generation remain named gaps.",
             )
         )
+    if code == "0147":
+        rows.append(
+            HcHookBehavior(
+                name="yucogpsy_contents_bunken_and_template_gaiji",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0147 epwing2HtmlBodydataVertical 1f09 BCD section branch ladder",
+                    "HC0147 A12E/B141-B145 template image branch",
+                    "HC0147 1f10 rubar/overline branch",
+                    "HC0147 1f42/1f43 lineLink template",
+                    "Templates/00000147.css class definitions",
+                ),
+                implementation=(
+                    "1f09 BCD section values map to midashi, contents, contents_title, "
+                    "contents_body, bunken/bunken_title, bunken_contents, and cyosha blocks; "
+                    "9999 closes the active section; A12E/B141-B145 render as img_gaiji "
+                    "template images; 1f10 renders rubar.png or an overline label; and "
+                    "line links carry the recovered lineLink class"
+                ),
+                notes="Panel lifecycle, modifyHeadword, custom DIB generation, and exact nested bunken anchor bookkeeping remain named gaps.",
+            )
+        )
     if code == "00A6":
         rows.append(
             HcHookBehavior(
@@ -1209,6 +1231,8 @@ def build_hc_behavior_profile(
         implemented.add("HC02BC_section_and_medical_markers")
     if code == "02C2":
         implemented.add("HC02C2_section_icons_and_template_gaiji")
+    if code == "0147":
+        implemented.add("HC0147_contents_bunken_and_template_gaiji")
     if code == "00A6":
         implemented.add("HC00A6_sections_and_ruby_directives")
     if code in {"014A", "02C3", "02C6"}:
