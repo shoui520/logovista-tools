@@ -458,6 +458,20 @@ def _hc00a6_honbun_div(indent: int) -> str:
     return f'<div class="honbun" style="margin-left:{indent:.6f}em;">'
 
 
+def _hc00ac_honbun_style(code: str) -> str:
+    try:
+        value = int(code, 16)
+    except ValueError:
+        value = 0
+    if value == 4:
+        return "margin-left:1em;"
+    if value in {8, 9}:
+        return "margin-left:7em;text-indent:-7em;"
+    if 5 <= value <= 10:
+        return "margin-left:6em;text-indent:-6em;"
+    return f"margin-left:{value}em;"
+
+
 def _hc00a6_section_parts(code: str, *, vertical: bool) -> tuple[list[str], str | None]:
     try:
         value = int(code, 16)
@@ -845,6 +859,8 @@ HC0065_TEMPLATE_IMAGE_MARKERS = {
 HC0065_NONPRINTING_CONTROL_OPS = {0x4C, 0x61}
 HC0048_NONPRINTING_CONTROL_OPS = {0x02, 0x41, 0x4C, 0x5C, 0x6D}
 HC0048_MIDASHI_MARKERS = {"2178", "217a", "2221", "2223", "2227"}
+HC00AC_NONPRINTING_CONTROL_OPS = {0x02, 0x41, 0x4C, 0x5C, 0x6D}
+HC00AC_SUPPRESSED_GAIJI_MARKERS = {"b139", "b13a", "b13b"}
 
 HC009D_KAKOMI_OPEN_MARKERS = {
     "b142": ('<div class="columnKakomi">', "b143", "</div>", "b142.gif"),
@@ -1220,7 +1236,7 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
             return "lv-hc-link lineLink"
     if (
         _renderer_code(options)
-        in {"0048", "00B3", "012F", "0131", "0136", "013C", "0142", "02BF", "02C0", "02C1", "02CA"}
+        in {"0048", "00AC", "00B3", "012F", "0131", "0136", "013C", "0142", "02BF", "02C0", "02C1", "02CA"}
         or _is_hc_gen_year_renderer(options)
     ) and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
@@ -1246,6 +1262,10 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
     if _renderer_code(options) == "0048" and op == 0x04:
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "0048" and op == 0x41:
+        return None
+    if _renderer_code(options) == "00AC" and op == 0x04:
+        return ("span", ' class="hankaku"')
+    if _renderer_code(options) == "00AC" and op == 0x41:
         return None
     if _renderer_code(options) == "0157" and op == 0x12:
         return None
@@ -1585,6 +1605,7 @@ def _append_gaiji_value(
         if _renderer_code(options) in {
             "0065",
             "0048",
+            "00AC",
             "009B",
             "00A6",
             "00B3",
@@ -2707,6 +2728,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0048_midashi_open = False
     hc0048_honbun_open = False
     hc0048_media_div_open = False
+    hc00ac_section_close: str | None = None
     i = 0
     while i < len(data):
         byte = data[i]
@@ -2800,6 +2822,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             root.append(f'<div style="margin: {value * 3}px">')
                             hc0048_section_close = "</div>"
                             stats["hc0048_margin_sections"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "00AC":
+                        if hc00ac_section_close is not None:
+                            root.append(hc00ac_section_close)
+                            hc00ac_section_close = None
+                        style = _hc00ac_honbun_style(code)
+                        root.append(f'<div class="honbun" style="{_escape_attr(style)}">')
+                        hc00ac_section_close = "</div>"
+                        stats["hc00ac_honbun_sections"] += 1
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "0151":
@@ -3187,6 +3219,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     stats["line_breaks"] += 1
                     i += 2 + arg_len
                     continue
+                if _renderer_code(options) == "00AC":
+                    _current_parts(root_parts, contexts).append("<br>")
+                    stats["line_breaks"] += 1
+                    i += 2 + arg_len
+                    continue
                 if _renderer_code(options) == "02C5" and hc02c5_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc02c5_section_close)
                     hc02c5_section_close = None
@@ -3565,6 +3602,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "0048" and op in HC0048_NONPRINTING_CONTROL_OPS:
                 stats["hc0048_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "00AC" and op in HC00AC_NONPRINTING_CONTROL_OPS:
+                stats["hc00ac_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -4131,6 +4173,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if _renderer_code(options) == "0190" and key in HC0190_TEMPLATE_MARKERS:
                 hc0190_template_key = key
                 stats["hc0190_template_markers"] += 1
+                i += 2
+                continue
+            if _renderer_code(options) == "00AC" and key in HC00AC_SUPPRESSED_GAIJI_MARKERS:
+                stats["hc00ac_suppressed_markers"] += 1
                 i += 2
                 continue
             if _renderer_code(options) == "009C":
@@ -5091,6 +5137,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc0048_section_close)
     if hc0048_media_div_open:
         _current_parts(root_parts, contexts).append("</div>")
+    if hc00ac_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc00ac_section_close)
     if hc0065_midashi_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc0065_body_open:

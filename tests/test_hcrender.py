@@ -1495,6 +1495,38 @@ def test_hc0048_maps_margin_sections_and_symbol_triggered_midashi() -> None:
     assert rendered.stats["hc0048_media_div_closures"] == 1
 
 
+def test_hc00ac_maps_honbun_sections_links_and_marker_suppression() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_text("見出し")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x08"
+        + b"\xb1\x39"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="00AC", image_sources={"b121": "Templates/B121.gif"}),
+    )
+
+    assert '<div class="honbun" style="margin-left:1em;">' in rendered.html
+    assert '<div class="honbun" style="margin-left:7em;text-indent:-7em;">' in rendered.html
+    assert "見出し" in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert 'data-gaiji-code="b139"' not in rendered.html
+    assert rendered.stats["hc00ac_honbun_sections"] == 2
+    assert rendered.stats["hc00ac_nonprinting_controls"] == 1
+    assert rendered.stats["hc00ac_suppressed_markers"] == 1
+
+
 def test_hc013c_maps_sections_icons_links_and_state_markers() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -2997,6 +3029,35 @@ def test_hc0048_profile_records_subset_without_claiming_parity() -> None:
 
     assert "HC0048_margin_heading_sections" in data["implemented_semantics"]
     assert "HC0048_media_div_placeholders" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
+def test_hc00ac_profile_records_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC00AC.dll"),
+        code="00AC",
+        expected_numeric_index="000000AC.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/000000AC.css",),
+        sql_snippets=(),
+        image_templates=("Templates/b139H.gif", "Templates/b13aH.gif"),
+        features={"vertical_renderer": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC00AC_honbun_margin_sections" in data["implemented_semantics"]
+    assert "HC00AC_marker_suppression" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "visual_parity_unverified" in data["named_gaps"]
 

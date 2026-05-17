@@ -457,6 +457,28 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset excludes exact lineLink2/lineLink3 class selection, exact previous/next navigation footer generation, and broader visual parity.",
             )
         )
+    if code == "00AC":
+        rows.append(
+            HcHookBehavior(
+                name="gakken_kojikoto_honbun_sections",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC00AC epwing2HtmlBodydataVertical 1f09 honbun margin branch",
+                    "HC00AC 1f41/1f61 renderer-state branch",
+                    "HC00AC 1f42/1f43 lineLink branch",
+                    "HC00AC B139/B13A/B13B empty-output gaiji branch",
+                    "Templates/000000AC.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections open honbun margin containers, 1f0a emits "
+                    "line breaks, 1f41/1f61 heading-state controls are consumed "
+                    "instead of rendered as generic headings, internal links use "
+                    "lineLink, image-backed gaiji use img_gaiji, and B139/B13A/B13B "
+                    "are suppressed as renderer state markers"
+                ),
+                notes="The subset excludes exact indent constants, previous/next navigation footer generation, external HTML private directives, vertical-wrapper lifecycle, and broader visual parity.",
+            )
+        )
     if code == "013C":
         rows.append(
             HcHookBehavior(
@@ -1146,6 +1168,9 @@ def build_hc_behavior_profile(
     if code == "0048":
         implemented.add("HC0048_margin_heading_sections")
         implemented.add("HC0048_media_div_placeholders")
+    if code == "00AC":
+        implemented.add("HC00AC_honbun_margin_sections")
+        implemented.add("HC00AC_marker_suppression")
     if code in {"02C4", "02C7"}:
         implemented.add("HC_GEN_YEAR_section_icons_and_template_markers")
     if code == "02C1":
