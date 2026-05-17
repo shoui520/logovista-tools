@@ -1668,6 +1668,92 @@ def test_hc_gen_year_late_variants_special_case_b135_literal() -> None:
         assert "hc_gen_year_img_mark2_markers" not in rendered.stats
 
 
+def test_hc00c4_maps_sections_links_and_template_gaiji() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + jis_ascii("H")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + b"\xb1\x26"
+        + jis_text("本文")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("別")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x0a"
+        + b"\x1f\x09\x00\x0f"
+        + jis_text("小")
+        + b"\x1f\x09\x00\x10"
+        + b"\x1f\x09\x00\x15"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00C4", image_sources={"b126": "Templates/B126.png"}))
+
+    assert '<div class="midashi"><span class="zenkakuMidashi">' in rendered.html
+    assert '<div class="block"><div class="honbun_number">' in rendered.html
+    assert '<div class="honbun_icon"><img src="betsumei.png" class="icon">' in rendered.html
+    assert '<img src="arrow1.png" class="icon_s">' in rendered.html
+    assert '<font class="font_down">' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'src="Templates/B126.png"' in rendered.html
+    assert 'class="lv-hc-gaiji gaiji"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.stats["hc00c4_section_midashi"] == 1
+    assert rendered.stats["hc00c4_section_honbun_number"] == 1
+    assert rendered.stats["hc00c4_section_honbun_icon"] == 1
+    assert rendered.stats["hc00c4_section_inline_icon"] == 1
+    assert rendered.stats["hc00c4_section_state_only"] == 1
+    assert rendered.stats["hc00c4_template_gaiji"] == 1
+
+
+def test_hc00c4_maps_heading_user_body_waku_and_narrow_gaiji() -> None:
+    body = (
+        b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x21\x4e"
+        + jis_text("本文")
+        + b"\x21\x4f"
+        + b"\xb1\x37\xb1\x38\xb1\x3c"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="00C4",
+            image_sources={
+                "waku_l": "Templates/waku_l.png",
+                "waku_r": "Templates/waku_r.png",
+                "b137": "Templates/B137.png",
+                "b138": "Templates/B138.png",
+                "b13c": "Templates/B13C.png",
+            },
+        ),
+    )
+
+    assert '<div class="midashi"><span class="zenkakuMidashi">' in rendered.html
+    assert '<div class="honbun_user">' in rendered.html
+    assert 'src="Templates/waku_l.png"' in rendered.html
+    assert 'class="lv-hc-gaiji waku_l"' in rendered.html
+    assert 'src="Templates/waku_r.png"' in rendered.html
+    assert 'class="lv-hc-gaiji waku_r"' in rendered.html
+    assert rendered.html.count('class="lv-hc-gaiji gaiji_k"') == 2
+    assert 'class="lv-hc-gaiji gaiji_b"' in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.stats["hc00c4_heading_blocks"] == 1
+    assert rendered.stats["hc00c4_honbun_user_blocks"] == 1
+    assert rendered.stats["hc00c4_waku_markers"] == 2
+    assert rendered.stats["hc00c4_template_gaiji"] == 3
+    assert rendered.stats["hc00c4_nonprinting_controls"] == 1
+
+
 def test_hc02c0_maps_sections_icons_links_and_state_markers() -> None:
     body = (
         b"\x1f\x09\x00\x01"

@@ -1227,6 +1227,30 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The href remains the toolkit resource address rather than claiming exact viewer URL parity.",
             )
         )
+    if code == "00C4":
+        rows.append(
+            HcHookBehavior(
+                name="gakkanan3_section_icon_and_gaiji_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC00C4 epwing2HtmlBodydataVertical 1f09 branch ladder",
+                    "HC00C4 B137/B138/B13C custom-gaiji image class branch",
+                    "HC00C4 214E/214F waku image branch",
+                    "Templates/000000C4.css class definitions",
+                ),
+                implementation=(
+                    "1f09 maps midashi, honbun, honbun_number, honbun_icon, "
+                    "inline icon, and font_down states; 1f41/1f61 map heading "
+                    "and honbun_user blocks; internal links use lineLink; image "
+                    "gaiji use gaiji/gaiji_k/gaiji_b classes"
+                ),
+                notes=(
+                    "The subset excludes exact fixed HTMLs/fix fallback loading, "
+                    "prev/next footer generation, custom DIB generation, vertical "
+                    "HTML differences, and broader visual parity."
+                ),
+            )
+        )
     if code == "0190":
         rows.append(
             HcHookBehavior(
@@ -1376,6 +1400,8 @@ def build_hc_behavior_profile(
         implemented.add("HC00AC_marker_suppression")
     if code in {"02C4", "02C7", "02C9", "02CB", "02CC", "02CD", "02D1"}:
         implemented.add("HC_GEN_YEAR_section_icons_and_template_markers")
+    if code == "00C4":
+        implemented.add("HC00C4_section_icon_and_gaiji_layout")
     if code == "02C1":
         implemented.add("HC02C1_section_icons_and_template_gaiji")
     if code == "02BF":
