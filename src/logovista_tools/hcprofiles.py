@@ -520,6 +520,27 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset excludes the exact neighboring-JIS conditional lineLink/lineLink2 selection, fixed HTMLs/fix fallback loading, generated gaiji GIF emission, and broader visual parity.",
             )
         )
+    if code == "008B":
+        rows.append(
+            HcHookBehavior(
+                name="medical_expert_kaisou_contents_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC008B epwing2HtmlBodydata 1f09 section branch",
+                    "HC008B 1f41/1f61 midashi branch",
+                    "HC008B 1f42/1f43 lineLink/lineLink2 branch",
+                    "HC008B image/media template branch",
+                    "Templates/0000008B.css class definitions",
+                ),
+                implementation=(
+                    "1f41/1f61 wrap midashi, 1f09 section 0002 opens kaisou, "
+                    "section 0003 opens contents_body, 1f42 uses lineLink2 by "
+                    "default, 1f43 uses lineLink, image-backed gaiji use img_gaiji, "
+                    "and 1f5c/1f6d are consumed as renderer state"
+                ),
+                notes="The subset excludes exact neighboring-JIS conditional link class selection, medical icon marker branches, fixed HTMLs/fix fallback loading, generated gaiji GIF emission, and broader visual parity.",
+            )
+        )
     if code == "013C":
         rows.append(
             HcHookBehavior(
@@ -1224,6 +1245,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0065_midashi_contents_and_grammar_labels")
     if code == "0067":
         implemented.add("HC0067_midashi_contents_and_margin_sections")
+    if code == "008B":
+        implemented.add("HC008B_kaisou_contents_and_midashi_sections")
     if code == "009D":
         implemented.add("HC009D_section_and_kakomi_layout")
     if code == "012E":

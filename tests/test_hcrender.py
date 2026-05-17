@@ -2032,6 +2032,42 @@ def test_hc0067_wraps_midashi_contents_margin_sections_and_line_links() -> None:
     assert rendered.stats["hc0067_nonprinting_controls"] == 2
 
 
+def test_hc008b_wraps_midashi_contents_kaisou_sections_and_line_links() -> None:
+    body = (
+        b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("本文")
+        + b"\x1f\x09\x00\x02"
+        + jis_text("階層")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x43"
+        + jis_ascii("R")
+        + b"\x1f\x63\x00\x00\x00\x03\x00\x40"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="008B"))
+
+    assert '<div class="midashi"><span class="hankaku">H</span></div>' in rendered.html
+    assert '<div class="contents_body">' in rendered.html
+    assert '<div class="kaisou">' in rendered.html
+    assert 'class="lv-hc-link lineLink2"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc008b_midashi_blocks"] == 1
+    assert rendered.stats["hc008b_midashi_closures"] == 1
+    assert rendered.stats["hc008b_contents_body_blocks"] == 1
+    assert rendered.stats["hc008b_kaisou_sections"] == 1
+    assert rendered.stats["hc008b_nonprinting_controls"] == 1
+
+
 def test_hc0065_renders_grammar_label_and_template_image_markers() -> None:
     rendered = render_hc_body(
         b"\xa1\x74\xa4\x30\xa4\x31\xa4\x32\xa4\x33\xa2\x51\xa2\x53",
@@ -2444,6 +2480,34 @@ def test_hc0067_profile_records_contents_layout_subset_without_claiming_parity()
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0067_midashi_contents_and_margin_sections" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
+def test_hc008b_profile_records_medical_expert_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC008B.dll"),
+        code="008B",
+        expected_numeric_index="0000008B.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/0000008B.css",),
+        sql_snippets=(),
+        image_templates=("sound.png", "image.png", "a.gif", "chiryou.gif"),
+        features={"vertical_renderer": False},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC008B_kaisou_contents_and_midashi_sections" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "visual_parity_unverified" in data["named_gaps"]
 
