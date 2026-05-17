@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             16   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0144, HC0145, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
-common semantics plus named gaps:    95
+decoded branch subsets:             17   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0141, HC0144, HC0145, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
+common semantics plus named gaps:    94
 full product visual parity:           0
 ```
 
@@ -1301,6 +1301,22 @@ dropped from 100 to 0, product `midashi` blocks rose from 0 to 100, and
 SQL full-text/zenbun search hooks, exact `HTMLs`/`fix` fallback lifecycle,
 custom-character image suffix selection, dense-sidecar body behavior, and
 broader visual parity remain named gaps, so exact HC03E8 visual parity is not
+claimed.
+
+The Readers3 branch-subset proof case is `HC0141.dll`. Its vertical body loop
+maps `1f09` section payloads to the product `midashi`, `komidashi`, `honbun`,
+and `contents` block family. The same branch table handles B924/B925
+bold-italic spans, A921-A924 and B92A/B92B/B934/B936 literal markers, and
+B926-B929/B92C-B92F/B931-B933/B935 as no-output selector markers. Internal
+links use `lineLink`, image-backed gaiji use the product `img_gaiji` class,
+and `1f41` is consumed as renderer state. In the first 100-entry Readers3
+sample, generic `lv-hc-heading` wrappers dropped from 100 to 0, product
+`midashi` blocks rose from 0 to 108, `honbun` blocks from 0 to 215,
+`contents` blocks from 0 to 131, `lineLink` anchors from 0 to 82, and generic
+gaiji placeholders from 470 to 87. Custom DIB generation, `modifyHeadword`,
+dictionary-original SQL search, D_Example/D_Idiom helper integration, exact
+body-file/fix fallback lifecycle, custom-character image suffix selection, and
+broader visual parity remain named gaps, so exact HC0141 visual parity is not
 claimed.
 
 The HKDKSR13 branch-subset proof case is `HC013D.dll`. Its vertical body loop

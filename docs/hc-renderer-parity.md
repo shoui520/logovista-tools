@@ -21,8 +21,8 @@ Parity is only promoted when the relevant DLL code path or branch table is under
 | `common_controls_candidate_verify` | 1 |
 | `common_controls_plus_named_hooks` | 14 |
 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | 5 |
-| `needs_marker_branch_decode` | 73 |
-| `decoded_branch_subset_visual_incomplete` | 16 |
+| `needs_marker_branch_decode` | 72 |
+| `decoded_branch_subset_visual_incomplete` | 17 |
 
 | Family | Families |
 |---|---:|
@@ -48,6 +48,7 @@ Decoded branch subsets currently implemented:
 - `HC013D.dll`: HC013D HKDKSR13 drug-layout and template-marker subset; representative package `_DCT_HKDKSR13`; remaining gaps: custom DIB generation, modifyHeadword, exact contents/table/click-menu lifecycle, complete picture extraction, and representative visual parity.
 - `HC0144.dll`: HC0144 RPLUSREV section/layout and marker subset; representative package `_DCT_RPLUSREV`; remaining gaps: custom DIB generation, modifyHeadwordEx, SQL D_Example/D_Idiom helpers, exact HTMLs/fix fallback lifecycle, custom-character image suffix selection, and representative visual parity.
 - `HC03E8.dll`: HC03E8 GENKANA5 section/layout and marker subset; representative package `_DCT_GENKANA5`; remaining gaps: custom DIB generation, modifyHeadwordEx, SQL full-text/zenbun search hooks, exact HTMLs/fix fallback lifecycle, custom-character image suffix selection, and representative visual parity.
+- `HC0141.dll`: HC0141 Readers3 section/layout and marker subset; representative package `_DCT_Readers3`; remaining gaps: custom DIB generation, modifyHeadword, dictionary-original SQL search, D_Example/D_Idiom helper integration, exact body-file/fix fallback lifecycle, custom-character image suffix selection, and representative visual parity.
 - `HC012E.dll`: HC012E NKGORIN2 kanji layout and Gaijitemp marker subset; representative package `_DCT_NKGORIN2`; section `0027` remains normal `honbun` pending exact large-glyph context; remaining gaps: custom DIB generation, modifyHeadword, original-search SQL, exact `0027` table context, full stroke-order table lifecycle, and representative visual parity.
 - `HC02BE.dll`: HC02BE section and phonetic-marker subset; representative package `_DCT_KQDENTAL`; remaining gaps: Panel lifecycle, dictionary-original search, SQL hooks, modifyHeadword, custom DIB behavior, and representative visual parity.
 - `HC0146.dll`: HC0146 marker/image-gaiji subset; representative package `_DCT_PROYAL43`; remaining gaps: product section/layout mapping, exact renderer wrapper state, custom_gaiji_dib_hook, modify_headword_hook, panel_lifecycle_hook, sql_or_search_hook, and representative visual parity.
@@ -82,7 +83,7 @@ The order below is heuristic. It weights package count, renderer-specific gaiji 
 | 12 | `HC013D` | `ffc129d1e066` | `_DCT_HKDKSR13` | 1 | 151 | `decoded_branch_subset_visual_incomplete` | sample more entries; promote only additional recovered branches |
 | 13 | `HC0144` | `fea7e139f059` | `_DCT_RPLUSREV` | 1 | 147 | `decoded_branch_subset_visual_incomplete` | sample more entries; promote only additional recovered branches |
 | 14 | `HC03E8` | `045a048e2ab4` | `_DCT_GENKANA5` | 1 | 146 | `decoded_branch_subset_visual_incomplete` | sample more entries; promote only additional recovered branches |
-| 15 | `HC0141` | `b2cb08e5df37` | `_DCT_Readers3` | 1 | 144 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 15 | `HC0141` | `b2cb08e5df37` | `_DCT_Readers3` | 1 | 144 | `decoded_branch_subset_visual_incomplete` | sample more entries; promote only additional recovered branches |
 | 16 | `HC0190` | `ddcea0ba8c9d` | `_DCT_SIZK0101` | 30 | 143 | `needs_marker_branch_decode` | compare representative entries against common renderer output; mark common-only if no differences |
 | 17 | `HC009C` | `2e9fa53adaae` | `_DCT_SESGRASS` | 1 | 140 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
 | 18 | `HC02C5` | `ce183b2fc4c4` | `_DCT_GENIUS53` | 1 | 138 | `needs_marker_branch_decode` | decode gaiji/marker branch table and map constants to CSS/templates |
@@ -182,7 +183,7 @@ The order below is heuristic. It weights package count, renderer-specific gaiji 
 | 77 | `HC015B` | `aaa2b21f912a` | `_DCT_KENROWA` | 1 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | body-loop, tmpl=13, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | verify rendererdb path and inspect remaining hooks/search/media templates |
 | 78 | `HC0156` | `ac56f75af1d1` | `_DCT_KJJK100` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=12 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
 | 79 | `HC014E` | `b20be015a67f` | `_DCT_PRMEDAB7` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=4, tmpl=2 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
-| 80 | `HC0141` | `b2cb08e5df37` | `_DCT_Readers3` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=26, tmpl=25, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | decode gaiji/marker branch table and map constants to CSS/templates |
+| 80 | `HC0141` | `b2cb08e5df37` | `_DCT_Readers3` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=26, tmpl=25, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | sample more entries; promote only additional recovered branches |
 | 81 | `HC004D` | `b5aedaab1278` | `_DCT_BMANNER` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=11, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
 | 82 | `HC0076` | `b638539b068b` | `_DCT_HKEBMBOK` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=14, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
 | 83 | `HC013F` | `b6d4f07ffb80` | `_DCT_ZYAKUKOG` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=2, tmpl=13, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |

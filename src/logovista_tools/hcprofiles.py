@@ -487,6 +487,33 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "0141":
+        rows.append(
+            HcHookBehavior(
+                name="readers3_section_and_marker_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0141 epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    "HC0141 B924/B925 bold-italic marker branch",
+                    "HC0141 A921-A924, A130/A131, B92A/B92B/B934/B936 literal marker branches",
+                    "HC0141 B926-B929/B92C-B92F/B931-B933/B935 no-output marker branches",
+                    "Templates/00000141.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to midashi/komidashi/honbun/contents blocks, "
+                    "1f41 is consumed as renderer state, internal links use lineLink, "
+                    "B924/B925 wrap bold-italic spans, recovered literal markers are "
+                    "emitted, B936 emits the closing bracket plus nonbreaking space seen "
+                    "in the DLL string table, and known selector markers are consumed"
+                ),
+                notes=(
+                    "The subset excludes custom DIB generation, modifyHeadword, dictionary-original "
+                    "SQL search hooks, D_Example/D_Idiom helper integration, exact body-file/fix "
+                    "fallback lifecycle, custom-character image suffix selection, and broader "
+                    "representative visual parity."
+                ),
+            )
+        )
     if code == "0146":
         rows.append(
             HcHookBehavior(
@@ -640,6 +667,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0144_section_and_marker_layout")
     if code == "03E8":
         implemented.add("HC03E8_section_and_marker_layout")
+    if code == "0141":
+        implemented.add("HC0141_section_and_marker_layout")
     if code == "0146":
         implemented.add("HC0146_inline_marker_gaiji")
     if code == "0158":
