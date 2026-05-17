@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             15   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0144, HC0145, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
-common semantics plus named gaps:    96
+decoded branch subsets:             16   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0144, HC0145, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
+common semantics plus named gaps:    95
 full product visual parity:           0
 ```
 
@@ -1285,6 +1285,22 @@ product `midashi` blocks rose from 0 to 101, `honbun` blocks from 0 to 138,
 Custom DIB generation, `modifyHeadwordEx`, SQL example/idiom helpers, exact
 `HTMLs`/`fix` fallback lifecycle, custom-character image suffix selection, and
 broader visual parity remain named gaps, so exact HC0144 visual parity is not
+claimed.
+
+The GENKANA5 branch-subset proof case is `HC03E8.dll`. Its vertical body loop
+contains the same visible `midashi`, `honbun`, `contents`, and `lineLink`
+strings used by the product stylesheet, plus a marker branch table for
+B924/B925 bold-italic spans, A921-A924 and B92A/B92B/B934/B936 literals, and
+B921/B939/B926-B929/B92C-B92F/B931-B933/B935/B937 no-output selector markers.
+The implemented subset maps the common sampled `1f09` sections to product
+`midashi`/`honbun` blocks, consumes `1f41` as renderer state, emits `lineLink`
+for internal links, and preserves the HC03E8-specific B936 `]&nbsp;` literal.
+In the first 100-entry GENKANA5 sample, generic `lv-hc-heading` wrappers
+dropped from 100 to 0, product `midashi` blocks rose from 0 to 100, and
+`honbun` blocks rose from 0 to 100. Custom DIB generation, `modifyHeadwordEx`,
+SQL full-text/zenbun search hooks, exact `HTMLs`/`fix` fallback lifecycle,
+custom-character image suffix selection, dense-sidecar body behavior, and
+broader visual parity remain named gaps, so exact HC03E8 visual parity is not
 claimed.
 
 The HKDKSR13 branch-subset proof case is `HC013D.dll`. Its vertical body loop
