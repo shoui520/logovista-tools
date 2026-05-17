@@ -613,6 +613,31 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "0142":
+        rows.append(
+            HcHookBehavior(
+                name="yuecono5_panel_body_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0142 epwing2HtmlBodydataVertical 1f41/1f0a midashi-to-honbun transition",
+                    "HC0142 1f42/1f43 lineLink anchor branch",
+                    "HC0142 1f10 overline/rubar branch",
+                    "HC0142 B177/B178 math span, B13F icotype_1, A164 margin, and B157/B16A-B170 plain_text branches",
+                    "Templates/00000142.css class definitions",
+                ),
+                implementation=(
+                    "1f41 starts midashi, 1f61 is consumed as renderer state, first 1f0a "
+                    "closes midashi and opens the honbun container, later 1f0a emits line "
+                    "breaks, internal links use lineLink, and recovered marker gaiji emit "
+                    "math/plain_text/icotype/margin or classed gaiji image markup"
+                ),
+                notes=(
+                    "The subset excludes exact Panel UI lifecycle, HTMLs/fix fallback file "
+                    "selection, math image/formula media lookahead, custom character DIB "
+                    "generation, modifyHeadwordEx, and vertical-mode template differences."
+                ),
+            )
+        )
     if code == "0146":
         rows.append(
             HcHookBehavior(
@@ -776,6 +801,8 @@ def build_hc_behavior_profile(
         implemented.add("HC02C5_section_marker_layout")
     if code == "0151":
         implemented.add("HC0151_section_table_marker_layout")
+    if code == "0142":
+        implemented.add("HC0142_panel_body_marker_layout")
     if code == "0146":
         implemented.add("HC0146_inline_marker_gaiji")
     if code == "0158":
