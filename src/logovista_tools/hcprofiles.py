@@ -298,6 +298,27 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Panel lifecycle, modifyHeadwordEx, and custom DIB generation remain named gaps.",
             )
         )
+    if code == "00A6":
+        rows.append(
+            HcHookBehavior(
+                name="hkkigak6_sections_and_ruby_directives",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC00A6 epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    "HC00A6 1fe2/1fe3 RUB:S/RUB:E ruby directive branch",
+                    "HC00A6 1f42/1f43 lineLink branch",
+                    "Templates/000000A6.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to midashi, midashi_kana, midashi_eng, "
+                    "red emphasis, header, image_caption, chosha, and indented "
+                    "honbun containers; 1fe2/1fe3 RUB:S/RUB:E directives render "
+                    "ruby7/rb7/rt7 markup; 1f42/1f43 links use lineLink; 1f6d is "
+                    "consumed as renderer state"
+                ),
+                notes="Custom DIB generation, private HTM/IMG directive file loading, media-image special cases, and modifyHeadword remain named gaps.",
+            )
+        )
     if code in {"02C4", "02C7"}:
         rows.append(
             HcHookBehavior(
@@ -898,6 +919,8 @@ def build_hc_behavior_profile(
         implemented.add("HC02BC_section_and_medical_markers")
     if code == "02C2":
         implemented.add("HC02C2_section_icons_and_template_gaiji")
+    if code == "00A6":
+        implemented.add("HC00A6_sections_and_ruby_directives")
     if code in {"02C4", "02C7"}:
         implemented.add("HC_GEN_YEAR_section_icons_and_template_markers")
     if code == "02C1":

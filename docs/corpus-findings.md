@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             28   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC02C4, HC02C7, HC0157, HC0158
-needs marker branch decode:          64
+decoded branch subsets:             29   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC02C4, HC02C7, HC0157, HC0158
+needs marker branch decode:          63
 common controls plus named gaps:     14
 common controls candidate verify:     1
 exact-body sidecar HC hooks unprofiled: 5
@@ -1286,7 +1286,16 @@ DIB generation, `modifyHeadword`, exact fixed-HTML fallback selection, vertical
 navigation table scaffolding, and broader visual parity remain named gaps, so
 exact HC02C4/HC02C7 visual parity is not claimed.
 
-The ninth branch-subset proof case is `HC012E.dll`. Its vertical body loop
+The HKKIGAK6 branch-subset proof case is `HC00A6.dll`. Its body loop maps
+`1f09` section payloads to product headword, kana, English, emphasis, header,
+caption, author, and indented body containers, uses `lineLink` for internal
+links, consumes `1f6d` as renderer state, and interprets `1fe2`/`1fe3`
+`RUB:S`/`RUB:E` private directives as product ruby markup. Custom DIB
+generation, private HTM/IMG directive file loading, media-image special cases,
+`modifyHeadword`, and ruby nesting edge cases remain named gaps, so exact
+HC00A6 visual parity is not claimed.
+
+The NKGORIN2 branch-subset proof case is `HC012E.dll`. Its vertical body loop
 uses package-local `Gaijitemp/` image resources for most kanji-form glyphs.
 The implemented subset maps common `1f09` section payloads to `honbun`,
 `bushu`, `kaku_midashi`, `exam`, `Oyaji`, and `Itaiji_2` block/table shapes;

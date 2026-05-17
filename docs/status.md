@@ -493,11 +493,19 @@ and non-SSED reader status are tracked separately in
   `000002C7.css` and the GEN2017 template assets. B13F/B145 assets and
   other unproven renderer hooks remain named gaps until their code paths are
   recovered.
+- `HC00A6.dll` now has a focused raw-HONMON branch-subset proof for HKKIGAK6:
+  recovered `1f09` section states map to product `midashi`,
+  `midashi_kana`, `midashi_eng`, red-emphasis, header, image-caption,
+  author, and indented `honbun` containers; `1fe2`/`1fe3` `RUB:S`/`RUB:E`
+  directives render product ruby markup; internal links use `lineLink`; and
+  `1f6d` is consumed as renderer state. Custom DIB generation, private
+  HTM/IMG directive file loading, media-image special cases, and
+  `modifyHeadword` remain incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
   exact SHA-256 renderer binaries. HC013A, HC0065, HC009D, HC00C6, HC012D,
   HC012E, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5,
   HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF,
-  HC012F, HC02C4, HC02C7, HC0157, and HC0158
+  HC012F, HC00A6, HC02C4, HC02C7, HC0157, and HC0158
   currently have decoded branch subsets, not full HC parity.
   Other branch tables remain named gaps until their output constants and product
   data paths are understood.

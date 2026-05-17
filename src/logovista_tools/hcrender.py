@@ -395,6 +395,43 @@ HC00C6_IMAGE_MARKERS = frozenset(
     }
 )
 
+HC00A6_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x6D}
+
+
+def _hc00a6_honbun_div(indent: int) -> str:
+    return f'<div class="honbun" style="margin-left:{indent:.6f}em;">'
+
+
+def _hc00a6_section_parts(code: str, *, vertical: bool) -> tuple[list[str], str | None]:
+    try:
+        value = int(code, 16)
+    except ValueError:
+        value = 0
+    if value == 1:
+        return ['<div class="midashi">'], "</div>"
+    if value == 2:
+        return ['<div class="midashi_kana">'], "</div>"
+    if value == 3:
+        return ['<div class="midashi_eng">'], "</div>"
+    if value == 4:
+        return ['<div style="color:#990000; font-weight:bold; margin-left:1.0em;">'], "</div>"
+    if value == 6:
+        return ['<div style="color:#990000; margin-left:1.2em;">'], "</div>"
+    if value == 10:
+        return ['<div class="chosha">'], "</div>"
+    if value == 11:
+        return [f'<div class="image_caption" style="margin-left:{value:.6f}em;">'], "</div>"
+    if value == 20:
+        suffix = "V" if vertical else "H"
+        return ['<div class="header">', f'<img src="b12f{suffix}.gif" class="img_mark2">'], "</div>"
+    return [_hc00a6_honbun_div(value)], "</div>"
+
+
+def _private_directive_text(text: str) -> str:
+    cleaned = "".join(ch for ch in text if ord(ch) >= 0x20)
+    return normalize_fullwidth_ascii(cleaned).replace("：", ":").replace("⦿", ":")
+
+
 HC02BE_OPEN_MARKERS: dict[str, _RendererGaijiRule] = {
     "b928": _RendererGaijiRule('<font class="hatsuon">', "b929", "</font>"),
     "b92c": _RendererGaijiRule('<span class="yomigana">（', "b92d", "）</span>"),
@@ -986,6 +1023,8 @@ def _is_hc_gen_year_renderer(options: HcRenderOptions) -> bool:
 
 
 def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
+    if _renderer_code(options) == "00A6" and start_op in {0x3B, 0x42, 0x43}:
+        return "lv-hc-link lineLink"
     if _renderer_code(options) == "0065" and start_op in {0x42, 0x43, 0x44}:
         return "lv-hc-link lLink"
     if _renderer_code(options) == "02C5" and start_op in {0x42, 0x43}:
@@ -1009,6 +1048,12 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
 
 
 def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | None:
+    if _renderer_code(options) == "00A6" and op == 0x04:
+        return ("span", ' class="hankaku"')
+    if _renderer_code(options) == "00A6" and op == 0x06:
+        return ("sup", "")
+    if _renderer_code(options) == "00A6" and op == 0x41:
+        return None
     if _renderer_code(options) == "0157" and op == 0x12:
         return None
     if _renderer_code(options) == "0158" and op == 0x12:
@@ -1338,6 +1383,7 @@ def _append_gaiji_value(
         css_class = "lv-hc-gaiji lv-hc-gaiji-image"
         if _renderer_code(options) in {
             "0065",
+            "00A6",
             "009C",
             "009D",
             "012E",
@@ -2113,6 +2159,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0144_section_close: str | None = None
     hc0145_section_close: str | None = None
     hc03e8_section_close: str | None = None
+    hc00a6_section_close: str | None = None
+    hc00a6_ruby_readings: list[str] = []
     hc012f_section_close: str | None = None
     hc012f_current_section: str | None = None
     hc0131_section_close: str | None = None
@@ -2260,6 +2308,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             root.append(div_html)
                             hc00c6_section_open = True
                             stats["hc00c6_section_divs"] += 1
+                    if _renderer_code(options) == "00A6":
+                        if hc00a6_section_close is not None:
+                            root.append(hc00a6_section_close)
+                            hc00a6_section_close = None
+                        section_parts, hc00a6_section_close = _hc00a6_section_parts(code, vertical=options.vertical)
+                        root.extend(section_parts)
+                        if section_parts:
+                            stats["hc00a6_section_blocks"] += 1
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "02BE":
                         if hc02be_section_open:
                             root.append("</div>")
@@ -2517,6 +2575,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if _renderer_code(options) == "00C6" and hc00c6_section_open:
                     _current_parts(root_parts, contexts).append("</div>")
                     hc00c6_section_open = False
+                if _renderer_code(options) == "00A6" and hc00a6_section_close is not None:
+                    _current_parts(root_parts, contexts).append(hc00a6_section_close)
+                    hc00a6_section_close = None
+                    i += 2 + arg_len
+                    continue
                 if _renderer_code(options) == "02BE" and hc02be_section_open:
                     _current_parts(root_parts, contexts).append("</div>")
                     hc02be_section_open = False
@@ -2691,6 +2754,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _is_hc_gen_year_renderer(options) and op in HC_GEN_YEAR_NONPRINTING_CONTROL_OPS:
                 stats["hc_gen_year_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "00A6" and op in HC00A6_NONPRINTING_CONTROL_OPS:
+                stats["hc00a6_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -3074,6 +3142,56 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if op in PRIVATE_END_OPS:
                 ctx = _pop_context(contexts, "private")
                 if ctx is not None:
+                    if _renderer_code(options) == "00A6":
+                        directive_text = _private_directive_text("".join(ctx.text_parts))
+                        if directive_text.startswith("RUB:S"):
+                            ruby_text = directive_text[5:]
+                            ctx.parent.append('<ruby class="ruby7"><rb class="rb7">')
+                            hc00a6_ruby_readings.append(ruby_text)
+                            stats["hc00a6_ruby_starts"] += 1
+                            private_directives.append(
+                                {
+                                    "start_control": f"1f{ctx.start_op:02x}",
+                                    "end_control": f"1f{op:02x}",
+                                    "kind": "ruby_start",
+                                    "text_length": len(directive_text),
+                                    "status": "rendered",
+                                }
+                            )
+                            i += 2 + arg_len
+                            continue
+                        if directive_text.startswith("RUB:E"):
+                            if not hc00a6_ruby_readings:
+                                gaps.add("hc00a6_unmatched_ruby_end")
+                                private_directives.append(
+                                    {
+                                        "start_control": f"1f{ctx.start_op:02x}",
+                                        "end_control": f"1f{op:02x}",
+                                        "kind": "ruby_end",
+                                        "text_length": len(directive_text),
+                                        "status": "unmatched",
+                                    }
+                                )
+                                i += 2 + arg_len
+                                continue
+                            ruby_text = hc00a6_ruby_readings.pop()
+                            ctx.parent.append(
+                                '</rb><rp class="rp7">(</rp>'
+                                f'<rt class="rt7">{_escape_text(ruby_text)}</rt>'
+                                '<rp class="rp7">)</rp></ruby>'
+                            )
+                            stats["hc00a6_ruby_ends"] += 1
+                            private_directives.append(
+                                {
+                                    "start_control": f"1f{ctx.start_op:02x}",
+                                    "end_control": f"1f{op:02x}",
+                                    "kind": "ruby_end",
+                                    "text_length": len(directive_text),
+                                    "status": "rendered" if ruby_text else "unmatched",
+                                }
+                            )
+                            i += 2 + arg_len
+                            continue
                     if _renderer_code(options) == "009C":
                         image_html = _hc009c_private_image_html("".join(ctx.text_parts), options, stats)
                         if image_html is not None:
@@ -4057,6 +4175,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc0145_section_close)
     if hc03e8_section_close is not None:
         _current_parts(root_parts, contexts).append(hc03e8_section_close)
+    if hc00a6_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc00a6_section_close)
+    while hc00a6_ruby_readings:
+        ruby_text = hc00a6_ruby_readings.pop()
+        _current_parts(root_parts, contexts).append(
+            '</rb><rp class="rp7">(</rp>'
+            f'<rt class="rt7">{_escape_text(ruby_text)}</rt>'
+            '<rp class="rp7">)</rp></ruby>'
+        )
+        gaps.add("hc00a6_unterminated_ruby")
     if hc012e_section_close is not None:
         _current_parts(root_parts, contexts).append(hc012e_section_close)
     if hc012f_section_close is not None:

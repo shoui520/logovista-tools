@@ -1145,6 +1145,37 @@ def test_hc02c2_line_links_use_product_class() -> None:
     assert 'href="lvaddr://00000002/0048"' in rendered.html
 
 
+def test_hc00a6_maps_sections_ruby_and_line_links() -> None:
+    ruby_start = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:S") + jis_text("よ") + b"\x1f\xe3\x00\x00"
+    ruby_end = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:E") + b"\x1f\xe3\x00\x00"
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x07"
+        + ruby_start
+        + jis_text("本")
+        + ruby_end
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00A6"))
+
+    assert '<div class="midashi"><span class="hankaku">H</span></div>' in rendered.html
+    assert '<div class="honbun" style="margin-left:7.000000em;">' in rendered.html
+    assert '<ruby class="ruby7"><rb class="rb7">本</rb>' in rendered.html
+    assert '<rt class="rt7">よ</rt>' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'data-lv-section' not in rendered.html
+    assert rendered.stats["hc00a6_section_blocks"] == 2
+    assert rendered.stats["hc00a6_ruby_starts"] == 1
+    assert rendered.stats["hc00a6_ruby_ends"] == 1
+
+
 def test_hc_gen_year_maps_sections_icons_links_and_template_markers() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -2355,6 +2386,34 @@ def test_hc0131_profile_records_kqebhou_subset_without_claiming_parity() -> None
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
     assert "sql_hook" in data["named_gaps"]
+
+
+def test_hc00a6_profile_records_hkkigak6_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC00A6.dll"),
+        code="00A6",
+        expected_numeric_index="000000A6.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/000000A6.css",),
+        sql_snippets=(),
+        image_templates=("Templates/b12fH.gif",),
+        features={"headword_modifier": True, "vertical_renderer": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC00A6_sections_and_ruby_directives" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "modify_headword_hook" in data["named_gaps"]
 
 
 def test_hc_gen_year_profile_records_subset_without_claiming_parity() -> None:
