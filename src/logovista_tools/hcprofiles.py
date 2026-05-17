@@ -319,7 +319,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Custom DIB generation, private HTM/IMG directive file loading, media-image special cases, and modifyHeadword remain named gaps.",
             )
         )
-    if code in {"014A", "02C3"}:
+    if code in {"014A", "02C3", "02C6"}:
         rows.append(
             HcHookBehavior(
                 name="hkdk_medical_section_layout",
@@ -1149,7 +1149,7 @@ def build_hc_behavior_profile(
         implemented.add("HC02C2_section_icons_and_template_gaiji")
     if code == "00A6":
         implemented.add("HC00A6_sections_and_ruby_directives")
-    if code in {"014A", "02C3"}:
+    if code in {"014A", "02C3", "02C6"}:
         implemented.add("HC_HKDKSR_medical_section_layout")
     if code == "009B":
         implemented.add("HC009B_honbun_margin_sections")

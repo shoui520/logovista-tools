@@ -450,7 +450,7 @@ HC00A6_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x6D}
 
 HC009B_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
 
-HC_HKDKSR_MEDICAL_RENDERERS = {"014A", "02C3"}
+HC_HKDKSR_MEDICAL_RENDERERS = {"014A", "02C3", "02C6"}
 HC_HKDKSR_MEDICAL_NONPRINTING_CONTROL_OPS = {0x6D}
 
 
@@ -530,10 +530,10 @@ def _hc_hkdksr_medical_section_value(code: str) -> int | None:
 def _hc_hkdksr_medical_section_parts(code: str) -> tuple[list[str], str | None, str | None]:
     """Return the decoded HKDKSR medical section wrapper for the subset.
 
-    HC014A and HC02C3 use the section payload as a decimal-coded class/state
-    value in several branches: for example body bytes ``00 40`` map to CSS
-    class ``indent40``.  Non-decimal payloads such as ``002a`` still use their
-    raw numeric value for table-state controls.
+    HC014A, HC02C3, and HC02C6 use the section payload as a decimal-coded
+    class/state value in several branches: for example body bytes ``00 40``
+    map to CSS class ``indent40``. Non-decimal payloads such as ``002a`` still
+    use their raw numeric value for table-state controls.
     """
 
     value = _hc_hkdksr_medical_section_value(code)

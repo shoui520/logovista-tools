@@ -1244,7 +1244,7 @@ def test_hkdksr_medical_renderers_map_sections_links_and_template_gaiji() -> Non
         + b"\x1f\x6d"
     )
 
-    for code in ("014A", "02C3"):
+    for code in ("014A", "02C3", "02C6"):
         rendered = render_hc_body(
             body,
             HcRenderOptions(renderer_code=code, image_sources={"b12a": "Templates/b12a.png"}),
@@ -2886,7 +2886,7 @@ def test_hc00a6_profile_records_hkkigak6_subset_without_claiming_parity() -> Non
 
 
 def test_hkdksr_medical_profiles_record_subset_without_claiming_parity() -> None:
-    for code, css_name in (("014A", "0000014a.css"), ("02C3", "000002c3.css")):
+    for code, css_name in (("014A", "0000014a.css"), ("02C3", "000002c3.css"), ("02C6", "000002c6.css")):
         row = HcRendererClassification(
             path=Path(f"HC{code}.dll"),
             code=code,
