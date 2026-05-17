@@ -584,7 +584,7 @@ def test_hc0145_uses_line_links_and_img_gaiji_class() -> None:
 def test_hc0144_maps_sections_and_consumes_heading_state() -> None:
     body = (
         b"\x1f\x09\x00\x01"
-        + b"\x1f\x41"
+        + b"\x1f\x41\x00\x00"
         + jis_ascii("H")
         + b"\x1f\x09\x00\x02"
         + jis_ascii("P")
@@ -917,7 +917,7 @@ def test_hc009c_asset_preparation_copies_thumbnail_and_icon_dirs(tmp_path: Path)
 def test_hc013d_maps_sections_to_drug_layout_classes() -> None:
     body = (
         b"\x1f\x09\x00\x01"
-        + b"\x1f\x41"
+        + b"\x1f\x41\x00\x00"
         + jis_ascii("H")
         + b"\x1f\x61"
         + b"\x1f\x09\x00\x04"
@@ -1045,6 +1045,78 @@ def test_hc02c2_line_links_use_product_class() -> None:
 
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert 'href="lvaddr://00000002/0048"' in rendered.html
+
+
+def test_hc02c5_wraps_headings_and_decoded_sections() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x0b"
+        + jis_ascii("I")
+        + b"\x1f\x09\x00\x2e"
+        + jis_ascii("S")
+        + b"\x1f\x09\x00\x3a"
+        + jis_ascii("R"),
+        HcRenderOptions(renderer_code="02C5"),
+    )
+
+    assert '<div class="midashi"><!-- INDEX_MENU -->' in rendered.html
+    assert '<span class="hankaku">H</span></div>' in rendered.html
+    assert '<h1 class="indent11"><span class="hankakuMidashi">' in rendered.html
+    assert '<br><div class="Seiku">' in rendered.html
+    assert '<h1 class="indent58">' in rendered.html
+    assert 'class="lv-hc-section"' not in rendered.html
+    assert rendered.stats["hc02c5_heading_blocks"] == 1
+    assert rendered.stats["hc02c5_section_blocks"] == 3
+
+
+def test_hc02c5_uses_product_link_and_audio_templates() -> None:
+    payload = bytes.fromhex("00010000000001230045000001230067")
+    body = (
+        b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x4a"
+        + payload
+        + jis_ascii("P")
+        + b"\x1f\x6a"
+        + b"\x1f\x6d\x00\x00"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="02C5", image_sources={"dummy": "Templates/dummy.GIF", "sound": "Templates/sound.png"}),
+    )
+
+    assert 'class="lv-hc-link lLink"' in rendered.html
+    assert 'class="lv-hc-audio lLink"' in rendered.html
+    assert '<img src="Templates/dummy.GIF" class="im">' in rendered.html
+    assert "pcmdata:00000123:0045-00000123:0067" in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc02c5_nonprinting_controls"] == 1
+
+
+def test_hc02c5_renders_marker_numerals_letters_and_hin_images() -> None:
+    rendered = render_hc_body(
+        bytes.fromhex("b146 b44d b353 b423 b347 b273"),
+        HcRenderOptions(
+            renderer_code="02C5",
+            image_sources={"b347": "HANREI/img/b347.png", "b273": "Templates/B273.png"},
+        ),
+    )
+
+    assert "<strong>1</strong>" in rendered.html
+    assert "<strong>18</strong>" in rendered.html
+    assert "<small>a</small>" in rendered.html
+    assert "<small>l</small>" in rendered.html
+    assert 'class="lv-hc-gaiji img_hin"' in rendered.html
+    assert 'src="HANREI/img/b347.png"' in rendered.html
+    assert 'src="Templates/B273.png"' in rendered.html
+    assert rendered.stats["hc02c5_strong_markers"] == 2
+    assert rendered.stats["hc02c5_small_markers"] == 2
+    assert rendered.stats["hc02c5_img_hin_markers"] == 2
 
 
 def test_hc0065_wraps_midashi_and_contents_body() -> None:
@@ -1687,6 +1759,36 @@ def test_hc009c_profile_records_section_image_subset_without_claiming_parity() -
     assert "HC009C_section_image_index_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
+
+
+def test_hc02c5_profile_records_section_marker_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC02C5.dll"),
+        code="02C5",
+        expected_numeric_index="000002C5.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=("Templates/B273.png",),
+        features={"custom_gaiji_dib": True, "headword_modifier": True, "panel_hooks": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC02C5_section_marker_layout" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+    assert "panel_lifecycle" in data["named_gaps"]
 
 
 def test_hc013d_profile_records_drug_layout_subset_without_claiming_parity() -> None:

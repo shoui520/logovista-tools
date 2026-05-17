@@ -388,6 +388,16 @@ and non-SSED reader status are tracked separately in
   links with `images_thumb` preview buttons. Custom gaiji bitmap generation,
   `modifyHeadword`, Panel/plugin/user-data hooks, SQL/search helpers, and
   broader visual parity remain named gaps.
+- `HC02C5.dll` now has a focused raw-HONMON branch-subset proof for GENIUS53:
+  `1f41` opens product `midashi` or `CB_Title` heading blocks; internal links
+  carry `lLink`; `1f5c`/`1f6d` are consumed as renderer anchor-close state;
+  clear `1f09` section values map to recovered product wrappers including
+  `contents`, `Seiku`, `indent11`, `indent12`, `indent58`, and margin blocks;
+  and recovered gaiji-plane marker branches emit bold numeric labels, small
+  letter labels, and `img_hin` images. Exact select-menu lifecycle, full
+  `gohou`/`gohou2` lookahead branches, custom character DIB generation,
+  `modifyHeadword`, Panel hooks, SQL/search helpers, and broader visual parity
+  remain named gaps.
 - `HC013D.dll` now has a focused raw-HONMON branch-subset proof for HKDKSR13:
   `1f09` section payloads map to drug-layout classes such as `title3`,
   `medblk`, `med`, `medprice`, `medimage`, `mednamelist*`, and `indent##`;
@@ -426,9 +436,10 @@ and non-SSED reader status are tracked separately in
   decompiled body-loop branch table and `Templates/00000146.css`. Product
   wrapper, section/layout state, and custom hooks remain visually incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
-  exact SHA-256 renderer binaries. HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E,
-  HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0157, and HC0158 currently have decoded branch
-  subsets, not full HC parity.
+  exact SHA-256 renderer binaries. HC013A, HC0065, HC009D, HC00C6, HC012D,
+  HC012E, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC03E8,
+  HC02BC, HC02BE, HC02C2, HC0146, HC0157, and HC0158 currently have decoded
+  branch subsets, not full HC parity.
   Other branch tables remain named gaps until their output constants and product
   data paths are understood.
 - The default raw-resource gaiji readiness pass intentionally does not use

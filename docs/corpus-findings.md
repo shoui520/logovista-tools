@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             19   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
-common semantics plus named gaps:    93
+decoded branch subsets:             20   HC013A, HC0065, HC009D, HC00C6, HC012D, HC012E, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0157, HC0158
+common semantics plus named gaps:    92
 full product visual parity:           0
 ```
 
@@ -1350,6 +1350,22 @@ generic gaiji placeholders fell from 4,201 to 24. Custom gaiji bitmap
 generation, `modifyHeadword` hooks, Panel/plugin/user-data hooks, SQL/search
 helpers, and broader visual parity remain named gaps, so exact HC009C visual
 parity is not claimed.
+
+The GENIUS53 branch-subset proof case is `HC02C5.dll`. Its body loop maps
+`1f41` to product `midashi` or `CB_Title` heading blocks, uses `lLink` for
+internal links, consumes `1f5c`/`1f6d` as renderer anchor-close state, maps
+clear `1f09` section values to recovered product wrappers such as `contents`,
+`Seiku`, `indent11`, `indent12`, `indent58`, and margin blocks, and treats
+B146-B150/B373-B37B/B443-B44D as bold numeric labels, B353-B358/B37C-B423/
+B44E-B455 as small letter labels, and B273/B347/B348/B372 as `img_hin`
+image markers. In a 30-entry GENIUS53 sample, generic `lv-hc-heading` and
+`lv-hc-section` wrappers dropped to 0, `midashi` blocks rose to 1,802,
+`contents` blocks to 899, `lLink` anchors to 2,768, `dummy.GIF` audio images
+to 2,322, `img_hin` images to 446, strong labels to 307, small labels to 112,
+and raw `unknown_control_1f6d` gaps dropped to 0. Exact select-menu lifecycle,
+full `gohou`/`gohou2` lookahead branches, custom character DIB generation,
+`modifyHeadword`, Panel hooks, SQL/search helper hooks, and broader visual
+parity remain named gaps, so exact HC02C5 visual parity is not claimed.
 
 The HKDKSR13 branch-subset proof case is `HC013D.dll`. Its vertical body loop
 maps `1f09` section payloads to product drug-layout classes such as `title3`,

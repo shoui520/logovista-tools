@@ -561,6 +561,33 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "02C5":
+        rows.append(
+            HcHookBehavior(
+                name="genius53_section_marker_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC02C5 epwing2HtmlBodydata 1f09 section ladder",
+                    "HC02C5 1f41 midashi/CB_Title branch",
+                    "HC02C5 1f42/1f43 lLink branch and 1f5c/1f6d anchor-close branch",
+                    "HC02C5 B146-B150/B373-B37B/B443-B44D strong-number branch",
+                    "HC02C5 B353-B358/B37C-B423/B44E-B455 small-letter branch",
+                    "HC02C5 B273/B347/B348/B372 img_hin branch",
+                    "Templates/000002C5.css class definitions",
+                ),
+                implementation=(
+                    "1f41 headings produce product midashi/CB_Title blocks, internal links "
+                    "use lLink, 1f5c/1f6d anchor-close controls are consumed, decoded 1f09 "
+                    "sections map to recovered product wrappers, and recovered marker gaiji "
+                    "emit strong/small literals or img_hin images"
+                ),
+                notes=(
+                    "The subset excludes exact select-menu lifecycle, full gohou/gohou2 "
+                    "lookahead branches, custom character DIB generation, modifyHeadword, "
+                    "Panel hooks, and SQL/search helper hooks."
+                ),
+            )
+        )
     if code == "0146":
         rows.append(
             HcHookBehavior(
@@ -720,6 +747,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0190_html_template_section_substitution")
     if code == "009C":
         implemented.add("HC009C_section_image_index_layout")
+    if code == "02C5":
+        implemented.add("HC02C5_section_marker_layout")
     if code == "0146":
         implemented.add("HC0146_inline_marker_gaiji")
     if code == "0158":
