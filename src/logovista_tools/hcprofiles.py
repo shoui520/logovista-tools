@@ -435,6 +435,28 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset excludes exact previous/next navigation footer generation and broader visual parity.",
             )
         )
+    if code == "0048":
+        rows.append(
+            HcHookBehavior(
+                name="gakken_speech_margin_heading_sections",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0048 epwing2HtmlBodydataVertical 1f09 margin branch",
+                    "HC0048 JIS marker-triggered midashi branch",
+                    "HC0048 1f42/1f43 lineLink branch family",
+                    "HC0048 1f4a/1f6a sound.png branch",
+                    "Templates/00000049.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections open margin divs, selected leading JIS symbols open "
+                    "midashi blocks, 1f0a transitions from midashi to honbun, internal "
+                    "links use lineLink, 1f4d...1f6d media references are wrapped in "
+                    "product-local media div placeholders, image-backed gaiji use "
+                    "img_gaiji, and 1f41/1f5c renderer-state controls are consumed"
+                ),
+                notes="The subset excludes exact lineLink2/lineLink3 class selection, exact previous/next navigation footer generation, and broader visual parity.",
+            )
+        )
     if code == "013C":
         rows.append(
             HcHookBehavior(
@@ -1121,6 +1143,9 @@ def build_hc_behavior_profile(
         implemented.add("HC02CA_honbun_margin_sections")
     if code == "0136":
         implemented.add("HC0136_honbun_margin_sections")
+    if code == "0048":
+        implemented.add("HC0048_margin_heading_sections")
+        implemented.add("HC0048_media_div_placeholders")
     if code in {"02C4", "02C7"}:
         implemented.add("HC_GEN_YEAR_section_icons_and_template_markers")
     if code == "02C1":

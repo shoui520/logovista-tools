@@ -1458,6 +1458,43 @@ def test_hc0136_maps_sections_icons_links_and_state_controls() -> None:
     assert rendered.stats["hc0136_nonprinting_controls"] == 1
 
 
+def test_hc0048_maps_margin_sections_and_symbol_triggered_midashi() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + bytes.fromhex("2223")
+        + jis_text("見出し")
+        + b"\x1f\x0a"
+        + jis_text("本文")
+        + b"\x1f\x6d"
+        + b"\x1f\x4d"
+        + bytes.fromhex("000000000000000000000000000001230456")
+        + b"\x1f\x6d"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="0048", image_sources={"sound": "Templates/sound.png"}),
+    )
+
+    assert '<div style="margin: 3px"></div><div class="midashi">■見出し</div><div class="honbun">' in rendered.html
+    assert "本文" in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert '<div><span class="lv-hc-media"' in rendered.html
+    assert 'data-lv-resource="colscr:00000123:0456"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.stats["hc0048_margin_sections"] == 1
+    assert rendered.stats["hc0048_midashi_blocks"] == 1
+    assert rendered.stats["hc0048_honbun_blocks"] == 1
+    assert rendered.stats["hc0048_nonprinting_controls"] == 2
+    assert rendered.stats["hc0048_media_divs"] == 1
+    assert rendered.stats["hc0048_media_div_closures"] == 1
+
+
 def test_hc013c_maps_sections_icons_links_and_state_markers() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -2933,6 +2970,35 @@ def test_hc0136_profile_records_subset_without_claiming_parity() -> None:
     assert "HC0136_honbun_margin_sections" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert data["named_gaps"] == ["visual_parity_unverified"]
+
+
+def test_hc0048_profile_records_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0048.dll"),
+        code="0048",
+        expected_numeric_index="00000048.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/00000049.css",),
+        sql_snippets=(),
+        image_templates=("Templates/sound.png",),
+        features={"vertical_renderer": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC0048_margin_heading_sections" in data["implemented_semantics"]
+    assert "HC0048_media_div_placeholders" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "visual_parity_unverified" in data["named_gaps"]
 
 
 def test_hc02c0_profile_records_subset_without_claiming_parity() -> None:
