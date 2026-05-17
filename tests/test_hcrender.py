@@ -576,7 +576,9 @@ def test_hc012d_maps_midashi_honbun_and_yorei_sections() -> None:
     assert '<span class="lv-hc-halfwidth">B</span></div>' in rendered.html
     assert '<span class="lv-hc-halfwidth">Y</span></div>' in rendered.html
     assert 'class="lv-hc-heading"' not in rendered.html
+    assert 'class="lv-hc-section"' not in rendered.html
     assert rendered.stats["hc012d_section_blocks"] == 2
+    assert rendered.stats["hc012d_midashi_state_sections"] == 1
     assert rendered.stats["hc012d_noop_markers"] == 1
 
 
