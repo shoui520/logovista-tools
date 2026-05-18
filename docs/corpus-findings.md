@@ -1570,6 +1570,15 @@ runtime-initialized template globals; those remain named gaps until the
 concrete open tags, section/layout state, wrapper CSS, and state transitions are
 recovered.
 
+The KQSYNONM branch-subset proof case is `HC0091.dll`. Its body loop uses
+`midashi` and `contents_body` wrappers, switches halfwidth text between
+`hankakuMidashi` and `hankaku` by renderer state, and replaces decoded JIS
+label sequences with `rei.gif`, `chikan.gif`, `kaisetsu.gif`, and
+`hosoku.gif` marker images using the product's `dummy.gif` spacer pattern.
+Fixed HTML/fix fallback loading, exact `submidashi` continuation state,
+generated custom-character GIF output, `modifyHeadwordAddr`, exact picture-link
+handling, and visual parity remain named gaps.
+
 Some other renderer families are decoded but deliberately not implemented yet.
 The toolkit keeps unresolved branches as named behavior gaps rather than
 guessing from strings alone.

@@ -475,6 +475,29 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The branch is classified but not emitted until directive text mapping is verified against representative entries.",
             )
         )
+    if code == "0091":
+        rows.append(
+            HcHookBehavior(
+                name="kqsynonm_midashi_contents_marker_images",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0091 epwing2HtmlBodydata midashi/submidashi/contents_body template strings",
+                    "HC0091 1f0a midashi-to-contents_body transition branch",
+                    "HC0091 1f42/1f43 lineLink template",
+                    "HC0091 JIS-sequence branches for rei/chikan/kaisetsu/hosoku template GIFs",
+                    "HC0091 image-backed gaiji img_gaiji/img_gaiji_midashi branch",
+                    "Templates/00000091.css class definitions",
+                ),
+                implementation=(
+                    "1f41 opens midashi, 1f0a transitions to contents_body, 1f04 "
+                    "uses hankakuMidashi while midashi is open and hankaku elsewhere, "
+                    "1f42/1f43 links carry lineLink, decoded JIS label sequences render "
+                    "rei/chikan/kaisetsu/hosoku marker images with dummy.gif, and "
+                    "image-backed gaiji use img_gaiji or img_gaiji_midashi"
+                ),
+                notes="The subset excludes fixed HTML/fix fallback loading, exact submidashi continuation state, generated custom-character GIF output, modifyHeadword, and broader visual parity.",
+            )
+        )
     if code == "0094":
         rows.append(
             HcHookBehavior(

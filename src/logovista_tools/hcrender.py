@@ -1043,6 +1043,15 @@ HC0096_REFLOW_STATE_MARKERS = frozenset(f"b{value:03x}" for value in range(0x150
     f"b{value:03x}" for value in range(0x155, 0x15B)
 )
 HC0096_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
+HC0091_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x6D}
+HC0091_MARK_IMAGE_PATTERNS = {
+    # HC0091 compares the first, third, and sixth JIS pairs for these label
+    # patterns, then replaces the full marker text with a template GIF.
+    "215a": ("rei", "rei.gif", ("4e63",), ("215b",), 6),
+    "4356": ("chikan", "chikan.gif", ("3439",), ("2161",), 14),
+    "3272": ("kaisetsu", "kaisetsu.gif", ("4062",), ("2161",), 14),
+    "4a64": ("hosoku", "hosoku.gif", ("422d",), ("2161",), 14),
+}
 HC013C_NONPRINTING_CONTROL_OPS = {0x02, 0x4C, 0x6D}
 HC013C_ICON_DIRECTIVES = {
     "2331": "1.png",
@@ -1526,6 +1535,8 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
         return "lv-hc-link lineLink"
     if _renderer_code(options) == "0096" and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
+    if _renderer_code(options) == "0091" and start_op in {0x42, 0x43}:
+        return "lv-hc-link lineLink"
     if _renderer_code(options) == "009B" and start_op in {0x3B, 0x42, 0x43, 0x44}:
         return "lv-hc-link lineLink"
     if _is_hc_hkdksr_medical_renderer(options):
@@ -1620,6 +1631,8 @@ def _link_css_class_for_context(options: HcRenderOptions, ctx: _Context | None, 
 
 def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | None:
     if _is_hc005c_renderer(options) and op in {0x04, 0x41}:
+        return None
+    if _renderer_code(options) == "0091" and op in {0x04, 0x41}:
         return None
     if _is_hc00c4_renderer(options) and op == 0x04:
         return ("span", ' class="hankaku"')
@@ -1759,6 +1772,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
 def _style_close_tag(start_op: int, options: HcRenderOptions) -> str | None:
     if _renderer_code(options) in {"0142", "0147"} and start_op == 0x10:
         return "label"
+    if _renderer_code(options) == "0091" and start_op == 0x04:
+        return "span"
     if _renderer_code(options) == "0131" and start_op == 0x41:
         return "div"
     spec = _style_start_spec(start_op, options)
@@ -2224,6 +2239,66 @@ def _append_hc0069_gaiji_value(
         css_class = "img_gaiji_midashi" if in_heading else "img_gaiji"
         _append_renderer_image_gaiji(parts, key, image_src, css_class, stats)
         stats[f"hc0069_{css_class}_images"] += 1
+        return
+    stats["gaiji_placeholder"] += 1
+    parts.append(
+        f'<span class="lv-hc-gaiji lv-hc-gaiji-placeholder" '
+        f'data-gaiji-code="{_escape_attr(key)}"></span>'
+    )
+
+
+def _append_hc0091_named_image(parts: list[str], image_key: str, image_name: str, options: HcRenderOptions, stats: Counter[str]) -> None:
+    dummy = _dummy_image_source(options)
+    if dummy is not None:
+        parts.append(f'<img src="{_escape_attr(dummy)}" class="img_dummy">')
+        stats["hc0091_dummy_images"] += 1
+    src = _image_source_for_key(image_key, options) or _image_source_for_key(image_name, options) or image_name
+    parts.append(f'<img src="{_escape_attr(src)}" class="img_mark">')
+    stats["hc0091_mark_images"] += 1
+
+
+def _hc0091_marker_image_match(data: bytes, offset: int) -> tuple[str, str, int] | None:
+    key = _jis_key_at(data, offset)
+    if key is None:
+        return None
+    pattern = HC0091_MARK_IMAGE_PATTERNS.get(key)
+    if pattern is None:
+        return None
+    image_key, image_name, third_pair_options, sixth_pair_options, consumed = pattern
+    if key == "215a":
+        if _jis_key_at(data, offset + 2) in third_pair_options and _jis_key_at(data, offset + 4) in sixth_pair_options:
+            return image_key, image_name, consumed
+        return None
+    if _jis_key_at(data, offset + 4) in third_pair_options and _jis_key_at(data, offset + 10) in sixth_pair_options:
+        return image_key, image_name, consumed
+    return None
+
+
+def _append_hc0091_gaiji_value(
+    parts: list[str],
+    text_parts: list[str] | None,
+    key: str,
+    options: HcRenderOptions,
+    stats: Counter[str],
+    *,
+    in_heading: bool,
+) -> None:
+    mapped = options.gaiji_map.get(key)
+    if mapped:
+        stats["gaiji_unicode"] += 1
+        _append_text(parts, mapped)
+        if text_parts is not None:
+            text_parts.append(mapped)
+        return
+    image_src = _image_source_for_key(key, options)
+    if image_src is not None:
+        dummy = _dummy_image_source(options)
+        if dummy is not None:
+            parts.append(f'<img src="{_escape_attr(dummy)}" class="img_dummy">')
+            stats["hc0091_dummy_images"] += 1
+        css_class = "img_gaiji_midashi" if in_heading else "img_gaiji"
+        _append_renderer_image_gaiji(parts, key, image_src, css_class, stats)
+        stats[f"hc0091_{css_class}_images"] += 1
         return
     stats["gaiji_placeholder"] += 1
     parts.append(
@@ -3643,6 +3718,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0096_section_close: str | None = None
     hc0096_current_section: int | None = 0
     hc0096_contents_body_open = False
+    hc0091_midashi_open = False
+    hc0091_contents_open = False
     hc009d_section_close: str | None = None
     hc009d_current_section_value: int | None = None
     hc009d_table_header_open = False
@@ -3876,6 +3953,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         hc0096_current_section = value
                         stats["hc0096_lineinfo_sections"] += 1
                         stats[f"hc0096_lineinfo0_{value}"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "0091":
+                        root.append(f'<a name="section-{stats["section_markers"]}"></a>')
+                        stats["hc0091_address_anchors"] += 1
                         i += 2 + arg_len
                         continue
                     if _is_hc005c_renderer(options):
@@ -4779,6 +4861,26 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     stats["line_breaks"] += 1
                     i += 2 + arg_len
                     continue
+                if _renderer_code(options) == "0091":
+                    parts = _current_parts(root_parts, contexts)
+                    if hc0091_midashi_open:
+                        parts.append("</div>")
+                        hc0091_midashi_open = False
+                        if not hc0091_contents_open:
+                            parts.append('<div class="contents_body">')
+                            hc0091_contents_open = True
+                            stats["hc0091_contents_body_blocks"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if not hc0091_contents_open:
+                        parts.append('<div class="contents_body">')
+                        hc0091_contents_open = True
+                        stats["hc0091_contents_body_blocks"] += 1
+                    else:
+                        parts.append("<br>")
+                        stats["line_breaks"] += 1
+                    i += 2 + arg_len
+                    continue
                 if _renderer_code(options) == "008B":
                     _current_parts(root_parts, contexts).append("<br>")
                     stats["line_breaks"] += 1
@@ -5329,6 +5431,32 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if _renderer_code(options) == "0091" and op == 0x41:
+                if not hc0091_midashi_open and not hc0091_contents_open:
+                    _current_parts(root_parts, contexts).append('<div class="midashi">')
+                    hc0091_midashi_open = True
+                    stats["headings"] += 1
+                    stats["hc0091_midashi_blocks"] += 1
+                else:
+                    stats["hc0091_heading_state_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0091" and op == 0x61:
+                if hc0091_midashi_open:
+                    _current_parts(root_parts, contexts).append("</div>")
+                    hc0091_midashi_open = False
+                    stats["hc0091_midashi_closures"] += 1
+                else:
+                    stats["hc0091_heading_state_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0091" and op in HC0091_NONPRINTING_CONTROL_OPS:
+                stats["hc0091_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
             if _renderer_code(options) == "008B" and op == 0x41:
                 _current_parts(root_parts, contexts).append('<div class="midashi">')
                 hc008b_midashi_open = True
@@ -5581,6 +5709,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 style_stack.append(op)
                 halfwidth_depth += 1
                 stats[f"hc0096_{css_class}_spans"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0091" and op == 0x04:
+                css_class = "hankakuMidashi" if hc0091_midashi_open else "hankaku"
+                _current_parts(root_parts, contexts).append(f'<span class="{css_class}">')
+                style_stack.append(op)
+                halfwidth_depth += 1
+                stats[f"hc0091_{css_class}_spans"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -6108,6 +6245,13 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         stats["hc0096_inline_mark_images"] += 1
                         i = j + 2
                         continue
+            if _renderer_code(options) == "0091":
+                marker = _hc0091_marker_image_match(data, i)
+                if marker is not None:
+                    image_key, image_name, consumed = marker
+                    _append_hc0091_named_image(_current_parts(root_parts, contexts), image_key, image_name, options, stats)
+                    i += consumed
+                    continue
             if _renderer_code(options) == "0069" and _image_source_for_key(key, options) is not None:
                 _append_hc0069_gaiji_value(
                     _current_parts(root_parts, contexts),
@@ -7266,6 +7410,17 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     stats["hc0096_reflow_state_markers"] += 1
                     i += 2
                     continue
+            if _renderer_code(options) == "0091":
+                _append_hc0091_gaiji_value(
+                    _current_parts(root_parts, contexts),
+                    _current_text_parts(contexts),
+                    key,
+                    options,
+                    stats,
+                    in_heading=hc0091_midashi_open,
+                )
+                i += 2
+                continue
             _append_gaiji_value(_current_parts(root_parts, contexts), _current_text_parts(contexts), key, options, stats)
             if _renderer_code(options) == "02C1":
                 hc02c1_section_just_opened = False
@@ -7492,6 +7647,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     if hc0069_midashi_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc0069_contents_open:
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc0091_midashi_open:
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc0091_contents_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc008b_section_close is not None:
         _current_parts(root_parts, contexts).append(hc008b_section_close)

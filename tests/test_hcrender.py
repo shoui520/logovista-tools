@@ -2276,6 +2276,57 @@ def test_hc0096_maps_lineinfo_sections_links_template_gaiji_and_state_markers() 
     assert rendered.stats["hc0096_reflow_state_markers"] == 1
 
 
+def test_hc0091_maps_midashi_contents_marker_images_links_and_gaiji_classes() -> None:
+    body = (
+        b"\x1f\x41\x00\x00"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("H")
+        + b"\x1f\x05"
+        + bytes.fromhex("b555")
+        + b"\x1f\x0a"
+        + jis_text("本文")
+        + bytes.fromhex("215a4e63215b")
+        + bytes.fromhex("4356212134392121212121612121")
+        + bytes.fromhex("b556")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0091",
+            image_sources={
+                "b555": "Templates/B555.gif",
+                "b556": "Templates/B556.gif",
+                "dummy": "Templates/dummy.GIF",
+                "rei": "Templates/rei.gif",
+                "chikan": "Templates/chikan.gif",
+            },
+        ),
+    )
+
+    assert '<div class="midashi"><span class="hankakuMidashi">H</span>' in rendered.html
+    assert '<div class="contents_body">' in rendered.html
+    assert '<img src="Templates/dummy.GIF" class="img_dummy">' in rendered.html
+    assert '<img src="Templates/rei.gif" class="img_mark">' in rendered.html
+    assert '<img src="Templates/chikan.gif" class="img_mark">' in rendered.html
+    assert '<img class="lv-hc-gaiji img_gaiji_midashi" src="Templates/B555.gif"' in rendered.html
+    assert '<img class="lv-hc-gaiji img_gaiji" src="Templates/B556.gif"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "data-lv-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.html.count("<div") == rendered.html.count("</div>")
+    assert rendered.stats["hc0091_midashi_blocks"] == 1
+    assert rendered.stats["hc0091_contents_body_blocks"] == 1
+    assert rendered.stats["hc0091_mark_images"] == 2
+    assert rendered.stats["hc0091_img_gaiji_midashi_images"] == 1
+    assert rendered.stats["hc0091_img_gaiji_images"] == 1
+    assert rendered.stats["hc0091_hankakuMidashi_spans"] == 1
+
+
 def test_hc0048_maps_margin_sections_and_symbol_triggered_midashi() -> None:
     body = (
         b"\x1f\x09\x00\x01"
