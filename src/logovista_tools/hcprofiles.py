@@ -232,9 +232,13 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
             HcHookBehavior(
                 name="block_offset_body_lookup",
                 status="implemented_when_sidecar_present",
-                evidence=("Block/Offset/Body SQL tables", "HC013F SDicGetBodyData fallback and HTMLs path logic"),
-                implementation="rendererdb block/offset body join",
-                notes="The renderer sidecar stores horizontal and vertical body HTML keyed by HONMON block/offset.",
+                evidence=(
+                    "Block/Offset/Body SQL tables",
+                    "HC013F SDicGetBodyData fallback and HTMLs path logic",
+                    "HC013F 1f6d renderer-state branch in raw HONMON fallback",
+                ),
+                implementation="rendererdb block/offset body join plus raw HONMON fallback state-control suppression",
+                notes="The renderer sidecar stores horizontal and vertical body HTML keyed by HONMON block/offset; panel/search/headword hooks remain outside the exact body path.",
             )
         )
     if code == "0132":
@@ -1463,6 +1467,7 @@ def build_hc_behavior_profile(
         implemented.add("HC0159_t_contents_exact_body_html")
     if code == "013F" and rendererdb_ok:
         implemented.add("HC013F_block_offset_exact_body_html")
+        implemented.add("HC013F_raw_honmon_state_controls")
     if code == "0132":
         implemented.add("HC0132_finance_section_layout")
     if code == "013C":

@@ -550,6 +550,8 @@ HC013A_NONPRINTING_CONTROL_OPS = {0x6D}
 HC013A_SUPPRESSED_GAIJI_MARKERS = {"a225", "a226", "b26a", "b26b"}
 HC013A_CUSTOM_BITMAP_MARKERS = {"b263"}
 
+HC013F_NONPRINTING_CONTROL_OPS = {0x6D}
+
 HC009B_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
 
 HC008C_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x61, 0x6D}
@@ -4921,6 +4923,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "013A" and op in HC013A_NONPRINTING_CONTROL_OPS:
                 stats["hc013a_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "013F" and op in HC013F_NONPRINTING_CONTROL_OPS:
+                stats["hc013f_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 

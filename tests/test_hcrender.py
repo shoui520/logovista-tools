@@ -184,6 +184,13 @@ def test_hc013a_missing_b263_uses_named_custom_bitmap_gap() -> None:
     assert "hc013a_custom_gaiji_bitmap_unresolved" in rendered.named_behavior_gaps
 
 
+def test_hc013f_consumes_renderer_state_control() -> None:
+    rendered = render_hc_body(b"\x1f\x41\x00\x00" + jis_text("見出し") + b"\x1f\x61\x1f\x6d", HcRenderOptions(renderer_code="013F"))
+
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc013f_nonprinting_controls"] == 1
+
+
 def test_hc00c6_maps_sections_to_product_divs_and_example_badge() -> None:
     body = (
         b"\x1f\x09\x00\x01"
