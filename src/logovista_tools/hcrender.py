@@ -1189,6 +1189,7 @@ HC02C2_ICON_SECTION_IMAGES = {
 }
 HC02C2_TEMPLATE_IMAGE_MARKERS = frozenset(f"b{value:03x}" for value in range(0x13E, 0x15E))
 HC02C2_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
+HC02C8_NONPRINTING_CONTROL_OPS = {0x6D}
 HC02C8_NOOP_SECTION_VALUES = {1, 8, 32, 34}
 HC02C8_NO_BREAK_SECTION_VALUES = {12, 50, 51, 60, 61, 70, 71}
 HC0147_TEMPLATE_IMAGE_MARKERS = frozenset(["a12e", *[f"b{value:03x}" for value in range(0x141, 0x146)]])
@@ -6166,6 +6167,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "02C2" and op in HC02C2_NONPRINTING_CONTROL_OPS:
                 stats["hc02c2_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "02C8" and op in HC02C8_NONPRINTING_CONTROL_OPS:
+                stats["hc02c8_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 

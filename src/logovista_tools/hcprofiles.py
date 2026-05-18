@@ -1717,11 +1717,13 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "HC02C8 epwing2HtmlBodydata 1f09 section branch ladder",
                     "HC02C8 Link/lineLink anchor templates",
                     "HC02C8 image-backed gaiji template strings",
+                    "HC02C8 1f4d image-anchor close via 1f6d",
                 ),
                 implementation=(
                     "1f09 sections map to midashi_2nd, indent3/5/6/7/30/31/33, "
                     "header, contents, and table row/cell wrapper tags; 1f42 uses "
-                    "Link and 1f43 uses lineLink"
+                    "Link, 1f43 uses lineLink, and 1f6d is consumed as the recovered "
+                    "image/link anchor-close control"
                 ),
                 notes="The subset excludes exact page-movement footer generation, modifyHeadwordEx, SQL/helper hooks, and custom DIB generation.",
             )
@@ -1791,6 +1793,7 @@ def build_hc_behavior_profile(
         implemented.add("HC0137_iwanami_section_margin_and_line_links")
     if code == "02C8":
         implemented.add("HC02C8_zukaiho_section_table_and_indent_layout")
+        implemented.add("HC02C8_image_link_close_control")
     if code == "00A6":
         implemented.add("HC00A6_sections_and_ruby_directives")
     if code in {"014A", "02C3", "02C6"}:

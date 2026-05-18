@@ -1442,6 +1442,18 @@ def test_hc02c8_private_sections_do_not_leak_visible_close_state() -> None:
     assert rendered.stats["hc02c8_private_section_controls"] == 1
 
 
+def test_hc02c8_consumes_1f6d_image_anchor_close() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x4d\x00\x00\x00\x02\x00\x30\x00\x00\x00\x02\x00\x40\x00\x00\x00\x00\x00\x00\x1f\x6d",
+        HcRenderOptions(renderer_code="02C8"),
+    )
+
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["media_placeholders"] == 1
+    assert rendered.stats["hc02c8_nonprinting_controls"] == 1
+    assert 'data-lv-control="1f4d"' in rendered.html
+
+
 def test_hc008c_maps_midashi_contents_body_medical_sections_and_links() -> None:
     body = (
         b"\x1f\x09\x00\x01"
