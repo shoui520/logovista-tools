@@ -6008,6 +6008,21 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 stats["hc013c_noop_markers"] += 1
                 i += 2
                 continue
+            if (
+                _renderer_code(options) == "013C"
+                and int(key, 16) >= 0xB121
+                and not options.gaiji_map.get(key)
+                and _image_source_for_key(key, options) is None
+            ):
+                _current_parts(root_parts, contexts).append(
+                    '<span class="lv-hc-gaiji lv-hc-custom-dib-missing img_gaiji" '
+                    f'data-gaiji-code="{_escape_attr(key)}" '
+                    'data-hc-behavior="custom-gaiji-bitmap"></span>'
+                )
+                stats["hc013c_custom_dib_gaiji"] += 1
+                gaps.add("hc013c_custom_gaiji_bitmap_unresolved")
+                i += 2
+                continue
             if _renderer_code(options) == "0142":
                 parts = _current_parts(root_parts, contexts)
                 text_parts = _current_text_parts(contexts)
@@ -7042,7 +7057,7 @@ def _renderer_behavior_gaps(renderer: HcRendererClassification | None) -> list[s
         ("user_data_hooks", "user_data_hooks"),
         ("sql_hooks", "sql_search_or_helper_hooks"),
         ("headword_modifier", "modify_headword_hook"),
-        ("custom_gaiji_dib", "custom_gaiji_bitmap_hook"),
+        ("custom_gaiji_dib", "custom_gaiji_dib_hook"),
     ):
         if renderer.features.get(feature):
             gaps.append(gap)

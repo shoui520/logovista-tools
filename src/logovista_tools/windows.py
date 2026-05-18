@@ -680,7 +680,8 @@ def _hc_features(pe: PeSummary, sidecar_strings: dict[str, tuple[str, ...]]) -> 
         "html_body_renderer": "epwing2HtmlBodydata" in exports,
         "vertical_renderer": "epwing2HtmlBodydataVertical" in exports,
         "lvelib_renderer": "epwing2HtmlBodydataLVELib" in exports,
-        "custom_gaiji_dib": "getCustomCharacterDIB" in exports,
+        "custom_gaiji_dib": "getCustomCharacterDIB" in exports
+        or "SDicGetCustomCharacterBitmap" in bridge_imports,
         "headword_modifier": any(name.startswith("modifyHeadword") for name in exports),
         "panel_hooks": bool({"initializePanel", "finalizePanel"} & exports),
         "sql_hooks": bool({"initializeSQL", "finalizeSQL"} & exports)
