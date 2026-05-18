@@ -854,6 +854,34 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "008F":
+        rows.append(
+            HcHookBehavior(
+                name="kqbizej_jmidashi_margin_renderer",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC008F epwing2HtmlBodydata body loop 1f41 jMidashi branch",
+                    "HC008F body loop 1f05 eMidashi_Japanese continuation branch",
+                    "HC008F body loop 1f09 margin branch with 10-pixel multiplier",
+                    "HC008F body loop 1f42/1f43 lineLink branch",
+                    "HC008F gaiji image branch selecting img_gaiji_midashi versus img_gaiji",
+                ),
+                implementation=(
+                    "1f41/1f61 wrap heading text in jMidashi, 1f05 opens "
+                    "eMidashi_Japanese continuation text inside headings, 1f09 "
+                    "opens margin divs using the recovered 10-pixel multiplier, "
+                    "1f04/1f05 map to hankaku or hankakuMidashi spans according "
+                    "to heading state, 1f42/1f43 links use lineLink, template-backed "
+                    "gaiji emit dummy plus img_gaiji_midashi or img_gaiji, and "
+                    "1f4c/1f5c are consumed as renderer state"
+                ),
+                notes=(
+                    "The subset does not emulate generated custom-character DIB/GIF "
+                    "output, fixed HTML fallback loading, exact image-link wrapper "
+                    "lifecycle, or representative visual parity."
+                ),
+            )
+        )
     if code == "00A6":
         rows.append(
             HcHookBehavior(
@@ -2073,6 +2101,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0076_medical_body_renderer")
     if code == "007D":
         implemented.add("HC007D_midashi_margin_renderer")
+    if code == "008F":
+        implemented.add("HC008F_jmidashi_margin_renderer")
     if code == "00C7":
         implemented.add("HC00C7_lineinfo_template_gaiji_renderer")
     if code in {"014A", "02C3", "02C6"}:

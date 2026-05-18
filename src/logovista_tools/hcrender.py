@@ -686,6 +686,7 @@ HC004D_SECTION_SUPPRESS_PREVIOUS_KEYS = {"217b", "217c"}
 HC0076_TEMPLATE_IMAGE_MARKERS = {"2179", "217a"}
 HC0076_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
 HC007D_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x6D}
+HC008F_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C}
 HC00C7_MARK4_GAIJI_MARKERS = frozenset(f"b{value:03x}" for value in range(0x121, 0x12D))
 HC00C7_MARK_GAIJI_MARKERS = frozenset(
     [f"b{value:03x}" for value in range(0x12D, 0x131)]
@@ -2214,6 +2215,8 @@ def _link_css_class_for_context(options: HcRenderOptions, ctx: _Context | None, 
             return "lv-hc-link lineLink" if _hc007d_forces_plain_line_link(data, ctx.start_offset) else "lv-hc-link lineLink2"
         if ctx.start_op == 0x43:
             return "lv-hc-link lineLink"
+    if _renderer_code(options) == "008F" and ctx is not None and ctx.start_op in {0x42, 0x43}:
+        return "lv-hc-link lineLink"
     return _link_css_class(options, ctx.start_op if ctx else None)
 
 
@@ -2285,6 +2288,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
     if _renderer_code(options) == "0076" and op in {0x04, 0x41}:
         return None
     if _renderer_code(options) == "007D" and op in {0x04, 0x41}:
+        return None
+    if _renderer_code(options) == "008F" and op in {0x04, 0x41}:
         return None
     if _renderer_code(options) == "00C7" and op in {0x04, 0x12, 0x41}:
         return None
@@ -2883,6 +2888,39 @@ def _append_hc007d_gaiji_value(
         css_class = "img_gaiji_midashi" if in_heading else "img_gaiji"
         _append_renderer_image_gaiji(parts, key, image_src, css_class, stats)
         stats[f"hc007d_{css_class}_images"] += 1
+        return
+    mapped = options.gaiji_map.get(key)
+    if mapped:
+        stats["gaiji_unicode"] += 1
+        _append_text(parts, mapped)
+        if text_parts is not None:
+            text_parts.append(mapped)
+        return
+    stats["gaiji_placeholder"] += 1
+    parts.append(
+        f'<span class="lv-hc-gaiji lv-hc-gaiji-placeholder" '
+        f'data-gaiji-code="{_escape_attr(key)}"></span>'
+    )
+
+
+def _append_hc008f_gaiji_value(
+    parts: list[str],
+    text_parts: list[str] | None,
+    key: str,
+    options: HcRenderOptions,
+    stats: Counter[str],
+    *,
+    in_heading: bool,
+) -> None:
+    image_src = _image_source_for_key(key, options)
+    if image_src is not None:
+        dummy_src = _dummy_image_source(options)
+        if dummy_src is not None:
+            parts.append(f'<img src="{_escape_attr(dummy_src)}" class="img_dummy">')
+            stats["hc008f_dummy_images"] += 1
+        css_class = "img_gaiji_midashi" if in_heading else "img_gaiji"
+        _append_renderer_image_gaiji(parts, key, image_src, css_class, stats)
+        stats[f"hc008f_{css_class}_images"] += 1
         return
     mapped = options.gaiji_map.get(key)
     if mapped:
@@ -4850,6 +4888,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc007d_contents_body_open = False
     hc007d_heading_phase = _renderer_code(options) == "007D"
     hc007d_pending_contents_transition = False
+    hc008f_section_close: str | None = None
+    hc008f_jmidashi_open = False
+    hc008f_emidashi_japanese_open = False
+    hc008f_halfwidth_mode = False
+    hc008f_hankaku_open = False
     hc00c7_section_close: str | None = None
     hc00c7_current_section: int | None = None
     hc00c7_contents_body_open = False
@@ -4977,6 +5020,26 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         else:
                             stats["hc007d_unmapped_sections"] += 1
                             gaps.add(f"hc007d_unmapped_section_{code}")
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "008F":
+                        if hc008f_section_close is not None:
+                            if hc008f_hankaku_open:
+                                root.append("</span>")
+                                hc008f_hankaku_open = False
+                                halfwidth_depth = max(0, halfwidth_depth - 1)
+                                stats["hc008f_hankaku_forced_closures"] += 1
+                            root.append(hc008f_section_close)
+                            hc008f_section_close = None
+                            stats["hc008f_section_closures"] += 1
+                        value = _hc02c0_section_value(code)
+                        if value is not None:
+                            root.append(f'<div style="margin: {value * 10}px">')
+                            hc008f_section_close = "</div>"
+                            stats["hc008f_margin_sections"] += 1
+                        else:
+                            stats["hc008f_unmapped_sections"] += 1
+                            gaps.add(f"hc008f_unmapped_section_{code}")
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "0092":
@@ -6404,6 +6467,22 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     stats["line_breaks"] += 1
                     i += 2 + arg_len
                     continue
+                if _renderer_code(options) == "008F":
+                    parts = _current_parts(root_parts, contexts)
+                    if hc008f_section_close is not None:
+                        if hc008f_hankaku_open:
+                            parts.append("</span>")
+                            hc008f_hankaku_open = False
+                            halfwidth_depth = max(0, halfwidth_depth - 1)
+                            stats["hc008f_hankaku_forced_closures"] += 1
+                        parts.append(hc008f_section_close)
+                        hc008f_section_close = None
+                        stats["hc008f_section_closures"] += 1
+                    else:
+                        parts.append("<br>")
+                        stats["line_breaks"] += 1
+                    i += 2 + arg_len
+                    continue
                 if _renderer_code(options) == "00C7":
                     stats["hc00c7_section_end_controls"] += 1
                     i += 2 + arg_len
@@ -7780,6 +7859,60 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if _renderer_code(options) == "008F" and op == 0x41:
+                _current_parts(root_parts, contexts).append('<div class="jMidashi">')
+                hc008f_jmidashi_open = True
+                stats["headings"] += 1
+                stats["hc008f_jmidashi_blocks"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "008F" and op == 0x61:
+                if hc008f_hankaku_open:
+                    _current_parts(root_parts, contexts).append("</span>")
+                    hc008f_hankaku_open = False
+                    halfwidth_depth = max(0, halfwidth_depth - 1)
+                    stats["hc008f_hankaku_forced_closures"] += 1
+                hc008f_halfwidth_mode = False
+                if hc008f_emidashi_japanese_open:
+                    _current_parts(root_parts, contexts).append("</span>")
+                    hc008f_emidashi_japanese_open = False
+                    stats["hc008f_emidashi_japanese_closures"] += 1
+                if hc008f_jmidashi_open:
+                    _current_parts(root_parts, contexts).append("</div>")
+                    hc008f_jmidashi_open = False
+                    stats["hc008f_jmidashi_closures"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "008F" and op == 0x04:
+                if hc008f_emidashi_japanese_open:
+                    _current_parts(root_parts, contexts).append("</span>")
+                    hc008f_emidashi_japanese_open = False
+                    stats["hc008f_emidashi_japanese_closures"] += 1
+                hc008f_halfwidth_mode = True
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "008F" and op == 0x05:
+                if hc008f_hankaku_open:
+                    _current_parts(root_parts, contexts).append("</span>")
+                    hc008f_hankaku_open = False
+                    halfwidth_depth = max(0, halfwidth_depth - 1)
+                hc008f_halfwidth_mode = False
+                next_control = data[i + 2 + arg_len : i + 4 + arg_len]
+                if hc008f_jmidashi_open and next_control != b"\x1f\x61":
+                    _current_parts(root_parts, contexts).append('<span class="eMidashi_Japanese">')
+                    hc008f_emidashi_japanese_open = True
+                    stats["hc008f_emidashi_japanese_spans"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "008F" and op in HC008F_NONPRINTING_CONTROL_OPS:
+                stats["hc008f_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
             if _renderer_code(options) == "00C7" and op == 0x04:
                 _current_parts(root_parts, contexts).append('<span class="hankaku">')
                 style_stack.append(op)
@@ -9022,6 +9155,12 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             text = decode_jis_pair(data[i : i + 2])
             if text:
                 stats["jis_pairs"] += 1
+                if _renderer_code(options) == "008F" and hc008f_halfwidth_mode and not hc008f_hankaku_open:
+                    css_class = "hankakuMidashi" if hc008f_jmidashi_open else "hankaku"
+                    _current_parts(root_parts, contexts).append(f'<span class="{css_class}">')
+                    hc008f_hankaku_open = True
+                    halfwidth_depth += 1
+                    stats[f"hc008f_{css_class}_spans"] += 1
                 value = normalize_fullwidth_ascii(text) if halfwidth_depth else text
                 if _renderer_code(options) == "0048" and key in HC0048_MIDASHI_MARKERS and not hc0048_midashi_open:
                     parts = _current_parts(root_parts, contexts)
@@ -10172,6 +10311,17 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 )
                 i += 2
                 continue
+            if _renderer_code(options) == "008F" and _image_source_for_key(key, options) is not None:
+                _append_hc008f_gaiji_value(
+                    _current_parts(root_parts, contexts),
+                    _current_text_parts(contexts),
+                    key,
+                    options,
+                    stats,
+                    in_heading=hc008f_jmidashi_open,
+                )
+                i += 2
+                continue
             if _renderer_code(options) == "0063":
                 image_key = HC0063_DIRECT_IMAGE_MARKERS.get(key)
                 if image_key is not None:
@@ -10319,6 +10469,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             _current_parts(root_parts, contexts).append("</span>")
             continue
         if _renderer_code(options) == "007D" and popped == 0x04:
+            _current_parts(root_parts, contexts).append("</span>")
+            continue
+        if _renderer_code(options) == "008F" and popped == 0x04:
             _current_parts(root_parts, contexts).append("</span>")
             continue
         if _renderer_code(options) == "00C7" and popped == 0x04:
@@ -10554,6 +10707,20 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append("</div>")
     if hc007d_contents_body_open:
         _current_parts(root_parts, contexts).append("</div>")
+    if hc008f_emidashi_japanese_open:
+        _current_parts(root_parts, contexts).append("</span>")
+    if hc008f_jmidashi_open:
+        if hc008f_hankaku_open:
+            _current_parts(root_parts, contexts).append("</span>")
+            hc008f_hankaku_open = False
+            halfwidth_depth = max(0, halfwidth_depth - 1)
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc008f_section_close is not None:
+        if hc008f_hankaku_open:
+            _current_parts(root_parts, contexts).append("</span>")
+            hc008f_hankaku_open = False
+            halfwidth_depth = max(0, halfwidth_depth - 1)
+        _current_parts(root_parts, contexts).append(hc008f_section_close)
     if hc00c7_current_section == 0x16:
         _current_parts(root_parts, contexts).append("</font>")
     if hc00c7_section_close is not None:
