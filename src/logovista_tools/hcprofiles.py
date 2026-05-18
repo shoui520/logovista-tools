@@ -520,6 +520,31 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset excludes address-sensitive yourei versus youreihan selection, private smallcap directives, fixed HTML/fix fallback loading, generated custom-character GIF output, and broader visual parity.",
             )
         )
+    if code == "0020":
+        rows.append(
+            HcHookBehavior(
+                name="kencollo_midashi_definition_markers",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0020 epwing2HtmlBodydata 1f09 margin branch",
+                    "HC0020 1f41/1f0a midashi-to-contents_body branch",
+                    "HC0020 2221/2126 diamond and nakaguro definition-list branch",
+                    "HC0020 215A div_215a branch",
+                    "HC0020 1f42/1f43 lineLink2/lineLink branch",
+                    "HC0020 image-backed gaiji img_gaiji/img_gaiji_midashi branch",
+                    "Templates/00000020.css class definitions",
+                ),
+                implementation=(
+                    "Initial 1f41 opens midashi, first 1f0a opens contents_body, "
+                    "non-heading 1f09 sections open 3-pixel-multiplied margin-left "
+                    "containers, 2221/2126 create diamond/nakaguro definition-list "
+                    "rows, 215A opens the div_215a block with hr_div2, 222A emits the "
+                    "confer marker image, 1f42 uses lineLink2, 1f43 uses lineLink, and "
+                    "image-backed gaiji use img_gaiji or img_gaiji_midashi"
+                ),
+                notes="The subset excludes conditional 1f42 lineLink class switching, exact previous-entry fallback rendering, address-threshold hr_div insertion, generated custom-character GIF output, and broader visual parity.",
+            )
+        )
     if code == "0094":
         rows.append(
             HcHookBehavior(
@@ -1653,6 +1678,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0096_lineinfo_sections_and_template_gaiji")
     if code == "0090":
         implemented.add("HC0090_lineinfo_sections_and_gaiji_classes")
+    if code == "0020":
+        implemented.add("HC0020_midashi_definition_markers")
     if code == "0048":
         implemented.add("HC0048_margin_heading_sections")
         implemented.add("HC0048_media_div_placeholders")

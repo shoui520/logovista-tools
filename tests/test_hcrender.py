@@ -2962,6 +2962,78 @@ def test_hc0067_wraps_midashi_contents_margin_sections_and_line_links() -> None:
     assert rendered.stats["hc0067_nonprinting_controls"] == 2
 
 
+def test_hc0020_maps_midashi_contents_definition_markers_links_and_gaiji() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + bytes.fromhex("b12d")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("本文")
+        + bytes.fromhex("215a")
+        + jis_text("注")
+        + b"\x1f\x0a"
+        + bytes.fromhex("2221")
+        + jis_text("一")
+        + bytes.fromhex("2126")
+        + jis_text("二")
+        + b"\x1f\x0a"
+        + bytes.fromhex("222a")
+        + bytes.fromhex("224d")
+        + bytes.fromhex("b12e")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x43"
+        + jis_ascii("R")
+        + b"\x1f\x63\x00\x00\x00\x03\x00\x40"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0020",
+            image_sources={
+                "b12d": "Templates/b12d.png",
+                "b12e": "Templates/b12e.png",
+                "confer": "Templates/confer.png",
+                "diamond": "Templates/diamond.png",
+                "dummy": "Templates/dummy.GIF",
+                "nakaguro": "Templates/nakaguro.png",
+            },
+        ),
+    )
+
+    assert '<div class="midashi"><span class="hankaku">H</span>' in rendered.html
+    assert '<div class="contents_body">' in rendered.html
+    assert '<div style="margin-left: 9px">' in rendered.html
+    assert '<div class="hr_div2"></div><div class="div_215a">' in rendered.html
+    assert '<dl><dt><img src="Templates/diamond.png" class="img_diamond"></dt><dd>' in rendered.html
+    assert '</dd><dt><img src="Templates/nakaguro.png" class="img_diamond"></dt><dd>' in rendered.html
+    assert '<img src="Templates/confer.png" class="img_confer">' in rendered.html
+    assert '<img class="lv-hc-gaiji img_gaiji_midashi" src="Templates/b12d.png"' in rendered.html
+    assert '<img class="lv-hc-gaiji img_gaiji" src="Templates/b12e.png"' in rendered.html
+    assert 'class="lv-hc-link lineLink2"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert 'data-gaiji-code="224d"' not in rendered.html
+    assert rendered.html.count("<div") == rendered.html.count("</div>")
+    assert rendered.html.count("<dl") == rendered.html.count("</dl>")
+    assert rendered.stats["hc0020_midashi_blocks"] == 1
+    assert rendered.stats["hc0020_contents_body_blocks"] == 1
+    assert rendered.stats["hc0020_margin_sections"] == 1
+    assert rendered.stats["hc0020_definition_lists"] == 1
+    assert rendered.stats["hc0020_definition_terms"] == 1
+    assert rendered.stats["hc0020_confer_markers"] == 1
+    assert rendered.stats["hc0020_img_gaiji_midashi_images"] == 1
+    assert rendered.stats["hc0020_img_gaiji_images"] == 1
+    assert rendered.stats["hc0020_nonprinting_controls"] == 3
+
+
 def test_hc0069_wraps_midashi_contents_margin_sections_links_and_gaiji() -> None:
     body = (
         b"\x1f\x09\x00\x01"

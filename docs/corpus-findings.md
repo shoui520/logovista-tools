@@ -1589,6 +1589,18 @@ gaiji. Address-sensitive `yourei` versus `youreihan`, private smallcap
 directives, fixed HTML/fix fallback loading, generated custom-character GIF
 output, and visual parity remain named gaps.
 
+The KENCOLLO branch-subset proof case is `HC0020.dll`. Its body loop maps the
+initial heading state to a `midashi` block and the first `1f0a` transition to
+`contents_body`. Non-heading `1f09` sections become 3-pixel-multiplied
+margin-left wrappers. The recovered marker branches map `2221` and `2126` to
+definition-list rows with `diamond.png` and `nakaguro.png`, `215A` to a
+`hr_div2` plus `div_215a` block, and `222A` to the `confer.png` marker image.
+Links use `lineLink2` for `1f42` and `lineLink` for `1f43` in the implemented
+subset, while image-backed gaiji use the `dummy.gif` spacer plus
+`img_gaiji_midashi` or `img_gaiji`. Conditional `1f42` class switching,
+previous-entry fallback rendering, address-threshold `hr_div` insertion,
+generated custom-character GIF output, and visual parity remain named gaps.
+
 Some other renderer families are decoded but deliberately not implemented yet.
 The toolkit keeps unresolved branches as named behavior gaps rather than
 guessing from strings alone.
