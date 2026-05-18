@@ -705,6 +705,27 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset does not emulate exact horizontal table-cell lifecycle, custom DIB generation, footer navigation, or visual parity.",
             )
         )
+    if code == "00BB":
+        rows.append(
+            HcHookBehavior(
+                name="gen2000_honbun_section_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC00BB epwing2HtmlBodydataVertical 1f09 section ladder",
+                    "HC00BB honbun margin branch",
+                    "HC00BB midashi and halfwidth span branches",
+                    "HC00BB lineLink/media template strings",
+                    "Templates/00000134.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to honbun/footer blocks with the recovered "
+                    "4-pixel margin multiplier, 1f41/1f61 wrap midashi text, "
+                    "1f04/1f05 handle hankaku spans, links use lineLink, and "
+                    "1f5c/1f6d are consumed as renderer state"
+                ),
+                notes="The subset does not emulate fixed HTML/body fallback loading, generated custom DIB output, previous/next footer generation, or visual parity.",
+            )
+        )
     if code == "00A6":
         rows.append(
             HcHookBehavior(
@@ -1889,6 +1910,8 @@ def build_hc_behavior_profile(
         implemented.add("HC00C5_section_image_layout")
     if code == "00AD":
         implemented.add("HC00AD_large_character_section_layout")
+    if code == "00BB":
+        implemented.add("HC00BB_honbun_section_layout")
     if code in {"014A", "02C3", "02C6"}:
         implemented.add("HC_HKDKSR_medical_section_layout")
     if code == "008C":
