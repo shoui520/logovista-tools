@@ -2382,6 +2382,87 @@ def test_hc014f_maps_midashi_contents_links_decoration_and_gaiji_classes() -> No
     assert rendered.stats["hc014f_img_gaiji_images"] == 1
 
 
+def test_hc0135_maps_sinmei_sections_private_images_links_and_gaiji_classes() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("H")
+        + b"\x1f\x05"
+        + bytes.fromhex("b555")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x09"
+        + jis_text("本文")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x0b"
+        + b"\x1f\x06"
+        + jis_text("小")
+        + b"\x1f\x07"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x1e"
+        + jis_text("例")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x26"
+        + bytes.fromhex("214c214c214d214d22652175216f")
+        + b"\x1f\xe2"
+        + jis_fullwidth_ascii("shikakuha")
+        + b"\x1f\xe3"
+        + bytes.fromhex("b556")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x5c"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0135",
+            image_sources={
+                "b122": "Templates/b122.png",
+                "b123": "Templates/b123.png",
+                "b555": "Templates/B555.png",
+                "b556": "Templates/B556.png",
+                "dummy": "Templates/dummy.gif",
+                "exam": "Templates/exam.png",
+                "jyokon": "Templates/jyokon.png",
+                "shikakuha": "Templates/shikakuha.png",
+            },
+        ),
+    )
+
+    assert '<div class="midashi"><span class="hankaku">H</span>' in rendered.html
+    assert '<div class="contents_body">' in rendered.html
+    assert '<div class="content_IND0">本文</div>' in rendered.html
+    assert '<div class="content_IND1"><span class="sizedown"><sub>小</sub></span></div>' in rendered.html
+    assert '<p class="contents_yourei">例</p>' in rendered.html
+    assert '<img src="Templates/exam.png" class="img_icon">' in rendered.html
+    assert '<img src="Templates/b122.png" class="img_gaiji">' in rendered.html
+    assert '<img src="Templates/b123.png" class="img_gaiji">' in rendered.html
+    assert '<img src="Templates/jyokon.png" class="img_icon">' in rendered.html
+    assert '<img src="Templates/shikakuha.png" class="img_icon">' in rendered.html
+    assert '<img src="Templates/dummy.gif" class="img_dummy">' in rendered.html
+    assert '<img class="lv-hc-gaiji img_gaiji_midashi" src="Templates/B555.png"' in rendered.html
+    assert '<img class="lv-hc-gaiji img_gaiji" src="Templates/B556.png"' in rendered.html
+    assert "&amp;&yen;" in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "data-lv-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.html.count("<div") == rendered.html.count("</div>")
+    assert rendered.html.count("<p") == rendered.html.count("</p>")
+    assert rendered.stats["hc0135_midashi_blocks"] == 1
+    assert rendered.stats["hc0135_contents_body_blocks"] == 1
+    assert rendered.stats["hc0135_section_content_IND0"] == 1
+    assert rendered.stats["hc0135_section_content_IND1"] == 1
+    assert rendered.stats["hc0135_section_contents_yourei"] == 1
+    assert rendered.stats["hc0135_private_directive_images"] == 1
+    assert rendered.stats["hc0135_jis_image_markers"] == 3
+    assert rendered.stats["hc0135_img_gaiji_midashi_images"] == 1
+    assert rendered.stats["hc0135_img_gaiji_images"] == 1
+    assert "unknown_control_1f5c" not in rendered.named_behavior_gaps
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+
+
 def test_hc0091_maps_midashi_contents_marker_images_links_and_gaiji_classes() -> None:
     body = (
         b"\x1f\x41\x00\x00"
@@ -4650,6 +4731,37 @@ def test_hc014f_profile_records_subset_without_claiming_parity() -> None:
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC014F_midashi_contents_and_decoration_modes" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+    assert "sql_hook" in data["named_gaps"]
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
+def test_hc0135_profile_records_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0135.dll"),
+        code="0135",
+        expected_numeric_index="00000135.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/00000135.css",),
+        sql_snippets=("SELECT f_word FROM t_originalsearch WHERE f_word LIKE '%'",),
+        image_templates=("Templates/exam.png", "Templates/shikakuha.png"),
+        features={"custom_gaiji_dib": True, "headword_modifier": True, "plugin_hooks": True, "sql_hooks": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC0135_sinmei_sections_and_private_markers" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]

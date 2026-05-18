@@ -221,6 +221,32 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset excludes fixed HTML/fix fallback loading, exact previous/next page movement links, generated custom-character PNG output, SQL helper UI, modifyHeadwordEx, and broader visual parity.",
             )
         )
+    if code == "0135":
+        rows.append(
+            HcHookBehavior(
+                name="sinmei_section_and_private_marker_renderer",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0135 epwing2HtmlBodydataVertical 1f09 section branch",
+                    "HC0135 1f0a heading/body transition branch",
+                    "HC0135 1f06/1f07 sizedown-subscript branch",
+                    "HC0135 1f42/1f43 lineLink templates",
+                    "HC0135 1fe2/1fe3 named private image directive branch",
+                    "HC0135 image-backed gaiji img_gaiji/img_gaiji_midashi branch",
+                    "Templates/00000135.css class definitions",
+                ),
+                implementation=(
+                    "1f09 value 1 opens midashi, 1f0a closes midashi and opens "
+                    "contents_body, values 9/11/12 map to content_IND0/1/2, "
+                    "value 30 maps to contents_yourei, value 38 emits exam.png "
+                    "when the template is present, 1f06/1f07 emit sizedown subscript, "
+                    "internal links use lineLink, named private directives render "
+                    "template icons, and image-backed gaiji use dummy.gif plus "
+                    "img_gaiji or img_gaiji_midashi"
+                ),
+                notes="The subset excludes fixed HTML/fix fallback loading, exact previous/next navigation, generated custom-character DIB output, SQL helper UI, modifyHeadword hooks, and broader visual parity.",
+            )
+        )
     if code == "0C80":
         rows.append(
             HcHookBehavior(
@@ -1702,6 +1728,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0096_lineinfo_sections_and_template_gaiji")
     if code == "0090":
         implemented.add("HC0090_lineinfo_sections_and_gaiji_classes")
+    if code == "0135":
+        implemented.add("HC0135_sinmei_sections_and_private_markers")
     if code == "014F":
         implemented.add("HC014F_midashi_contents_and_decoration_modes")
     if code == "0020":

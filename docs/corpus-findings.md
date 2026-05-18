@@ -1601,6 +1601,20 @@ gaiji when resource evidence exists. Fixed HTML/fix fallback loading, exact
 previous/next `page_movement_img` links, generated custom-character PNG/DIB
 output, SQL helper UI, `modifyHeadwordEx`, and visual parity remain named gaps.
 
+The SINMEI7 branch-subset proof case is `HC0135.dll`. Its body loop maps
+section `0001` to the product `midashi` block and commonly transitions with
+`1f61` into `honbun_user`; the recovered `1f0a` heading transition can also
+open `contents_body`. Sections `0009`, `000B`, and `000C` map to
+`content_IND0`, `content_IND1`, and `content_IND2`; section `001E` maps to
+`contents_yourei`, and section `0026` emits the product `exam.png` icon when
+the template is present. The same branch subset maps `1f06`/`1f07` to
+`sizedown` subscript spans, uses `lineLink` for internal links, maps named
+`1fe2` private directives such as grammar/usage labels to template icons, and
+uses the `dummy.gif` spacer plus `img_gaiji_midashi` or `img_gaiji` for
+image-backed gaiji when resource evidence exists. Fixed HTML/fix fallback
+loading, exact previous/next navigation, generated custom-character DIB output,
+SQL helper UI, `modifyHeadword`, and visual parity remain named gaps.
+
 The KENCOLLO branch-subset proof case is `HC0020.dll`. Its body loop maps the
 initial heading state to a `midashi` block and the first `1f0a` transition to
 `contents_body`. Non-heading `1f09` sections become 3-pixel-multiplied
