@@ -5481,10 +5481,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if ctx is not None:
                     if _renderer_code(options) == "00A6":
                         directive_text = _private_directive_text("".join(ctx.text_parts))
-                        if directive_text.startswith("RUB:S"):
-                            ruby_text = directive_text[5:]
+                        if directive_text == "RUB:E":
                             ctx.parent.append('<ruby class="ruby7"><rb class="rb7">')
-                            hc00a6_ruby_readings.append(ruby_text)
+                            hc00a6_ruby_readings.append("")
                             stats["hc00a6_ruby_starts"] += 1
                             private_directives.append(
                                 {
@@ -5497,7 +5496,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             )
                             i += 2 + arg_len
                             continue
-                        if directive_text.startswith("RUB:E"):
+                        if directive_text.startswith("RUB:S"):
                             if not hc00a6_ruby_readings:
                                 gaps.add("hc00a6_unmatched_ruby_end")
                                 private_directives.append(
@@ -5511,7 +5510,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                                 )
                                 i += 2 + arg_len
                                 continue
-                            ruby_text = hc00a6_ruby_readings.pop()
+                            hc00a6_ruby_readings.pop()
+                            ruby_text = directive_text[5:]
                             ctx.parent.append(
                                 '</rb><rp class="rp7">(</rp>'
                                 f'<rt class="rt7">{_escape_text(ruby_text)}</rt>'

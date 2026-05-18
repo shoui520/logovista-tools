@@ -1585,8 +1585,8 @@ def test_hc0137_maps_iwanami_sections_and_line_links() -> None:
 
 
 def test_hc00a6_maps_sections_ruby_and_line_links() -> None:
-    ruby_start = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:S") + jis_text("よ") + b"\x1f\xe3\x00\x00"
-    ruby_end = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:E") + b"\x1f\xe3\x00\x00"
+    ruby_start = b"\x1f\xe2\x00\x05" + jis_fullwidth_ascii("RUB:E") + b"\x1f\xe3\x00\x00"
+    ruby_end = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:S") + jis_text("よ") + b"\x1f\xe3\x00\x00"
     body = (
         b"\x1f\x09\x00\x01"
         + b"\x1f\x41\x00\x00"
