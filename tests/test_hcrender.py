@@ -3609,6 +3609,35 @@ def test_hc0146_renders_color_font_markers_without_gaiji_placeholders() -> None:
     assert rendered.stats["hc0146_style_markers"] == 2
 
 
+def test_hc0146_renders_recovered_style_marker_pairs() -> None:
+    body = (
+        b"\xb2\x30"
+        + jis_ascii("A")
+        + b"\xb2\x31"
+        + b"\xb2\x34"
+        + jis_ascii("B")
+        + b"\xb2\x35"
+        + b"\xb2\x38"
+        + jis_ascii("C")
+        + b"\xb2\x39"
+        + b"\xb2\x44"
+        + jis_ascii("D")
+        + b"\xb2\x45"
+        + b"\xb3\x54"
+        + jis_ascii("E")
+        + b"\xb3\x55"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0146"))
+
+    assert '<span class="plain_font"><span class="lv-hc-halfwidth">A</span></span>' in rendered.html
+    assert '<span class="not_italic_font"><span class="lv-hc-halfwidth">B</span></span>' in rendered.html
+    assert '<span class="under_line"><span class="lv-hc-halfwidth">C</span></span>' in rendered.html
+    assert '<span class="under_line"><span class="lv-hc-halfwidth">D</span></span>' in rendered.html
+    assert '<small><span class="lv-hc-halfwidth">E</span></small>' in rendered.html
+    assert rendered.stats["hc0146_style_markers"] == 10
+
+
 def test_hc0146_renders_dll_backed_image_marker_classes() -> None:
     rendered = render_hc_body(
         b"\xb1\x57\xb2\x5a\xb3\x57",
@@ -3625,9 +3654,9 @@ def test_hc0146_renders_dll_backed_image_marker_classes() -> None:
     assert 'src="Templates/b157_M.png"' in rendered.html
     assert 'class="lv-hc-gaiji img_mark4"' in rendered.html
     assert 'src="Templates/b25a.png"' in rendered.html
-    assert 'class="lv-hc-gaiji gaiji_icon"' in rendered.html
+    assert rendered.html.count('class="lv-hc-gaiji img_mark4"') == 2
     assert 'src="Templates/b357.png"' in rendered.html
-    assert 'class="lv-hc-gaiji gaiji_full"' in rendered.html
+    assert 'class="lv-hc-gaiji gaiji_icon"' in rendered.html
     assert rendered.stats["hc0146_image_markers"] == 3
     assert rendered.stats["gaiji_image"] == 3
 
@@ -3670,12 +3699,37 @@ def test_hc0146_maps_common_body_sections_and_links() -> None:
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="0146"))
 
     assert '<div class="midashi">' in rendered.html
-    assert '<div class="honbun" style="margin-left:0.000000em;">本文</div>' in rendered.html
+    assert '<span class="indent_minus">本文</span>' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert "lv-hc-section" not in rendered.html
     assert "lv-hc-heading" not in rendered.html
     assert rendered.stats["hc0146_state_sections"] == 2
     assert rendered.stats["hc0146_honbun_sections"] == 1
+    assert rendered.stats["hc0146_template_sections"] == 1
+
+
+def test_hc0146_maps_recovered_example_and_translation_sections() -> None:
+    body = (
+        b"\x1f\x09\x02\x10"
+        + jis_text("例")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x02\x20"
+        + jis_text("訳")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x02\x50"
+        + jis_text("成句")
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0146"))
+
+    assert '<div class="column_frame exam_frame"><span class="exam_text">例</span></div>' in rendered.html
+    assert '<span class="exam_translate">訳</span>' in rendered.html
+    assert '<span class="idiom_text_color">成句</span>' in rendered.html
+    assert "hc0146_unmapped_section_branch" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc0146_section_exam_text"] == 1
+    assert rendered.stats["hc0146_section_exam_translate"] == 1
+    assert rendered.stats["hc0146_section_idiom_text_color"] == 1
 
 
 def test_hc_render_assets_copy_images_and_normalise_product_css(tmp_path: Path) -> None:

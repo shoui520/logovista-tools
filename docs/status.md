@@ -439,11 +439,14 @@ and non-SSED reader status are tracked separately in
   table; `PCMDATA.DIC` sound ranges use the package `sound.png` template when
   present. Product wrapper, section/layout state, and custom hooks remain
   visually incomplete.
-- `HC0146.dll` now has a focused raw-HONMON branch-subset proof: B232/B233
-  `color_font` delimiters, B240 literal abbreviation text, nonprinting
-  template selectors, and classed image-gaiji ranges are handled from the
-  decompiled body-loop branch table and `Templates/00000146.css`. Product
-  wrapper, section/layout state, and custom hooks remain visually incomplete.
+- `HC0146.dll` now has a focused raw-HONMON branch-subset proof: B230/B231
+  `plain_font`, B232/B233 `color_font`, B234/B235 `not_italic_font`,
+  B238/B239 and B244/B245 `under_line`, B354/B355 `small`, B240 literal
+  abbreviation text, recovered image-marker classes, and the clear BCD `1f09`
+  section subset for sub-caption, example, translation, idiom, and column
+  frames are handled from the decompiled body-loop branch table and
+  `Templates/00000146.css`. Residual section branches, product wrapper state,
+  and custom hooks remain visually incomplete.
 - `HC0142.dll` now has a focused raw-HONMON branch-subset proof: `1f41` starts
   the `midashi` block, `1f0a` transitions into the `honbun` block or emits line
   breaks, internal links use `lineLink`, and recovered marker gaiji emit
@@ -535,6 +538,16 @@ and non-SSED reader status are tracked separately in
   `img_inline` placeholders, and `1f5c`/`1f6d` are consumed as renderer state.
   Fixed HTML/body fallback loading, exact previous/next footer generation,
   generated custom DIB output, and visual parity remain incomplete.
+- The late GEN-year renderer subset now covers `HC02C9.dll`, `HC02CB.dll`,
+  `HC02CC.dll`, `HC02CD.dll`, and `HC02D1.dll`: body `1f09` sections use the
+  recovered GEN-year `honbun` wrappers, `1fe2` `2331..2334` emits numbered
+  `img_icon` templates, `B12D`/`B12E`/`B12F` and `B132..B137` map to the
+  recovered `img_mark` / `img_mark2` template classes, state markers are
+  consumed, and the HC02CB/HC02CC/HC02CD `B135` literal branch emits U+20BB7.
+  Focused renders for GEN2018, GENMEM1, GENMEM2, GEN2020, and GEN2021 emitted
+  no raw render gaps for this subset. Custom DIB generation, `modifyHeadword`,
+  Panel lifecycle hooks, fixed HTML/body fallback loading, exact previous/next
+  navigation footer generation, and visual parity remain incomplete.
 - `HC00A0.dll` now has a focused raw-HONMON branch-subset proof for the
   Gakken phrase/detail renderer used by GKBUSINE/GKTRAVEL: `1f09` section
   `0001` fills the English detail slot, section `0002` fills the Japanese

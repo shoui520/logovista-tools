@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             41   HC013A, HC0065, HC009B, HC00B3, HC00A0, HC00A4, HC00A9, HC0068, HC02C0, HC013C, HC02CA, HC0136, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
-needs marker branch decode:          49
+decoded branch subsets:             47   HC013A, HC0065, HC009B, HC00B3, HC00A0, HC00A4, HC00A9, HC0068, HC02C0, HC013C, HC02C9, HC02CA, HC02CB, HC02CC, HC02CD, HC02D1, HC0136, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
+needs marker branch decode:          43
 common controls plus named gaps:     14
 common controls candidate verify:     0
 exact-body sidecar HC hooks unprofiled: 5
@@ -1572,6 +1572,20 @@ carry `lineLink`; media controls use `img_inline` placeholders; and `1f5c`/
 exact previous/next footer generation, generated custom-character DIB output,
 and visual parity remain named gaps.
 
+The late GEN-year branch-subset family covers `HC02C9.dll`, `HC02CB.dll`,
+`HC02CC.dll`, `HC02CD.dll`, and `HC02D1.dll`. Their decompiled body loops
+share the same section/icon/template-marker grammar used by the surrounding
+GEN annual renderers: body `1f09` sections open `honbun` wrappers, `1fe2`
+`2331..2334` emits numbered `img_icon` templates, `B12D`/`B12E`/`B12F` emit
+`img_mark` templates, `B132..B137` emit `img_mark2` templates, and
+`B130`/`B131`/`B138` plus `1f5c`/`1f6d` are renderer state. The
+HC02CB/HC02CC/HC02CD variants special-case `B135` as U+20BB7 before the image
+marker range. Focused renders for `_DCT_GEN2018`, `_DCT_GENMEM1`,
+`_DCT_GENMEM2`, `_DCT_GEN2020`, and `_DCT_GEN2021` emitted no raw render gaps
+for the implemented subset. Custom DIB generation, `modifyHeadword`, Panel
+lifecycle hooks, fixed HTML/body fallback loading, exact previous/next
+navigation footer generation, and visual parity remain named gaps.
+
 The GEN2019 branch-subset proof case is `HC02CA.dll`. Its body loop follows
 the margin-based GEN renderer shape: `1f09` section `0001` is heading state,
 body sections open `honbun` margin containers, section `000c` opens `footer`,
@@ -1591,14 +1605,15 @@ and `1f5c`/`1f6d` are renderer-state controls. Exact previous/next navigation
 footer generation and visual parity remain named gaps.
 
 The PROYAL43 branch-subset proof case is `HC0146.dll`. Its vertical body
-loop maps B232/B233 to a `color_font` delimiter pair, B240 to the literal
-abbreviation label `略：`, B157-B159 to `_M` image templates with
-`img_mark4`, B25A-B351 to `gaiji_icon`, and B23B/B357-B424 to `gaiji_full`.
-B236/B237/B241 and B44F-B451 are consumed as renderer template selectors rather
-than displayed as glyphs. Several other HC0146 branches still route through
-runtime-initialized template globals; those remain named gaps until the
-concrete open tags, section/layout state, wrapper CSS, and state transitions are
-recovered.
+loop maps B230/B231 to `plain_font`, B232/B233 to `color_font`, B234/B235 to
+`not_italic_font`, B238/B239 and B244/B245 to `under_line`, B354/B355 to
+`small`, and B240 to the literal abbreviation label `略：`. Image-marker
+branches map B157-B159 and B25A-B351 to `img_mark4`, while B23B and
+B357-B424 map to `gaiji_icon`. The clear BCD `1f09` section subset now emits
+the recovered sub-caption, example-text, example-translation, idiom, and
+column-frame templates. B236/B237/B241 and B44F-B451 are consumed as renderer
+template selectors rather than displayed as glyphs. Residual HC0146 section
+branches remain named gaps until their stateful wrapper behavior is recovered.
 
 The KQSYNONM branch-subset proof case is `HC0091.dll`. Its body loop uses
 `midashi` and `contents_body` wrappers, switches halfwidth text between

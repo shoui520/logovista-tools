@@ -1555,16 +1555,24 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 status="branch_subset_implemented",
                 evidence=(
                     "HC0146 epwing2HtmlBodydataVertical 1f09 body-section branch",
-                    "HC0146 epwing2HtmlBodydataVertical B232/B233 color-font branches",
+                    "HC0146 epwing2HtmlBodydataVertical B230/B231, B232/B233, "
+                    "B234/B235, B238/B239, B244/B245, and B354/B355 style branches",
                     "HC0146 B157-B159, B25A-B351, B23B, and B357-B424 image-template branches",
                     "Templates/00000146.css class definitions",
                 ),
                 implementation=(
-                    "1f09 ordinary body sections render as HC0146 honbun blocks, B232/B233 "
-                    "color_font delimiter pair, B240 literal abbreviation label, nonprinting "
-                    "template selectors, and classed image gaiji templates"
+                    "Clear BCD 1f09 sections render recovered sub-caption, example, "
+                    "translation, idiom, and column-frame templates; paired style "
+                    "markers render plain_font, color_font, not_italic_font, under_line, "
+                    "and small wrappers; B240 renders the literal abbreviation label; "
+                    "nonprinting template selectors are consumed; and image-marker "
+                    "branches use the recovered img_mark4/gaiji_icon classes."
                 ),
-                notes="The implementation covers branches whose destination template is recovered from the body loop and package CSS; unresolved BSS-backed open spans remain named gaps.",
+                notes=(
+                    "The implementation covers branches whose destination template is "
+                    "recovered from the body loop and package CSS; residual stateful "
+                    "section branches remain named gaps."
+                ),
             )
         )
     if code == "0158":
@@ -1891,7 +1899,7 @@ def build_hc_behavior_profile(
         implemented.add("HC0142_panel_body_marker_layout")
     if code == "0146":
         implemented.add("HC0146_inline_marker_gaiji")
-        implemented.add("HC0146_common_honbun_section_blocks")
+        implemented.add("HC0146_recovered_bcd_section_templates")
     if code == "0158":
         implemented.add("HC0158_inline_style_gaiji")
         implemented.add("HC0158_sound_icon_audio_link")

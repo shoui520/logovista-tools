@@ -450,10 +450,18 @@ HC0158_COLUMN_SECTION_VALUES = {23, 25, 27, 29, 31, 33, 35}
 HC0158_STATE_SECTION_VALUES = {1, 24, 26, 28, 30, 32, 34, 36}
 
 HC0146_OPEN_MARKERS: dict[str, _RendererGaijiRule] = {
+    # HC0146 uses C++ template-string globals for these paired marker
+    # branches.  The names below are recovered from the branch destinations
+    # rather than inferred from marker numbers.
+    "b230": _RendererGaijiRule('<span class="plain_font">', "b231", "</span>"),
     # HC0146 maps this pair to a color-font span. The close side is an
     # explicit </font> branch in the renderer loop; the open pointer is set up
     # by the renderer's template globals and matches 00000146.css.
     "b232": _RendererGaijiRule('<font class="color_font">', "b233", "</font>"),
+    "b234": _RendererGaijiRule('<span class="not_italic_font">', "b235", "</span>"),
+    "b238": _RendererGaijiRule('<span class="under_line">', "b239", "</span>"),
+    "b244": _RendererGaijiRule('<span class="under_line">', "b245", "</span>"),
+    "b354": _RendererGaijiRule("<small>", "b355", "</small>"),
 }
 HC0146_CLOSE_MARKERS = frozenset(rule.close_code for rule in HC0146_OPEN_MARKERS.values() if rule.close_code)
 HC0146_NOOP_MARKERS = {
@@ -475,10 +483,134 @@ HC0146_LITERAL_MARKERS = {
 }
 HC0146_IMAGE_MARKERS: dict[str, _RendererImageGaijiRule] = {
     **{f"b{value:03x}": _RendererImageGaijiRule("img_mark4") for value in range(0x157, 0x15A)},
-    **{f"b{value:03x}": _RendererImageGaijiRule("gaiji_icon") for value in range(0x25A, 0x352)},
-    "b23b": _RendererImageGaijiRule("gaiji_full"),
-    **{f"b{value:03x}": _RendererImageGaijiRule("gaiji_full") for value in range(0x357, 0x425)},
+    **{f"b{value:03x}": _RendererImageGaijiRule("img_mark4") for value in range(0x25A, 0x352)},
+    "b23b": _RendererImageGaijiRule("gaiji_icon"),
+    **{f"b{value:03x}": _RendererImageGaijiRule("gaiji_icon") for value in range(0x357, 0x425)},
 }
+
+HC0146_STATE_SECTION_VALUES = {
+    1,
+    30,
+    31,
+    50,
+    80,
+    100,
+    120,
+    160,
+    260,
+    261,
+    262,
+    270,
+    280,
+    290,
+    300,
+    310,
+    320,
+    321,
+    350,
+    360,
+    370,
+    380,
+    381,
+    382,
+    400,
+    420,
+    430,
+    431,
+    432,
+    440,
+    460,
+    470,
+    471,
+    472,
+    600,
+    620,
+    621,
+    623,
+    680,
+    700,
+    710,
+    730,
+    770,
+    790,
+    800,
+    9999,
+}
+
+HC0146_SECTION_TEMPLATES: dict[int, tuple[str, str, str]] = {
+    2: ('<span class="sub_caption">', "</span>", "sub_caption"),
+    10: ('<span class="indent_minus">', "</span>", "indent_minus"),
+    20: (
+        '<div class="column_frame cm_f_resume"><p class="column_title cm_t_resume">'
+        '<img src="b177.png" class="column_icon"></p><span class="indent_minus">',
+        "</span></div>",
+        "resume_column",
+    ),
+    21: (
+        '<div class="column_frame cm_f_resume"><p class="column_title cm_t_resume">'
+        '<img src="b177.png" class="column_icon"></p><span class="indent_minus">',
+        "</span></div>",
+        "resume_column",
+    ),
+    40: ('<div class="column_frame cm_f_point">', "</div>", "point_column"),
+    90: (
+        '<div class="column_frame cm_f_conversation_sentence">'
+        '<p class="column_title cm_t_conversation_sentence">会話文成句</p>',
+        "</div>",
+        "conversation_sentence_column",
+    ),
+    110: (
+        '<div class="column_frame cm_f_connect_conversation">'
+        '<p class="column_title cm_t_connect_conversation">会話をつなぐ</p>',
+        "</div>",
+        "connect_conversation_column",
+    ),
+    130: (
+        '<div class="column_frame cm_f_connection"><p class="column_title cm_t_connection">'
+        '<img src="b243.png" class="column_icon"></p>',
+        "</div>",
+        "connection_column",
+    ),
+    170: ('<span class="indent_minus">', "</span>", "indent_minus"),
+    171: ('<span class="indent_minus">', "</span>", "indent_minus"),
+    172: ('<span class="indent_minus">', "</span>", "indent_minus"),
+    173: ('<span class="indent_minus">', "</span>", "indent_minus"),
+    180: ('<span class="indent_minus">', "</span>", "indent_minus"),
+    181: ('<span class="indent_minus">', "</span>", "indent_minus"),
+    190: ('<span class="indent_minus">', "</span>", "indent_minus"),
+    210: ('<div class="column_frame exam_frame"><span class="exam_text">', "</span></div>", "exam_text"),
+    211: ('<div class="column_frame exam_frame"><span class="exam_text">', "</span></div>", "exam_text"),
+    212: ('<div class="column_frame exam_frame"><span class="exam_text">', "</span></div>", "exam_text"),
+    213: ('<div class="column_frame exam_frame"><span class="exam_text">', "</span></div>", "exam_text"),
+    214: (
+        '<div class="column_frame exam_frame"><span class="exam_text"><span class="small_font">¶</span>',
+        "</span></div>",
+        "exam_text_small_marker",
+    ),
+    220: ('<span class="exam_translate">', "</span>", "exam_translate"),
+    221: ('<span class="exam_translate">', "</span>", "exam_translate"),
+    222: ('<span class="exam_translate">', "</span>", "exam_translate"),
+    223: ('<span class="exam_translate">', "</span>", "exam_translate"),
+    224: ('<span class="exam_translate">', "</span>", "exam_translate"),
+    225: ('<span class="exam_translate">', "</span>", "exam_translate"),
+    226: ('<span class="exam_translate">', "</span>", "exam_translate"),
+    250: ('<span class="idiom_text_color">', "</span>", "idiom_text_color"),
+    251: ('<span class="idiom_text_color">', "</span>", "idiom_text_color"),
+    252: ('<span class="idiom_text_color">', "</span>", "idiom_text_color"),
+}
+
+
+def _hc0146_section_parts(code: str) -> tuple[list[str], str | None, str | None, bool]:
+    value = _hc0146_section_value(code)
+    if value is None:
+        return [], None, None, False
+    section = HC0146_SECTION_TEMPLATES.get(value)
+    if section is not None:
+        html, close, label = section
+        return [html], close, label, False
+    if value in HC0146_STATE_SECTION_VALUES:
+        return [], None, f"state_{value}", False
+    return ['<div class="honbun" style="margin-left:0.000000em;">'], "</div>", "fallback_honbun", True
 
 HC00C6_SECTION_DIVS = {
     "0001": '<div class="midashi">',
@@ -4793,17 +4925,22 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         if hc0146_section_close is not None:
                             root.append(hc0146_section_close)
                             hc0146_section_close = None
-                        value = _hc0146_section_value(code)
-                        if value in {1, 9999, 730}:
+                        section_parts, hc0146_section_close, section_label, section_is_fallback = _hc0146_section_parts(code)
+                        if not section_parts:
                             stats["hc0146_state_sections"] += 1
                             i += 2 + arg_len
                             continue
-                        if value is not None:
-                            root.append('<div class="honbun" style="margin-left:0.000000em;">')
-                            hc0146_section_close = "</div>"
-                            stats["hc0146_honbun_sections"] += 1
-                            i += 2 + arg_len
-                            continue
+                        root.extend(section_parts)
+                        if section_is_fallback:
+                            gaps.add("hc0146_unmapped_section_branch")
+                            stats["hc0146_fallback_honbun_sections"] += 1
+                        else:
+                            stats["hc0146_template_sections"] += 1
+                            if section_label is not None:
+                                stats[f"hc0146_section_{section_label}"] += 1
+                        stats["hc0146_honbun_sections"] += 1
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "0157":
                         if hc0157_section_close is not None:
                             root.append(hc0157_section_close)
