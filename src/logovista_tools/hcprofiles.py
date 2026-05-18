@@ -451,14 +451,14 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "the first 1f0a transitions into contents_body; understood "
                     "1f09 body sections map to medblk, medblkcaution, medprice, "
                     "medimage, medcaution, and margin-left blocks; internal links "
-                    "carry the recovered lineLink/lineLink2 classes and image-backed "
-                    "gaiji use img_gaiji"
+                    "carry the recovered lineLink/lineLink2/lineLink3 classes and "
+                    "image-backed or GA16/GAI16-backed gaiji use img_gaiji"
                 ),
                 notes=(
-                    "The subset does not emulate HC008C's neighboring-JIS conditional "
-                    "lineLink/lineLink2/lineLink3 selection, title/title2 text-trigger "
-                    "state machine, generated gaiji GIF emission, custom DIB generation, "
-                    "fixed HTMLs fallback loading, or previous/next navigation footer."
+                    "The subset does not emulate HC008C's title/title2 text-trigger "
+                    "state machine, product-specific generated GIF/DIB behavior beyond "
+                    "GA16/GAI16 BMP fallback, fixed HTMLs fallback loading, or "
+                    "previous/next navigation footer."
                 ),
             )
         )
@@ -1437,6 +1437,7 @@ def build_hc_behavior_profile(
         implemented.add("HC_HKDKSR_medical_section_layout")
     if code == "008C":
         implemented.add("HC008C_medical_section_layout")
+        implemented.add("HC008C_conditional_link_classes")
     if code == "009B":
         implemented.add("HC009B_honbun_margin_sections")
     if code == "00B3":

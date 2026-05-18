@@ -257,6 +257,7 @@ class _Context:
     parts: list[str] = field(default_factory=list)
     text_parts: list[str] = field(default_factory=list)
     start_offset: int = 0
+    flags: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
@@ -1551,6 +1552,24 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
     return "lv-hc-link"
 
 
+def _hc008c_forces_plain_line_link(data: bytes, offset: int) -> bool:
+    return (
+        _two_byte_key_at(data, offset + 2) in {"b12d", "b12e"}
+        or _two_byte_key_at(data, offset - 2) == "224d"
+        or _two_byte_key_at(data, offset - 4) == "224d"
+    )
+
+
+def _link_css_class_for_context(options: HcRenderOptions, ctx: _Context | None, data: bytes) -> str:
+    if _renderer_code(options) == "008C" and ctx is not None and ctx.start_op == 0x42:
+        if _hc008c_forces_plain_line_link(data, ctx.start_offset):
+            return "lv-hc-link lineLink"
+        if "hc008c_midashi" in ctx.flags:
+            return "lv-hc-link lineLink3"
+        return "lv-hc-link lineLink2"
+    return _link_css_class(options, ctx.start_op if ctx else None)
+
+
 def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | None:
     if _is_hc005c_renderer(options) and op in {0x04, 0x41}:
         return None
@@ -1711,7 +1730,7 @@ def _jis_key_at(data: bytes, offset: int) -> str | None:
 
 
 def _two_byte_key_at(data: bytes, offset: int) -> str | None:
-    if offset + 1 >= len(data):
+    if offset < 0 or offset + 1 >= len(data):
         return None
     return f"{data[offset]:02x}{data[offset + 1]:02x}"
 
@@ -5319,7 +5338,17 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         if popped == 0x04:
                             halfwidth_depth = max(0, halfwidth_depth - 1)
                             break
-                contexts.append(_Context(kind="link", start_op=op, payload=payload, parent=_current_parts(root_parts, contexts), start_offset=i))
+                flags = frozenset({"hc008c_midashi"}) if _renderer_code(options) == "008C" and 0x41 in style_stack else frozenset()
+                contexts.append(
+                    _Context(
+                        kind="link",
+                        start_op=op,
+                        payload=payload,
+                        parent=_current_parts(root_parts, contexts),
+                        start_offset=i,
+                        flags=flags,
+                    )
+                )
                 stats["links"] += 1
                 i += 2 + arg_len
                 continue
@@ -5346,7 +5375,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 elif not label:
                     label = "link"
                 attrs = [
-                    f'class="{_escape_attr(_link_css_class(options, ctx.start_op if ctx else None))}"',
+                    f'class="{_escape_attr(_link_css_class_for_context(options, ctx, data))}"',
                     f'href="{_escape_attr(_pointer_href(target))}"',
                     f'data-lv-link-status="{_escape_attr(link["status"])}"',
                 ]
@@ -5373,7 +5402,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if not label:
                     label = "link"
                 attrs = [
-                    f'class="{_escape_attr(_link_css_class(options, ctx.start_op if ctx else None))}"',
+                    f'class="{_escape_attr(_link_css_class_for_context(options, ctx, data))}"',
                     f'href="{_escape_attr(_pointer_href(target))}"',
                     f'data-lv-link-status="{_escape_attr(link["status"])}"',
                 ]

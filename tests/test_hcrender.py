@@ -1591,6 +1591,24 @@ def test_hc0094_maps_class_arrow_and_consumes_state_markers() -> None:
     assert rendered.stats["hc0094_suppressed_markers"] == 3
 
 
+def test_hc008c_selects_recovered_line_link_variants() -> None:
+    target = b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+
+    default_link = render_hc_body(b"\x1f\x42" + jis_ascii("L") + target, HcRenderOptions(renderer_code="008C"))
+    forced_plain = render_hc_body(
+        b"\x1f\x42\xb1\x2d" + jis_ascii("L") + target,
+        HcRenderOptions(renderer_code="008C", image_sources={"b12d": "Templates/B12D.gif"}),
+    )
+    midashi_link = render_hc_body(
+        b"\x1f\x41\x00\x00" + b"\x1f\x42" + jis_ascii("L") + target,
+        HcRenderOptions(renderer_code="008C"),
+    )
+
+    assert 'class="lv-hc-link lineLink2"' in default_link.html
+    assert 'class="lv-hc-link lineLink"' in forced_plain.html
+    assert 'class="lv-hc-link lineLink3"' in midashi_link.html
+
+
 def test_hc0137_maps_iwanami_sections_and_line_links() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -3267,6 +3285,7 @@ def test_hc008c_profile_records_hkdk_2010_subset_without_claiming_parity() -> No
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC008C_medical_section_layout" in data["implemented_semantics"]
+    assert "HC008C_conditional_link_classes" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
