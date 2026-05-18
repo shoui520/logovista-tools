@@ -5801,6 +5801,65 @@ def test_hc005c_renders_label_marker_images_and_image_links() -> None:
     assert rendered.stats["hc005c_image_links"] == 1
 
 
+def test_hc0092_maps_lineinfo_sections_and_hankaku_midashi() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii_text("AB")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x02"
+        + jis_ascii_text("CD")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x48"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0092"))
+
+    assert '<div class="lineinfo1">' in rendered.html
+    assert '<span class="hankakuMidashi">AB</span>' in rendered.html
+    assert '<div class="lineinfo2">' in rendered.html
+    assert '<span class="hankaku">CD</span>' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc0092_lineinfo_sections"] == 2
+    assert rendered.stats["hc0092_hankakuMidashi_spans"] == 1
+    assert rendered.stats["hc0092_hankaku_spans"] == 2
+    assert rendered.stats["hc0092_nonprinting_controls"] == 1
+
+
+def test_hc0092_profile_records_kcompej_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0092.dll"),
+        code="0092",
+        expected_numeric_index="00000092.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/00000092.css",),
+        sql_snippets=(),
+        image_templates=("b128.gif", "hosetu.png"),
+        features={"custom_gaiji_dib": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC0092_lineinfo_sections_and_gaiji_classes" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
 def test_hc005c_profile_records_branch_subset_without_full_parity_claim() -> None:
     renderer = HcRendererClassification(
         path=Path("HC005C.dll"),

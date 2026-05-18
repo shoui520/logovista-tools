@@ -1776,6 +1776,31 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "0092":
+        rows.append(
+            HcHookBehavior(
+                name="kcompej2_lineinfo_sections_and_gaiji_classes",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0092 epwing2HtmlBodydata 1f09 lineinfo%d branch",
+                    "HC0092 hankaku/hankakuMidashi span branches",
+                    "HC0092 lineLink and media template strings",
+                    "HC0092 b12x/b13x template-gaiji strings",
+                    "Templates/00000092.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to lineinfoN wrappers, 1f41/1f61 are "
+                    "suppressed heading-anchor controls, 1f04/1f05 map to "
+                    "hankaku or hankakuMidashi depending on section state, "
+                    "and internal links use lineLink"
+                ),
+                notes=(
+                    "The subset excludes address-specific marker-image branches, "
+                    "exact contents transition behavior, fixed HTML/body fallback "
+                    "loading, generated custom DIB output, and visual parity."
+                ),
+            )
+        )
     if code == "0190":
         rows.append(
             HcHookBehavior(
@@ -1948,6 +1973,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0096_lineinfo_sections_and_template_gaiji")
     if code == "0090":
         implemented.add("HC0090_lineinfo_sections_and_gaiji_classes")
+    if code == "0092":
+        implemented.add("HC0092_lineinfo_sections_and_gaiji_classes")
     if code == "0135":
         implemented.add("HC0135_sinmei_sections_and_private_markers")
     if code == "014F":

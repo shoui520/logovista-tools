@@ -689,6 +689,7 @@ HC013A_CUSTOM_BITMAP_MARKERS = {"b263"}
 HC013F_NONPRINTING_CONTROL_OPS = {0x6D}
 
 HC009B_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
+HC0092_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
 
 HC008C_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x61, 0x6D}
 
@@ -2028,6 +2029,8 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
         return "lv-hc-link lineLink"
     if _renderer_code(options) == "0091" and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
+    if _renderer_code(options) == "0092" and start_op in {0x42, 0x43, 0x44}:
+        return "lv-hc-link lineLink"
     if _renderer_code(options) == "0090" and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
     if _renderer_code(options) == "0135" and start_op in {0x3B, 0x42, 0x43, 0x44}:
@@ -2152,6 +2155,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
     if _is_hc005c_renderer(options) and op in {0x04, 0x41}:
         return None
     if _renderer_code(options) == "0091" and op in {0x04, 0x41}:
+        return None
+    if _renderer_code(options) == "0092" and op in {0x04, 0x41}:
         return None
     if _renderer_code(options) == "0090" and op in {0x04, 0x41}:
         return None
@@ -4710,6 +4715,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc005c_heading_open = False
     hc005c_heading_class: str | None = None
     hc005c_emidashi_japanese_open = False
+    hc0092_lineinfo_open = False
+    hc0092_current_section: int | None = None
+    hc0092_contents_open = False
     hc0132_honbun_open = False
     hc0132_section_close: str | None = None
     hc013a_honbun2_open = False
@@ -4779,6 +4787,27 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         else:
                             stats["hc0063_unmapped_sections"] += 1
                             gaps.add(f"hc0063_unmapped_section_{code}")
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "0092":
+                        value = _hc02c0_section_value(code)
+                        if value is None:
+                            gaps.add(f"hc0092_unmapped_section_{code}")
+                            stats["hc0092_unmapped_sections"] += 1
+                            i += 2 + arg_len
+                            continue
+                        root.append(f'<a name="section-{stats["section_markers"]}"></a>')
+                        if hc0092_lineinfo_open:
+                            root.append("</div>")
+                            hc0092_lineinfo_open = False
+                            stats["hc0092_lineinfo_closures"] += 1
+                        if value == hc0092_current_section:
+                            stats["hc0092_repeated_sections"] += 1
+                        root.append(f'<div class="lineinfo{value}">')
+                        hc0092_lineinfo_open = True
+                        hc0092_current_section = value
+                        stats["hc0092_lineinfo_sections"] += 1
+                        stats[f"hc0092_lineinfo_{value}"] += 1
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "0093":
@@ -7128,6 +7157,39 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 continue
 
             if _renderer_code(options) == "00BB" and op == 0x05:
+                if 0x04 in style_stack:
+                    while style_stack:
+                        popped = style_stack.pop()
+                        close_tag = _style_close_tag(popped, options)
+                        if popped == 0x04:
+                            _current_parts(root_parts, contexts).append("</span>")
+                            halfwidth_depth = max(0, halfwidth_depth - 1)
+                            break
+                        if close_tag:
+                            _current_parts(root_parts, contexts).append(f"</{close_tag}>")
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0092" and op in HC0092_NONPRINTING_CONTROL_OPS:
+                stats["hc0092_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0092" and op in {0x41, 0x61}:
+                stats["hc0092_heading_anchor_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0092" and op == 0x04:
+                css_class = "hankakuMidashi" if hc0092_current_section == 1 else "hankaku"
+                _current_parts(root_parts, contexts).append(f'<span class="{css_class}">')
+                style_stack.append(op)
+                halfwidth_depth += 1
+                stats[f"hc0092_{css_class}_spans"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0092" and op == 0x05:
                 if 0x04 in style_stack:
                     while style_stack:
                         popped = style_stack.pop()
@@ -9642,6 +9704,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     if hc0096_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0096_section_close)
     if hc0096_contents_body_open:
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc0092_lineinfo_open:
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc0092_contents_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc02bc_section_open:
         _current_parts(root_parts, contexts).append("</div>")
