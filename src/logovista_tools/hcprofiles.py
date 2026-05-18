@@ -489,6 +489,30 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The branch is classified but not emitted until directive text mapping is verified against representative entries.",
             )
         )
+    if code == "0095":
+        rows.append(
+            HcHookBehavior(
+                name="gksahou_lineinfo_sections_and_template_gaiji",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0095 epwing2HtmlBodydata lineinfo%d-%d branch",
+                    "HC0095 B138-B13C page-kind markers observed across GKSAHOU entries",
+                    "HC0095 1f04 hankaku/hankakuMidashi branch",
+                    "HC0095 1f42/1f43 lineLink branch",
+                    "HC0095 B121/B123/B128-B12B/B131-B133/B12E/B12F template-image branches",
+                    "Templates/00000095.css class definitions",
+                ),
+                implementation=(
+                    "The first B138-B13C marker selects the lineinfo first axis "
+                    "(ancillary, kana index, category, ordinary entry, or keigo column), "
+                    "1f09 sections map to lineinfoX-N wrappers, leaving section 12 opens "
+                    "contents_body, 1f04 uses hankakuMidashi while section 1 is active "
+                    "and hankaku elsewhere, 1f42/1f43 links carry lineLink, and decoded "
+                    "template markers render package assets with img_mark/img_mark2 classes."
+                ),
+                notes="Exact footer table lifecycle, private ruby directives, and custom DIB generation remain named gaps.",
+            )
+        )
     if code == "0096":
         rows.append(
             HcHookBehavior(
@@ -2167,6 +2191,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0063_contents_sections_and_template_gaiji")
     if code == "0093":
         implemented.add("HC0093_lineinfo_sections_and_template_gaiji")
+    if code == "0095":
+        implemented.add("HC0095_lineinfo_sections_and_template_gaiji")
     if code == "0096":
         implemented.add("HC0096_lineinfo_sections_and_template_gaiji")
     if code == "0090":
