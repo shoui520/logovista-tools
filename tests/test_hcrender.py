@@ -2141,6 +2141,46 @@ def test_hc0136_suppresses_private_state_block_without_leaking_section_close() -
     assert rendered.stats["hc0136_section_blocks"] == 1
 
 
+def test_hc0063_maps_heading_contents_sections_links_and_template_gaiji() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("本文")
+        + bytes.fromhex("b667")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x04"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x0a"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="0063", image_sources={"roman-alphabet": "Templates/roman-alphabet.gif"}),
+    )
+
+    assert '<div class="midashi"><span class="hankaku">H</span></div>' in rendered.html
+    assert '<div class="contents_body">' in rendered.html
+    assert '<div style="margin-left: 6px">' in rendered.html
+    assert '<div style="margin-left: 12px">' in rendered.html
+    assert 'class="lv-hc-link lineLink2"' in rendered.html
+    assert '<img class="lv-hc-gaiji img_gaiji" src="Templates/roman-alphabet.gif"' in rendered.html
+    assert 'data-lv-section' not in rendered.html
+    assert 'lv-hc-heading' not in rendered.html
+    assert rendered.html.count("<div") == rendered.html.count("</div>")
+    assert rendered.stats["hc0063_heading_blocks"] == 1
+    assert rendered.stats["hc0063_contents_body_blocks"] == 1
+    assert rendered.stats["hc0063_margin_sections"] == 2
+    assert rendered.stats["hc0063_template_image_markers"] == 1
+    assert rendered.stats["hc0063_nonprinting_controls"] == 1
+
+
 def test_hc0048_maps_margin_sections_and_symbol_triggered_midashi() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -4097,6 +4137,35 @@ def test_hc0136_profile_records_subset_without_claiming_parity() -> None:
     assert "HC0136_private_state_block_suppression" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert data["named_gaps"] == ["visual_parity_unverified"]
+
+
+def test_hc0063_profile_records_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0063.dll"),
+        code="0063",
+        expected_numeric_index="00000063.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/00000063.css",),
+        sql_snippets=(),
+        image_templates=("Templates/roman-alphabet.gif",),
+        features={"custom_gaiji_dib": True, "headword_modifier": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC0063_contents_sections_and_template_gaiji" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
 
 
 def test_hc0048_profile_records_subset_without_claiming_parity() -> None:

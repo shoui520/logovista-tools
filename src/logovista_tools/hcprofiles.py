@@ -380,6 +380,30 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Panel lifecycle, modifyHeadword, custom DIB generation, and exact nested bunken anchor bookkeeping remain named gaps.",
             )
         )
+    if code == "0063":
+        rows.append(
+            HcHookBehavior(
+                name="kqnewje5_contents_sections_and_template_gaiji",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0063 epwing2HtmlBodydata 1f09 section branch ladder",
+                    "HC0063 1f0a heading-to-contents_body branch",
+                    "HC0063 1f41 midashi/anchor branch",
+                    "HC0063 1f42/1f43 lineLink/lineLink2 branch",
+                    "HC0063 A568/A569/B571/B65E/B661/B667 template-image branch",
+                    "Templates/00000063.css class definitions",
+                ),
+                implementation=(
+                    "the first 1f09/1f41 block opens midashi, the first 1f0a opens "
+                    "contents_body, later 1f09/1f41 pairs are treated as invisible "
+                    "anchors rather than visible headings, non-heading section values "
+                    "open margin-left divs when present, 1f42 links use lineLink or "
+                    "lineLink2 by neighboring marker context, 1f43 links use lineLink, "
+                    "and the decoded template-image gaiji markers render package assets"
+                ),
+                notes="Exact custom DIB behavior and modifyHeadwordEx remain named gaps.",
+            )
+        )
     if code == "0094":
         rows.append(
             HcHookBehavior(
@@ -1482,6 +1506,8 @@ def build_hc_behavior_profile(
     if code == "0136":
         implemented.add("HC0136_honbun_margin_sections")
         implemented.add("HC0136_private_state_block_suppression")
+    if code == "0063":
+        implemented.add("HC0063_contents_sections_and_template_gaiji")
     if code == "0048":
         implemented.add("HC0048_margin_heading_sections")
         implemented.add("HC0048_media_div_placeholders")
