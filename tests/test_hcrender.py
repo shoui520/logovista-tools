@@ -2664,6 +2664,42 @@ def test_hc0158_renders_pcm_audio_as_sound_icon_link() -> None:
     assert rendered.stats["audio_images"] == 1
 
 
+def test_hc0158_maps_archsic4_section_codes_to_renderer_classes() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_text("見出し")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("本文")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x37"
+        + jis_text("用例")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x39"
+        + jis_text("音声")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x23"
+        + jis_text("欄")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x24"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0158"))
+
+    assert 'class="lv-hc-section"' not in rendered.html
+    assert 'class="lv-hc-heading"' not in rendered.html
+    assert '<div class="midashi">' in rendered.html
+    assert '<div class="honbun_normal">' in rendered.html
+    assert '<div class="honbun_yourei">' in rendered.html
+    assert '<div class="honbun_sound">' in rendered.html
+    assert '<div class="column_waka_haiku"><div>' in rendered.html
+    assert rendered.stats["hc0158_section_blocks"] == 4
+    assert rendered.stats["hc0158_section_state_1"] == 1
+    assert rendered.stats["hc0158_section_state_24"] == 1
+
+
 def test_hc0157_renders_dll_backed_inline_style_markers() -> None:
     rendered = render_hc_body(
         b"\xb1\x5c" + jis_ascii("P") + b"\xb1\x5d"

@@ -404,6 +404,43 @@ HC0158_CLOSE_MARKERS = {
 }
 
 HC0158_NOOP_MARKERS = {"b358", "b359", "b35a", "b35b", "b35c", "b35d", "b35e", "b35f"}
+HC0158_SECTION_CLASSES = {
+    2: "honbun_normal",
+    3: "honbun_level1",
+    4: "honbun_level2",
+    5: "honbun_level3",
+    6: "honbun_reigo",
+    7: "honbun_naritachi",
+    8: "honbun_setsuzoku",
+    9: "honbun_setsuzoku_inyou",
+    10: "honbun_bunpou1",
+    11: "honbun_bunpou1_inyou1",
+    12: "honbun_bunpou1_inyou2",
+    13: "honbun_bunpou2",
+    14: "honbun_gohou",
+    15: "honbun_chui",
+    16: "honbun_syuzi",
+    17: "honbun_sankou",
+    18: "honbun_sankou_inyou",
+    19: "honbun_boutoubun",
+    20: "honbun_kanyouhyougen",
+    21: "honbun_columntitle",
+    22: "honbun_inyou",
+    23: "column_waka_haiku",
+    25: "column_imi_youhou",
+    27: "column_gogi_panel",
+    29: "column_hatten",
+    31: "column_zukai_gakusyu",
+    33: "column_ruigo_panel",
+    35: "column_shikibetsu_board",
+    37: "honbun_yourei",
+    38: "honbun_picture",
+    39: "honbun_sound",
+    100: "sakuin",
+    101: "sakuin_sound",
+}
+HC0158_COLUMN_SECTION_VALUES = {23, 25, 27, 29, 31, 33, 35}
+HC0158_STATE_SECTION_VALUES = {1, 24, 26, 28, 30, 32, 34, 36}
 
 HC0146_OPEN_MARKERS: dict[str, _RendererGaijiRule] = {
     # HC0146 maps this pair to a color-font span. The close side is an
@@ -1624,7 +1661,7 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
     if op == 0x41 and _renderer_code(options) in {"0146", "0157"}:
         return ("div", ' class="midashi"')
     if op == 0x41 and _renderer_code(options) == "0158":
-        return ("span", ' class="lv-hc-heading midashi"')
+        return ("div", ' class="midashi"')
     return STYLE_START_TAGS.get(op)
 
 
@@ -1671,6 +1708,29 @@ def _hc0158_conditional_waku(next_text: str) -> str:
     if next_text == "図":
         return '<span class="back_red white">'
     return '<span class="waku">'
+
+
+def _hc0158_section_value(code: str) -> int | None:
+    try:
+        if code.isdigit():
+            return int(code, 10)
+        return int(code, 16)
+    except ValueError:
+        return None
+
+
+def _hc0158_section_parts(code: str) -> tuple[list[str], str | None, str | None]:
+    value = _hc0158_section_value(code)
+    if value is None:
+        return [], None, None
+    css_class = HC0158_SECTION_CLASSES.get(value)
+    if css_class is not None:
+        if value in HC0158_COLUMN_SECTION_VALUES:
+            return [f'<div class="{css_class}"><div>'], "</div></div>", css_class
+        return [f'<div class="{css_class}">'], "</div>", css_class
+    if value in HC0158_STATE_SECTION_VALUES:
+        return [], None, f"state_{value}"
+    return [], None, None
 
 
 def _pop_context(contexts: list[_Context], kind: str) -> _Context | None:
@@ -3358,6 +3418,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0141_section_close: str | None = None
     hc0144_section_close: str | None = None
     hc0145_section_close: str | None = None
+    hc0158_section_close: str | None = None
     hc_hkdksr_medical_section_close: str | None = None
     hc_hkdksr_medical_table_open = False
     hc008c_section_close: str | None = None
@@ -3856,6 +3917,21 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         else:
                             stats["hc0144_unmapped_sections"] += 1
                             gaps.add(f"hc0144_unmapped_section_{code}")
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "0158":
+                        if hc0158_section_close is not None:
+                            root.append(hc0158_section_close)
+                            hc0158_section_close = None
+                        section_parts, hc0158_section_close, state = _hc0158_section_parts(code)
+                        root.extend(section_parts)
+                        if section_parts:
+                            stats["hc0158_section_blocks"] += 1
+                        if state:
+                            stats[f"hc0158_section_{state}"] += 1
+                        else:
+                            stats["hc0158_unmapped_sections"] += 1
+                            gaps.add(f"hc0158_unmapped_section_{code}")
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "0145":
@@ -4437,6 +4513,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if _renderer_code(options) == "0144" and hc0144_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc0144_section_close)
                     hc0144_section_close = None
+                    i += 2 + arg_len
+                    continue
+                if _renderer_code(options) == "0158" and hc0158_section_close is not None:
+                    _current_parts(root_parts, contexts).append(hc0158_section_close)
+                    hc0158_section_close = None
                     i += 2 + arg_len
                     continue
                 if _renderer_code(options) == "0145" and hc0145_section_close is not None:
@@ -6604,6 +6685,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc0144_section_close)
     if hc0145_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0145_section_close)
+    if hc0158_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc0158_section_close)
     if hc03e8_section_close is not None:
         _current_parts(root_parts, contexts).append(hc03e8_section_close)
     if hc00a6_section_close is not None:
