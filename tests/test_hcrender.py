@@ -2862,6 +2862,50 @@ def test_hc0067_wraps_midashi_contents_margin_sections_and_line_links() -> None:
     assert rendered.stats["hc0067_nonprinting_controls"] == 2
 
 
+def test_hc0069_wraps_midashi_contents_margin_sections_links_and_gaiji() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + b"\xb5\x55"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("本文")
+        + b"\xb5\x55"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x43"
+        + jis_ascii("R")
+        + b"\x1f\x63\x00\x00\x00\x03\x00\x40"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0069",
+            image_sources={"b555": "gaiji/B555.bmp", "dummy": "Templates/dummy.gif"},
+        ),
+    )
+
+    assert '<div class="midashi"><span class="hankaku">H</span><img src="Templates/dummy.gif" class="img_dummy"><img class="lv-hc-gaiji img_gaiji_midashi"' in rendered.html
+    assert '</div><div class="contents_body">' in rendered.html
+    assert '<div style="margin-left: 24px">' in rendered.html
+    assert '<img src="Templates/dummy.gif" class="img_dummy"><img class="lv-hc-gaiji img_gaiji"' in rendered.html
+    assert 'class="lv-hc-link lineLink2"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc0069_midashi_blocks"] == 1
+    assert rendered.stats["hc0069_contents_body_blocks"] == 1
+    assert rendered.stats["hc0069_margin_sections"] == 1
+    assert rendered.stats["hc0069_img_gaiji_midashi_images"] == 1
+    assert rendered.stats["hc0069_img_gaiji_images"] == 1
+    assert rendered.stats["hc0069_nonprinting_controls"] == 1
+
+
 def test_hc008b_wraps_midashi_contents_kaisou_sections_and_line_links() -> None:
     body = (
         b"\x1f\x41\x00\x00"
@@ -3584,6 +3628,36 @@ def test_hc0067_profile_records_contents_layout_subset_without_claiming_parity()
 
     assert "HC0067_midashi_contents_and_margin_sections" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
+def test_hc0069_profile_records_contents_layout_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0069.dll"),
+        code="0069",
+        expected_numeric_index="00000069.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/00000069.css",),
+        sql_snippets=(),
+        image_templates=("sound.png", "image.png", "dummy.gif"),
+        features={"custom_gaiji_dib": True, "headword_modifier": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC0069_midashi_contents_and_margin_sections" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
