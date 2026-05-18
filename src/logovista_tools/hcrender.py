@@ -473,6 +473,7 @@ HC00C6_NOOP_MARKERS = {
     "a253",
     "a254",
 }
+HC00C6_NONPRINTING_CONTROL_OPS = {0x41}
 HC00C6_IMAGE_MARKERS = frozenset(
     {
         *(f"a{value:03x}" for value in range(0x122, 0x238)),
@@ -4730,6 +4731,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "009C" and op in HC009C_NONPRINTING_CONTROL_OPS:
                 stats["hc009c_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "00C6" and op in HC00C6_NONPRINTING_CONTROL_OPS:
+                stats["hc00c6_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 

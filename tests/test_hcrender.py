@@ -145,6 +145,7 @@ def test_hc013a_reports_missing_exam_asset_without_faking_image() -> None:
 def test_hc00c6_maps_sections_to_product_divs_and_example_badge() -> None:
     body = (
         b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
         + jis_ascii("H")
         + b"\x1f\x09\x00\x06"
         + jis_ascii("D")
@@ -166,7 +167,9 @@ def test_hc00c6_maps_sections_to_product_divs_and_example_badge() -> None:
     assert '<div class="exampleyakugo">' in rendered.html
     assert rendered.html.count('src="templates/exam.png" class="ex_img"') == 1
     assert rendered.stats["hc00c6_section_divs"] == 4
+    assert rendered.stats["hc00c6_nonprinting_controls"] == 1
     assert rendered.stats["section_images"] == 1
+    assert "unknown_control_1f41" not in rendered.named_behavior_gaps
 
 
 def test_hc00c6_renders_partwaku_supab_and_template_image_markers() -> None:
