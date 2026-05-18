@@ -389,6 +389,18 @@ def test_hc02bc_renders_color_and_indent_marker_pairs() -> None:
     assert rendered.stats["hc02bc_literal_markers"] == 1
 
 
+def test_hc02bc_b122_can_close_blue_span_without_b125() -> None:
+    rendered = render_hc_body(
+        b"\xb1\x21" + jis_text("カーシノ") + b"\xb1\x22" + jis_text("、")
+        + b"\xb1\x21" + jis_text("癌血病") + b"\xb1\x22",
+        HcRenderOptions(renderer_code="02BC"),
+    )
+
+    assert '<span class="blue">カーシノ</span>、<span class="blue">癌血病</span>' in rendered.html
+    assert rendered.stats["hc02bc_b122_implicit_closures"] == 2
+    assert "unterminated_hc02bc_marker_b125" not in rendered.named_behavior_gaps
+
+
 def test_hc02bc_renders_medical_composite_markers() -> None:
     rendered = render_hc_body(
         b"\xa1\x45\xa1\x47\xa1\x59\xb1\x26\xb1\x2c\xb1\x31",
@@ -3961,6 +3973,29 @@ def test_hc0158_renders_rank_marker_stars_without_gaiji_placeholder() -> None:
     assert "★★A" in rendered.plain
     assert "lv-hc-gaiji-placeholder" not in rendered.html
     assert rendered.stats["hc0158_style_markers"] == 2
+
+
+def test_hc0158_rank1_marker_uses_second_close_for_full_midashi() -> None:
+    rendered = render_hc_body(
+        b"\xb3\x55" + jis_text("たか") + b"\xb3\x54" + jis_text("【高し】") + b"\xb3\x54",
+        HcRenderOptions(renderer_code="0158"),
+    )
+
+    assert '<span class="rank1"><sup>&#x2605;&#x2605;</sup>たか【高し】</span>' in rendered.html
+    assert rendered.stats["hc0158_style_markers"] == 3
+    assert rendered.stats["hc0158_rank1_midashi_delimiters"] == 1
+    assert rendered.stats.get("hc0158_unmatched_style_markers", 0) == 0
+
+
+def test_hc0158_rank4_guide_marker_closes_at_heading_end() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x41\x01\x60" + b"\xb3\x53\xb3\x5e" + jis_text("識別ガイド") + b"\x1f\x61",
+        HcRenderOptions(renderer_code="0158"),
+    )
+
+    assert '<div class="midashi"><span class="rank4">識別ガイド</span></div>' in rendered.html
+    assert rendered.stats["hc0158_section_end_style_markers"] == 1
+    assert "unterminated_hc0158_marker" not in rendered.named_behavior_gaps
 
 
 def test_hc0158_renders_part_of_speech_and_conjugation_markers() -> None:

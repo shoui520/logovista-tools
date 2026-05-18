@@ -386,11 +386,18 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 implementation=(
                     "1f09 sections map to midashi/komidashi/honbun/contents blocks, "
                     "section 0002 emits fukumidashi.png where available, B121-B124/B125 "
-                    "wrap blue text, B132/B133 small-cap text, B134-B139 color/bold spans, "
-                    "B13C-B13E structural breaks/indent blocks, and the decoded A/B marker "
-                    "set emits the DLL's inline chemistry/phonetic composites"
+                    "wrap blue text, the rare B121/B122 pair closes blue spans without "
+                    "B125 when no B125 appears before the section boundary, B132/B133 "
+                    "small-cap text, B134-B139 color/bold spans, B13C-B13E structural "
+                    "breaks/indent blocks, and the decoded A/B marker set emits the "
+                    "DLL's inline chemistry/phonetic composites"
                 ),
-                notes="The branch subset excludes custom DIB generation, modifyHeadwordEx, and unverified vertical-navigation table scaffolding.",
+                notes=(
+                    "The full STEDMAN6 raw-HONMON pass emits no raw render gaps after "
+                    "the B122 implicit-close refinement. The branch subset still "
+                    "excludes custom DIB generation, modifyHeadwordEx, and unverified "
+                    "vertical-navigation table scaffolding."
+                ),
             )
         )
     if code == "02C2":
@@ -1927,8 +1934,18 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 name="archsic4_inline_style_gaiji",
                 status="branch_subset_implemented",
                 evidence=("HC0158 epwing2HtmlBodydata B353-B37E branches", "00000158.css span classes"),
-                implementation="B3xx formatting-marker gaiji map to HC0158 CSS spans; normal B253/B347 image gaiji stay resource-backed",
-                notes="B379 is conditional: labels before translation/usage/figure text select waku_red/back_red/waku variants from the next JIS pair.",
+                implementation=(
+                    "B3xx formatting-marker gaiji map to HC0158 CSS spans; B355 rank1 "
+                    "midashi uses the second B354 when a bracketed title follows; the "
+                    "B353/B35E guide-heading variant closes at 1f61; normal B253/B347 "
+                    "image gaiji stay resource-backed"
+                ),
+                notes=(
+                    "B379 is conditional: labels before translation/usage/figure text "
+                    "select waku_red/back_red/waku variants from the next JIS pair. "
+                    "The full ARCHSIC4 raw-HONMON pass emits no raw render gaps after "
+                    "the rank-heading refinements."
+                ),
             )
         )
         rows.append(
@@ -2156,6 +2173,7 @@ def build_hc_behavior_profile(
         implemented.add("HC02BE_section_and_phonetic_markers")
     if code == "02BC":
         implemented.add("HC02BC_section_and_medical_markers")
+        implemented.add("HC02BC_rare_b122_implicit_close")
     if code == "02C2":
         implemented.add("HC02C2_section_icons_and_template_gaiji")
     if code == "0147":
@@ -2307,6 +2325,7 @@ def build_hc_behavior_profile(
     if code == "0158":
         implemented.add("HC0158_inline_style_gaiji")
         implemented.add("HC0158_sound_icon_audio_link")
+        implemented.add("HC0158_rank_heading_close_variants")
     if code == "0157":
         implemented.add("HC0157_inline_style_gaiji")
         implemented.add("HC0157_sound_icon_audio_link")

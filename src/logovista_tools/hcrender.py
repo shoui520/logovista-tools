@@ -2533,6 +2533,27 @@ def _hc0158_conditional_waku(next_text: str) -> str:
     return '<span class="waku">'
 
 
+def _hc0158_has_following_rank_close_before_heading_end(data: bytes, offset: int) -> bool:
+    while offset + 1 < len(data):
+        if data[offset] == 0x1F and data[offset + 1] in {0x09, 0x0A, 0x61}:
+            return False
+        if data[offset] == 0xB3 and data[offset + 1] == 0x54:
+            return True
+        offset += 1
+    return False
+
+
+def _has_two_byte_key_before_section_end(data: bytes, offset: int, key: str) -> bool:
+    wanted = bytes.fromhex(key)
+    while offset + 1 < len(data):
+        if data[offset] == 0x1F and data[offset + 1] in {0x09, 0x0A, 0x61}:
+            return False
+        if data[offset : offset + 2] == wanted:
+            return True
+        offset += 1
+    return False
+
+
 def _hc0158_section_value(code: str) -> int | None:
     try:
         if code.isdigit():
@@ -8686,6 +8707,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if (
+                _renderer_code(options) == "0158"
+                and op == 0x61
+                and hc0158_marker_stack
+                and hc0158_marker_stack[-1][0] == "b354_section_end"
+            ):
+                _current_parts(root_parts, contexts).append(hc0158_marker_stack.pop()[1])
+                stats["hc0158_section_end_style_markers"] += 1
+
             style_spec = _style_start_spec(op, options)
             if style_spec is not None:
                 if _renderer_code(options) == "012D" and hc012d_pending_honbun_user:
@@ -10604,6 +10634,17 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         stats["line_breaks"] += 1
                     i += 2
                     continue
+                if (
+                    key == "b122"
+                    and hc02bc_marker_stack
+                    and hc02bc_marker_stack[-1][0] == "b125"
+                    and not _has_two_byte_key_before_section_end(data, i + 2, "b125")
+                ):
+                    parts.append(hc02bc_marker_stack.pop()[1])
+                    stats["hc02bc_b122_implicit_closures"] += 1
+                    stats["hc02bc_style_markers"] += 1
+                    i += 2
+                    continue
                 marker = HC02BC_OPEN_MARKERS.get(key)
                 if marker is not None:
                     parts.append(marker.html)
@@ -10719,6 +10760,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if marker is not None:
                     html_fragment, close_code, close_html = marker
                     _current_parts(root_parts, contexts).append(html_fragment)
+                    if key == "b355":
+                        close_code = "b354_rank1"
+                    elif key == "b353" and _two_byte_key_at(data, i + 2) == "b35e":
+                        close_code = "b354_section_end"
                     hc0158_marker_stack.append((close_code, close_html))
                     stats["hc0158_style_markers"] += 1
                     i += 2
@@ -10745,6 +10790,14 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if key == "b379":
                     _current_parts(root_parts, contexts).append(_hc0158_conditional_waku(_decode_next_jis_text(data, i + 2)))
                     hc0158_marker_stack.append(("b37a", "</span>"))
+                    stats["hc0158_style_markers"] += 1
+                    i += 2
+                    continue
+                if key == "b354" and hc0158_marker_stack and hc0158_marker_stack[-1][0] == "b354_rank1":
+                    if _hc0158_has_following_rank_close_before_heading_end(data, i + 2):
+                        stats["hc0158_rank1_midashi_delimiters"] += 1
+                    else:
+                        _current_parts(root_parts, contexts).append(hc0158_marker_stack.pop()[1])
                     stats["hc0158_style_markers"] += 1
                     i += 2
                     continue
