@@ -21,8 +21,8 @@ Parity is only promoted when the relevant DLL code path or branch table is under
 | `common_controls_candidate_verify` | 0 |
 | `common_controls_plus_named_hooks` | 14 |
 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | 7 |
-| `needs_marker_branch_decode` | 19 |
-| `decoded_branch_subset_visual_incomplete` | 69 |
+| `needs_marker_branch_decode` | 18 |
+| `decoded_branch_subset_visual_incomplete` | 70 |
 
 | Family | Families |
 |---|---:|
@@ -41,6 +41,7 @@ Decoded branch subsets currently implemented:
 - `HC0065.dll`: HC0065 GENIUSEB midashi/contents and grammar-label subset; representative package `_DCT_GENIUSEB`; remaining gaps: example/collocation boxes, custom DIB generation, modifyHeadwordEx, SQL original-search hooks, and representative visual parity.
 - `HC009D.dll`: HC009D GKCEREMO section/kakomi subset; representative package `_DCT_GKCEREMO`; remaining gaps: remaining custom DIB gaiji, exact table header/body lifecycle, loose HTMLs fallback, and representative visual parity.
 - `HC00AA.dll`: HC00AA HKBYOIN4 section/media subset; representative package `_DCT_HKBYOIN4`; implemented subset maps the decimal-coded `1f09` section ladder to midashi, honbun, boxed table, Nurse, tejyun, and indent blocks, applies lineLink classes, resolves media placeholders, and consumes `1f5c`/`1f6d` renderer state. Remaining gaps: generated custom-character DIB output, footer/fixed-HTML fallbacks, and representative visual parity.
+- `HC00A3.dll`: HC00A3 VIKU1000 quiz/answer section subset; representative package `_DCT_VIKU1000`; implemented subset maps the stateful `1f09` section stream to honbun, hidden quiz/answer containers, and kaisetsu-compatible blocks, applies lineLink classes, and suppresses no-output renderer state controls. Remaining gaps: exact JavaScript lifecycle, previous/next footer buttons, generated custom-character DIB output, and representative visual parity.
 - `HC00C6.dll`: HC00C6 section/layout and marker subset; representative package `_DCT_Dconci87`; remaining gaps: custom_gaiji_dib_hook, unresolved literal/DIB branches, and representative visual parity.
 - `HC02BC.dll`: HC02BC STEDMAN6 section/layout and medical-marker subset; representative package `_DCT_STEDMAN6`; remaining gaps: custom DIB generation, modifyHeadwordEx, vertical-navigation wrapper scaffolding, and representative visual parity.
 - `HC02C2.dll`: HC02C2 KQCOLEXP section-icon and template-gaiji subset; representative package `_DCT_KQCOLEXP`; remaining gaps: custom DIB generation, modifyHeadwordEx, Panel lifecycle hooks, and representative visual parity.
@@ -198,7 +199,7 @@ The order below is heuristic. It weights package count, renderer-specific gaiji 
 | 57 | `HC00A9` | `7c763cd2b40c` | `_DCT_GEN2011` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=1, tmpl=21, renderer-specific midashi/honbun/header/link branches recovered, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `fixed_html_fallback_loading`, `previous_next_navigation_footer`, `visual_parity_unverified` | recover fixed HTML/body fallback loading, previous/next navigation footer, generated custom-character DIB output, and visual parity |
 | 58 | `HC02CD` | `7f515d98a1da` | `_DCT_GEN2020` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=9, tmpl=28, GEN-year section/icon/template-marker branches recovered, B135 literal branch recovered, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle`, `visual_parity_unverified` | recover fixed HTML/body fallback, exact previous/next navigation footer, custom DIB output, and visual parity |
 | 59 | `HC00AA` | `80697aa35c4a` | `_DCT_HKBYOIN4` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=3, tmpl=22, decoded `1f09` decimal-coded section ladder, Nurse/tejyun/indent section templates, lineLink/media branches recovered | `custom_gaiji_dib_hook`, `visual_parity_unverified` | recover generated custom-character DIB output, footer/fixed-HTML fallbacks, and representative visual parity |
-| 60 | `HC00A3` | `80b9e4bfe2bd` | `_DCT_VIKU1000` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=6, tmpl=20, section_control_seen_in_body_loop | none | map template hints to body-loop branches and compare representative entry |
+| 60 | `HC00A3` | `80b9e4bfe2bd` | `_DCT_VIKU1000` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=6, tmpl=20, decoded stateful `1f09` quiz/answer/honbun section grammar, lineLink classes, no-output renderer state controls | `custom_gaiji_dib_hook`, `visual_parity_unverified` | recover exact JavaScript lifecycle, footer buttons, generated custom-character DIB output, and representative visual parity |
 | 61 | `HC00C5` | `82a9d644a865` | `_DCT_GKKANYOK` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=6, tmpl=19, section_control_seen_in_body_loop | `custom_gaiji_dib_hook` | compare representative entries against common renderer output; mark common-only if no differences |
 | 62 | `HC0C80` | `82c35f39941c` | `_DCT_BRINEN15` | 1 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | body-loop, tmpl=14 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | verify rendererdb path and inspect remaining hooks/search/media templates |
 | 63 | `HC00AD` | `85248c0354c5` | `_DCT_KANJIGN5` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=5, tmpl=15, section_control_seen_in_body_loop | `custom_gaiji_dib_hook` | compare representative entries against common renderer output; mark common-only if no differences |

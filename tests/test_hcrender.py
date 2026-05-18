@@ -4021,6 +4021,67 @@ def test_hc00aa_profile_records_hkbyoin_subset_without_claiming_parity() -> None
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
+def test_hc00a3_maps_viku_quiz_answer_sections_and_state_controls() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("本文")
+        + b"\x1f\x09\x00\x08"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("問題")
+        + b"\x1f\x09\x00\x08"
+        + b"\x1f\x09\x00\x04"
+        + jis_text("解答")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x48"
+        + b"\x1f\x41"
+        + b"\x1f\x4c"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00A3"))
+
+    assert '<div class="honbun"' in rendered.html
+    assert '<div class="quiz" id="quiz1" style="display:none;">' in rendered.html
+    assert '<div class="answer" id="ans1" style="display:none;">' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc00a3_section_honbun_nobr"] == 1
+    assert rendered.stats["hc00a3_section_quiz"] == 1
+    assert rendered.stats["hc00a3_section_answer"] == 1
+    assert rendered.stats["hc00a3_nonprinting_controls"] == 2
+
+
+def test_hc00a3_profile_records_viku_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC00A3.dll"),
+        code="00A3",
+        expected_numeric_index="000000A3.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/000000A3.css", "Templates/000000A3.js"),
+        sql_snippets=(),
+        image_templates=("answerH.gif", "kaisetsuV.gif"),
+        features={"custom_gaiji_dib": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC00A3_quiz_answer_section_layout" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
 def test_hc0137_profile_records_iwanami_subset_without_claiming_parity() -> None:
     row = HcRendererClassification(
         path=Path("HC0137.dll"),

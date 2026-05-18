@@ -808,6 +808,74 @@ def _hc00aa_section_parts(code: str) -> tuple[list[str], str | None, str | None]
     return ['<div class="honbun" style="margin-left:1.000000em;">'], "</div>", "honbun"
 
 
+def _hc00a3_section_value(code: str) -> int | None:
+    try:
+        if code.isdigit():
+            return int(code, 10)
+        return int(code, 16)
+    except ValueError:
+        return None
+
+
+def _hc00a3_honbun_div(margin_left: float, text_indent: float | None = None) -> str:
+    style = f"margin-left:{margin_left:.6f}em;"
+    if text_indent is not None:
+        style += f"text-indent:{text_indent:.6f}em;"
+    return f'<div class="honbun" style="{style}">'
+
+
+def _hc00a3_section_parts(
+    code: str,
+    previous_value: int | None,
+    *,
+    vertical: bool,
+    answer_index: int,
+    quiz_group_active: bool,
+) -> tuple[list[str], str | None, str | None, int, bool]:
+    value = _hc00a3_section_value(code)
+    if value is None:
+        return [], None, None, answer_index, quiz_group_active
+    if value == 8:
+        return [], None, "state_8", answer_index, True
+    if value in {1, 6, 7, 9}:
+        return [], None, f"state_{value}", answer_index, False
+    if previous_value == 8 and value == 3:
+        return [f'<div class="quiz" id="quiz{answer_index}" style="display:none;">'], "</div>", "quiz", answer_index, True
+    if (previous_value == 8 or quiz_group_active) and value == 4:
+        return [f'<div class="answer" id="ans{answer_index}" style="display:none;">'], "</div>", "answer", answer_index + 1, False
+    if previous_value == 9 and value == 4:
+        suffix = "V" if vertical else "H"
+        return [
+            _hc00a3_honbun_div(float(value), -1.0),
+            '<img id="cmdAnswer" alt="" class="img_mark4" '
+            f'src="kaisetsu{suffix}.gif" style="display:inline;cursor:hand;">',
+            _hc00a3_honbun_div(float(value), -1.0).replace('">', 'display:none;">', 1),
+        ], "</div></div>", "kaisetsu", answer_index, False
+    if previous_value == 1 and value == 2:
+        return [_hc00a3_honbun_div(1.0)], "</div>", "honbun_intro", answer_index, False
+    if previous_value == 1 and value == 3:
+        return [_hc00a3_honbun_div(1.0), "<nobr>"], "</nobr></div>", "honbun_nobr", answer_index, False
+    if previous_value == 2 and value == 2:
+        return [_hc00a3_honbun_div(float(value), -1.0)], "</div>", "honbun_hanging", answer_index, False
+    if previous_value == 2 and value == 20:
+        suffix = "V" if vertical else "H"
+        return [
+            _hc00a3_honbun_div(float(value), -1.0),
+            '<img id="cmdAnswer" alt="" class="img_mark4" '
+            f'src="kaisetsu{suffix}.gif" style="display:inline;cursor:hand;">',
+            _hc00a3_honbun_div(float(value), -1.0).replace('">', 'display:none;">', 1),
+        ], "</div></div>", "kaisetsu", answer_index, False
+    if previous_value == 3 and value == 4:
+        return [_hc00a3_honbun_div(1.0)], "</div>", "honbun", answer_index, False
+    if previous_value == 4:
+        return [_hc00a3_honbun_div(float(value))], "</div>", "honbun", answer_index, False
+    if previous_value == 6 and value == 5:
+        return [_hc00a3_honbun_div(float(value), -1.0)], "</div>", "honbun_hanging", answer_index, False
+    if previous_value == 9 and value == 3:
+        return [_hc00a3_honbun_div(float(value), -1.0)], "</div>", "honbun_hanging", answer_index, False
+    return [_hc00a3_honbun_div(float(value))], "</div>", "honbun", answer_index, False
+
+
 def _hc00a6_section_parts(code: str, *, vertical: bool) -> tuple[list[str], str | None]:
     try:
         value = int(code, 16)
@@ -1475,6 +1543,7 @@ HC00AA_BOX_SECTION_CLASSES = {
     109: "indent109",
     110: "indent110",
 }
+HC00A3_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
 
 HC009D_KAKOMI_OPEN_MARKERS = {
     "b142": ('<div class="columnKakomi">', "b143", "</div>", "b142.gif"),
@@ -1888,6 +1957,8 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
         return "lv-hc-link lineLink"
     if _renderer_code(options) == "00AA" and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
+    if _renderer_code(options) == "00A3" and start_op in {0x42, 0x43}:
+        return "lv-hc-link lineLink"
     if _renderer_code(options) in {"0065", "00B6"} and start_op in {0x42, 0x43, 0x44}:
         return "lv-hc-link lLink"
     if _renderer_code(options) in {"0067", "0068", "008B", "0069"}:
@@ -2005,6 +2076,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "00AA" and op == 0x41:
         return ("div", ' class="midashi"')
+    if _renderer_code(options) == "00A3" and op in {0x04, 0x41}:
+        return ("span", ' class="hankaku"') if op == 0x04 else None
     if _is_hc_hkdksr_medical_renderer(options) and op == 0x04:
         return ("span", ' class="hankaku"')
     if _is_hc_hkdksr_medical_renderer(options) and op == 0x41:
@@ -4495,6 +4568,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0048_media_div_open = False
     hc00ac_section_close: str | None = None
     hc00aa_section_close: str | None = None
+    hc00a3_section_close: str | None = None
+    hc00a3_previous_section: int | None = None
+    hc00a3_answer_index = 1
+    hc00a3_quiz_group_active = False
     hc0020_section_close: str | None = None
     hc0020_midashi_open = False
     hc0020_contents_open = False
@@ -4986,6 +5063,33 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats["hc00aa_section_blocks"] += 1
                         if state:
                             stats[f"hc00aa_section_{state}"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "00A3":
+                        if hc00a3_section_close is not None:
+                            root.append(hc00a3_section_close)
+                            hc00a3_section_close = None
+                        (
+                            section_parts,
+                            hc00a3_section_close,
+                            state,
+                            hc00a3_answer_index,
+                            hc00a3_quiz_group_active,
+                        ) = _hc00a3_section_parts(
+                            code,
+                            hc00a3_previous_section,
+                            vertical=options.vertical,
+                            answer_index=hc00a3_answer_index,
+                            quiz_group_active=hc00a3_quiz_group_active,
+                        )
+                        root.extend(section_parts)
+                        value = _hc00a3_section_value(code)
+                        if value is not None:
+                            hc00a3_previous_section = value
+                        if section_parts:
+                            stats["hc00a3_section_blocks"] += 1
+                        if state:
+                            stats[f"hc00a3_section_{state}"] += 1
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "0146":
@@ -6829,6 +6933,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "00AA" and op in HC00AA_NONPRINTING_CONTROL_OPS:
                 stats["hc00aa_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "00A3" and op in HC00A3_NONPRINTING_CONTROL_OPS:
+                stats["hc00a3_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -9440,6 +9549,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc0157_group_close)
     if hc00aa_section_close is not None:
         _current_parts(root_parts, contexts).append(hc00aa_section_close)
+    if hc00a3_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc00a3_section_close)
     _hc0190_close_section(contexts, hc0190_sections, stats)
     while contexts:
         ctx = contexts.pop()
