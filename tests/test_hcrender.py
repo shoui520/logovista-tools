@@ -3963,6 +3963,15 @@ def test_hc0065_internal_links_use_product_class() -> None:
     assert 'href="lvaddr://00000003/0064"' in rendered.html
 
 
+def test_hc0065_consumes_media_close_state_control() -> None:
+    body = b"\x1f\x4d\x00\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x06\x48\x38\x05\x06" + b"\x1f\x6d"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0065"))
+
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc0065_nonprinting_controls"] == 1
+
+
 def test_hc0158_renders_rank_marker_stars_without_gaiji_placeholder() -> None:
     rendered = render_hc_body(
         b"\xb3\x55" + jis_ascii("A") + b"\xb3\x54",

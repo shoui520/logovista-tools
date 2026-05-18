@@ -1445,16 +1445,23 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 evidence=(
                     "HC0065 epwing2HtmlBodydata initial midashi/contents_body path",
                     "HC0065 1f41 anchor/transition branch",
+                    "HC0065 1f6d post-media renderer-state close branch",
                     "HC0065 A430-A433 grammar-label literal branches",
                     "GENIUSEB.UNI A174 fallback record",
                     "Templates/00000065.css class definitions",
                 ),
                 implementation=(
                     "entry bodies open with midashi, 1f41 transitions to contents_body, "
-                    "internal links use lLink, A174/A430-A433 render as B/c/u/S/D grammar "
-                    "labels, and A251/A253 template image markers use img_gaiji"
+                    "1f6d after media references is consumed as renderer state, internal "
+                    "links use lLink, A174/A430-A433 render as B/c/u/S/D grammar labels, "
+                    "and A251/A253 template image markers use img_gaiji"
                 ),
-                notes="The example/collocation box branches, SQL original-search hooks, modifyHeadwordEx, and custom DIB paths remain named gaps.",
+                notes=(
+                    "The full GENIUSEB raw-HONMON pass emits no raw render gaps after "
+                    "the 1f6d refinement. The example/collocation box branches, SQL "
+                    "original-search hooks, modifyHeadwordEx, and custom DIB paths "
+                    "remain named gaps."
+                ),
             )
         )
     if code == "009D":
@@ -2279,6 +2286,7 @@ def build_hc_behavior_profile(
         implemented.add("HC02BF_section_icon_and_moji_down_layout")
     if code == "0065":
         implemented.add("HC0065_midashi_contents_and_grammar_labels")
+        implemented.add("HC0065_media_close_state_control")
     if code == "0067":
         implemented.add("HC0067_midashi_contents_and_margin_sections")
     if code == "0068":
