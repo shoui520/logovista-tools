@@ -4141,6 +4141,68 @@ def test_hc00c5_profile_records_gkkanyok_subset_without_claiming_parity() -> Non
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
+def test_hc00ad_maps_large_character_sections_and_state_close() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41"
+        + jis_text("親")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x11"
+        + jis_text("大")
+        + b"\x1f\x09\x00\x12"
+        + jis_text("説明")
+        + b"\x1f\x09\x00\x72"
+        + jis_text("本文")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x48"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00AD"))
+
+    assert '<div class="midashi">' in rendered.html
+    assert "font-size:6em" in rendered.html
+    assert "text-indent:-1.000000em" in rendered.html
+    assert "<hr" in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc00ad_midashi_blocks"] == 1
+    assert rendered.stats["hc00ad_section_large_character"] == 1
+    assert rendered.stats["hc00ad_section_paired_explanation"] == 1
+    assert rendered.stats["hc00ad_section_hr_body"] == 1
+    assert rendered.stats["hc00ad_nonprinting_controls"] == 1
+
+
+def test_hc00ad_profile_records_kanjigen_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC00AD.dll"),
+        code="00AD",
+        expected_numeric_index="000000AD.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/000000AD.css",),
+        sql_snippets=(),
+        image_templates=("imi.png", "v_imi.png"),
+        features={"custom_gaiji_dib": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC00AD_large_character_section_layout" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
 def test_hc0137_profile_records_iwanami_subset_without_claiming_parity() -> None:
     row = HcRendererClassification(
         path=Path("HC0137.dll"),

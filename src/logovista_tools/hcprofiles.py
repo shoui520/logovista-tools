@@ -684,6 +684,27 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset does not emulate custom DIB generation, exact footer navigation tables, or representative visual parity.",
             )
         )
+    if code == "00AD":
+        rows.append(
+            HcHookBehavior(
+                name="kanjigen_large_character_section_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC00AD epwing2HtmlBodydataVertical 1f09 section ladder",
+                    "HC00AD large-character font-size branch",
+                    "HC00AD paired explanation and HR-separated body branches",
+                    "HC00AD 1f41 midashi branch and 1f42/1f43 lineLink template",
+                    "Templates/000000AD.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map the understood subset to large-character "
+                    "honbun blocks, paired explanation blocks, and HR-separated "
+                    "body blocks; 1f41 wraps midashi text, 1f5c/1f6d are consumed "
+                    "as renderer state, and links use lineLink"
+                ),
+                notes="The subset does not emulate exact horizontal table-cell lifecycle, custom DIB generation, footer navigation, or visual parity.",
+            )
+        )
     if code == "00A6":
         rows.append(
             HcHookBehavior(
@@ -1866,6 +1887,8 @@ def build_hc_behavior_profile(
         implemented.add("HC00A3_quiz_answer_section_layout")
     if code == "00C5":
         implemented.add("HC00C5_section_image_layout")
+    if code == "00AD":
+        implemented.add("HC00AD_large_character_section_layout")
     if code in {"014A", "02C3", "02C6"}:
         implemented.add("HC_HKDKSR_medical_section_layout")
     if code == "008C":
