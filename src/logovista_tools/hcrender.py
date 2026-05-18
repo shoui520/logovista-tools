@@ -876,6 +876,52 @@ def _hc00a3_section_parts(
     return [_hc00a3_honbun_div(float(value))], "</div>", "honbun", answer_index, False
 
 
+HC00C5_SECTION_IMAGES = {
+    2: "arrow",
+    4: "chui",
+    5: "imi1",
+    6: "imi2",
+    7: "imi3",
+    8: "imi",
+    9: "ruiku",
+    10: "sankou",
+    11: "tsuiku",
+    12: "yourei",
+}
+
+
+def _hc00c5_section_value(code: str) -> int | None:
+    try:
+        if code.isdigit():
+            return int(code, 10)
+        return int(code, 16)
+    except ValueError:
+        return None
+
+
+def _hc00c5_section_image_src(key: str, options: HcRenderOptions) -> str:
+    found = _image_source_for_key(key, options)
+    if found is not None:
+        return found
+    suffix = "_V" if options.vertical else ""
+    return f"{key}{suffix}.png"
+
+
+def _hc00c5_section_parts(code: str, options: HcRenderOptions) -> tuple[list[str], str | None, str | None]:
+    value = _hc00c5_section_value(code)
+    if value is None:
+        return [], None, None
+    if value == 1:
+        return [], None, "midashi_state"
+    if value == 3:
+        return ['<div class="honbun">'], "</div>", "honbun"
+    image_key = HC00C5_SECTION_IMAGES.get(value)
+    if image_key is not None:
+        src = _hc00c5_section_image_src(image_key, options)
+        return [f'<div class="honbun"><img src="{_escape_attr(src)}" class="img_mark">'], "</div>", image_key
+    return ['<div class="honbun">'], "</div>", "honbun_fallback"
+
+
 def _hc00a6_section_parts(code: str, *, vertical: bool) -> tuple[list[str], str | None]:
     try:
         value = int(code, 16)
@@ -1544,6 +1590,7 @@ HC00AA_BOX_SECTION_CLASSES = {
     110: "indent110",
 }
 HC00A3_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
+HC00C5_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x6D}
 
 HC009D_KAKOMI_OPEN_MARKERS = {
     "b142": ('<div class="columnKakomi">', "b143", "</div>", "b142.gif"),
@@ -1959,6 +2006,8 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
         return "lv-hc-link lineLink"
     if _renderer_code(options) == "00A3" and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
+    if _renderer_code(options) == "00C5" and start_op in {0x42, 0x43}:
+        return "lv-hc-link lineLink"
     if _renderer_code(options) in {"0065", "00B6"} and start_op in {0x42, 0x43, 0x44}:
         return "lv-hc-link lLink"
     if _renderer_code(options) in {"0067", "0068", "008B", "0069"}:
@@ -2078,6 +2127,10 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("div", ' class="midashi"')
     if _renderer_code(options) == "00A3" and op in {0x04, 0x41}:
         return ("span", ' class="hankaku"') if op == 0x04 else None
+    if _renderer_code(options) == "00C5" and op == 0x04:
+        return ("span", ' class="hankaku"')
+    if _renderer_code(options) == "00C5" and op == 0x41:
+        return None
     if _is_hc_hkdksr_medical_renderer(options) and op == 0x04:
         return ("span", ' class="hankaku"')
     if _is_hc_hkdksr_medical_renderer(options) and op == 0x41:
@@ -4572,6 +4625,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc00a3_previous_section: int | None = None
     hc00a3_answer_index = 1
     hc00a3_quiz_group_active = False
+    hc00c5_section_close: str | None = None
+    hc00c5_midashi_open = False
+    hc00c5_honbun_user_open = False
     hc0020_section_close: str | None = None
     hc0020_midashi_open = False
     hc0020_contents_open = False
@@ -5090,6 +5146,18 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats["hc00a3_section_blocks"] += 1
                         if state:
                             stats[f"hc00a3_section_{state}"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "00C5":
+                        if hc00c5_section_close is not None:
+                            root.append(hc00c5_section_close)
+                            hc00c5_section_close = None
+                        section_parts, hc00c5_section_close, state = _hc00c5_section_parts(code, options)
+                        root.extend(section_parts)
+                        if section_parts:
+                            stats["hc00c5_section_blocks"] += 1
+                        if state:
+                            stats[f"hc00c5_section_{state}"] += 1
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "0146":
@@ -6938,6 +7006,37 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "00A3" and op in HC00A3_NONPRINTING_CONTROL_OPS:
                 stats["hc00a3_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "00C5" and op == 0x41:
+                parts = _current_parts(root_parts, contexts)
+                if hc00c5_section_close is not None:
+                    parts.append(hc00c5_section_close)
+                    hc00c5_section_close = None
+                if hc00c5_midashi_open:
+                    parts.append("</div>")
+                parts.append('<div class="midashi">')
+                hc00c5_midashi_open = True
+                stats["headings"] += 1
+                stats["hc00c5_midashi_blocks"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "00C5" and op == 0x61:
+                parts = _current_parts(root_parts, contexts)
+                if hc00c5_midashi_open:
+                    parts.append("</div>")
+                    hc00c5_midashi_open = False
+                if not hc00c5_honbun_user_open:
+                    parts.append('<div class="honbun_user">')
+                    hc00c5_honbun_user_open = True
+                    stats["hc00c5_honbun_user_blocks"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "00C5" and op in HC00C5_NONPRINTING_CONTROL_OPS:
+                stats["hc00c5_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -9551,6 +9650,12 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc00aa_section_close)
     if hc00a3_section_close is not None:
         _current_parts(root_parts, contexts).append(hc00a3_section_close)
+    if hc00c5_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc00c5_section_close)
+    if hc00c5_midashi_open:
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc00c5_honbun_user_open:
+        _current_parts(root_parts, contexts).append("</div>")
     _hc0190_close_section(contexts, hc0190_sections, stats)
     while contexts:
         ctx = contexts.pop()

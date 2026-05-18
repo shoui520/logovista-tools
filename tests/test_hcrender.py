@@ -4082,6 +4082,65 @@ def test_hc00a3_profile_records_viku_subset_without_claiming_parity() -> None:
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
+def test_hc00c5_maps_section_images_midashi_and_honbun_user() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41"
+        + jis_text("見出し")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x08"
+        + jis_text("意味")
+        + b"\x1f\x09\x00\x03"
+        + jis_text("本文")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x48"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="00C5", image_sources={"imi": "Templates/imi.png"}),
+    )
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<div class="honbun_user">' in rendered.html
+    assert '<img src="Templates/imi.png" class="img_mark">' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert rendered.stats["hc00c5_midashi_blocks"] == 1
+    assert rendered.stats["hc00c5_honbun_user_blocks"] == 1
+    assert rendered.stats["hc00c5_section_imi"] == 1
+    assert rendered.stats["hc00c5_section_honbun"] == 1
+
+
+def test_hc00c5_profile_records_gkkanyok_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC00C5.dll"),
+        code="00C5",
+        expected_numeric_index="000000C5.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/000000C5.css",),
+        sql_snippets=(),
+        image_templates=("imi.png", "yourei_V.png"),
+        features={"custom_gaiji_dib": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC00C5_section_image_layout" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
 def test_hc0137_profile_records_iwanami_subset_without_claiming_parity() -> None:
     row = HcRendererClassification(
         path=Path("HC0137.dll"),

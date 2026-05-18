@@ -663,6 +663,27 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset does not emulate exact JavaScript lifecycle, previous/next footer buttons, generated custom-character DIB output, or visual parity.",
             )
         )
+    if code == "00C5":
+        rows.append(
+            HcHookBehavior(
+                name="gkkanyok_section_image_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC00C5 epwing2HtmlBodydataVertical 1f09 section image ladder",
+                    "HC00C5 1f41 midashi / 1f61 honbun_user branch",
+                    "HC00C5 1f42/1f43 lineLink template",
+                    "HC00C5 arrow/chui/imi/ruiku/sankou/tsuiku/yourei template images",
+                    "Templates/000000C5.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map the understood idiom dictionary subset to "
+                    "midashi state, honbun blocks, and labeled honbun image blocks; "
+                    "1f41/1f61 wrap midashi and honbun_user, while internal links "
+                    "use lineLink"
+                ),
+                notes="The subset does not emulate custom DIB generation, exact footer navigation tables, or representative visual parity.",
+            )
+        )
     if code == "00A6":
         rows.append(
             HcHookBehavior(
@@ -1843,6 +1864,8 @@ def build_hc_behavior_profile(
         implemented.add("HC00AA_hkbyoin_section_media_layout")
     if code == "00A3":
         implemented.add("HC00A3_quiz_answer_section_layout")
+    if code == "00C5":
+        implemented.add("HC00C5_section_image_layout")
     if code in {"014A", "02C3", "02C6"}:
         implemented.add("HC_HKDKSR_medical_section_layout")
     if code == "008C":
