@@ -20,8 +20,8 @@ Parity is only promoted when the relevant DLL code path or branch table is under
 |---|---:|
 | `common_controls_candidate_verify` | 0 |
 | `common_controls_plus_named_hooks` | 14 |
-| `exact_body_sidecar_supported_hc_hooks_unprofiled` | 7 |
-| `needs_marker_branch_decode` | 11 |
+| `exact_body_sidecar_supported_hc_hooks_unprofiled` | 8 |
+| `needs_marker_branch_decode` | 10 |
 | `decoded_branch_subset_visual_incomplete` | 77 |
 
 | Family | Families |
@@ -221,7 +221,7 @@ The order below is heuristic. It weights package count, renderer-specific gaiji 
 | 72 | `HC0092` | `9f4f3d448970` | `_DCT_KCOMPEJ2` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=1, tmpl=16, decoded `1f09` lineinfo branch, hankaku/hankakuMidashi state, lineLink/media templates, b12x/b13x marker-image strings | `custom_gaiji_dib_hook`, `visual_parity_unverified` | recover address-specific marker-image branches, exact contents transition behavior, fixed HTML/body fallback loading, generated custom-character DIB output, and representative visual parity |
 | 73 | `HC00AB` | `a1e7ee73966f` | `_DCT_GKYOJIJK` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=4, tmpl=16, decoded honbun hanging/normal-margin `1f09` section ladder, `1f41` midashi, hankaku state, lineLink/media templates, state close controls | `custom_gaiji_dib_hook`, `visual_parity_unverified` | recover fixed HTML/body fallback loading, exact footer/table generation, generated custom-character DIB output, and representative visual parity |
 | 74 | `HC0147` | `a5a2c4bcaec4` | `_DCT_YUCOGPSY` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=12, tmpl=27, decoded BCD `1f09` contents/bunken/cyosha section ladder, A12E/B141-B145 template-image gaiji, B160-B164 padding markers, B15C/B15D URL spans, `1f10` rubar/overline branch, lineLink templates | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook`, `visual_parity_unverified` | recover Panel lifecycle, modifyHeadword behavior, generated custom-character DIB output, exact bibliography anchor bookkeeping, and representative visual parity |
-| 75 | `HC0152` | `a77fe91732d4` | `_DCT_HAFRAN` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=11, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 75 | `HC0152` | `a77fe91732d4` | `_DCT_HAFRAN` | 1 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | body-loop, gaiji=1, tmpl=11, `vlpljblF` LogoFontCipher SQLite `t_contents(f_DataId,f_Html,...)` maps every raw HONMON ID to exact renderer/app body HTML | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook`, `plugin_hooks`, `user_data_hooks` | keep sidecar HTML as entry body; recover search/plugin/user-data hooks and custom DIB behavior before claiming HC parity |
 | 76 | `HC00DE` | `aa92c5995de1` | `_DCT_BRI2019P` | 1 | `common_controls_plus_named_hooks` | body-loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook` | verify whether Panel hook affects entry body or only viewer UI |
 | 77 | `HC015B` | `aaa2b21f912a` | `_DCT_KENROWA` | 1 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | body-loop, tmpl=13, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | verify rendererdb path and inspect remaining hooks/search/media templates |
 | 78 | `HC0156` | `ac56f75af1d1` | `_DCT_KJJK100` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=12 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
