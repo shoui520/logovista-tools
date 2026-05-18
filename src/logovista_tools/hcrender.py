@@ -546,6 +546,10 @@ HC00C6_IMAGE_MARKERS = frozenset(
 
 HC00A6_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x6D}
 
+HC013A_NONPRINTING_CONTROL_OPS = {0x6D}
+HC013A_SUPPRESSED_GAIJI_MARKERS = {"a225", "a226", "b26a", "b26b"}
+HC013A_CUSTOM_BITMAP_MARKERS = {"b263"}
+
 HC009B_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
 
 HC008C_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x61, 0x6D}
@@ -3595,6 +3599,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc005c_emidashi_japanese_open = False
     hc0132_honbun_open = False
     hc0132_section_close: str | None = None
+    hc013a_honbun2_open = False
     i = 0
     while i < len(data):
         byte = data[i]
@@ -3624,6 +3629,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 stats["section_markers"] += 1
                 if payload:
                     code = payload.hex()
+                    if _renderer_code(options) == "013A" and hc013a_honbun2_open:
+                        _current_parts(root_parts, contexts).append("</strong></div>")
+                        hc013a_honbun2_open = False
+                        stats["hc013a_honbun2_closures"] += 1
                     if _renderer_code(options) == "0190":
                         _hc0190_close_section(contexts, hc0190_sections, stats)
                         section = int.from_bytes(payload, "big")
@@ -4910,6 +4919,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if _renderer_code(options) == "013A" and op in HC013A_NONPRINTING_CONTROL_OPS:
+                stats["hc013a_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
             if _is_hc_hkdksr_medical_renderer(options) and op in HC_HKDKSR_MEDICAL_NONPRINTING_CONTROL_OPS:
                 stats["hc_hkdksr_medical_nonprinting_controls"] += 1
                 i += 2 + arg_len
@@ -5803,6 +5817,33 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 stats["hc0190_template_markers"] += 1
                 i += 2
                 continue
+            if _renderer_code(options) == "013A":
+                if key in HC013A_SUPPRESSED_GAIJI_MARKERS:
+                    stats["hc013a_suppressed_gaiji_markers"] += 1
+                    i += 2
+                    continue
+                if key == "b264":
+                    parts = _current_parts(root_parts, contexts)
+                    if not hc013a_honbun2_open:
+                        parts.append('<div class="honbun2"><strong>')
+                        hc013a_honbun2_open = True
+                    stats["hc013a_honbun2_markers"] += 1
+                    i += 2
+                    continue
+                if (
+                    key in HC013A_CUSTOM_BITMAP_MARKERS
+                    and not options.gaiji_map.get(key)
+                    and _image_source_for_key(key, options) is None
+                ):
+                    _current_parts(root_parts, contexts).append(
+                        '<span class="lv-hc-gaiji lv-hc-custom-dib-missing img_gaiji" '
+                        f'data-gaiji-code="{_escape_attr(key)}" '
+                        'data-hc-behavior="custom-gaiji-bitmap"></span>'
+                    )
+                    stats["hc013a_custom_dib_gaiji"] += 1
+                    gaps.add("hc013a_custom_gaiji_bitmap_unresolved")
+                    i += 2
+                    continue
             if _renderer_code(options) == "00AC" and key in HC00AC_SUPPRESSED_GAIJI_MARKERS:
                 stats["hc00ac_suppressed_markers"] += 1
                 i += 2
@@ -6858,6 +6899,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc009d_section_close)
     if hc009b_section_close is not None:
         _current_parts(root_parts, contexts).append(hc009b_section_close)
+    if hc013a_honbun2_open:
+        _current_parts(root_parts, contexts).append("</strong></div>")
+        hc013a_honbun2_open = False
+        stats["hc013a_honbun2_closures"] += 1
     if hc009c_marker_stack or hc009c_section_close is not None:
         _hc009c_close_section(_current_parts(root_parts, contexts), hc009c_marker_stack, hc009c_section_close)
     if hc02c5_section_close is not None:

@@ -259,9 +259,19 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
             HcHookBehavior(
                 name="haespjpn_example_section_badge",
                 status="branch_subset_implemented",
-                evidence=("HC013A exam.png template", "1f09 section 0011 example block branch"),
-                implementation="raw HONMON section 0011 inserts the discovered exam image once per contiguous examples block",
-                notes="HC013A decodes the 0011 section payload as decimal 11 and keeps the example block active across sections 0010, 0011, and 0012.",
+                evidence=(
+                    "HC013A exam.png template",
+                    "1f09 section 0011 example block branch",
+                    "HC013A B264 honbun2/strong branch",
+                    "HC013A B26A/B26B suppressed marker branch",
+                    "HC013A B263 custom bitmap branch",
+                ),
+                implementation=(
+                    "raw HONMON section 0011 inserts the discovered exam image once per contiguous examples block, "
+                    "B264 opens a honbun2/strong span until the next section, B26A/B26B are consumed as state, "
+                    "and B263 is classified as an unresolved custom bitmap branch instead of a generic placeholder"
+                ),
+                notes="HC013A decodes the 0011 section payload as decimal 11 and keeps the example block active across sections 0010, 0011, and 0012; exact B263 generated bitmap bytes remain unresolved.",
             )
         )
     if code == "00C6":
@@ -1418,6 +1428,7 @@ def build_hc_behavior_profile(
         implemented.add("sidecar_media_blob_extraction")
     if code == "013A":
         implemented.add("HC013A_example_section_badge")
+        implemented.add("HC013A_layout_markers_and_custom_bitmap_gap")
     if code == "00C6":
         implemented.add("HC00C6_section_and_marker_layout")
     if code == "0094":

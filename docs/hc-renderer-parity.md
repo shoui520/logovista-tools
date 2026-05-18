@@ -37,7 +37,7 @@ Parity is only promoted when the relevant DLL code path or branch table is under
 
 Decoded branch subsets currently implemented:
 
-- `HC013A.dll`: HC013A example section badge; representative package `_DCT_HAESPJPN`; remaining gaps: custom_gaiji_dib_hook, modify_headword_hook, panel_lifecycle_hook, sql_or_search_hook, and representative visual parity.
+- `HC013A.dll`: HC013A example section badge and layout-marker subset; representative package `_DCT_HAESPJPN`; implemented subset inserts the `exam.png` example badge, consumes B26A/B26B state markers, maps B264 to a `honbun2`/strong span, and reports B263 as an unresolved custom bitmap hook instead of a generic placeholder. Remaining gaps: exact generated B263 bitmap output, custom_gaiji_dib_hook, modify_headword_hook, panel_lifecycle_hook, sql_or_search_hook, and representative visual parity.
 - `HC0065.dll`: HC0065 GENIUSEB midashi/contents and grammar-label subset; representative package `_DCT_GENIUSEB`; remaining gaps: example/collocation boxes, custom DIB generation, modifyHeadwordEx, SQL original-search hooks, and representative visual parity.
 - `HC009D.dll`: HC009D GKCEREMO section/kakomi subset; representative package `_DCT_GKCEREMO`; remaining gaps: remaining custom DIB gaiji, exact table header/body lifecycle, loose HTMLs fallback, and representative visual parity.
 - `HC00C6.dll`: HC00C6 section/layout and marker subset; representative package `_DCT_Dconci87`; remaining gaps: custom_gaiji_dib_hook, unresolved literal/DIB branches, and representative visual parity.

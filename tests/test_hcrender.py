@@ -148,6 +148,42 @@ def test_hc013a_reports_missing_exam_asset_without_faking_image() -> None:
     assert "missing_section_image_exam" in rendered.named_behavior_gaps
 
 
+def test_hc013a_maps_layout_markers_without_generic_placeholders() -> None:
+    body = (
+        b"\x1f\x09\x00\x03"
+        + b"\xb2\x64"
+        + b"".join(jis_ascii(ch) for ch in "abacero")
+        + b"\xb2\x6a"
+        + b"\xb2\x6b"
+        + b"\x1f\x6d"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("本文")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="013A"))
+
+    assert '<div class="honbun2"><strong><span class="lv-hc-halfwidth">a</span>' in rendered.html
+    assert '<span class="lv-hc-halfwidth">o</span></strong></div>' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert 'data-gaiji-code="b26a"' not in rendered.html
+    assert 'data-gaiji-code="b26b"' not in rendered.html
+    assert rendered.stats["hc013a_honbun2_markers"] == 1
+    assert rendered.stats["hc013a_honbun2_closures"] == 1
+    assert rendered.stats["hc013a_suppressed_gaiji_markers"] == 2
+    assert rendered.stats["hc013a_nonprinting_controls"] == 1
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+
+
+def test_hc013a_missing_b263_uses_named_custom_bitmap_gap() -> None:
+    rendered = render_hc_body(b"\xb2\x63" + b"".join(jis_ascii(ch) for ch in "abandonar"), HcRenderOptions(renderer_code="013A"))
+
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert 'class="lv-hc-gaiji lv-hc-custom-dib-missing img_gaiji"' in rendered.html
+    assert 'data-gaiji-code="b263"' in rendered.html
+    assert rendered.stats["hc013a_custom_dib_gaiji"] == 1
+    assert "hc013a_custom_gaiji_bitmap_unresolved" in rendered.named_behavior_gaps
+
+
 def test_hc00c6_maps_sections_to_product_divs_and_example_badge() -> None:
     body = (
         b"\x1f\x09\x00\x01"
