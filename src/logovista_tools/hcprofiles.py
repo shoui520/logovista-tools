@@ -549,6 +549,33 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The branch is classified but not emitted until directive text mapping is verified against representative entries.",
             )
         )
+    if code == "009F":
+        rows.append(
+            HcHookBehavior(
+                name="haisai_season_category_sections_and_template_gaiji",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC009F epwing2HtmlBodydataVertical 1f09 section 6/7 lookahead branch",
+                    "HC009F season JIS branch table maps 春/夏/秋/冬/新 labels to sp/su/au/wi/ny image stems and background colors",
+                    "HC009F category JIS branch table maps 時/天/地/生/行/動/植 labels to marker suffixes 1..7",
+                    "HC009F B121/B122 horizontal/vertical marker-image branches, B123 suppression, and B261-to-B167 alias",
+                    "Templates/0000009F.css class definitions",
+                ),
+                implementation=(
+                    "1f09 section 6 suppresses the following season label pair, emits the "
+                    "orientation-specific season marker image, and opens a midashi block "
+                    "with the recovered background color. 1f09 section 7 suppresses the "
+                    "following category label pair and emits the current-season/category "
+                    "marker image. B121/B122 render orientation-specific template markers, "
+                    "B123 is nonprinting, B261 aliases to B167, and decoded template images "
+                    "render as img_gaiji/img_gaiji_midashi with the renderer dummy image."
+                ),
+                notes=(
+                    "Exact footer navigation lifecycle, private HTMLs/fix include handling, "
+                    "generated custom-character DIB output, and representative visual parity remain named gaps."
+                ),
+            )
+        )
     if code == "0091":
         rows.append(
             HcHookBehavior(
@@ -2195,6 +2222,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0095_lineinfo_sections_and_template_gaiji")
     if code == "0096":
         implemented.add("HC0096_lineinfo_sections_and_template_gaiji")
+    if code == "009F":
+        implemented.add("HC009F_season_category_sections_and_template_gaiji")
     if code == "0090":
         implemented.add("HC0090_lineinfo_sections_and_gaiji_classes")
     if code == "0092":

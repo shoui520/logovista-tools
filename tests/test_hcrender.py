@@ -2809,6 +2809,72 @@ def test_hc0096_maps_lineinfo_sections_links_template_gaiji_and_state_markers() 
     assert rendered.stats["hc0096_reflow_state_markers"] == 1
 
 
+def test_hc009f_maps_season_category_sections_and_template_gaiji() -> None:
+    body = (
+        b"\x1f\x41\x01\x00"
+        + jis_text("見出し")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x06"
+        + jis_text("春")
+        + b"\x1f\x09\x00\x07"
+        + jis_text("時")
+        + b"\x1f\x09\x00\x04"
+        + bytes.fromhex("b121")
+        + bytes.fromhex("b123")
+        + bytes.fromhex("b15a")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + jis_text("本文")
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="009F",
+            image_sources={
+                "hsp": "Templates/Hsp.png",
+                "hsp1": "Templates/Hsp1.png",
+                "b121h": "Templates/b121H.gif",
+                "b15a": "Templates/b15a.gif",
+                "dummy": "Templates/dummy.GIF",
+            },
+        ),
+    )
+
+    assert '<div class="midashi">見出し</div>' in rendered.html
+    assert '<img src="Templates/Hsp.png" class="img_mark">' in rendered.html
+    assert '<img src="Templates/Hsp1.png" class="img_mark">' in rendered.html
+    assert "春" not in rendered.html
+    assert "時" not in rendered.html
+    assert '<div class="honbun" style="margin-left:1em;">' in rendered.html
+    assert '<img class="lv-hc-gaiji img_mark" src="Templates/b121H.gif"' in rendered.html
+    assert "b123" not in rendered.html
+    assert '<img src="Templates/dummy.GIF" class="img_dummy">' in rendered.html
+    assert '<img class="lv-hc-gaiji img_gaiji" src="Templates/b15a.gif"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'data-lv-section' not in rendered.html
+    assert 'lv-hc-heading' not in rendered.html
+    assert rendered.html.count("<div") == rendered.html.count("</div>")
+    assert rendered.stats["hc009f_season_markers"] == 1
+    assert rendered.stats["hc009f_category_markers"] == 1
+    assert rendered.stats["hc009f_oriented_markers"] == 1
+    assert rendered.stats["hc009f_suppressed_markers"] == 1
+    assert rendered.stats["hc009f_template_image_markers"] == 1
+    assert rendered.stats["hc009f_section_label_pairs_suppressed"] == 2
+
+
+def test_hc009f_section_six_does_not_consume_heading_when_label_is_absent() -> None:
+    body = b"\x1f\x09\x00\x06" + b"\x1f\x41\x01\x00" + jis_text("見出し") + b"\x1f\x61"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="009F"))
+
+    assert '<div class="midashi">見出し</div>' in rendered.html
+    assert rendered.stats["hc009f_season_markers_without_label"] == 1
+    assert "hc009f_unmapped_season_marker_1f41" not in rendered.named_behavior_gaps
+
+
 def test_hc0090_maps_lineinfo_sections_links_and_gaiji_classes() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -5789,6 +5855,35 @@ def test_hc0096_profile_records_subset_without_claiming_parity() -> None:
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "private_ruby_directive_hook" in data["named_gaps"]
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
+def test_hc009f_profile_records_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC009F.dll"),
+        code="009F",
+        expected_numeric_index="0000009F.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/0000009F.css",),
+        sql_snippets=(),
+        image_templates=("Templates/Hsp.png", "Templates/Hsp1.png", "Templates/b121H.gif"),
+        features={"custom_gaiji_dib": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC009F_season_category_sections_and_template_gaiji" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
