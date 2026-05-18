@@ -3957,6 +3957,70 @@ def test_hc0094_profile_records_keigo_subset_without_claiming_parity() -> None:
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
+def test_hc00aa_maps_hkbyoin_sections_links_and_close_state() -> None:
+    media_payload = bytes.fromhex("000000000000000000000000000001230045")
+    body = (
+        b"\x1f\x09\x00\x01"
+        + jis_text("見出し")
+        + b"\x1f\x09\x01\x01"
+        + jis_text("囲み")
+        + b"\x1f\x09\x01\x02"
+        + jis_text("看護")
+        + b"\x1f\x09\x01\x14"
+        + jis_text("手順")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x48"
+        + b"\x1f\x4d"
+        + media_payload
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00AA"))
+
+    assert '<div class="midashi">' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "<table" in rendered.html
+    assert "Nurse.png" in rendered.html
+    assert "tejyun.png" in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc00aa_section_midashi"] == 1
+    assert rendered.stats["hc00aa_section_boxed_table"] == 1
+    assert rendered.stats["hc00aa_section_nurse_box"] == 1
+    assert rendered.stats["hc00aa_section_tejyun"] == 1
+    assert rendered.stats["hc00aa_nonprinting_controls"] == 1
+    assert rendered.media[0]["target"]["resource_id"] == "colscr:00000123:0045"
+
+
+def test_hc00aa_profile_records_hkbyoin_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC00AA.dll"),
+        code="00AA",
+        expected_numeric_index="000000AA.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/000000aa.css",),
+        sql_snippets=(),
+        image_templates=("Nurse.png", "tejyun.png"),
+        features={"custom_gaiji_dib": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC00AA_hkbyoin_section_media_layout" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
 def test_hc0137_profile_records_iwanami_subset_without_claiming_parity() -> None:
     row = HcRendererClassification(
         path=Path("HC0137.dll"),

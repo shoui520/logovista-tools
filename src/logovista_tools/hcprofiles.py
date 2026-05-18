@@ -620,6 +620,28 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Exact footer previous/next table generation, custom DIB behavior, and visual parity remain named gaps.",
             )
         )
+    if code == "00AA":
+        rows.append(
+            HcHookBehavior(
+                name="hkbyoin_section_media_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC00AA epwing2HtmlBodydataVertical 1f09 decimal-coded section ladder",
+                    "HC00AA 1f42/1f43 lineLink template",
+                    "HC00AA 1f4d media image placeholder branch",
+                    "HC00AA Nurse.png, tejyun.png, indent102/105/109 template branches",
+                    "Templates/000000aa.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map the understood hospital dictionary subset to "
+                    "midashi, honbun, right-aligned honbun, boxed table, Nurse table, "
+                    "tejyun image, and indent102/105/109 blocks; 1f42/1f43 links use "
+                    "lineLink, 1f5c/1f6d are consumed as renderer state, and generic "
+                    "media placeholders carry resolved COLSCR addresses"
+                ),
+                notes="Exact generated custom-character DIB output, footer navigation, fixed HTML fallback loading, and visual parity remain named gaps.",
+            )
+        )
     if code == "00A6":
         rows.append(
             HcHookBehavior(
@@ -1796,6 +1818,8 @@ def build_hc_behavior_profile(
         implemented.add("HC02C8_image_link_close_control")
     if code == "00A6":
         implemented.add("HC00A6_sections_and_ruby_directives")
+    if code == "00AA":
+        implemented.add("HC00AA_hkbyoin_section_media_layout")
     if code in {"014A", "02C3", "02C6"}:
         implemented.add("HC_HKDKSR_medical_section_layout")
     if code == "008C":

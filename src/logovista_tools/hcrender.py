@@ -770,6 +770,44 @@ def _hc00ac_honbun_style(code: str) -> str:
     return f"margin-left:{value}em;"
 
 
+def _hc00aa_section_value(code: str) -> int | None:
+    try:
+        if code.isdigit():
+            return int(code, 10)
+        return int(code, 16)
+    except ValueError:
+        return None
+
+
+def _hc00aa_section_parts(code: str) -> tuple[list[str], str | None, str | None]:
+    value = _hc00aa_section_value(code)
+    if value is None:
+        return [], None, None
+    if value in HC00AA_MIDASHI_SECTION_VALUES:
+        return ['<div class="midashi">'], "</div>", "midashi"
+    if value == 20:
+        return ['<div class="honbun" style="text-align:right;background-color:#DDDDDD;">'], "</div>", "right_honbun"
+    if value == 101:
+        return [
+            '<div style="margin:10px 10px 10px 1.000000em;">'
+            '<table border="0" cellpadding="4" cellspacing="1" bgcolor="#000000">'
+            '<tr><td bgcolor="#FFFFFF">'
+        ], "</td></tr></table></div>", "boxed_table"
+    if value == 102:
+        return ['<table border="0"><tr><td><img src="Nurse.png"></td><td><div class="indent102">'], "</div></td></tr></table>", "nurse_box"
+    box_class = HC00AA_BOX_SECTION_CLASSES.get(value)
+    if box_class is not None:
+        return [f'<div class="{box_class}">'], "</div>", box_class
+    if value == 106:
+        return ['<hr size="1">', '<div class="honbun" style="margin-left:1.000000em;">'], "</div>", "honbun_hr"
+    if value == 114:
+        return [
+            '<div class="honbun" style="margin-left:1.000000em;">',
+            '<img src="tejyun.png" height="24">',
+        ], "</div>", "tejyun"
+    return ['<div class="honbun" style="margin-left:1.000000em;">'], "</div>", "honbun"
+
+
 def _hc00a6_section_parts(code: str, *, vertical: bool) -> tuple[list[str], str | None]:
     try:
         value = int(code, 16)
@@ -1428,6 +1466,15 @@ HC0048_NONPRINTING_CONTROL_OPS = {0x02, 0x41, 0x4C, 0x5C, 0x6D}
 HC0048_MIDASHI_MARKERS = {"2178", "217a", "2221", "2223", "2227"}
 HC00AC_NONPRINTING_CONTROL_OPS = {0x02, 0x41, 0x4C, 0x5C, 0x6D}
 HC00AC_SUPPRESSED_GAIJI_MARKERS = {"b139", "b13a", "b13b"}
+HC00AA_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
+HC00AA_MIDASHI_SECTION_VALUES = {1, 16, 66, 116, 300, 304, 1010, 1012, 2000, 2005, 3000}
+HC00AA_BOX_SECTION_CLASSES = {
+    101: "indent101",
+    102: "indent102",
+    105: "indent105",
+    109: "indent109",
+    110: "indent110",
+}
 
 HC009D_KAKOMI_OPEN_MARKERS = {
     "b142": ('<div class="columnKakomi">', "b143", "</div>", "b142.gif"),
@@ -1839,6 +1886,8 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
         return "lv-hc-link lineLink"
     if _renderer_code(options) == "00A9" and start_op in {0x3B, 0x42, 0x43, 0x44}:
         return "lv-hc-link lineLink"
+    if _renderer_code(options) == "00AA" and start_op in {0x42, 0x43}:
+        return "lv-hc-link lineLink"
     if _renderer_code(options) in {"0065", "00B6"} and start_op in {0x42, 0x43, 0x44}:
         return "lv-hc-link lLink"
     if _renderer_code(options) in {"0067", "0068", "008B", "0069"}:
@@ -1951,6 +2000,10 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
     if _renderer_code(options) == "008C" and op == 0x04:
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "008C" and op == 0x41:
+        return ("div", ' class="midashi"')
+    if _renderer_code(options) == "00AA" and op == 0x04:
+        return ("span", ' class="hankaku"')
+    if _renderer_code(options) == "00AA" and op == 0x41:
         return ("div", ' class="midashi"')
     if _is_hc_hkdksr_medical_renderer(options) and op == 0x04:
         return ("span", ' class="hankaku"')
@@ -4441,6 +4494,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0048_honbun_open = False
     hc0048_media_div_open = False
     hc00ac_section_close: str | None = None
+    hc00aa_section_close: str | None = None
     hc0020_section_close: str | None = None
     hc0020_midashi_open = False
     hc0020_contents_open = False
@@ -4920,6 +4974,18 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         root.append(f'<div class="honbun" style="{_escape_attr(style)}">')
                         hc00ac_section_close = "</div>"
                         stats["hc00ac_honbun_sections"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "00AA":
+                        if hc00aa_section_close is not None:
+                            root.append(hc00aa_section_close)
+                            hc00aa_section_close = None
+                        section_parts, hc00aa_section_close, state = _hc00aa_section_parts(code)
+                        root.extend(section_parts)
+                        if section_parts:
+                            stats["hc00aa_section_blocks"] += 1
+                        if state:
+                            stats[f"hc00aa_section_{state}"] += 1
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "0146":
@@ -6758,6 +6824,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "00AC" and op in HC00AC_NONPRINTING_CONTROL_OPS:
                 stats["hc00ac_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "00AA" and op in HC00AA_NONPRINTING_CONTROL_OPS:
+                stats["hc00aa_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -9367,6 +9438,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc0157_section_close)
     if hc0157_group_close is not None:
         _current_parts(root_parts, contexts).append(hc0157_group_close)
+    if hc00aa_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc00aa_section_close)
     _hc0190_close_section(contexts, hc0190_sections, stats)
     while contexts:
         ctx = contexts.pop()
