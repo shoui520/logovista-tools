@@ -1579,6 +1579,16 @@ Fixed HTML/fix fallback loading, exact `submidashi` continuation state,
 generated custom-character GIF output, `modifyHeadwordAddr`, exact picture-link
 handling, and visual parity remain named gaps.
 
+The KQEJMED2 branch-subset proof case is `HC0090.dll`. Its body loop uses
+`1f09` section values as `lineinfoN` wrappers, opens `contents_body` after the
+heading section ends, and maps section 5 to a `yourei` wrapper in the recovered
+subset. The same branch family switches halfwidth spans between
+`hankakuMidashi` and `hankaku`, applies `lineLink` to internal links, and uses
+the `dummy.gif` spacer plus `img_gaiji_midashi` or `img_gaiji` for image-backed
+gaiji. Address-sensitive `yourei` versus `youreihan`, private smallcap
+directives, fixed HTML/fix fallback loading, generated custom-character GIF
+output, and visual parity remain named gaps.
+
 Some other renderer families are decoded but deliberately not implemented yet.
 The toolkit keeps unresolved branches as named behavior gaps rather than
 guessing from strings alone.

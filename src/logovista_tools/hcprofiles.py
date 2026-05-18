@@ -498,6 +498,28 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset excludes fixed HTML/fix fallback loading, exact submidashi continuation state, generated custom-character GIF output, modifyHeadword, and broader visual parity.",
             )
         )
+    if code == "0090":
+        rows.append(
+            HcHookBehavior(
+                name="kqejmed2_lineinfo_sections_and_gaiji_classes",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0090 epwing2HtmlBodydata 1f09 lineinfo/contents_body branch",
+                    "HC0090 1f04 hankaku/hankakuMidashi state branch",
+                    "HC0090 1f42/1f43 lineLink template",
+                    "HC0090 image-backed gaiji img_gaiji/img_gaiji_midashi branch",
+                    "Templates/00000090.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to lineinfoN wrappers, the transition out of "
+                    "section 1 opens contents_body, section 5 opens the recovered yourei "
+                    "wrapper, 1f04 uses hankakuMidashi while section 1 is active and "
+                    "hankaku elsewhere, 1f42/1f43 links carry lineLink, and image-backed "
+                    "gaiji use img_gaiji or img_gaiji_midashi"
+                ),
+                notes="The subset excludes address-sensitive yourei versus youreihan selection, private smallcap directives, fixed HTML/fix fallback loading, generated custom-character GIF output, and broader visual parity.",
+            )
+        )
     if code == "0094":
         rows.append(
             HcHookBehavior(
@@ -1629,6 +1651,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0093_lineinfo_sections_and_template_gaiji")
     if code == "0096":
         implemented.add("HC0096_lineinfo_sections_and_template_gaiji")
+    if code == "0090":
+        implemented.add("HC0090_lineinfo_sections_and_gaiji_classes")
     if code == "0048":
         implemented.add("HC0048_margin_heading_sections")
         implemented.add("HC0048_media_div_placeholders")
