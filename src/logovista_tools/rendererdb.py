@@ -405,13 +405,13 @@ def media_type_counts(con: sqlite3.Connection) -> dict[str, int]:
 def t_contents_columns(con: sqlite3.Connection) -> dict[str, str]:
     columns = table_column_map(con, "t_contents")
     aliases = {
-        "f_DataId": ("f_dataid", "f_data_id"),
+        "f_DataId": ("f_dataid", "f_data_id", "f_contents_id"),
         "f_Type": ("f_type",),
         "f_DataGroupId": ("f_datagroupid", "f_data_group_id"),
         "f_Anchor": ("f_anchor",),
         "f_Title": ("f_title", "f_midashi"),
         "f_Title_SS": ("f_title_ss", "f_title_sjis", "f_midashi_hyoki"),
-        "f_Html": ("f_html", "f_contents", "f_body"),
+        "f_Html": ("f_html", "f_html_text", "f_contents", "f_body"),
         "f_Keyword": ("f_keyword",),
         "f_Plane": ("f_plane", "f_plain", "f_plane_text"),
         "f_Media": ("f_media",),

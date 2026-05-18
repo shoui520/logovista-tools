@@ -1492,6 +1492,23 @@ def test_rendererdb_underscore_content_aliases() -> None:
     con.close()
 
 
+def test_rendererdb_contents_id_html_text_aliases() -> None:
+    con = sqlite3.connect(":memory:")
+    con.execute(
+        "create table t_contents ("
+        "f_contents_id integer primary key, f_title text, f_plane_text text, f_html_text text)"
+    )
+
+    columns = t_contents_columns(con)
+
+    assert columns["f_DataId"] == "f_contents_id"
+    assert columns["f_Title"] == "f_title"
+    assert columns["f_Plane"] == "f_plane_text"
+    assert columns["f_Html"] == "f_html_text"
+
+    con.close()
+
+
 def test_rendererdb_decimal_id_parser_is_lossless() -> None:
     assert parse_decimal_int(123) == 123
     assert parse_decimal_int("00123") == 123

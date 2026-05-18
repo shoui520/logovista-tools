@@ -20,8 +20,8 @@ Parity is only promoted when the relevant DLL code path or branch table is under
 |---|---:|
 | `common_controls_candidate_verify` | 0 |
 | `common_controls_plus_named_hooks` | 14 |
-| `exact_body_sidecar_supported_hc_hooks_unprofiled` | 8 |
-| `needs_marker_branch_decode` | 10 |
+| `exact_body_sidecar_supported_hc_hooks_unprofiled` | 9 |
+| `needs_marker_branch_decode` | 9 |
 | `decoded_branch_subset_visual_incomplete` | 77 |
 
 | Family | Families |
@@ -225,7 +225,7 @@ The order below is heuristic. It weights package count, renderer-specific gaiji 
 | 76 | `HC00DE` | `aa92c5995de1` | `_DCT_BRI2019P` | 1 | `common_controls_plus_named_hooks` | body-loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook` | verify whether Panel hook affects entry body or only viewer UI |
 | 77 | `HC015B` | `aaa2b21f912a` | `_DCT_KENROWA` | 1 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | body-loop, tmpl=13, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | verify rendererdb path and inspect remaining hooks/search/media templates |
 | 78 | `HC0156` | `ac56f75af1d1` | `_DCT_KJJK100` | 1 | `common_controls_plus_named_hooks` | body-loop, tmpl=12 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
-| 79 | `HC014E` | `b20be015a67f` | `_DCT_PRMEDAB7` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=4, tmpl=2 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
+| 79 | `HC014E` | `b20be015a67f` | `_DCT_PRMEDAB7` | 1 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | body-loop, gaiji=4, tmpl=2, `vlpljblF` LogoFontCipher SQLite `t_contents(f_contents_id,f_html_text,...)` maps all 10,093 raw HONMON IDs to exact renderer/app body HTML after generic alias support | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook`, `plugin_hooks`, `user_data_hooks` | keep sidecar HTML as entry body; recover SQL/search/plugin/user-data hooks and custom DIB behavior before claiming HC parity |
 | 80 | `HC0141` | `b2cb08e5df37` | `_DCT_Readers3` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=26, tmpl=25, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | sample more entries; promote only additional recovered branches |
 | 81 | `HC004D` | `b5aedaab1278` | `_DCT_BMANNER` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=11, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
 | 82 | `HC0076` | `b638539b068b` | `_DCT_HKEBMBOK` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=14, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
