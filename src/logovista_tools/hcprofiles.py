@@ -747,6 +747,27 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset does not emulate fixed HTML/body fallback loading, exact footer/table generation, generated custom-character DIB output, or visual parity.",
             )
         )
+    if code == "004D":
+        rows.append(
+            HcHookBehavior(
+                name="bmanner_midashi_honbun_renderer",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC004D epwing2HtmlBodydataVertical midashi/body branch",
+                    "HC004D 1f41/1f61 midashi lifecycle",
+                    "HC004D 1f09 honbun-open branch",
+                    "HC004D 1f42/1f43 lineLink2/lineLink branch",
+                    "Templates/0000004d.css class definitions",
+                ),
+                implementation=(
+                    "1f41/1f61 wrap the heading in midashi, the first body 1f09 "
+                    "opens honbun after heading state, 1f0a closes heading or emits "
+                    "body breaks, 1f04/1f05 map to hankaku spans, and 1f42/1f43 "
+                    "use the recovered lineLink2/lineLink classes"
+                ),
+                notes="The subset does not emulate generated custom-character GIF/DIB output, exact media wrapper lifecycle, or visual parity.",
+            )
+        )
     if code == "00A6":
         rows.append(
             HcHookBehavior(
@@ -1960,6 +1981,8 @@ def build_hc_behavior_profile(
         implemented.add("HC00BB_honbun_section_layout")
     if code == "00AB":
         implemented.add("HC00AB_honbun_section_layout")
+    if code == "004D":
+        implemented.add("HC004D_midashi_honbun_renderer")
     if code in {"014A", "02C3", "02C6"}:
         implemented.add("HC_HKDKSR_medical_section_layout")
     if code == "008C":

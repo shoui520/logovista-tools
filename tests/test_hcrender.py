@@ -1573,6 +1573,39 @@ def test_hc0147_renders_url_and_padding_markers_without_gaiji_placeholders() -> 
     assert rendered.stats["hc0147_url_links"] == 1
 
 
+def test_hc004d_maps_midashi_honbun_and_line_links() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_text("見出し")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x02"
+        + jis_ascii_text("AB")
+        + jis_text("本文")
+        + b"\x1f\x0a"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x43"
+        + jis_ascii("M")
+        + b"\x1f\x63\x00\x00\x00\x02\x00\x40"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="004D"))
+
+    assert '<div class="midashi">見出し</div>' in rendered.html
+    assert '<div class="honbun">' in rendered.html
+    assert '<span class="hankaku">AB</span>' in rendered.html
+    assert 'class="lv-hc-link lineLink2"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.stats["hc004d_heading_section_state"] == 1
+    assert rendered.stats["hc004d_midashi_blocks"] == 1
+    assert rendered.stats["hc004d_honbun_blocks"] == 1
+    assert rendered.stats["hc004d_hankaku_spans"] == 3
+
+
 def test_hc0094_maps_sections_color_blocks_template_gaiji_and_line_links() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -3926,6 +3959,35 @@ def test_hc0147_profile_records_contents_bunken_subset_without_claiming_parity()
     assert data["exact_hc_parity"] is False
     assert "panel_lifecycle" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
+
+
+def test_hc004d_profile_records_bmanner_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC004D.dll"),
+        code="004D",
+        expected_numeric_index="0000004D.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/0000004d.css",),
+        sql_snippets=(),
+        image_templates=("sound.png", "image.png", "movie.png"),
+        features={"custom_gaiji_dib": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC004D_midashi_honbun_renderer" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "visual_parity_unverified" in data["named_gaps"]
 
 
 def test_hc0094_profile_records_keigo_subset_without_claiming_parity() -> None:
