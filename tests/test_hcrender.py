@@ -1656,6 +1656,103 @@ def test_hc0076_maps_medical_body_sections_links_and_template_markers() -> None:
     assert rendered.stats["hc0076_nonprinting_controls"] == 1
 
 
+def test_hc00c7_maps_lineinfo_sections_and_template_gaiji() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + jis_text("見")
+        + b"\x1f\x09\x00\x04"
+        + b"\xb1\x21"
+        + b"\xb1\x2d"
+        + b"\x1f\x09\x00\x16"
+        + jis_text("注")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="00C7",
+            image_sources={
+                "dummy": "Templates/dummy.GIF",
+                "b121": "Templates/B121.png",
+                "b12d": "Templates/B12D.png",
+            },
+        ),
+    )
+
+    assert '<div class="lineinfo1">' in rendered.html
+    assert '<div class="contents_body">' in rendered.html
+    assert '<div class="lineinfo4">' in rendered.html
+    assert '<font class="lineinfo22">' in rendered.html
+    assert 'src="Templates/B121.png"' in rendered.html
+    assert 'class="lv-hc-gaiji img_mark4"' in rendered.html
+    assert '<img src="Templates/dummy.GIF" class="img_dummy">' in rendered.html
+    assert 'src="Templates/B12D.png"' in rendered.html
+    assert 'class="lv-hc-gaiji img_mark"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert rendered.stats["hc00c7_lineinfo_sections"] == 2
+    assert rendered.stats["hc00c7_contents_body_blocks"] == 1
+    assert rendered.stats["hc00c7_img_mark4_images"] == 1
+    assert rendered.stats["hc00c7_img_mark_images"] == 1
+
+
+def test_hc00c7_maps_links_hankaku_fontbold_and_state_controls() -> None:
+    body = (
+        b"\x1f\x04"
+        + jis_fullwidth_ascii("AB")
+        + b"\x1f\x05"
+        + b"\x1f\x12"
+        + jis_text("太")
+        + b"\x1f\x13"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x41\x00\x00"
+        + b"\x1f\x61"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00C7"))
+
+    assert '<span class="hankaku">AB</span>' in rendered.html
+    assert '<font class="fontbold">太</font>' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "unknown_control_1f41" not in rendered.named_behavior_gaps
+    assert "unknown_control_1f61" not in rendered.named_behavior_gaps
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc00c7_hankaku_spans"] == 2
+    assert rendered.stats["hc00c7_fontbold_spans"] == 1
+    assert rendered.stats["hc00c7_nonprinting_controls"] == 3
+
+
+def test_hc00c7_profile_records_branch_subset_without_full_parity_claim() -> None:
+    renderer = HcRendererClassification(
+        path=Path("HC00C7.dll"),
+        code="00C7",
+        expected_numeric_index="000000C7.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="pe", exports=("epwing2HtmlBodydata", "epwing2HtmlBodydataVertical")),
+        exinfo_html_dll="HC00C7.dll",
+        exinfo_declares_this=True,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=("B121.png", "B12D.png", "dummy.GIF"),
+        features={"html_body_renderer": True, "vertical_renderer": True},
+    )
+
+    profile = build_hc_behavior_profile(renderer)
+    row = profile.as_dict()
+
+    assert "HC00C7_lineinfo_template_gaiji_renderer" in row["implemented_semantics"]
+    assert row["exact_hc_parity"] is False
+    assert any(hook["name"] == "gkknjpzl_lineinfo_template_gaiji_renderer" for hook in row["hook_behaviors"])
+
+
 def test_hc0094_maps_sections_color_blocks_template_gaiji_and_line_links() -> None:
     body = (
         b"\x1f\x09\x00\x01"

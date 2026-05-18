@@ -795,6 +795,35 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "00C7":
+        rows.append(
+            HcHookBehavior(
+                name="gkknjpzl_lineinfo_template_gaiji_renderer",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC00C7 FUN_100039b7 body loop 1f09 lineinfo branch",
+                    "HC00C7 FUN_100039b7 B121-B12C img_mark4 branch",
+                    "HC00C7 FUN_100039b7 B12D-B130/B135-B138 img_mark branch",
+                    "HC00C7 FUN_100039b7 1f42/1f43 lineLink branch",
+                    "Templates/000000C7.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to lineinfoN divs, section 22 maps to "
+                    "lineinfo22 font state, transition out of sections 1-3 opens "
+                    "contents_body, B121-B12C emit img_mark4 template images, "
+                    "B12D-B130/B135-B138 emit dummy plus img_mark template images, "
+                    "other template-backed gaiji emit dummy plus img_gaiji, "
+                    "1f04/1f05 map to hankaku spans, 1f12/1f13 map to fontbold, "
+                    "and 1f42/1f43 links use lineLink"
+                ),
+                notes=(
+                    "The subset does not emulate fixed HTML/fix fallback loading, "
+                    "previous/next navigation side buffers, SQL/search helper rendering, "
+                    "generated custom-character DIB/GIF output, modifyHeadword/plugin/user hooks, "
+                    "or visual parity."
+                ),
+            )
+        )
     if code == "00A6":
         rows.append(
             HcHookBehavior(
@@ -2012,6 +2041,8 @@ def build_hc_behavior_profile(
         implemented.add("HC004D_midashi_honbun_renderer")
     if code == "0076":
         implemented.add("HC0076_medical_body_renderer")
+    if code == "00C7":
+        implemented.add("HC00C7_lineinfo_template_gaiji_renderer")
     if code in {"014A", "02C3", "02C6"}:
         implemented.add("HC_HKDKSR_medical_section_layout")
     if code == "008C":
