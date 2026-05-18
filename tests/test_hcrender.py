@@ -2012,6 +2012,27 @@ def test_hc02ca_maps_sections_icons_template_markers_and_literal_marker() -> Non
     assert rendered.stats["hc02ca_nonprinting_controls"] == 1
 
 
+def test_hc02ca_treats_unknown_private_directives_as_state_markers() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\xe2\x00\x07"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("本文")
+        + b"\x1f\x0a"
+        + b"\x1f\xe3"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="02CA"))
+
+    assert "本文" in rendered.html
+    assert rendered.html.count("<div") == rendered.html.count("</div>")
+    assert rendered.stats["hc02ca_private_state_markers"] == 2
+
+
 def test_hc0136_maps_sections_icons_links_and_state_controls() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -3960,6 +3981,7 @@ def test_hc02ca_profile_records_subset_without_claiming_parity() -> None:
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC02CA_honbun_margin_sections" in data["implemented_semantics"]
+    assert "HC02CA_private_state_and_bitmap_gaiji" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]

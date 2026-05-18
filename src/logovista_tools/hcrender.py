@@ -5534,6 +5534,14 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     end = data.find(b"\x1f\xe3", i + 2 + arg_len)
                     i = (end + 2) if end != -1 else (i + 2 + arg_len)
                     continue
+                stats["hc02ca_private_state_markers"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "02CA" and op in PRIVATE_END_OPS:
+                stats["hc02ca_private_state_markers"] += 1
+                i += 2 + arg_len
+                continue
 
             if _renderer_code(options) == "0136" and op in PRIVATE_START_OPS:
                 directive = payload.hex()

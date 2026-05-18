@@ -516,8 +516,10 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "HC02CA 1f41 midashi branch",
                     "HC02CA 1f42/1f43 lineLink branch",
                     "HC02CA 1fe2 2331-2334 img_icon directive branch",
+                    "HC02CA non-icon 1fe2/1fe3 renderer-state branch",
                     "HC02CA B12D-B12F img_mark branches",
                     "HC02CA B135 literal &#x20BB7; branch",
+                    "HC02CA custom-character bitmap branch",
                     "Templates/000002CA.css class definitions",
                 ),
                 implementation=(
@@ -525,10 +527,12 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "open honbun margin containers, section 000c opens footer, 1f0a "
                     "closes the active section, 1f41/1f61 wrap midashi text, internal "
                     "links use lineLink, 1fe2 2331-2334 emit 1.png-4.png img_icon "
-                    "markers, B12D-B12F render as img_mark, B130/B131 are consumed as "
-                    "renderer state markers, and B135 emits U+20BB7"
+                    "markers, non-icon 1fe2/1fe3 controls are consumed as renderer "
+                    "state markers, B12D-B12F render as img_mark, B130/B131 are consumed "
+                    "as renderer state markers, GA16/GAI16 custom characters can be "
+                    "exported as BMP resources, and B135 emits U+20BB7"
                 ),
-                notes="The subset excludes custom DIB generation, modifyHeadword, exact previous/next navigation footer generation, and broader visual parity.",
+                notes="The subset excludes product-specific DIB generation, modifyHeadword, exact previous/next navigation footer generation, and broader visual parity.",
             )
         )
     if code == "0136":
@@ -1456,6 +1460,7 @@ def build_hc_behavior_profile(
         implemented.add("HC02C0_honbun_margin_sections")
     if code == "02CA":
         implemented.add("HC02CA_honbun_margin_sections")
+        implemented.add("HC02CA_private_state_and_bitmap_gaiji")
     if code == "0136":
         implemented.add("HC0136_honbun_margin_sections")
     if code == "0048":
