@@ -5566,6 +5566,19 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "0136" and op in PRIVATE_START_OPS:
                 directive = payload.hex()
+                if directive == "0007":
+                    stats["hc0136_private_state_blocks"] += 1
+                    private_directives.append(
+                        {
+                            "start_control": "1fe2",
+                            "end_control": "1fe3" if data.find(b"\x1f\xe3", i + 2 + arg_len) != -1 else None,
+                            "directive": directive,
+                            "status": "suppressed_private_block",
+                        }
+                    )
+                    end = data.find(b"\x1f\xe3", i + 2 + arg_len)
+                    i = (end + 2) if end != -1 else (i + 2 + arg_len)
+                    continue
                 icon_name = HC0136_ICON_DIRECTIVES.get(directive)
                 if icon_name is not None:
                     src = _image_or_named_template(icon_name.removesuffix(".png"), options)

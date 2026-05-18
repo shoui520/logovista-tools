@@ -559,6 +559,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "HC0136 1f41 midashi branch",
                     "HC0136 1f42/1f43 lineLink branch",
                     "HC0136 1fe2 2331-2334 img_icon directive branch",
+                    "HC0136 1fe2 0007 private state-block suppression branch",
                     "HC0136 1f5c/1f6d renderer-state branch",
                     "Templates/00000136.css class definitions",
                 ),
@@ -567,8 +568,9 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "open honbun margin containers, section 000c opens footer, 1f0a "
                     "closes the active section, 1f41/1f61 wrap midashi text, internal "
                     "links use lineLink, 1fe2 2331-2334 emit 1.png-4.png img_icon "
-                    "markers, image-backed gaiji use img_gaiji, and 1f5c/1f6d are "
-                    "consumed as renderer state"
+                    "markers, 1fe2 0007 private state blocks are suppressed without "
+                    "leaking their internal section/link controls, image-backed gaiji "
+                    "use img_gaiji, and 1f5c/1f6d are consumed as renderer state"
                 ),
                 notes="The subset excludes exact previous/next navigation footer generation and broader visual parity.",
             )
@@ -1479,6 +1481,7 @@ def build_hc_behavior_profile(
         implemented.add("HC02CA_private_state_and_bitmap_gaiji")
     if code == "0136":
         implemented.add("HC0136_honbun_margin_sections")
+        implemented.add("HC0136_private_state_block_suppression")
     if code == "0048":
         implemented.add("HC0048_margin_heading_sections")
         implemented.add("HC0048_media_div_placeholders")

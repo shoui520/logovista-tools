@@ -2111,6 +2111,36 @@ def test_hc0136_maps_sections_icons_links_and_state_controls() -> None:
     assert rendered.stats["hc0136_nonprinting_controls"] == 1
 
 
+def test_hc0136_suppresses_private_state_block_without_leaking_section_close() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\xe2\x00\x07"
+        + b"\x1f\x09\x00\x12"
+        + b"\x1f\x42"
+        + jis_text("秘")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x0a"
+        + b"\x1f\xe3"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("本文")
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0136"))
+
+    assert "秘" not in rendered.html
+    assert "秘" not in rendered.plain
+    assert "本文" in rendered.html
+    assert rendered.html.count("<div") == rendered.html.count("</div>")
+    assert len(rendered.links) == 0
+    assert rendered.stats["hc0136_private_state_blocks"] == 1
+    assert rendered.stats["hc0136_section_blocks"] == 1
+
+
 def test_hc0048_maps_margin_sections_and_symbol_triggered_midashi() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -4064,6 +4094,7 @@ def test_hc0136_profile_records_subset_without_claiming_parity() -> None:
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0136_honbun_margin_sections" in data["implemented_semantics"]
+    assert "HC0136_private_state_block_suppression" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert data["named_gaps"] == ["visual_parity_unverified"]
 
