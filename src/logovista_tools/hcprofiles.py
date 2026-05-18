@@ -768,6 +768,33 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset does not emulate generated custom-character GIF/DIB output, exact media wrapper lifecycle, or visual parity.",
             )
         )
+    if code == "0076":
+        rows.append(
+            HcHookBehavior(
+                name="hkebmbok_medical_body_renderer",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0076 epwing2HtmlBodydata heading/body branch",
+                    "HC0076 1f09 margin-left section branch",
+                    "HC0076 1f41/1f61 midashi lifecycle",
+                    "HC0076 1f42/1f43 lineLink2/lineLink/lineLink3 branch",
+                    "Templates/00000076.css class definitions",
+                ),
+                implementation=(
+                    "1f09 closes the previous block and opens a 3-pixel-multiplied "
+                    "margin-left section, 1f41/1f61 wrap heading text in midashi, "
+                    "1f0a closes heading sections or emits body breaks, 1f04/1f05 "
+                    "map to hankaku spans, 1f42/1f43 use the recovered link classes, "
+                    "2179/217a emit template image gaiji when assets are present, "
+                    "and 1f5c/1f6d are consumed as renderer state"
+                ),
+                notes=(
+                    "The subset does not emulate the five subtitle string-table branches, "
+                    "generated custom-character GIF/DIB output, exact media wrapper lifecycle, "
+                    "or visual parity."
+                ),
+            )
+        )
     if code == "00A6":
         rows.append(
             HcHookBehavior(
@@ -1983,6 +2010,8 @@ def build_hc_behavior_profile(
         implemented.add("HC00AB_honbun_section_layout")
     if code == "004D":
         implemented.add("HC004D_midashi_honbun_renderer")
+    if code == "0076":
+        implemented.add("HC0076_medical_body_renderer")
     if code in {"014A", "02C3", "02C6"}:
         implemented.add("HC_HKDKSR_medical_section_layout")
     if code == "008C":

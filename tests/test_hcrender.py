@@ -1606,6 +1606,56 @@ def test_hc004d_maps_midashi_honbun_and_line_links() -> None:
     assert rendered.stats["hc004d_hankaku_spans"] == 3
 
 
+def test_hc0076_maps_medical_body_sections_links_and_template_markers() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_text("見出")
+        + b"\x1f\x42"
+        + jis_ascii("H")
+        + b"\x1f\x62\x00\x00\x00\x01\x00\x10"
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + jis_ascii_text("AB")
+        + jis_text("本文")
+        + bytes.fromhex("2179")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x43"
+        + jis_ascii("M")
+        + b"\x1f\x63\x00\x00\x00\x02\x00\x40"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0076",
+            image_sources={"dummy": "Templates/dummy.gif", "2179": "Templates/2179.gif"},
+        ),
+    )
+
+    assert '<div class="midashi">見出' in rendered.html
+    assert '<div style="margin-left:6px;">' in rendered.html
+    assert '<span class="hankaku">AB</span>' in rendered.html
+    assert 'class="lv-hc-link lineLink3"' in rendered.html
+    assert 'class="lv-hc-link lineLink2"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert '<img src="Templates/dummy.gif" class="img_dummy">' in rendered.html
+    assert 'class="lv-hc-gaiji img_gaiji"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc0076_heading_section_state"] == 1
+    assert rendered.stats["hc0076_midashi_blocks"] == 1
+    assert rendered.stats["hc0076_margin_sections"] == 2
+    assert rendered.stats["hc0076_hankaku_spans"] == 4
+    assert rendered.stats["hc0076_template_image_markers"] == 1
+    assert rendered.stats["hc0076_nonprinting_controls"] == 1
+
+
 def test_hc0094_maps_sections_color_blocks_template_gaiji_and_line_links() -> None:
     body = (
         b"\x1f\x09\x00\x01"

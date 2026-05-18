@@ -21,8 +21,8 @@ Parity is only promoted when the relevant DLL code path or branch table is under
 | `common_controls_candidate_verify` | 0 |
 | `common_controls_plus_named_hooks` | 14 |
 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | 9 |
-| `needs_marker_branch_decode` | 8 |
-| `decoded_branch_subset_visual_incomplete` | 78 |
+| `needs_marker_branch_decode` | 7 |
+| `decoded_branch_subset_visual_incomplete` | 79 |
 
 | Family | Families |
 |---|---:|
@@ -229,7 +229,7 @@ The order below is heuristic. It weights package count, renderer-specific gaiji 
 | 79 | `HC014E` | `b20be015a67f` | `_DCT_PRMEDAB7` | 1 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | body-loop, gaiji=4, tmpl=2, `vlpljblF` LogoFontCipher SQLite `t_contents(f_contents_id,f_html_text,...)` maps all 10,093 raw HONMON IDs to exact renderer/app body HTML after generic alias support | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook`, `plugin_hooks`, `user_data_hooks` | keep sidecar HTML as entry body; recover SQL/search/plugin/user-data hooks and custom DIB behavior before claiming HC parity |
 | 80 | `HC0141` | `b2cb08e5df37` | `_DCT_Readers3` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=26, tmpl=25, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | sample more entries; promote only additional recovered branches |
 | 81 | `HC004D` | `b5aedaab1278` | `_DCT_BMANNER` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=1, tmpl=11, decoded `1f41`/`1f61` midashi lifecycle, `1f09` honbun-open branch, `1f0a` heading/body break branch, hankaku state, lineLink2/lineLink link classes | `custom_gaiji_dib_hook`, `visual_parity_unverified` | recover generated custom-character GIF/DIB output, exact media wrapper lifecycle, and representative visual parity |
-| 82 | `HC0076` | `b638539b068b` | `_DCT_HKEBMBOK` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=1, tmpl=14, section_control_seen_in_body_loop | none | compare representative entries against common renderer output; mark common-only if no differences |
+| 82 | `HC0076` | `b638539b068b` | `_DCT_HKEBMBOK` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=1, tmpl=14, decoded `1f09` margin section lifecycle, `1f41`/`1f61` midashi lifecycle, `1f0a` heading/body break branch, hankaku/sub/sup state, `1f42`/`1f43` lineLink2/lineLink/lineLink3 classes, 2179/217a template-image branch | `custom_gaiji_dib_hook`, `visual_parity_unverified` | recover the five subtitle string-table branches, generated custom-character GIF/DIB output, exact media wrapper lifecycle, and representative visual parity |
 | 83 | `HC013F` | `b6d4f07ffb80` | `_DCT_ZYAKUKOG` | 1 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | Block/Offset/Body SQL sidecar, body-loop fallback, gaiji=2, tmpl=13, section_control_seen_in_body_loop | `custom_gaiji_dib_hook`, `modify_headword_hook`, `panel_lifecycle_hook`, `sql_or_search_hook` | exact entry body uses renderer sidecar; remaining work is product hooks and Panel/search behavior |
 | 84 | `HC0146` | `bd6644ef5906` | `_DCT_PROYAL43` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=46, tmpl=15, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop, marker/style/image/BCD-section subset recovered | `custom_gaiji_dib_hook`, `hc0146_unmapped_section_branch`, `modify_headword_hook`, `panel_lifecycle_hook`, `sql_or_search_hook`, `visual_parity_unverified` | recover residual stateful section branches and visual parity |
 | 85 | `HC00C7` | `c93d6813af27` | `_DCT_GKKNJPZL` | 1 | `needs_marker_branch_decode` | body-loop, gaiji=2 | `custom_gaiji_dib_hook`, `modify_headword_hook`, `sql_or_search_hook` | recover SQL/search hooks and decide entry-render impact |
