@@ -1590,19 +1590,23 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 status="branch_subset_implemented",
                 evidence=(
                     "HC012D epwing2HtmlBodydataVertical 1f09 section branch ladder",
+                    "HC012D section 0007 yindex toggle branch with youreioff/youreion image state",
                     "HC012D link_k/kaisetsu_s/kaisetsu_m/link_t inline image branches",
                     "HC012D 1f41/1f61 midashi-to-honbun_user transition",
                     "Templates/0000012D.css class definitions",
+                    "Templates/contents.js showIndex yindex field toggle behavior",
                 ),
                 implementation=(
                     "1f09 sections map to midashi-adjacent honbun/honbun_start/yorei/yindex/"
                     "hinshi/kaisetsu/ruigo blocks, internal links use lineLink, 217E/2221/"
                     "222A-before-link/224E render recovered template images, and A134/A137 "
-                    "spacing markers follow the DLL branches"
+                    "spacing markers follow the DLL branches; section 0007 emits the yindex toggle "
+                    "icon, suppresses the label payload, opens the hidden yindex field before "
+                    "section 0004, and closes it before body section 0002"
                 ),
                 notes=(
                     "The subset excludes custom DIB generation, modifyHeadword hooks, SQL original-search "
-                    "helpers, exact yindex/ruigo script lifecycle, and unexercised section-code branches."
+                    "helpers, exact ruigo script lifecycle, and unexercised section-code branches."
                 ),
             )
         )

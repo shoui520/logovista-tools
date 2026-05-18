@@ -789,6 +789,43 @@ def test_hc012d_honbun_user_transition_does_not_emit_empty_block_before_section(
     assert '<div class="honbun_user"><span class="lv-hc-halfwidth">B</span></div>' in text_follows.html
 
 
+def test_hc012d_yindex_toggle_suppresses_label_and_wraps_field() -> None:
+    body = (
+        b"\x1f\x09\x00\x07"
+        + jis_text("用例引き")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x04"
+        + jis_ascii("A")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x05"
+        + jis_text("Menu")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("Body")
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="012D",
+            image_sources={"youreioff": "Templates/youreioff.png", "youreion": "Templates/youreion.png"},
+            entry_start_offset=0x1000,
+        ),
+    )
+
+    assert "用例引き" not in rendered.html
+    assert '<a name="icon1000"></a><a href="#icon1000">' in rendered.html
+    assert 'src="Templates/youreioff.png" id="1000" class="yindex_icon" onclick="showIndex(id);"' in rendered.html
+    assert 'data-lv-on-src="Templates/youreion.png"' in rendered.html
+    assert '<div class="yindex_field" id="field1000" style="display:none"><div class="yindex_midashi">' in rendered.html
+    assert '</div><div class="honbun">' in rendered.html
+    assert rendered.stats["hc012d_yindex_toggles"] == 1
+    assert rendered.stats["hc012d_yindex_fields"] == 1
+    assert rendered.stats["hc012d_yindex_field_closures"] == 1
+    assert rendered.stats["hc012d_yindex_label_suppressed"] == 1
+
+
 def test_hc012d_uses_line_link_and_link_k_marker() -> None:
     body = b"\x22\x2a" + b"\x1f\x42" + jis_ascii("L") + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
 

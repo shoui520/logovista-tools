@@ -14,7 +14,7 @@ import re
 import shutil
 import sys
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -155,6 +155,24 @@ HC_RENDER_BASE_CSS = """
 }
 """.strip()
 
+HC_RENDER_BASE_SCRIPT = """
+function showIndex(id) {
+  var field = document.getElementById("field" + id.toString());
+  var icon = document.getElementById(id.toString());
+  if (!field || !icon) {
+    return;
+  }
+  var hidden = field.style.display === "none" || window.getComputedStyle(field).display === "none";
+  if (hidden) {
+    field.style.display = "block";
+    icon.src = icon.getAttribute("data-lv-on-src") || (icon.src.match(/_V/) ? "youreion_V.png" : "youreion.png");
+  } else {
+    field.style.display = "none";
+    icon.src = icon.getAttribute("data-lv-off-src") || (icon.src.match(/_V/) ? "youreioff_V.png" : "youreioff.png");
+  }
+}
+""".strip()
+
 
 HC00A0_HEADER_FALLBACK = """
 <table width="100%" border="0" cellpadding="10" cellspacing="0">
@@ -217,6 +235,7 @@ class HcRenderOptions:
     renderer_code: str | None = None
     vertical: bool = False
     include_debug_metadata: bool = False
+    entry_start_offset: int = 0
 
 
 @dataclass(frozen=True)
@@ -2554,6 +2573,14 @@ def _has_two_byte_key_before_section_end(data: bytes, offset: int, key: str) -> 
     return False
 
 
+def _find_control_offset(data: bytes, offset: int, op: int) -> int | None:
+    while offset + 1 < len(data):
+        if data[offset] == 0x1F and data[offset + 1] == op:
+            return offset
+        offset += 1
+    return None
+
+
 def _hc0158_section_value(code: str) -> int | None:
     try:
         if code.isdigit():
@@ -3742,6 +3769,29 @@ def _hc012d_section_parts(code: str, data: bytes, control_offset: int) -> list[s
     return []
 
 
+def _hc012d_image_src(key: str, options: HcRenderOptions) -> str:
+    image_name = f"{key}.png"
+    return options.image_sources.get(key) or options.image_sources.get(image_name.lower()) or image_name
+
+
+def _hc012d_yindex_id(options: HcRenderOptions, control_offset: int) -> str:
+    return f"{options.entry_start_offset + control_offset:x}"
+
+
+def _hc012d_yindex_icon_html(yindex_id: str, options: HcRenderOptions) -> str:
+    off_src = _hc012d_image_src("youreioff", options)
+    on_src = _hc012d_image_src("youreion", options)
+    css_class = "yindex_icon_V" if options.vertical else "yindex_icon"
+    return (
+        f'<a name="icon{_escape_attr(yindex_id)}"></a>'
+        f'<a href="#icon{_escape_attr(yindex_id)}">'
+        f'<img src="{_escape_attr(off_src)}" id="{_escape_attr(yindex_id)}" '
+        f'class="{css_class}" onclick="showIndex(id);" '
+        f'data-lv-on-src="{_escape_attr(on_src)}" data-lv-off-src="{_escape_attr(off_src)}">'
+        "</a>"
+    )
+
+
 def _hc012d_section_close_for_parts(parts: list[str]) -> str | None:
     if any('class="ruigo_box"' in part for part in parts):
         return "</div></div>"
@@ -4565,6 +4615,7 @@ def _write_hc_html_header(html_out: Any, *, stylesheet: str | None, vertical: bo
     html_out.write("<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n")
     if stylesheet:
         html_out.write(f'<link rel="stylesheet" href="{_escape_attr(stylesheet)}">\n')
+    html_out.write(f"<script>\n{HC_RENDER_BASE_SCRIPT}\n</script>\n")
     html_out.write(f"</head>\n<body class=\"{body_class}\">\n")
 
 
@@ -5001,6 +5052,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc00b6_section_close: str | None = None
     hc012d_section_close: str | None = None
     hc012d_pending_honbun_user = False
+    hc012d_pending_yindex_field_id: str | None = None
+    hc012d_yindex_field_open = False
     hc013d_section_close: str | None = None
     hc0141_section_close: str | None = None
     hc0144_section_close: str | None = None
@@ -6210,6 +6263,33 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         if hc012d_section_close is not None:
                             root.append(hc012d_section_close)
                             hc012d_section_close = None
+                        if code == "0007":
+                            if hc012d_yindex_field_open:
+                                root.append("</div>")
+                                hc012d_yindex_field_open = False
+                                stats["hc012d_yindex_field_closures"] += 1
+                            yindex_id = _hc012d_yindex_id(options, i)
+                            root.append(_hc012d_yindex_icon_html(yindex_id, options))
+                            hc012d_pending_yindex_field_id = yindex_id
+                            stats["hc012d_yindex_toggles"] += 1
+                            section_end = _find_control_offset(data, i + 2 + arg_len, 0x0A)
+                            if section_end is not None:
+                                stats["hc012d_yindex_label_suppressed"] += 1
+                                i = section_end + 2
+                            else:
+                                stats["hc012d_yindex_label_missing_end"] += 1
+                                i += 2 + arg_len
+                            continue
+                        if code == "0002" and hc012d_yindex_field_open:
+                            root.append("</div>")
+                            hc012d_yindex_field_open = False
+                            stats["hc012d_yindex_field_closures"] += 1
+                        if code == "0004" and hc012d_pending_yindex_field_id is not None:
+                            field_id = hc012d_pending_yindex_field_id
+                            root.append(f'<div class="yindex_field" id="field{_escape_attr(field_id)}" style="display:none">')
+                            hc012d_yindex_field_open = True
+                            hc012d_pending_yindex_field_id = None
+                            stats["hc012d_yindex_fields"] += 1
                         section_parts = _hc012d_section_parts(code, data, i)
                         root.extend(section_parts)
                         hc012d_section_close = _hc012d_section_close_for_parts(section_parts)
@@ -11187,6 +11267,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc00b6_section_close)
     if hc012d_section_close is not None:
         _current_parts(root_parts, contexts).append(hc012d_section_close)
+    if hc012d_yindex_field_open:
+        _current_parts(root_parts, contexts).append("</div>")
+        stats["hc012d_yindex_field_closures"] += 1
     if hc013d_section_close is not None:
         _current_parts(root_parts, contexts).append(hc013d_section_close)
     if hc0141_section_close is not None:
@@ -11606,7 +11689,7 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
             if args.limit is not None and emitted >= args.limit:
                 break
             body = reader.read(start, end - start)
-            result = render_hc_body(body, options)
+            result = render_hc_body(body, replace(options, entry_start_offset=start))
             totals.update(result.stats)
             totals["rendered_links"] += len(result.links)
             totals["rendered_media_references"] += len(result.media)
