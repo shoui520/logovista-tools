@@ -404,6 +404,41 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Exact custom DIB behavior and modifyHeadwordEx remain named gaps.",
             )
         )
+    if code == "0093":
+        rows.append(
+            HcHookBehavior(
+                name="gkgogen_lineinfo_sections_and_template_gaiji",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0093 epwing2HtmlBodydata 1f09 lineinfo/contents_body branch",
+                    "HC0093 1f04 hankaku/hankakuMidashi state branch",
+                    "HC0093 1f42/1f43 lineLink branch",
+                    "HC0093 B140/B148/B14A/B14C-B14E template-image branch",
+                    "Templates/00000093.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to lineinfoN divs, the transition out of "
+                    "lineinfo1 opens contents_body, section 5 opens the decoded "
+                    "youreihan wrapper, 1f04 uses hankakuMidashi while the current "
+                    "section is 1 and hankaku elsewhere, 1f42/1f43 links carry "
+                    "lineLink, and decoded template-image markers render arrow, "
+                    "meaning, etymology, and class_arrow assets"
+                ),
+                notes="Exact address-sensitive yourei/youreihan selection, ruby private directives, and custom DIB generation remain named gaps.",
+            )
+        )
+        rows.append(
+            HcHookBehavior(
+                name="private_ruby_directive_hook",
+                status="classified_not_emulated",
+                evidence=(
+                    "HC0093 epwing2HtmlBodydata 1fe2/1fe3 private directive string comparisons",
+                    "ruby/ruby7 template strings recovered from HC0093",
+                ),
+                implementation=None,
+                notes="The branch is classified but not emitted until directive text mapping is verified against representative entries.",
+            )
+        )
     if code == "0094":
         rows.append(
             HcHookBehavior(
@@ -1508,6 +1543,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0136_private_state_block_suppression")
     if code == "0063":
         implemented.add("HC0063_contents_sections_and_template_gaiji")
+    if code == "0093":
+        implemented.add("HC0093_lineinfo_sections_and_template_gaiji")
     if code == "0048":
         implemented.add("HC0048_margin_heading_sections")
         implemented.add("HC0048_media_div_placeholders")

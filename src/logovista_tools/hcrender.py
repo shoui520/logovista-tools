@@ -1028,6 +1028,16 @@ HC0063_DIRECT_IMAGE_MARKERS = {
     "b661": "white-triangle",
     "b667": "roman-alphabet",
 }
+HC0093_DIRECT_IMAGE_MARKERS = {
+    "b140": ("arrow", "img_mark"),
+    "b148": ("meaning", "img_mark"),
+    "b14a": ("etymology", "img_mark"),
+    "b14c": ("class_arrow", "img_mark2"),
+    "b14d": ("class_arrow", "img_mark2"),
+    "b14e": ("class_arrow", "img_mark2"),
+}
+HC0093_NOOP_MARKERS = {"b151", "b152", "b153", "b154", "b155"}
+HC0093_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
 HC013C_NONPRINTING_CONTROL_OPS = {0x02, 0x4C, 0x6D}
 HC013C_ICON_DIRECTIVES = {
     "2331": "1.png",
@@ -1506,6 +1516,8 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
         return "lv-hc-link lineLink"
     if _renderer_code(options) == "0094" and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
+    if _renderer_code(options) == "0093" and start_op in {0x42, 0x43}:
+        return "lv-hc-link lineLink"
     if _renderer_code(options) == "009B" and start_op in {0x3B, 0x42, 0x43, 0x44}:
         return "lv-hc-link lineLink"
     if _is_hc_hkdksr_medical_renderer(options):
@@ -1682,6 +1694,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
     if _renderer_code(options) == "0147" and op == 0x04:
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "0094" and op == 0x04:
+        return ("span", ' class="hankaku"')
+    if _renderer_code(options) == "0093" and op == 0x04:
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "0137" and op == 0x04:
         return ("span", ' class="hankaku"')
@@ -2005,6 +2019,35 @@ def _image_or_named_template(key: str, options: HcRenderOptions) -> str:
     return _image_source_for_key(key, options) or f"{key.upper()}.png"
 
 
+def _dummy_image_source(options: HcRenderOptions) -> str | None:
+    return (
+        _image_source_for_key("dummy", options)
+        or _image_source_for_key("dummy.gif", options)
+        or _image_source_for_key("dummy.GIF", options)
+    )
+
+
+def _append_hc0093_template_marker(
+    parts: list[str],
+    key: str,
+    image_key: str,
+    css_class: str,
+    options: HcRenderOptions,
+    stats: Counter[str],
+) -> bool:
+    image_src = _image_source_for_key(image_key, options)
+    if image_src is None:
+        return False
+    if css_class == "img_mark":
+        dummy_src = _dummy_image_source(options)
+        if dummy_src is not None:
+            parts.append(f'<img src="{_escape_attr(dummy_src)}" class="img_dummy">')
+            stats["hc0093_dummy_images"] += 1
+    _append_renderer_image_gaiji(parts, key, image_src, css_class, stats)
+    stats["hc0093_template_image_markers"] += 1
+    return True
+
+
 def _append_gaiji_value(
     parts: list[str],
     text_parts: list[str] | None,
@@ -2035,6 +2078,7 @@ def _append_gaiji_value(
             "00A6",
             "00B3",
             "008C",
+            "0093",
             "009C",
             "009D",
             "012E",
@@ -3539,6 +3583,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc00c6_supab_pending = False
     hc0094_section_close: str | None = None
     hc0094_color_div_close: str | None = None
+    hc0093_section_close: str | None = None
+    hc0093_current_section: int | None = 0
+    hc0093_contents_body_open = False
     hc009d_section_close: str | None = None
     hc009d_current_section_value: int | None = None
     hc009d_table_header_open = False
@@ -3698,6 +3745,44 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         else:
                             stats["hc0063_unmapped_sections"] += 1
                             gaps.add(f"hc0063_unmapped_section_{code}")
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "0093":
+                        value = _hc02c0_section_value(code)
+                        if value is None:
+                            gaps.add(f"hc0093_unmapped_section_{code}")
+                            stats["hc0093_unmapped_sections"] += 1
+                            i += 2 + arg_len
+                            continue
+                        root.append(f'<a name="section-{stats["section_markers"]}"></a>')
+                        if (
+                            hc0093_current_section
+                            and not (value == hc0093_current_section == 2)
+                            and hc0093_section_close is not None
+                        ):
+                            root.append(hc0093_section_close)
+                            hc0093_section_close = None
+                            stats["hc0093_lineinfo_closures"] += 1
+                        if value != hc0093_current_section:
+                            if hc0093_current_section == 5:
+                                root.append("</div>")
+                                stats["hc0093_yourei_closures"] += 1
+                            elif hc0093_current_section == 1 and not hc0093_contents_body_open:
+                                root.append('<div class="contents_body">')
+                                hc0093_contents_body_open = True
+                                stats["hc0093_contents_body_blocks"] += 1
+                            if value == 5:
+                                root.append('<div class="youreihan">')
+                                stats["hc0093_youreihan_sections"] += 1
+                        if value == hc0093_current_section == 2:
+                            stats["hc0093_repeated_lineinfo2_suppressed"] += 1
+                            i += 2 + arg_len
+                            continue
+                        root.append(f'<div class="lineinfo{value}">')
+                        hc0093_section_close = "</div>"
+                        hc0093_current_section = value
+                        stats["hc0093_lineinfo_sections"] += 1
+                        stats[f"hc0093_lineinfo_{value}"] += 1
                         i += 2 + arg_len
                         continue
                     if _is_hc005c_renderer(options):
@@ -4848,6 +4933,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if _renderer_code(options) == "0093" and op in HC0093_NONPRINTING_CONTROL_OPS:
+                stats["hc0093_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
             if _renderer_code(options) == "0142" and op in HC0142_NONPRINTING_CONTROL_OPS:
                 stats["hc0142_nonprinting_controls"] += 1
                 i += 2 + arg_len
@@ -5332,6 +5422,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 parts.append('<div class="honbun_user">')
                 hc00c4_section_close = "</div>"
                 stats["hc00c4_honbun_user_blocks"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0093" and op == 0x04:
+                css_class = "hankakuMidashi" if hc0093_current_section == 1 else "hankaku"
+                _current_parts(root_parts, contexts).append(f'<span class="{css_class}">')
+                style_stack.append(op)
+                halfwidth_depth += 1
+                stats[f"hc0093_{css_class}_spans"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -6927,6 +7026,25 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         stats["hc0063_template_image_markers"] += 1
                     i += 2
                     continue
+            if _renderer_code(options) == "0093":
+                marker = HC0093_DIRECT_IMAGE_MARKERS.get(key)
+                if marker is not None:
+                    image_key, css_class = marker
+                    if not _append_hc0093_template_marker(
+                        _current_parts(root_parts, contexts),
+                        key,
+                        image_key,
+                        css_class,
+                        options,
+                        stats,
+                    ):
+                        gaps.add(f"missing_hc0093_template_image_{image_key}")
+                    i += 2
+                    continue
+                if key in HC0093_NOOP_MARKERS:
+                    stats["hc0093_noop_markers"] += 1
+                    i += 2
+                    continue
             _append_gaiji_value(_current_parts(root_parts, contexts), _current_text_parts(contexts), key, options, stats)
             if _renderer_code(options) == "02C1":
                 hc02c1_section_just_opened = False
@@ -7012,6 +7130,12 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc0094_color_div_close)
     if hc0094_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0094_section_close)
+    if hc0093_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc0093_section_close)
+    if hc0093_current_section == 5:
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc0093_contents_body_open:
+        _current_parts(root_parts, contexts).append("</div>")
     if hc02bc_section_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc009d_section_close is not None:
