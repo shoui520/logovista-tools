@@ -28,6 +28,12 @@ from .entries import (
     iter_entry_slices_reader,
     normalize_fullwidth_ascii,
 )
+from .gaiji import (
+    ga16_preferred_code_for_index,
+    is_bitmap_gaiji_resource_name,
+    parse_ga16_resource,
+    parse_uni_resource,
+)
 from .hcprofiles import build_hc_behavior_profile
 from .parallel import parallel_map_ordered, worker_args
 from .pcmdata import PcmPointer, parse_pcm_pointer
@@ -1089,8 +1095,11 @@ HC0065_TEMPLATE_IMAGE_MARKERS = {
     "a253": "img_gaiji",
 }
 HC0065_NONPRINTING_CONTROL_OPS = {0x4C, 0x61}
-HC0094_TEMPLATE_IMAGE_MARKERS = frozenset(f"b{value:03x}" for value in range(0x121, 0x13E))
+HC0094_TEMPLATE_IMAGE_MARKERS = frozenset(f"b{value:03x}" for value in range(0x121, 0x13E)) - {"b13d"}
 HC0094_COLOR_DIV_MARKERS = {"b13e": "aka", "b13f": "beni"}
+HC0094_CLASS_ARROW_MARKER = "b148"
+HC0094_STATE_MARKERS = frozenset(f"b{value:03x}" for value in range(0x150, 0x15A))
+HC0094_SUPPRESSED_MARKERS = {"b139", "b140", "b13d"}
 HC0094_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
 HC0067_NONPRINTING_CONTROL_OPS = {0x6D}
 HC008B_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
@@ -3072,6 +3081,7 @@ def _prepare_hc_render_assets(
         output_sources[key] = value
         if _copy_package_asset(source, value, dict_out):
             copied += 1
+    copied += _add_hc_bitmap_gaiji_sources(source, dict_out, output_sources)
 
     stylesheet_rel = _renderer_css_name(renderer)
     stylesheet_output = None
@@ -3125,6 +3135,90 @@ def _hc00a0_rewrite_asset_sources(fragment: str, options: HcRenderOptions) -> st
         return f'src={quote}{_escape_attr(mapped)}{quote}'
 
     return re.sub(r'src=(["\'])([^"\']+)\1', replace, fragment)
+
+
+def _bmp_bytes_from_ga16_glyph(glyph: bytes, width: int, height: int) -> bytes:
+    row_in = (width + 7) // 8
+    row_out = ((width * 3 + 3) // 4) * 4
+    pixels = bytearray()
+    for y in range(height - 1, -1, -1):
+        row = bytearray()
+        base = y * row_in
+        for x in range(width):
+            byte = glyph[base + x // 8]
+            bit = (byte >> (7 - (x % 8))) & 1
+            row.extend(b"\x00\x00\x00" if bit else b"\xff\xff\xff")
+        row.extend(b"\x00" * (row_out - len(row)))
+        pixels.extend(row)
+    header_size = 14 + 40
+    file_size = header_size + len(pixels)
+    file_header = b"BM" + file_size.to_bytes(4, "little") + b"\x00\x00\x00\x00" + header_size.to_bytes(4, "little")
+    dib = (
+        (40).to_bytes(4, "little")
+        + width.to_bytes(4, "little", signed=True)
+        + height.to_bytes(4, "little", signed=True)
+        + (1).to_bytes(2, "little")
+        + (24).to_bytes(2, "little")
+        + (0).to_bytes(4, "little")
+        + len(pixels).to_bytes(4, "little")
+        + (2835).to_bytes(4, "little", signed=True)
+        + (2835).to_bytes(4, "little", signed=True)
+        + (0).to_bytes(4, "little")
+        + (0).to_bytes(4, "little")
+    )
+    return file_header + dib + bytes(pixels)
+
+
+def _discover_hc_ga16_resources(source: DictionarySource) -> tuple[Path, ...]:
+    paths: list[Path] = []
+    seen: set[Path] = set()
+    for root in candidate_package_roots(source.idx):
+        if not root.is_dir():
+            continue
+        for path in sorted(root.iterdir(), key=lambda item: item.name.casefold()):
+            if not path.is_file() or not is_bitmap_gaiji_resource_name(path):
+                continue
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            paths.append(path)
+    return tuple(paths)
+
+
+def _first_uni_resource_near(path: Path):
+    for candidate in sorted(path.parent.iterdir(), key=lambda item: item.name.casefold()):
+        if not candidate.is_file() or candidate.suffix.lower() != ".uni":
+            continue
+        parsed = parse_uni_resource(candidate)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _add_hc_bitmap_gaiji_sources(source: DictionarySource, dict_out: Path, output_sources: dict[str, str]) -> int:
+    copied = 0
+    for path in _discover_hc_ga16_resources(source):
+        resource = parse_ga16_resource(path)
+        if resource is None:
+            continue
+        data = path.read_bytes()
+        uni_resource = _first_uni_resource_near(path)
+        target_dir = dict_out / "gaiji" / path.name
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for index in range(resource.count):
+            glyph = resource.glyph_for_index(data, index)
+            if glyph is None or not any(glyph):
+                continue
+            code, code_source = ga16_preferred_code_for_index(resource, index, uni_resource)
+            key = code.lower()
+            if key in output_sources:
+                continue
+            rel = f"gaiji/{path.name}/{code.upper()}_{code_source}.bmp"
+            (dict_out / rel).write_bytes(_bmp_bytes_from_ga16_glyph(glyph, resource.width, resource.height))
+            output_sources[key] = rel
+            copied += 1
+    return copied
 
 
 def _hc00a0_extract_private_directive(text: str, stats: Counter[str]) -> str | None:
@@ -6043,6 +6137,20 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     parts.append(f'<div class="{color_class}">')
                     hc0094_color_div_close = "</div>"
                     stats["hc0094_color_div_markers"] += 1
+                    i += 2
+                    continue
+                if key == HC0094_CLASS_ARROW_MARKER:
+                    image_src = _image_source_for_key("class_arrow", options) or "class_arrow.gif"
+                    _append_renderer_image_gaiji(_current_parts(root_parts, contexts), key, image_src, "img_gaiji", stats)
+                    stats["hc0094_class_arrow_markers"] += 1
+                    i += 2
+                    continue
+                if key in HC0094_STATE_MARKERS:
+                    stats["hc0094_state_markers"] += 1
+                    i += 2
+                    continue
+                if key in HC0094_SUPPRESSED_MARKERS:
+                    stats["hc0094_suppressed_markers"] += 1
                     i += 2
                     continue
                 if key in HC0094_TEMPLATE_IMAGE_MARKERS:

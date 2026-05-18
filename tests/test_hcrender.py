@@ -1558,6 +1558,39 @@ def test_hc0094_maps_sections_color_blocks_template_gaiji_and_line_links() -> No
     assert rendered.stats["hc0094_color_div_markers"] == 1
 
 
+def test_hc0094_maps_class_arrow_and_consumes_state_markers() -> None:
+    body = (
+        jis_text("前")
+        + b"\xb1\x48"
+        + jis_text("後")
+        + b"\xb1\x50"
+        + b"\xb1\x51"
+        + b"\xb1\x59"
+        + b"\xb1\x39"
+        + b"\xb1\x40"
+        + b"\xb1\x3d"
+        + jis_text("終")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="0094", image_sources={"class_arrow": "Templates/class_arrow.gif"}),
+    )
+
+    assert 'src="Templates/class_arrow.gif"' in rendered.html
+    assert 'data-gaiji-code="b148"' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert 'data-gaiji-code="b150"' not in rendered.html
+    assert 'data-gaiji-code="b151"' not in rendered.html
+    assert 'data-gaiji-code="b159"' not in rendered.html
+    assert 'data-gaiji-code="b139"' not in rendered.html
+    assert 'data-gaiji-code="b140"' not in rendered.html
+    assert 'data-gaiji-code="b13d"' not in rendered.html
+    assert rendered.stats["hc0094_class_arrow_markers"] == 1
+    assert rendered.stats["hc0094_state_markers"] == 3
+    assert rendered.stats["hc0094_suppressed_markers"] == 3
+
+
 def test_hc0137_maps_iwanami_sections_and_line_links() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -3144,6 +3177,7 @@ def test_hc0094_profile_records_keigo_subset_without_claiming_parity() -> None:
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0094_sections_color_blocks_and_template_gaiji" in data["implemented_semantics"]
+    assert "HC0094_class_arrow_state_and_bitmap_gaiji" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "visual_parity_unverified" in data["named_gaps"]
 

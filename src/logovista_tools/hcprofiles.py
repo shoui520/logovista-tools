@@ -373,17 +373,22 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 status="branch_subset_implemented",
                 evidence=(
                     "HC0094 epwing2HtmlBodydata 1f09 section branch ladder",
-                    "HC0094 B121-B13D template image branch",
+                    "HC0094 B121-B13C template image branch",
+                    "HC0094 B148 class_arrow.gif branch",
+                    "HC0094 B150-B159 state marker branch",
+                    "HC0094 custom-character bitmap branch",
                     "HC0094 B13E/B13F aka/beni color div branch",
                     "HC0094 1f42/1f43 lineLink template",
                     "Templates/00000094.css class definitions",
                 ),
                 implementation=(
                     "1f09 sections map to midashi, contents_body, lineinfo, and footer blocks; "
-                    "B121-B13D render as img_gaiji template images, B13E/B13F open aka/beni "
-                    "color divs, and internal links carry the recovered lineLink class"
+                    "B121-B13C render as img_gaiji template images, B148 renders the class-arrow "
+                    "asset, B150-B159 are consumed as renderer state markers, GA16/GAI16 custom "
+                    "characters can be exported as BMP resources, B13E/B13F open aka/beni color "
+                    "divs, and internal links carry the recovered lineLink class"
                 ),
-                notes="Exact footer previous/next table generation, custom bitmap export, and visual parity remain named gaps.",
+                notes="Exact footer previous/next table generation, custom DIB behavior, and visual parity remain named gaps.",
             )
         )
     if code == "00A6":
@@ -1413,6 +1418,7 @@ def build_hc_behavior_profile(
         implemented.add("HC00C6_section_and_marker_layout")
     if code == "0094":
         implemented.add("HC0094_sections_color_blocks_and_template_gaiji")
+        implemented.add("HC0094_class_arrow_state_and_bitmap_gaiji")
     if code == "02BE":
         implemented.add("HC02BE_section_and_phonetic_markers")
     if code == "02BC":
