@@ -21,6 +21,12 @@ def jis_ascii(letter: str) -> bytes:
     return b"\x1f\x04" + bytes((0x23, ord(letter))) + b"\x1f\x05"
 
 
+def jis_ascii_text(text: str) -> bytes:
+    punctuation = {":": (0x21, 0x27), "/": (0x21, 0x3F), ".": (0x21, 0x25)}
+    pairs = [bytes(punctuation[ch]) if ch in punctuation else bytes((0x23, ord(ch))) for ch in text]
+    return b"\x1f\x04" + b"".join(pairs) + b"\x1f\x05"
+
+
 def jis_fullwidth_ascii(text: str) -> bytes:
     return b"".join(bytes((0x23, ord(ch))) for ch in text)
 
@@ -1485,6 +1491,30 @@ def test_hc0147_renders_template_gaiji_and_rubar_marker() -> None:
     assert "lv-hc-gaiji-placeholder" not in rendered.html
     assert rendered.stats["hc0147_template_image_markers"] == 2
     assert rendered.stats["hc0147_rubar_markers"] == 1
+
+
+def test_hc0147_renders_url_and_padding_markers_without_gaiji_placeholders() -> None:
+    body = (
+        b"\xb1\x60"
+        + jis_text("行")
+        + b"\xb1\x61"
+        + b"\xb1\x5c"
+        + jis_ascii_text("http://example.test")
+        + jis_text("資料")
+        + b"\xb1\x5d"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0147"))
+
+    assert '<span style="padding-left:0em;"></span>' in rendered.html
+    assert '<span style="padding-left:1em;"></span>' in rendered.html
+    assert 'href="http://example.test"' in rendered.html
+    assert 'target="_blank"' in rendered.html
+    assert "http://example.test" in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc0147_padding_markers"] == 2
+    assert rendered.stats["hc0147_url_link_starts"] == 1
+    assert rendered.stats["hc0147_url_links"] == 1
 
 
 def test_hc0094_maps_sections_color_blocks_template_gaiji_and_line_links() -> None:

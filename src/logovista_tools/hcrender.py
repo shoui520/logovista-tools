@@ -706,6 +706,12 @@ def _private_directive_text(text: str) -> str:
     return normalize_fullwidth_ascii(cleaned).replace("：", ":").replace("⦿", ":")
 
 
+def _extract_first_url(text: str) -> str | None:
+    normalized = normalize_fullwidth_ascii(text)
+    match = re.search(r"https?://[A-Za-z0-9._~:/?#\[\]@!$&()*+,;=%-]+", normalized)
+    return match.group(0) if match else None
+
+
 HC02BE_OPEN_MARKERS: dict[str, _RendererGaijiRule] = {
     "b928": _RendererGaijiRule('<font class="hatsuon">', "b929", "</font>"),
     "b92c": _RendererGaijiRule('<span class="yomigana">（', "b92d", "）</span>"),
@@ -947,6 +953,7 @@ HC02C2_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
 HC02C8_NOOP_SECTION_VALUES = {1, 8, 32, 34}
 HC02C8_NO_BREAK_SECTION_VALUES = {12, 50, 51, 60, 61, 70, 71}
 HC0147_TEMPLATE_IMAGE_MARKERS = frozenset(["a12e", *[f"b{value:03x}" for value in range(0x141, 0x146)]])
+HC0147_PADDING_MARKERS = {f"b{value:03x}": value - 0x160 for value in range(0x160, 0x165)}
 HC0147_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
 HC0137_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
 HC02C1_ICON_SECTION_IMAGES = {
@@ -6054,6 +6061,40 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 else:
                     _append_gaiji_value(_current_parts(root_parts, contexts), _current_text_parts(contexts), key, options, stats)
                 stats["hc0147_template_image_markers"] += 1
+                i += 2
+                continue
+            if _renderer_code(options) == "0147" and key == "b15c":
+                contexts.append(
+                    _Context(
+                        kind="hc0147_url",
+                        start_op=0,
+                        payload=data[i : i + 2],
+                        parent=_current_parts(root_parts, contexts),
+                        start_offset=i,
+                    )
+                )
+                stats["hc0147_url_link_starts"] += 1
+                i += 2
+                continue
+            if _renderer_code(options) == "0147" and key == "b15d":
+                ctx = _pop_context(contexts, "hc0147_url")
+                if ctx is None:
+                    gaps.add("hc0147_unmatched_url_marker")
+                    stats["hc0147_unmatched_url_markers"] += 1
+                else:
+                    label = "".join(ctx.parts)
+                    text = "".join(ctx.text_parts)
+                    href = _extract_first_url(text) or "#"
+                    ctx.parent.append(
+                        f'<a class="lineLink" target="_blank" href="{_escape_attr(href)}">{label}</a>'
+                    )
+                    stats["hc0147_url_links"] += 1
+                i += 2
+                continue
+            if _renderer_code(options) == "0147" and key in HC0147_PADDING_MARKERS:
+                em = HC0147_PADDING_MARKERS[key]
+                _current_parts(root_parts, contexts).append(f'<span style="padding-left:{em}em;"></span>')
+                stats["hc0147_padding_markers"] += 1
                 i += 2
                 continue
             if _is_hc_gen_year_renderer(options):
