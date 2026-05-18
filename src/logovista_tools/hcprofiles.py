@@ -824,6 +824,36 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "007D":
+        rows.append(
+            HcHookBehavior(
+                name="kqnewej6_midashi_margin_renderer",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC007D body loop 1f09 heading-state and margin-section branches",
+                    "HC007D body loop 1f41/1f61 midashi lifecycle branch",
+                    "HC007D body loop 1f0a contents_body transition branch",
+                    "HC007D body loop 1f42/1f43 lineLink2/lineLink branch",
+                    "HC007D gaiji image branch selecting img_gaiji_midashi versus img_gaiji",
+                    "Templates/0000007D.css class definitions",
+                ),
+                implementation=(
+                    "1f09 followed by 1f41 is consumed as heading state, other "
+                    "1f09 payloads open 3-pixel-multiplied margin-left divs, "
+                    "1f41/1f61 wrap heading text in midashi, 1f0a transitions "
+                    "the heading to contents_body, template-backed gaiji emit "
+                    "dummy plus img_gaiji_midashi or img_gaiji according to the "
+                    "current heading/body state, 1f04/1f05 map to hankaku spans, "
+                    "1f42/1f43 links use lineLink2/lineLink, and 1f4c/1f5c/1f6d "
+                    "are consumed as renderer state"
+                ),
+                notes=(
+                    "The subset does not emulate generated custom-character DIB/GIF "
+                    "output, exact media wrapper lifecycle, fixed HTML/fallback loading, "
+                    "or representative visual parity."
+                ),
+            )
+        )
     if code == "00A6":
         rows.append(
             HcHookBehavior(
@@ -2041,6 +2071,8 @@ def build_hc_behavior_profile(
         implemented.add("HC004D_midashi_honbun_renderer")
     if code == "0076":
         implemented.add("HC0076_medical_body_renderer")
+    if code == "007D":
+        implemented.add("HC007D_midashi_margin_renderer")
     if code == "00C7":
         implemented.add("HC00C7_lineinfo_template_gaiji_renderer")
     if code in {"014A", "02C3", "02C6"}:
