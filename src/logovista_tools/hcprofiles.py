@@ -439,6 +439,42 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The branch is classified but not emitted until directive text mapping is verified against representative entries.",
             )
         )
+    if code == "0096":
+        rows.append(
+            HcHookBehavior(
+                name="gktisiki_lineinfo_sections_and_template_gaiji",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0096 epwing2HtmlBodydata 1f09 lineinfo%d-%d branch",
+                    "HC0096 1f04 hankaku/hankakuMidashi branch",
+                    "HC0096 1f42/1f43 lineLink branch",
+                    "HC0096 B121-B149 template-image branch",
+                    "HC0096 B150-B152/B155-B15A reflow-state branch",
+                    "Templates/00000096.css class definitions",
+                ),
+                implementation=(
+                    "1f09 sections map to lineinfo0-N divs for the decoded top-level "
+                    "subset, leaving section 12 opens contents_body, 1f04 uses "
+                    "hankakuMidashi while section 1 is active and hankaku elsewhere, "
+                    "1f42/1f43 links carry lineLink, B121-B149 render template image "
+                    "markers, and B150-B152/B155-B15A are treated as state/reflow "
+                    "markers rather than visible gaiji"
+                ),
+                notes="Exact multi-group lineinfo first-axis selection, footer table lifecycle, private ruby directives, and custom DIB generation remain named gaps.",
+            )
+        )
+        rows.append(
+            HcHookBehavior(
+                name="private_ruby_directive_hook",
+                status="classified_not_emulated",
+                evidence=(
+                    "HC0096 epwing2HtmlBodydata 1fe2/1fe3 private directive string comparisons",
+                    "ruby/ruby7 template strings recovered from HC0096",
+                ),
+                implementation=None,
+                notes="The branch is classified but not emitted until directive text mapping is verified against representative entries.",
+            )
+        )
     if code == "0094":
         rows.append(
             HcHookBehavior(
@@ -1545,6 +1581,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0063_contents_sections_and_template_gaiji")
     if code == "0093":
         implemented.add("HC0093_lineinfo_sections_and_template_gaiji")
+    if code == "0096":
+        implemented.add("HC0096_lineinfo_sections_and_template_gaiji")
     if code == "0048":
         implemented.add("HC0048_margin_heading_sections")
         implemented.add("HC0048_media_div_placeholders")

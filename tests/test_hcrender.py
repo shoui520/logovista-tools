@@ -2229,6 +2229,53 @@ def test_hc0093_maps_lineinfo_sections_links_and_template_gaiji() -> None:
     assert rendered.stats["hc0093_noop_markers"] == 1
 
 
+def test_hc0096_maps_lineinfo_sections_links_template_gaiji_and_state_markers() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("H")
+        + b"\x1f\x05"
+        + bytes.fromhex("b150")
+        + b"\x1f\x09\x00\x12"
+        + bytes.fromhex("b124")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("本文")
+        + bytes.fromhex("214c252f214d")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0096",
+            image_sources={
+                "b124": "Templates/B124.gif",
+                "b250": "Templates/B250.gif",
+                "dummy": "Templates/dummy.GIF",
+            },
+        ),
+    )
+
+    assert '<div class="lineinfo0-1"><span class="hankakuMidashi">H</span>' in rendered.html
+    assert '<div class="lineinfo0-12">' in rendered.html
+    assert '<div class="contents_body">' in rendered.html
+    assert '<div class="lineinfo0-3">' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert '<img class="lv-hc-gaiji img_mark2" src="Templates/B124.gif"' in rendered.html
+    assert '<img class="lv-hc-gaiji img_mark4" src="Templates/B250.gif"' in rendered.html
+    assert 'data-lv-section' not in rendered.html
+    assert 'lv-hc-heading' not in rendered.html
+    assert "B150" not in rendered.html
+    assert rendered.html.count("<div") == rendered.html.count("</div>")
+    assert rendered.stats["hc0096_lineinfo_sections"] == 3
+    assert rendered.stats["hc0096_contents_body_blocks"] == 1
+    assert rendered.stats["hc0096_template_image_markers"] == 1
+    assert rendered.stats["hc0096_inline_mark_images"] == 1
+    assert rendered.stats["hc0096_reflow_state_markers"] == 1
+
+
 def test_hc0048_maps_margin_sections_and_symbol_triggered_midashi() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -4240,6 +4287,36 @@ def test_hc0093_profile_records_subset_without_claiming_parity() -> None:
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0093_lineinfo_sections_and_template_gaiji" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "private_ruby_directive_hook" in data["named_gaps"]
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
+def test_hc0096_profile_records_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0096.dll"),
+        code="0096",
+        expected_numeric_index="00000096.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/00000096.css",),
+        sql_snippets=(),
+        image_templates=("Templates/B124.gif", "Templates/B250.gif"),
+        features={"custom_gaiji_dib": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC0096_lineinfo_sections_and_template_gaiji" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "private_ruby_directive_hook" in data["named_gaps"]
