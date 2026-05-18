@@ -900,6 +900,30 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset excludes the exact neighboring-JIS conditional lineLink/lineLink2 selection, fixed HTMLs/fix fallback loading, generated gaiji GIF emission, and broader visual parity.",
             )
         )
+    if code == "0068":
+        rows.append(
+            HcHookBehavior(
+                name="ibio4_midashi_contents_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0068 epwing2HtmlBodydata 1f09 margin branch",
+                    "HC0068 1f41 midashi branch",
+                    "HC0068 1f0a contents_body transition branch",
+                    "HC0068 1f42/1f43 lineLink/lineLink2 branch",
+                    "HC0068 image-backed gaiji img_gaiji/img_gaiji_midashi branch",
+                    "Templates/00000068.css class definitions",
+                ),
+                implementation=(
+                    "Initial 1f41 opens midashi, first 1f0a opens contents_body, "
+                    "non-heading 1f09 sections open margin-left containers using the "
+                    "recovered 3-pixel multiplier, 1f42 uses lineLink2 by default, "
+                    "1f43 uses lineLink, image-backed gaiji use dummy.gif plus "
+                    "img_gaiji or img_gaiji_midashi, and 1f5c/1f6d are consumed as "
+                    "renderer state controls"
+                ),
+                notes="The subset excludes the exact neighboring-JIS conditional lineLink/lineLink2 selection, fixed HTMLs/fix fallback loading, generated gaiji GIF emission, and broader visual parity.",
+            )
+        )
     if code == "0069":
         rows.append(
             HcHookBehavior(
@@ -1800,6 +1824,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0065_midashi_contents_and_grammar_labels")
     if code == "0067":
         implemented.add("HC0067_midashi_contents_and_margin_sections")
+    if code == "0068":
+        implemented.add("HC0068_midashi_contents_and_margin_sections")
     if code == "0069":
         implemented.add("HC0069_midashi_contents_and_margin_sections")
     if code == "008B":
