@@ -2325,6 +2325,63 @@ def test_hc0090_maps_lineinfo_sections_links_and_gaiji_classes() -> None:
     assert rendered.stats["hc0090_hankakuMidashi_spans"] == 1
 
 
+def test_hc014f_maps_midashi_contents_links_decoration_and_gaiji_classes() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("H")
+        + b"\x1f\x05"
+        + bytes.fromhex("b555")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("本文")
+        + bytes.fromhex("b556")
+        + b"\x1f\xe0\x00\x04"
+        + jis_text("強調")
+        + b"\x1f\xe1"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x43"
+        + jis_ascii("R")
+        + b"\x1f\x63\x00\x00\x00\x03\x00\x40"
+        + b"\x1f\x0a"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="014F",
+            image_sources={
+                "b555": "Templates/b555.png",
+                "b556": "Templates/b556.png",
+                "dummy": "Templates/dummy.gif",
+            },
+        ),
+    )
+
+    assert '<div class="midashi"><span class="hankaku">H</span>' in rendered.html
+    assert '</div><div class="contents">' in rendered.html
+    assert '<img src="Templates/dummy.gif" class="img_dummy">' in rendered.html
+    assert '<img class="lv-hc-gaiji img_gaiji_midashi" src="Templates/b555.png"' in rendered.html
+    assert '<img class="lv-hc-gaiji img_gaiji" src="Templates/b556.png"' in rendered.html
+    assert "<b><i>強調</i></b>" in rendered.html
+    assert 'class="lv-hc-link Link"' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "data-lv-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert rendered.html.count("<div") == rendered.html.count("</div>")
+    assert rendered.stats["hc014f_midashi_blocks"] == 1
+    assert rendered.stats["hc014f_contents_blocks"] == 1
+    assert rendered.stats["hc014f_suppressed_heading_breaks"] == 1
+    assert rendered.stats["hc014f_bold_italic_spans"] == 1
+    assert rendered.stats["hc014f_img_gaiji_midashi_images"] == 1
+    assert rendered.stats["hc014f_img_gaiji_images"] == 1
+
+
 def test_hc0091_maps_midashi_contents_marker_images_links_and_gaiji_classes() -> None:
     body = (
         b"\x1f\x41\x00\x00"
@@ -4566,6 +4623,37 @@ def test_hc0096_profile_records_subset_without_claiming_parity() -> None:
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "private_ruby_directive_hook" in data["named_gaps"]
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
+def test_hc014f_profile_records_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC014F.dll"),
+        code="014F",
+        expected_numeric_index="0000014F.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/0000014F.css",),
+        sql_snippets=("SELECT f_midasi,f_block,f_offset FROM t_Search_1 WHERE f_midasi LIKE '%'",),
+        image_templates=("Templates/back.gif", "Templates/forward.gif"),
+        features={"custom_gaiji_dib": True, "headword_modifier": True, "plugin_hooks": True, "sql_hooks": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC014F_midashi_contents_and_decoration_modes" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+    assert "sql_hook" in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 

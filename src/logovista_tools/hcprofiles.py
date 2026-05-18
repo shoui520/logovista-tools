@@ -197,6 +197,30 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The helper queries category-specific search tables; it is distinct from native INDEX.DIC search.",
             )
         )
+        rows.append(
+            HcHookBehavior(
+                name="ejje200_midashi_contents_renderer",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC014F epwing2HtmlBodydata 1f41 midashi and 1f61 contents branch",
+                    "HC014F epwing2HtmlBodydata 1f09 section-state branch",
+                    "HC014F 1f0a section-aware line-break suppression",
+                    "HC014F 1f42 Link and 1f43 lineLink templates",
+                    "HC014F 1fe0/1fe1 decoration mode branch",
+                    "HC014F image-backed gaiji img_gaiji/img_gaiji_midashi branch",
+                    "Templates/0000014F.css class definitions",
+                ),
+                implementation=(
+                    "1f41 opens midashi, 1f61 closes midashi and opens contents, "
+                    "1f09 records renderer section state without emitting generic "
+                    "section placeholders, 1f0a is suppressed in heading section 1 "
+                    "and emitted elsewhere, 1f42 uses Link while 1f43 uses lineLink, "
+                    "1fe0 modes 0/1/4 emit bold/italic/bold-italic, and image-backed "
+                    "gaiji use dummy.gif plus img_gaiji or img_gaiji_midashi"
+                ),
+                notes="The subset excludes fixed HTML/fix fallback loading, exact previous/next page movement links, generated custom-character PNG output, SQL helper UI, modifyHeadwordEx, and broader visual parity.",
+            )
+        )
     if code == "0C80":
         rows.append(
             HcHookBehavior(
@@ -1678,6 +1702,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0096_lineinfo_sections_and_template_gaiji")
     if code == "0090":
         implemented.add("HC0090_lineinfo_sections_and_gaiji_classes")
+    if code == "014F":
+        implemented.add("HC014F_midashi_contents_and_decoration_modes")
     if code == "0020":
         implemented.add("HC0020_midashi_definition_markers")
     if code == "0048":

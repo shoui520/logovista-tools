@@ -1589,6 +1589,18 @@ gaiji. Address-sensitive `yourei` versus `youreihan`, private smallcap
 directives, fixed HTML/fix fallback loading, generated custom-character GIF
 output, and visual parity remain named gaps.
 
+The EJJE200 branch-subset proof case is `HC014F.dll`. Its body loop uses
+`1f41` to open the product `midashi` block and `1f61` to transition into
+`contents`; `1f09` records the renderer section state without emitting generic
+visible section placeholders. Section `0001` suppresses `1f0a` heading breaks,
+while later sections emit the body line break. The same branch family maps
+`1f42` to the `Link` class, `1f43` to `lineLink`, maps `1fe0`/`1fe1`
+decoration modes `0`, `1`, and `4` to bold, italic, and bold-italic, and uses
+the `dummy.gif` spacer plus `img_gaiji_midashi` or `img_gaiji` for image-backed
+gaiji when resource evidence exists. Fixed HTML/fix fallback loading, exact
+previous/next `page_movement_img` links, generated custom-character PNG/DIB
+output, SQL helper UI, `modifyHeadwordEx`, and visual parity remain named gaps.
+
 The KENCOLLO branch-subset proof case is `HC0020.dll`. Its body loop maps the
 initial heading state to a `midashi` block and the first `1f0a` transition to
 `contents_body`. Non-heading `1f09` sections become 3-pixel-multiplied
