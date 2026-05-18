@@ -1198,6 +1198,7 @@ HC02BE_LITERAL_MARKERS = {
     "a62f": '<span class="gai_a62f"><sup>4</sup><sub>2</sub></span>',
 }
 HC02BE_NOOP_MARKERS = {"b924", "b925", "b92a", "b933", "b935"}
+HC02BE_NONPRINTING_CONTROL_OPS = {0x41}
 HC02BE_ACCENT_MARKERS: dict[str, tuple[str, str, str, str]] = {
     # marker -> (visible base HTML, wrapper class, image class, image key)
     "a138": ("A", "nowrap_half", "aigu_half", "aigu"),
@@ -2098,6 +2099,8 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
     if _renderer_code(options) == "0094" and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
     if _renderer_code(options) == "0093" and start_op in {0x42, 0x43}:
+        return "lv-hc-link lineLink"
+    if _renderer_code(options) == "02BE" and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
     if _renderer_code(options) in {"0095", "0096", "009F"} and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
@@ -7485,6 +7488,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "00C6" and op in HC00C6_NONPRINTING_CONTROL_OPS:
                 stats["hc00c6_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+            if _renderer_code(options) == "02BE" and op in HC02BE_NONPRINTING_CONTROL_OPS:
+                stats["hc02be_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 

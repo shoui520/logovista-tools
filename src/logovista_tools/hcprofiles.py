@@ -357,6 +357,8 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 status="branch_subset_implemented",
                 evidence=(
                     "HC02BE epwing2HtmlBodydataVertical ind_%04d section templates",
+                    "HC02BE 1f41 heading-anchor control is consumed as renderer state",
+                    "HC02BE lineLink anchor template for 1f42/1f43 internal links",
                     "HC02BE A/B gaiji branch ladder for phonetic accent image composites",
                     "HC02BE B928/B929 hatsuon and B92C/B92D yomigana branches",
                     "Templates/000002BE.css class definitions",
@@ -364,7 +366,8 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 implementation=(
                     "1f09 sections map to ind_#### blocks, phonetic marker gaiji render "
                     "nowrap half/full accent image composites, B928/B929 render hatsuon, "
-                    "B92C/B92D render yomigana, and B924/B925 are suppressed as renderer selectors"
+                    "B92C/B92D render yomigana, B924/B925 are suppressed as renderer selectors, "
+                    "1f41 is a nonprinting renderer state control, and internal links carry lineLink"
                 ),
                 notes="Panel lifecycle, SQL/search hooks, modifyHeadword, and custom DIB paths remain named gaps.",
             )

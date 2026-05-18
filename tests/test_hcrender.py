@@ -281,6 +281,23 @@ def test_hc02be_maps_sections_to_ind_blocks() -> None:
     assert rendered.stats["hc02be_section_span"] == 1
 
 
+def test_hc02be_heading_anchor_control_is_nonprinting() -> None:
+    rendered = render_hc_body(b"\x1f\x41\x00\x00" + jis_ascii("H"), HcRenderOptions(renderer_code="02BE"))
+
+    assert "unknown_control_1f41" not in rendered.named_behavior_gaps
+    assert "lv-hc-unknown-control" not in rendered.html
+    assert rendered.plain == "H"
+    assert rendered.stats["hc02be_nonprinting_controls"] == 1
+
+
+def test_hc02be_internal_links_use_product_line_link_class() -> None:
+    body = b"\x1f\x42" + jis_ascii("L") + b"\x1f\x62\x00\x00\x00\x03\x00\x40"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="02BE"))
+
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+
+
 def test_hc02be_renders_phonetic_accent_composite_markers() -> None:
     rendered = render_hc_body(
         b"\xa2\x4f\xb1\x4f",
