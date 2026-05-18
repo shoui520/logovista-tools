@@ -526,6 +526,15 @@ and non-SSED reader status are tracked separately in
   previous/next navigation footer generation, fixed HTML/body fallback
   loading, exact generated custom-bitmap output, and visual parity remain
   incomplete.
+- `HC00A9.dll` now has a focused raw-HONMON branch-subset proof for GEN2011:
+  the first `1f41`/`1f0a` pair drives the product `midashi` lifecycle, body
+  `1f09` sections open `honbun` wrappers with a 4-pixel margin multiplier,
+  section `000c` opens `header`, `222A` inside `header` emits the
+  `mlink.gif`/`mlinkV.gif` marker, `1f04` becomes `hankakuLink` in header and
+  `hankaku` elsewhere, internal links use `lineLink`, media controls use
+  `img_inline` placeholders, and `1f5c`/`1f6d` are consumed as renderer state.
+  Fixed HTML/body fallback loading, exact previous/next footer generation,
+  generated custom DIB output, and visual parity remain incomplete.
 - `HC00A0.dll` now has a focused raw-HONMON branch-subset proof for the
   Gakken phrase/detail renderer used by GKBUSINE/GKTRAVEL: `1f09` section
   `0001` fills the English detail slot, section `0002` fills the Japanese

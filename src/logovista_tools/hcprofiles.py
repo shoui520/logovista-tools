@@ -856,6 +856,31 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "00A9":
+        rows.append(
+            HcHookBehavior(
+                name="gen2011_header_honbun_link_layout",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC00A9 epwing2HtmlBodydataVertical 1f09 header/honbun branch ladder",
+                    "HC00A9 1f41 midashi branch and 1f0a heading transition",
+                    "HC00A9 1f04 hankaku/hankakuLink section-state branch",
+                    "HC00A9 1f42/1f43 lineLink template",
+                    "HC00A9 222A-in-header mlink.gif/mlinkV.gif marker branch",
+                    "HC00A9 image-backed gaiji img_gaiji/img_gaiji_midashi branch",
+                    "Templates/000000A9.css class definitions",
+                ),
+                implementation=(
+                    "Initial 1f41 opens midashi until the first 1f0a, body 1f09 "
+                    "sections open honbun wrappers with 4-pixel-multiplied margins, "
+                    "section 000c opens header, 222A in header emits the mlink marker "
+                    "image, 1f04 switches to hankakuLink in header and hankaku "
+                    "elsewhere, internal links use lineLink, media placeholders use "
+                    "img_inline, and 1f5c/1f6d are consumed as renderer state controls"
+                ),
+                notes="The subset excludes exact previous/next footer generation, fixed HTML/body fallback loading, generated custom-character DIB output, and broader visual parity.",
+            )
+        )
     if code == "00AC":
         rows.append(
             HcHookBehavior(
@@ -1807,6 +1832,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0048_media_div_placeholders")
     if code == "00A4":
         implemented.add("HC00A4_sections_ruby_and_resource_markers")
+    if code == "00A9":
+        implemented.add("HC00A9_header_honbun_link_layout")
     if code == "00AC":
         implemented.add("HC00AC_honbun_margin_sections")
         implemented.add("HC00AC_marker_suppression")

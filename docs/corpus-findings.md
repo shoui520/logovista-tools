@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             40   HC013A, HC0065, HC009B, HC00B3, HC00A0, HC00A4, HC0068, HC02C0, HC013C, HC02CA, HC0136, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
-needs marker branch decode:          50
+decoded branch subsets:             41   HC013A, HC0065, HC009B, HC00B3, HC00A0, HC00A4, HC00A9, HC0068, HC02C0, HC013C, HC02CA, HC0136, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
+needs marker branch decode:          49
 common controls plus named gaps:     14
 common controls candidate verify:     0
 exact-body sidecar HC hooks unprofiled: 5
@@ -1560,6 +1560,17 @@ first `1f0a` opens `contents_body`, non-heading `1f09` sections become
 image-backed gaiji use `dummy.gif` plus `img_gaiji_midashi` or `img_gaiji`.
 The exact neighboring-JIS link-class switch, fixed HTML fallback loading,
 generated custom-gaiji GIF output, and visual parity remain named gaps.
+
+The GEN2011 branch-subset proof case is `HC00A9.dll`. Its vertical body loop
+uses the first `1f41`/`1f0a` pair for the product `midashi` lifecycle, then
+maps body `1f09` section payloads to `honbun` wrappers with a 4-pixel margin
+multiplier. Section `000c` opens `header`; the JIS marker `222A` inside that
+header emits the product `mlink.gif`/`mlinkV.gif` marker; `1f04` becomes
+`hankakuLink` in the header and `hankaku` elsewhere; internal address links
+carry `lineLink`; media controls use `img_inline` placeholders; and `1f5c`/
+`1f6d` are consumed as renderer state. Fixed HTML/body fallback loading,
+exact previous/next footer generation, generated custom-character DIB output,
+and visual parity remain named gaps.
 
 The GEN2019 branch-subset proof case is `HC02CA.dll`. Its body loop follows
 the margin-based GEN renderer shape: `1f09` section `0001` is heading state,

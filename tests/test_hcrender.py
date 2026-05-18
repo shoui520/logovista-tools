@@ -5555,3 +5555,70 @@ def test_hc0132_profile_records_branch_subset_without_full_parity_claim() -> Non
     assert "HC0132_finance_section_layout" in row["implemented_semantics"]
     assert row["exact_hc_parity"] is False
     assert any(hook["name"] == "ngfinanc_section_layout" for hook in row["hook_behaviors"])
+
+
+def test_hc00a9_maps_midashi_honbun_header_links_and_marker_image() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_text("見出し")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("本文")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x03\x00\x40"
+        + b"\x1f\x09\x00\x0c"
+        + b"\x22\x2a"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("URL")
+        + b"\x1f\x05"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="00A9", image_sources={"mlink": "Templates/mlink.gif"}),
+    )
+
+    assert '<div class="midashi">見出し</div>' in rendered.html
+    assert '<div class="honbun" style="margin-left:12px">' in rendered.html
+    assert '<div class="header">' in rendered.html
+    assert 'src="Templates/mlink.gif" class="img_mark2"' in rendered.html
+    assert '<span class="hankakuLink">URL</span>' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc00a9_section_honbun"] == 1
+    assert rendered.stats["hc00a9_section_header"] == 1
+    assert rendered.stats["hc00a9_mlink_markers"] == 1
+
+
+def test_hc00a9_profile_records_branch_subset_without_full_parity_claim() -> None:
+    renderer = HcRendererClassification(
+        path=Path("HC00A9.dll"),
+        code="00A9",
+        expected_numeric_index="000000A9.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="pe", exports=("epwing2HtmlBodydata", "epwing2HtmlBodydataVertical")),
+        exinfo_html_dll="HC00A9.dll",
+        exinfo_declares_this=True,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=("mlink.gif", "URL-icon.gif"),
+        features={"html_body_renderer": True, "vertical_renderer": True},
+    )
+
+    profile = build_hc_behavior_profile(renderer)
+    row = profile.as_dict()
+
+    assert "HC00A9_header_honbun_link_layout" in row["implemented_semantics"]
+    assert row["exact_hc_parity"] is False
+    assert any(hook["name"] == "gen2011_header_honbun_link_layout" for hook in row["hook_behaviors"])
