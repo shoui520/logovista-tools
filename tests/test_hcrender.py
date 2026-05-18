@@ -28,7 +28,8 @@ def jis_ascii_text(text: str) -> bytes:
 
 
 def jis_fullwidth_ascii(text: str) -> bytes:
-    return b"".join(bytes((0x23, ord(ch))) for ch in text)
+    punctuation = {":": (0x21, 0x27), "/": (0x21, 0x3F), ".": (0x21, 0x25)}
+    return b"".join(bytes(punctuation[ch]) if ch in punctuation else bytes((0x23, ord(ch))) for ch in text)
 
 
 def jis_text(text: str) -> bytes:
@@ -1737,6 +1738,59 @@ def test_hc00a6_maps_sections_ruby_and_line_links() -> None:
     assert rendered.stats["hc00a6_section_blocks"] == 2
     assert rendered.stats["hc00a6_ruby_starts"] == 1
     assert rendered.stats["hc00a6_ruby_ends"] == 1
+
+
+def test_hc00a4_maps_sections_ruby_marker_images_and_line_links() -> None:
+    ruby_start = b"\x1f\xe2\x00\x05" + jis_fullwidth_ascii("RUB:E") + b"\x1f\xe3\x00\x00"
+    ruby_end = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:S") + jis_text("よ") + b"\x1f\xe3\x00\x00"
+    image_directive = b"\x1f\xe2\x00\x10" + jis_fullwidth_ascii("IMG:Fhon0007.png") + b"\x1f\xe3\x00\x00"
+    html_directive = b"\x1f\xe2\x00\x14" + jis_fullwidth_ascii("HTM:FTaijiHaiiku.htm") + b"\x1f\xe3\x00\x00"
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_ascii("H")
+        + b"\x1f\x61"
+        + b"\xb1\x2c"
+        + b"\x1f\x09\x00\x10"
+        + ruby_start
+        + jis_text("本")
+        + ruby_end
+        + b"\xb1\x2f"
+        + image_directive
+        + html_directive
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="00A4",
+            image_sources={"b12fh": "Templates/b12fH.gif", "hon0007": "images/hon0007.png"},
+            html_templates={"taijihaiiku.htm": '<div><img src="hon0007.png">T</div>'},
+        ),
+    )
+
+    assert '<div class="midashi"><span class="hankakuMidashi">H</span></div>' in rendered.html
+    assert '<div class="honbun" style="margin-left:1.000000em;">' in rendered.html
+    assert '<ruby class="ruby7"><rb class="rb7">本</rb>' in rendered.html
+    assert '<rt class="rt7">よ</rt>' in rendered.html
+    assert '<img src="Templates/b12fH.gif" class="img_mark2">' in rendered.html
+    assert '<img src="images/hon0007.png" class="img_inline">' in rendered.html
+    assert '<div><img src="images/hon0007.png">T</div>' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'data-lv-section' not in rendered.html
+    assert 'lv-hc-heading' not in rendered.html
+    assert 'data-gaiji-code="b12c"' not in rendered.html
+    assert rendered.stats["hc00a4_section_blocks"] == 1
+    assert rendered.stats["hc00a4_midashi_blocks"] == 1
+    assert rendered.stats["hc00a4_ruby_starts"] == 1
+    assert rendered.stats["hc00a4_ruby_ends"] == 1
+    assert rendered.stats["hc00a4_suppressed_gaiji_markers"] == 1
+    assert rendered.stats["hc00a4_b12f_markers"] == 1
+    assert rendered.stats["hc00a4_private_inline_images"] == 1
+    assert rendered.stats["hc00a4_private_html_includes"] == 1
 
 
 def test_hkdksr_medical_renderers_map_sections_links_and_template_gaiji() -> None:
@@ -4795,6 +4849,37 @@ def test_hc0048_profile_records_subset_without_claiming_parity() -> None:
     assert "HC0048_margin_heading_sections" in data["implemented_semantics"]
     assert "HC0048_media_div_placeholders" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
+def test_hc00a4_profile_records_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC00A4.dll"),
+        code="00A4",
+        expected_numeric_index="000000A4.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/000000A4.css",),
+        sql_snippets=(),
+        image_templates=("Templates/b12fH.gif", "Templates/URL-icon.gif"),
+        features={"vertical_renderer": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC00A4_sections_ruby_and_resource_markers" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "fixed_html_fallback_loading" in data["named_gaps"]
+    assert "private_image_or_html_directive_hook" not in data["named_gaps"]
+    assert "previous_next_navigation_footer" in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 

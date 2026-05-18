@@ -1146,8 +1146,8 @@ data path is understood.
 Current exact-binary-family status:
 
 ```text
-decoded branch subsets:             38   HC013A, HC0065, HC009B, HC00B3, HC00A0, HC02C0, HC013C, HC02CA, HC0136, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
-needs marker branch decode:          52
+decoded branch subsets:             39   HC013A, HC0065, HC009B, HC00B3, HC00A0, HC00A4, HC02C0, HC013C, HC02CA, HC0136, HC009D, HC00C6, HC012D, HC012E, HC012F, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5, HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158
+needs marker branch decode:          51
 common controls plus named gaps:     14
 common controls candidate verify:     0
 exact-body sidecar HC hooks unprofiled: 5
@@ -1541,6 +1541,16 @@ rewrites package-local image references such as `sound.png` through the copied
 Template assets. The interactive SQL/menu path, plugin callbacks, user-data
 state, generated body-file lifecycle, and representative visual parity remain
 named gaps.
+
+The IKUIKU branch-subset proof case is `HC00A4.dll`. Its vertical renderer
+maps `1f09` section states to product `midashi`, `honbun`, header, separator,
+or state-only transitions; `1f41`/`1f61` wrap `midashi`; halfwidth spans inside
+that state use `hankakuMidashi`; `RUB:E`/`RUB:S` private directives produce
+`ruby7` markup; B12C/B12D/B12E/B132/B133 are consumed as renderer state
+markers; B12F emits the product mark image; and `IMG:F...` / `HTM:F...`
+private directives resolve package `images/` and `HTMLs/htmls` resources. Fixed
+HTML/body fallback loading, exact previous/next navigation footer generation,
+custom DIB output, and visual parity remain named gaps.
 
 The GEN2019 branch-subset proof case is `HC02CA.dll`. Its body loop follows
 the margin-based GEN renderer shape: `1f09` section `0001` is heading state,

@@ -812,6 +812,50 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="The subset excludes exact lineLink2/lineLink3 class selection, exact previous/next navigation footer generation, and broader visual parity.",
             )
         )
+    if code == "00A4":
+        rows.append(
+            HcHookBehavior(
+                name="ikuiiku_sections_ruby_and_resource_markers",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC00A4 epwing2HtmlBodydataVertical 1f09 honbun/header branch ladder",
+                    "HC00A4 1f41 midashi branch and 1f04 hankakuMidashi state",
+                    "HC00A4 1fe2/1fe3 RUB:E/RUB:S private ruby directives",
+                    "HC00A4 1fe2/1fe3 IMG:F and HTM:F private resource directive branches",
+                    "HC00A4 B12C/B12D/B12E/B132/B133 state marker suppression",
+                    "HC00A4 1f3c/1f4d inline image media template and 1f44 image-link branch",
+                ),
+                implementation=(
+                    "1f09 sections open HC00A4 honbun/header wrappers, 1f41/1f61 "
+                    "wrap midashi text, halfwidth inside midashi uses hankakuMidashi, "
+                    "RUB:E/RUB:S private directives render ruby7 markup, B12C/B12D/"
+                    "B12E/B132/B133 are consumed as renderer state markers, B12F emits "
+                    "the product mark image, IMG:F/HTM:F private directives resolve "
+                    "images/ and HTMLs/htmls resources, links use lineLink, and media "
+                    "controls receive img_inline placeholders"
+                ),
+                notes=(
+                    "The subset excludes exact previous/next navigation footer generation, "
+                    "fixed HTML fallback loading, and broader visual parity."
+                ),
+            )
+        )
+        rows.extend(
+            (
+                HcHookBehavior(
+                    name="fixed_html_fallback_loading",
+                    status="classified_not_emulated",
+                    evidence=("HC00A4 body loop checks fix/<address>/HTMLs and HTMLs/<id>.html paths",),
+                    implementation=None,
+                ),
+                HcHookBehavior(
+                    name="previous_next_navigation_footer",
+                    status="classified_not_emulated",
+                    evidence=("HC00A4 emits footer table links with back/forward images after body traversal",),
+                    implementation=None,
+                ),
+            )
+        )
     if code == "00AC":
         rows.append(
             HcHookBehavior(
@@ -1737,6 +1781,8 @@ def build_hc_behavior_profile(
     if code == "0048":
         implemented.add("HC0048_margin_heading_sections")
         implemented.add("HC0048_media_div_placeholders")
+    if code == "00A4":
+        implemented.add("HC00A4_sections_ruby_and_resource_markers")
     if code == "00AC":
         implemented.add("HC00AC_honbun_margin_sections")
         implemented.add("HC00AC_marker_suppression")
