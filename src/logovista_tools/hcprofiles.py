@@ -336,13 +336,15 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 evidence=(
                     "HC00C6 epwing2HtmlBodydataVertical 1f09 section branch ladder",
                     "HC00C6 A23C/A23D and A24C/A24D partwaku branches",
+                    "HC00C6 close-marker-in-halfwidth branch observed in Dconci87 entries",
                     "HC00C6 A244 supAB marker state",
                     "Templates/000000c6.css class definitions",
                 ),
                 implementation=(
                     "1f09 sections map to midashi/midashi_JE/yakugo/contents/exampleyakugo divs, "
                     "example sections insert exam.png once per contiguous block, A23C/A23D and "
-                    "A24C/A24D create partwaku boxes, A244/A245 wraps A/B labels as supAB, and "
+                    "A24C/A24D create partwaku boxes including close markers that arrive inside "
+                    "halfwidth spans with trailing text, A244/A245 wraps A/B labels as supAB, and "
                     "template-backed gaiji markers use HC00C6 image classes"
                 ),
                 notes="The branch subset excludes unresolved DAT_* literal branches and the custom DIB transformation path.",

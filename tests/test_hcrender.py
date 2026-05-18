@@ -256,6 +256,18 @@ def test_hc00c6_closes_partwaku_when_close_marker_is_halfwidth_wrapped() -> None
     assert rendered.stats["hc00c6_noop_markers"] == 1
 
 
+def test_hc00c6_closes_partwaku_before_trailing_halfwidth_text() -> None:
+    body = b"\xa2\x3c" + jis_ascii_text("ad") + b"\x1f\x04\xa2\x3d" + bytes.fromhex("212121242121") + b"\x1f\x05"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00C6"))
+
+    assert '<span class="partwaku"><span class="lv-hc-halfwidth">ad</span></span>' in rendered.html
+    assert '<span class="lv-hc-halfwidth"> , </span>' in rendered.html
+    assert '<span class="lv-hc-halfwidth"></span>' not in rendered.html
+    assert rendered.stats["hc00c6_style_markers"] == 2
+    assert rendered.stats.get("hc00c6_unmatched_style_markers", 0) == 0
+
+
 def test_hc02be_maps_sections_to_ind_blocks() -> None:
     rendered = render_hc_body(
         b"\x1f\x09\x00\x01" + jis_ascii("H") + b"\x1f\x09\x00\x10" + jis_ascii("D"),

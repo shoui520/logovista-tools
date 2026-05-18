@@ -7298,9 +7298,49 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 and data[i + 4 : i + 6] == b"\x1f\x05"
             ):
                 close_key = f"{data[i + 2]:02x}{data[i + 3]:02x}"
-                if close_key in HC00C6_CLOSE_MARKERS or close_key in HC00C6_NOOP_MARKERS:
+                if close_key in HC00C6_CLOSE_MARKERS:
+                    if hc00c6_marker_stack and hc00c6_marker_stack[-1][0] == close_key:
+                        _current_parts(root_parts, contexts).append(hc00c6_marker_stack.pop()[1])
+                        stats["hc00c6_style_markers"] += 1
+                    else:
+                        stats["hc00c6_unmatched_style_markers"] += 1
                     stats["hc00c6_noop_markers"] += 1
                     i += 6
+                    continue
+                if close_key in HC00C6_NOOP_MARKERS:
+                    stats["hc00c6_noop_markers"] += 1
+                    i += 6
+                    continue
+            if _renderer_code(options) == "00C6" and op == 0x04 and i + 3 < len(data):
+                marker_key = f"{data[i + 2]:02x}{data[i + 3]:02x}"
+                marker = HC00C6_OPEN_MARKERS.get(marker_key)
+                if marker is not None:
+                    _current_parts(root_parts, contexts).append(marker.html)
+                    _current_parts(root_parts, contexts).append('<span class="lv-hc-halfwidth">')
+                    style_stack.append(0x04)
+                    halfwidth_depth += 1
+                    if marker.close_code is not None:
+                        hc00c6_marker_stack.append((marker.close_code, marker.close_html))
+                    stats["hc00c6_style_markers"] += 1
+                    i += 4
+                    continue
+                if marker_key in HC00C6_CLOSE_MARKERS:
+                    if hc00c6_marker_stack and hc00c6_marker_stack[-1][0] == marker_key:
+                        _current_parts(root_parts, contexts).append(hc00c6_marker_stack.pop()[1])
+                        stats["hc00c6_style_markers"] += 1
+                    else:
+                        stats["hc00c6_unmatched_style_markers"] += 1
+                    _current_parts(root_parts, contexts).append('<span class="lv-hc-halfwidth">')
+                    style_stack.append(0x04)
+                    halfwidth_depth += 1
+                    i += 4
+                    continue
+                if marker_key in HC00C6_NOOP_MARKERS:
+                    stats["hc00c6_noop_markers"] += 1
+                    _current_parts(root_parts, contexts).append('<span class="lv-hc-halfwidth">')
+                    style_stack.append(0x04)
+                    halfwidth_depth += 1
+                    i += 4
                     continue
 
             if _renderer_code(options) == "012E" and op in HC012E_NONPRINTING_CONTROL_OPS:
@@ -8663,10 +8703,6 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     _is_hc005c_renderer(options) and start_op == 0x04 and start_op in style_stack
                 )
                 if can_close_style:
-                    if _renderer_code(options) == "00C6" and op == 0x05:
-                        while hc00c6_marker_stack and hc00c6_marker_stack[-1][0] in HC00C6_CLOSE_MARKERS:
-                            _current_parts(root_parts, contexts).append(hc00c6_marker_stack.pop()[1])
-                            stats["hc00c6_style_markers"] += 1
                     while style_stack:
                         popped = style_stack.pop()
                         if _is_hc005c_renderer(options) and popped == 0x04:
@@ -10448,7 +10484,12 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 text_parts = _current_text_parts(contexts)
                 marker = HC00C6_OPEN_MARKERS.get(key)
                 if marker is not None:
-                    parts.append(marker.html)
+                    if 0x04 in style_stack:
+                        parts.append("</span>")
+                        parts.append(marker.html)
+                        parts.append('<span class="lv-hc-halfwidth">')
+                    else:
+                        parts.append(marker.html)
                     if marker.close_code is not None:
                         hc00c6_marker_stack.append((marker.close_code, marker.close_html))
                     stats["hc00c6_style_markers"] += 1
@@ -10456,7 +10497,12 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     continue
                 if key in HC00C6_CLOSE_MARKERS:
                     if hc00c6_marker_stack and hc00c6_marker_stack[-1][0] == key:
-                        parts.append(hc00c6_marker_stack.pop()[1])
+                        if 0x04 in style_stack:
+                            parts.append("</span>")
+                            parts.append(hc00c6_marker_stack.pop()[1])
+                            parts.append('<span class="lv-hc-halfwidth">')
+                        else:
+                            parts.append(hc00c6_marker_stack.pop()[1])
                         stats["hc00c6_style_markers"] += 1
                     else:
                         stats["hc00c6_unmatched_style_markers"] += 1
