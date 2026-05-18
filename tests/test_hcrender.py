@@ -4261,6 +4261,69 @@ def test_hc00bb_profile_records_gen2000_subset_without_claiming_parity() -> None
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
+def test_hc00ab_maps_gkyojijk_honbun_sections_and_midashi() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_text("親")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x04"
+        + jis_ascii_text("AB")
+        + jis_text("本文")
+        + b"\x1f\x09\x00\x0c"
+        + jis_text("参照")
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x48"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00AB"))
+
+    assert '<div class="midashi">親</div>' in rendered.html
+    assert '<div class="honbun" style="margin-left:6.000000em;text-indent:-6.000000em;">' in rendered.html
+    assert '<div class="honbun" style="margin-left:3.000000em;">' in rendered.html
+    assert '<span class="hankaku">AB</span>' in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc00ab_midashi_blocks"] == 1
+    assert rendered.stats["hc00ab_section_hanging_honbun"] == 1
+    assert rendered.stats["hc00ab_section_honbun_special"] == 1
+    assert rendered.stats["hc00ab_hankaku_spans"] == 2
+    assert rendered.stats["hc00ab_nonprinting_controls"] == 1
+
+
+def test_hc00ab_profile_records_gkyojijk_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC00AB.dll"),
+        code="00AB",
+        expected_numeric_index="000000AB.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Templates/000000AB.css",),
+        sql_snippets=(),
+        image_templates=("b138.gif", "b13a.gif", "lineLink.gif"),
+        features={"custom_gaiji_dib": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC00AB_honbun_section_layout" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "visual_parity_unverified" in data["named_gaps"]
+
+
 def test_hc0137_profile_records_iwanami_subset_without_claiming_parity() -> None:
     row = HcRendererClassification(
         path=Path("HC0137.dll"),
