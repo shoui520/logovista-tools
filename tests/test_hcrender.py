@@ -1912,6 +1912,83 @@ def test_hc008f_profile_records_branch_subset_without_full_parity_claim() -> Non
     assert any(hook["name"] == "kqbizej_jmidashi_margin_renderer" for hook in row["hook_behaviors"])
 
 
+def test_hc0073_maps_midashi_margin_links_and_template_gaiji() -> None:
+    body = (
+        b"\x1f\x41\x00\x00"
+        + jis_text("見出")
+        + b"\xb1\x21"
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_ascii_text("AB")
+        + jis_text("本文")
+        + b"\xb1\x23"
+        + b"\x1f\x0a"
+        + b"\x1f\x42"
+        + jis_ascii("L")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0073",
+            image_sources={
+                "dummy.gif": "Templates/dummy.GIF",
+                "b121": "Templates/B121.gif",
+                "b123": "Templates/B123.gif",
+            },
+        ),
+    )
+
+    assert '<div class="midashi">' in rendered.html
+    assert '<div class="contents">' in rendered.html
+    assert '<div style="margin-left:9px;">' in rendered.html
+    assert '<span class="hankaku">AB</span>' in rendered.html
+    assert 'class="lv-hc-link lineLink2"' in rendered.html
+    assert 'class="lv-hc-gaiji img_gaiji_midashi"' in rendered.html
+    assert 'class="lv-hc-gaiji img_gaiji"' in rendered.html
+    assert "lv-hc-section" not in rendered.html
+    assert "lv-hc-heading" not in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc0073_midashi_blocks"] == 1
+    assert rendered.stats["hc0073_contents_blocks"] == 1
+    assert rendered.stats["hc0073_margin_sections"] == 1
+    assert rendered.stats["hc0073_img_gaiji_midashi_images"] == 1
+    assert rendered.stats["hc0073_img_gaiji_images"] == 1
+    assert rendered.stats["hc0073_nonprinting_controls"] == 1
+
+
+def test_hc0073_profile_records_branch_subset_without_full_parity_claim() -> None:
+    renderer = HcRendererClassification(
+        path=Path("HC0073.dll"),
+        code="0073",
+        expected_numeric_index="00000073.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="pe", exports=("epwing2HtmlBodydata",)),
+        exinfo_html_dll="HC0073.dll",
+        exinfo_declares_this=True,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=("B121.gif", "B123.gif", "dummy.GIF"),
+        features={"html_body_renderer": True},
+    )
+
+    profile = build_hc_behavior_profile(renderer)
+    row = profile.as_dict()
+
+    assert "HC0073_hkkigaku_body_renderer" in row["implemented_semantics"]
+    assert row["exact_hc_parity"] is False
+    assert any(hook["name"] == "hkkigaku_midashi_margin_renderer" for hook in row["hook_behaviors"])
+
+
 def test_hc0094_maps_sections_color_blocks_template_gaiji_and_line_links() -> None:
     body = (
         b"\x1f\x09\x00\x01"

@@ -882,6 +882,34 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             )
         )
+    if code == "0073":
+        rows.append(
+            HcHookBehavior(
+                name="hkkigaku_midashi_margin_renderer",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HC0073 body loop 1f41/1f61 midashi lifecycle branch",
+                    "HC0073 body loop 1f09 margin-left branch with 3-pixel multiplier",
+                    "HC0073 body loop 1f0a contents transition branch",
+                    "HC0073 body loop 1f42/1f43 lineLink2/lineLink3/lineLink branch",
+                    "HC0073 gaiji image branch selecting img_gaiji_midashi versus img_gaiji",
+                ),
+                implementation=(
+                    "1f41/1f61 wrap heading text in midashi, 1f0a opens a "
+                    "contents block after the heading or closes the active margin "
+                    "section, 1f09 opens margin-left divs using the recovered "
+                    "3-pixel multiplier, 1f04/1f05 map to hankaku spans, 1f42/1f43 "
+                    "links use recovered lineLink classes, template-backed gaiji "
+                    "emit dummy plus img_gaiji_midashi or img_gaiji, and "
+                    "1f4c/1f5c/1f6d are consumed as renderer state"
+                ),
+                notes=(
+                    "The subset does not emulate the title/subtitle/shinryo/editor "
+                    "JIS-trigger branches, generated custom-character DIB/GIF output, "
+                    "exact media wrapper lifecycle, or representative visual parity."
+                ),
+            )
+        )
     if code == "00A6":
         rows.append(
             HcHookBehavior(
@@ -2097,6 +2125,8 @@ def build_hc_behavior_profile(
         implemented.add("HC00AB_honbun_section_layout")
     if code == "004D":
         implemented.add("HC004D_midashi_honbun_renderer")
+    if code == "0073":
+        implemented.add("HC0073_hkkigaku_body_renderer")
     if code == "0076":
         implemented.add("HC0076_medical_body_renderer")
     if code == "007D":
