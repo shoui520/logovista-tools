@@ -1576,7 +1576,9 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "Common Genius43 section values map to midashi, indent h1, contents, CB, "
                     "and margin blocks; known no-output state markers are suppressed; B347/B348/B25C "
                     "use template image resources when present; strong number/letter markers render "
-                    "their recovered literal labels; internal links use lLink"
+                    "their recovered literal labels; internal links use lLink; style controls inside "
+                    "suppressed private directives and replaced audio labels are scoped to the capture "
+                    "context so root output remains tag-balanced"
                 ),
                 notes=(
                     "The subset excludes the generated custom-character bitmap path, exact index-menu "

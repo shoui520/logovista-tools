@@ -1351,6 +1351,18 @@ consumes `1f5c`/`1f6d` as renderer state. Exact previous/next navigation
 footer generation, fixed HTML/body fallback loading, exact generated
 custom-bitmap output, and full visual parity remain named gaps.
 
+The Genius43 branch-subset proof case is `HC00B6.dll`. Its recovered body loop
+maps common `1f09` section values to `midashi`, `contents`, `CB`, first- and
+second-level margin blocks, and state-only controls. It suppresses the decoded
+B23D-B24A state-marker range, maps B347/B348/B25C image markers to package
+templates when present, renders recovered B146-B175/B353-B358 strong marker
+labels, and uses `lLink` for internal links. Style controls inside captured
+private directives and audio labels are scoped to those capture contexts; when
+the directive is suppressed or the audio label is replaced by the sound icon,
+those styles no longer leak closing spans into the outer document. Custom DIB
+generation, `modifyHeadword`, SQL/original-search hooks, and broader visual
+parity remain named gaps.
+
 The NKGORIN2 branch-subset proof case is `HC012E.dll`. Its vertical body loop
 uses package-local `Gaijitemp/` image resources for most kanji-form glyphs.
 The implemented subset maps common `1f09` section payloads to `honbun`,

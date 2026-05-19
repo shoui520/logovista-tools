@@ -276,6 +276,8 @@ class _Context:
     parent: list[str]
     parts: list[str] = field(default_factory=list)
     text_parts: list[str] = field(default_factory=list)
+    style_stack: list[int] = field(default_factory=list)
+    halfwidth_depth: int = 0
     start_offset: int = 0
     flags: frozenset[str] = field(default_factory=frozenset)
 
@@ -2747,6 +2749,46 @@ def _current_parts(root_parts: list[str], contexts: list[_Context]) -> list[str]
 
 def _current_text_parts(contexts: list[_Context]) -> list[str] | None:
     return contexts[-1].text_parts if contexts else None
+
+
+def _active_private_context(contexts: list[_Context]) -> _Context | None:
+    for ctx in reversed(contexts):
+        if ctx.kind == "private":
+            return ctx
+    return None
+
+
+def _context_halfwidth_depth(contexts: list[_Context]) -> int:
+    return contexts[-1].halfwidth_depth if contexts else 0
+
+
+def _consume_private_style_control(ctx: _Context, op: int, options: HcRenderOptions) -> bool:
+    if _style_start_spec(op, options) is not None:
+        ctx.style_stack.append(op)
+        if op == 0x04:
+            ctx.halfwidth_depth += 1
+        return True
+    if op not in STYLE_END_OPS:
+        return False
+    start_op = STYLE_END_OPS[op]
+    if start_op in ctx.style_stack:
+        while ctx.style_stack:
+            popped = ctx.style_stack.pop()
+            if popped == 0x04 and ctx.halfwidth_depth:
+                ctx.halfwidth_depth -= 1
+            if popped == start_op:
+                break
+    return True
+
+
+def _close_context_styles(ctx: _Context, options: HcRenderOptions) -> None:
+    while ctx.style_stack:
+        popped = ctx.style_stack.pop()
+        close_tag = _style_close_tag(popped, options)
+        if close_tag:
+            ctx.parts.append(f"</{close_tag}>")
+        if popped == 0x04 and ctx.halfwidth_depth:
+            ctx.halfwidth_depth -= 1
 
 
 def _hc0190_close_section(contexts: list[_Context], sections: dict[int, str], stats: Counter[str]) -> bool:
@@ -5495,6 +5537,17 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 stats["truncated_controls"] += 1
                 gaps.add(f"truncated_control_1f{op:02x}")
                 break
+
+            private_ctx = _active_private_context(contexts)
+            if private_ctx is not None and op not in PRIVATE_END_OPS:
+                if _renderer_code(options) == "02C8" and op == 0x09:
+                    stats["hc02c8_private_section_controls"] += 1
+                if _consume_private_style_control(private_ctx, op, options):
+                    stats["private_style_controls"] += 1
+                else:
+                    stats["private_suppressed_controls"] += 1
+                i += 2 + arg_len
+                continue
 
             if op == 0x09:
                 stats["section_markers"] += 1
@@ -9282,9 +9335,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     hc012d_pending_honbun_user = False
                 tag, attrs = style_spec
                 _current_parts(root_parts, contexts).append(f"<{tag}{attrs}>")
-                style_stack.append(op)
+                style_context = contexts[-1] if contexts else None
+                if style_context is not None:
+                    style_context.style_stack.append(op)
+                else:
+                    style_stack.append(op)
                 if op == 0x04:
-                    halfwidth_depth += 1
+                    if style_context is not None:
+                        style_context.halfwidth_depth += 1
+                    else:
+                        halfwidth_depth += 1
                 if op == 0x41:
                     stats["headings"] += 1
                 i += 2 + arg_len
@@ -9293,19 +9353,26 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if op in STYLE_END_OPS:
                 start_op = STYLE_END_OPS[op]
                 close_tag = _style_close_tag(start_op, options)
+                style_context = contexts[-1] if contexts and start_op in contexts[-1].style_stack else None
+                active_style_stack = style_context.style_stack if style_context is not None else style_stack
                 closed_requested_style = False
-                can_close_style = bool(close_tag and start_op in style_stack) or (
-                    _is_hc005c_renderer(options) and start_op == 0x04 and start_op in style_stack
+                can_close_style = bool(close_tag and start_op in active_style_stack) or (
+                    _is_hc005c_renderer(options) and start_op == 0x04 and start_op in active_style_stack
                 )
                 if can_close_style:
-                    while style_stack:
-                        popped = style_stack.pop()
+                    while active_style_stack:
+                        popped = active_style_stack.pop()
                         if _is_hc005c_renderer(options) and popped == 0x04:
                             _current_parts(root_parts, contexts).append("</span>")
                         else:
                             popped_tag = _style_close_tag(popped, options)
                             if popped_tag:
                                 _current_parts(root_parts, contexts).append(f"</{popped_tag}>")
+                        if popped == 0x04:
+                            if style_context is not None:
+                                style_context.halfwidth_depth = max(0, style_context.halfwidth_depth - 1)
+                            else:
+                                halfwidth_depth = max(0, halfwidth_depth - 1)
                         if popped == start_op:
                             closed_requested_style = True
                             break
@@ -9314,8 +9381,6 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     hc012e_section_close = "</div>"
                 if _renderer_code(options) == "012D" and op == 0x61 and closed_requested_style:
                     hc012d_pending_honbun_user = True
-                if op == 0x05 and halfwidth_depth:
-                    halfwidth_depth -= 1
                 i += 2 + arg_len
                 continue
 
@@ -9327,6 +9392,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if op in URL_END_OPS:
                 ctx = _pop_context(contexts, "url")
                 if ctx is not None:
+                    _close_context_styles(ctx, options)
                     label = "".join(ctx.parts)
                     ctx.parent.append(f'<span class="lv-hc-url">{label}</span>')
                 i += 2 + arg_len
@@ -9409,6 +9475,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     "status": "resolved_address" if target else "unresolved_target",
                 }
                 links.append(link)
+                if ctx is not None:
+                    _close_context_styles(ctx, options)
                 label = "".join(ctx.parts) if ctx else ""
                 if hc012f_current_section == "0003":
                     bunnya_key = _hc012f_bunnya_key_from_html(label)
@@ -9449,6 +9517,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     "status": "resolved_address" if target else "unresolved_target",
                 }
                 links.append(link)
+                if ctx is not None:
+                    _close_context_styles(ctx, options)
                 label = "".join(ctx.parts) if ctx else ""
                 if not label:
                     label = "link"
@@ -9483,6 +9553,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         "status": "resolved_range" if target else "unresolved_range",
                     }
                 )
+                if ctx is not None:
+                    _close_context_styles(ctx, options)
                 label = "".join(ctx.parts) if ctx else ""
                 if not label:
                     label = "audio"
@@ -10213,7 +10285,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     hc008f_hankaku_open = True
                     halfwidth_depth += 1
                     stats[f"hc008f_{css_class}_spans"] += 1
-                value = normalize_fullwidth_ascii(text) if halfwidth_depth else text
+                value = normalize_fullwidth_ascii(text) if halfwidth_depth or _context_halfwidth_depth(contexts) else text
                 if _renderer_code(options) == "0048" and key in HC0048_MIDASHI_MARKERS and not hc0048_midashi_open:
                     parts = _current_parts(root_parts, contexts)
                     if hc0048_section_close is not None:

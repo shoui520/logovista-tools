@@ -116,6 +116,34 @@ def test_hc_render_private_directive_suppresses_visible_text() -> None:
     assert rendered.stats["private_directives"] == 1
 
 
+def test_hc_render_private_directive_style_controls_do_not_leak() -> None:
+    body = jis_text("前") + b"\x1f\xe2\x00\x00\x1f\x04" + jis_text("中") + b"\x1f\xe3" + jis_text("後")
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00B6"))
+
+    assert rendered.plain == "前後"
+    assert rendered.html.count("<span") == rendered.html.count("</span>")
+    assert "</span>後" not in rendered.html
+    assert rendered.private_directives[0]["text_length"] == 1
+    assert rendered.stats["private_style_controls"] == 1
+    assert rendered.stats["private_directives"] == 1
+
+
+def test_hc_render_audio_label_style_controls_do_not_leak_when_replaced_by_icon() -> None:
+    body = b"\x1f\x4a" + bytes(18) + b"\x1f\x04" + jis_text("音") + b"\x1f\x6a" + jis_text("後")
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="00B6", image_sources={"sound.png": "templates/sound.png"}),
+    )
+
+    assert rendered.html.count("<span") == rendered.html.count("</span>")
+    assert "</span>後" not in rendered.html
+    assert '<img src="templates/sound.png" class="img_mark2">' in rendered.html
+    assert "音" not in rendered.html
+    assert "後" in rendered.plain
+
+
 def test_hc_render_gaiji_prefers_unicode_then_image_then_placeholder() -> None:
     rendered = render_hc_body(
         b"\xa1\xa1\xa1\xa2\xa1\xa3",
