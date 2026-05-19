@@ -1217,55 +1217,71 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
         ziptomedia_refs: Counter[str] = Counter()
         group_count = 0
         group_ids: set[int] = set()
-        with (dict_out / "rendererdb_entries.jsonl").open("w", encoding="utf-8") as out:
-            for row in con.execute(query):
-                row_keys = row.keys()
-                data_id_value = row["f_DataId"]
-                data_id = parse_decimal_int(data_id_value)
-                if data_id is None:
-                    non_numeric_data_id_rows += 1
-                    if len(non_numeric_data_id_samples) < 10:
-                        non_numeric_data_id_samples.append(str(data_id_value))
-                    extra_rows += 1
-                    continue
-                raw = ids_by_data_id.get(data_id)
-                if raw is None:
-                    extra_rows += 1
-                    continue
-                matched_ids += 1
-                if "f_Type" in row_keys and row["f_Type"] is not None:
-                    type_value = parse_decimal_int(row["f_Type"])
-                    if type_value is not None:
-                        type_counts[type_value] += 1
-                if "f_DataGroupId" in row_keys and row["f_DataGroupId"] is not None:
-                    group_id = parse_decimal_int(row["f_DataGroupId"])
-                    if group_id is not None:
-                        group_ids.add(group_id)
-                html_value = row["f_Html"] if "f_Html" in row_keys else None
-                title_value = row["f_Title"] if "f_Title" in row_keys else None
-                plane = row["f_Plane"] if "f_Plane" in row_keys else None
-                media_value = row["f_Media"] if "f_Media" in row_keys else None
-                ziptomedia_refs.update(ziptomedia_reference_names(html_value))
-                if args.limit is None or emitted < args.limit:
-                    record = {
-                        "dict_id": source.dict_id,
-                        "dict_title": source.title,
-                        "data_id": data_id,
-                        "raw_honmon": honmon_id_record_to_json(raw),
-                        "type": row["f_Type"] if "f_Type" in row_keys else None,
-                        "data_group_id": row["f_DataGroupId"] if "f_DataGroupId" in row_keys else None,
-                        "anchor": row["f_Anchor"] if "f_Anchor" in row_keys else None,
-                        "title": title_value,
-                        "title_plain": html_to_plain(title_value) if title_value else None,
-                        "title_search": row["f_Title_SS"] if "f_Title_SS" in row_keys else None,
-                        "keyword": row["f_Keyword"] if "f_Keyword" in row_keys else None,
-                        "media": media_value,
-                        "plain": plane or (html_to_plain(html_value) if html_value else ""),
-                    }
-                    if args.include_html:
-                        record["html"] = html_value
-                    out.write(json.dumps(record, ensure_ascii=False) + "\n")
-                    emitted += 1
+        html_path = dict_out / "rendererdb_entries.html"
+        html_out = html_path.open("w", encoding="utf-8") if args.include_html else None
+        if html_out is not None:
+            write_rendererdb_html_header(html_out, title=f"{source.dict_id} rendererdb")
+        try:
+            with (dict_out / "rendererdb_entries.jsonl").open("w", encoding="utf-8") as out:
+                for row in con.execute(query):
+                    row_keys = row.keys()
+                    data_id_value = row["f_DataId"]
+                    data_id = parse_decimal_int(data_id_value)
+                    if data_id is None:
+                        non_numeric_data_id_rows += 1
+                        if len(non_numeric_data_id_samples) < 10:
+                            non_numeric_data_id_samples.append(str(data_id_value))
+                        extra_rows += 1
+                        continue
+                    raw = ids_by_data_id.get(data_id)
+                    if raw is None:
+                        extra_rows += 1
+                        continue
+                    matched_ids += 1
+                    if "f_Type" in row_keys and row["f_Type"] is not None:
+                        type_value = parse_decimal_int(row["f_Type"])
+                        if type_value is not None:
+                            type_counts[type_value] += 1
+                    if "f_DataGroupId" in row_keys and row["f_DataGroupId"] is not None:
+                        group_id = parse_decimal_int(row["f_DataGroupId"])
+                        if group_id is not None:
+                            group_ids.add(group_id)
+                    html_value = row["f_Html"] if "f_Html" in row_keys else None
+                    title_value = row["f_Title"] if "f_Title" in row_keys else None
+                    plane = row["f_Plane"] if "f_Plane" in row_keys else None
+                    media_value = row["f_Media"] if "f_Media" in row_keys else None
+                    ziptomedia_refs.update(ziptomedia_reference_names(html_value))
+                    if args.limit is None or emitted < args.limit:
+                        record = {
+                            "dict_id": source.dict_id,
+                            "dict_title": source.title,
+                            "data_id": data_id,
+                            "raw_honmon": honmon_id_record_to_json(raw),
+                            "type": row["f_Type"] if "f_Type" in row_keys else None,
+                            "data_group_id": row["f_DataGroupId"] if "f_DataGroupId" in row_keys else None,
+                            "anchor": row["f_Anchor"] if "f_Anchor" in row_keys else None,
+                            "title": title_value,
+                            "title_plain": html_to_plain(title_value) if title_value else None,
+                            "title_search": row["f_Title_SS"] if "f_Title_SS" in row_keys else None,
+                            "keyword": row["f_Keyword"] if "f_Keyword" in row_keys else None,
+                            "media": media_value,
+                            "plain": plane or (html_to_plain(html_value) if html_value else ""),
+                        }
+                        if args.include_html:
+                            record["html"] = html_value
+                        out.write(json.dumps(record, ensure_ascii=False) + "\n")
+                        if html_out is not None:
+                            label = html.escape(str(record["data_id"]))
+                            body_html = html_value or html.escape(str(record["plain"]))
+                            html_out.write(
+                                f"<!-- {source.dict_id} {label} -->\n"
+                                f'<div class="rendererdb-entry">{body_html}</div>\n'
+                            )
+                        emitted += 1
+        finally:
+            if html_out is not None:
+                write_rendererdb_html_footer(html_out)
+                html_out.close()
         group_count = len(group_ids)
         content_rows = table_count(con, "t_contents")
         media_table = media_table_name(con)
@@ -1281,6 +1297,7 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
         summary.update(
             {
                 "status": "ok",
+                "rendererdb_html_path": str(html_path) if args.include_html else None,
                 "t_contents_rows": content_rows,
                 "entries_matched_to_raw_honmon": matched_ids,
                 "entries_emitted": emitted,

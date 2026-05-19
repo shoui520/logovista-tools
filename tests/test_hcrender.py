@@ -10,6 +10,7 @@ from logovista_tools.hcrender import (
     _renderer_behavior_gaps,
     _rendererdb_args,
     _schema_backed_sidecars,
+    _write_exact_hc_entries_html_from_rendererdb,
     render_hc_body,
 )
 from logovista_tools.hcprofiles import build_hc_behavior_profile
@@ -4709,12 +4710,13 @@ def test_hc_render_assets_copy_images_and_normalise_product_css(tmp_path: Path) 
     assert html_templates == {}
     assert stylesheet == "hc-renderer.css"
     assert (tmp_path / "out" / "Templates" / "b157_M.png").read_bytes() == b"PNGDATA"
+    assert (tmp_path / "out" / "Templates" / "00000146.css").is_file()
     css = (tmp_path / "out" / "hc-renderer.css").read_text(encoding="utf-8")
     assert ".lv-hc-render" in css
     assert "$midashi-font-size$" not in css
     assert "1.35em" in css
     assert "#111111" in css
-    assert copied == 2
+    assert copied == 3
 
 
 def test_image_resource_profile_discovers_gaijitemp_assets(tmp_path: Path) -> None:
@@ -6779,6 +6781,31 @@ def test_hc_render_rendererdb_comparison_uses_requested_entry_limit() -> None:
     assert derived.limit == 25
     assert derived.write_ziptomedia is True
     assert derived.ziptomedia_limit == 3
+
+
+def test_hc_render_exact_rendererdb_html_becomes_visual_entry_html(tmp_path: Path) -> None:
+    dict_out = tmp_path / "DICT"
+    (dict_out / "Templates").mkdir(parents=True)
+    (dict_out / "Templates" / "sound.png").write_bytes(b"png")
+    entries = dict_out / "rendererdb_entries.jsonl"
+    entries.write_text(
+        '{"dict_id":"DICT","data_id":5,"html":"<div class=\\"midashi\\">A</div><a href=\\"lved.ziptomedia:000010.wav\\"><img src=\\"sound.png\\"></a>","plain":"A"}\n',
+        encoding="utf-8",
+    )
+
+    html_path = _write_exact_hc_entries_html_from_rendererdb(
+        {"entries_path": str(entries)},
+        dict_out,
+        stylesheet="hc-renderer.css",
+        vertical=False,
+    )
+
+    assert html_path == dict_out / "hc_entries.html"
+    rendered = html_path.read_text(encoding="utf-8")
+    assert 'href="hc-renderer.css"' in rendered
+    assert '<div class="midashi">A</div>' in rendered
+    assert 'src="Templates/sound.png"' in rendered
+    assert "lved.ziptomedia:000010.wav" in rendered
 
 
 def test_hc_behavior_profile_names_exact_body_without_claiming_full_parity() -> None:

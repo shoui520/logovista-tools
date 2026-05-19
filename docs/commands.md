@@ -265,12 +265,16 @@ image-gaiji templates for B157-B159, B25A-B351, B23B, and B357-B424.
 The all-family code-level pass has decompiled representatives for all 109 exact
 HC SHA-256 families, but `hc-render` only implements shared semantics and
 product rules whose branch tables and data paths are understood.
-The generated `hc_entries.html` is standalone enough for visual inspection: the
-command writes a normalized product stylesheet and copies discovered
-package-local image assets next to the output HTML. This improves inspection
-quality, but the command still reports `exact_hc_parity=false` until the product
-wrapper, section-state, media/link, custom gaiji, and hook behavior are all
-covered.
+The generated top-level `hc_entries.html` is the primary visual inspection
+file. If a supported renderer/app sidecar supplies exact entry-body HTML,
+`hc_entries.html` uses that sidecar body rather than the raw dense-HONMON anchor
+records, while `raw_honmon_entries.html` remains available for decoder
+inspection. The command writes a normalized product stylesheet and copies
+template/image assets next to the output HTML, including renderer `Templates/`
+assets needed by sidecar bodies with bare `sound.png`-style references. This
+improves inspection quality, but the command still reports
+`exact_hc_parity=false` until the product wrapper, section-state, media/link,
+custom gaiji, and hook behavior are all covered.
 
 Each dictionary output directory contains:
 
@@ -278,6 +282,7 @@ Each dictionary output directory contains:
 hc_render_summary.json
 hc_entries.jsonl
 hc_entries.html
+raw_honmon_entries.html
 ```
 
 When a body-capable renderer sidecar is present, `hc-render` automatically runs

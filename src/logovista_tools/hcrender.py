@@ -4648,6 +4648,27 @@ def _copy_package_asset(source: DictionarySource, value: str, out_dir: Path) -> 
     return True
 
 
+def _copy_package_directory_assets(source: DictionarySource, dirname: str, out_dir: Path) -> int:
+    directory = _resolve_package_relative_dir(source, dirname)
+    if directory is None:
+        return 0
+    copied = 0
+    for path in sorted((item for item in directory.rglob("*") if item.is_file()), key=lambda item: item.relative_to(directory).as_posix().casefold()):
+        rel = Path(dirname) / path.relative_to(directory)
+        target_path = out_dir / rel
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        source_stat = path.stat()
+        if not target_path.exists():
+            shutil.copy2(path, target_path)
+            copied += 1
+        else:
+            target_stat = target_path.stat()
+            if source_stat.st_size != target_stat.st_size or source_stat.st_mtime_ns != target_stat.st_mtime_ns:
+                shutil.copy2(path, target_path)
+                copied += 1
+    return copied
+
+
 def _renderer_css_name(renderer: HcRendererClassification | None) -> str | None:
     if renderer is None or renderer.code is None:
         return None
@@ -4757,6 +4778,7 @@ def _prepare_hc_render_assets(
         output_sources[key] = value
         if _copy_package_asset(source, value, dict_out):
             copied += 1
+    copied += _copy_package_directory_assets(source, "Templates", dict_out)
     copied += _add_hc_bitmap_gaiji_sources(source, dict_out, output_sources)
 
     stylesheet_rel = _renderer_css_name(renderer)
@@ -4794,6 +4816,66 @@ def _write_hc_html_header(html_out: Any, *, stylesheet: str | None, vertical: bo
 
 def _write_hc_html_footer(html_out: Any) -> None:
     html_out.write("</body>\n</html>\n")
+
+
+def _rewrite_exact_body_asset_refs(fragment: str, dict_out: Path) -> str:
+    """Rewrite bare renderer-sidecar asset names to copied package assets."""
+
+    def replace(match: re.Match[str]) -> str:
+        quote = match.group(1)
+        src = html.unescape(match.group(2))
+        lower = src.lower()
+        if (
+            ":" in src
+            or src.startswith("/")
+            or "\\" in src
+            or "/" in src
+            or lower.startswith(("data:", "javascript:", "mailto:"))
+        ):
+            return match.group(0)
+        if (dict_out / src).is_file():
+            return match.group(0)
+        for dirname in ("Templates", "HANREI/img", "HTMLs", "images", "img"):
+            candidate = dict_out / dirname / src
+            if candidate.is_file():
+                return f"src={quote}{_escape_attr(str(Path(dirname) / src))}{quote}"
+        return match.group(0)
+
+    return re.sub(r'src=(["\'])([^"\']+)\1', replace, fragment)
+
+
+def _write_exact_hc_entries_html_from_rendererdb(
+    rendererdb_summary: dict[str, Any],
+    dict_out: Path,
+    *,
+    stylesheet: str | None,
+    vertical: bool,
+) -> Path | None:
+    entries_path_value = rendererdb_summary.get("entries_path")
+    if not entries_path_value:
+        return None
+    entries_path = Path(str(entries_path_value))
+    if not entries_path.is_file():
+        return None
+    html_path = dict_out / "hc_entries.html"
+    with entries_path.open("r", encoding="utf-8") as jsonl, html_path.open("w", encoding="utf-8") as html_out:
+        _write_hc_html_header(html_out, stylesheet=stylesheet, vertical=vertical)
+        for line in jsonl:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            label = html.escape(str(record.get("data_id") or record.get("entry_index") or ""))
+            fragment = record.get("html")
+            if isinstance(fragment, str) and fragment:
+                body_html = _rewrite_exact_body_asset_refs(fragment, dict_out)
+            else:
+                body_html = f"<pre>{html.escape(str(record.get('plain') or ''))}</pre>"
+            html_out.write(
+                f"<!-- {record.get('dict_id', '')} {label} rendererdb -->\n"
+                f'<div class="rendererdb-entry exact-rendererdb-entry">{body_html}</div>\n'
+            )
+        _write_hc_html_footer(html_out)
+    return html_path
 
 
 def _replace_template_values(template: str, replacements: dict[str, str]) -> str:
@@ -12010,7 +12092,7 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
     renderer = getattr(args, "_hc_renderer", None)
     reader = SsedRandomReader(source.honmon)
     entries_path = dict_out / "hc_entries.jsonl"
-    html_path = dict_out / "hc_entries.html"
+    html_path = dict_out / "raw_honmon_entries.html"
     image_sources, html_templates, stylesheet, copied_assets = _prepare_hc_render_assets(source, dict_out, renderer)
     options = HcRenderOptions(
         gaiji_map=source.gaiji_map,
@@ -12092,6 +12174,20 @@ def extract_hc_render_for_source(source: DictionarySource, out_dir: Path, args: 
     behavior_gaps = _renderer_behavior_gaps(renderer)
     if not profile.exact_body_html_available:
         behavior_gaps.extend(raw_summary.get("raw_honmon_named_behavior_gaps", {}).keys())
+    final_html_path: Path | None = None
+    final_html_source = "raw_honmon_controls"
+    if profile.exact_body_html_available and rendererdb_summary is not None:
+        final_html_path = _write_exact_hc_entries_html_from_rendererdb(
+            rendererdb_summary,
+            dict_out,
+            stylesheet=raw_summary.get("raw_honmon_stylesheet"),
+            vertical=bool(getattr(args, "vertical", False)),
+        )
+        if final_html_path is not None:
+            final_html_source = "rendererdb_html"
+    if final_html_path is None:
+        final_html_path = dict_out / "hc_entries.html"
+        shutil.copy2(Path(str(raw_summary["raw_honmon_html_path"])), final_html_path)
     summary = {
         "schema": "logovista-hc-render-summary-v1",
         "dict_id": source.dict_id,
@@ -12102,6 +12198,8 @@ def extract_hc_render_for_source(source: DictionarySource, out_dir: Path, args: 
         "schema_backed_sidecars": schema_sidecars,
         "behavior_profile": profile.as_dict(),
         "exact_body_strategy": profile.body_strategy,
+        "entry_html_path": str(final_html_path),
+        "entry_html_source": final_html_source,
         "common_semantics": {
             "controls": [
                 "SSED text and style controls",
