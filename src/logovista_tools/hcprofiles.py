@@ -1747,14 +1747,17 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 status="branch_subset_implemented",
                 evidence=(
                     "HC0190 epwing2HtmlBodydataVertical B121-B124 template selector branch",
-                    "HC0190 section-bucket replacement of <!--&IND####;--> placeholders",
+                    "HC0190 packed-BCD section-bucket replacement of <!--&IND####;--> placeholders",
+                    "HC0190 packed-BCD 1f62/1f63 link target formatter",
+                    "HC0190 image-anchor placeholder slots that leave </a> in the template",
                     "HC0190 HTMLs/%04lx.html fallback path",
                     "HTMLs/b121.html through HTMLs/b124.html and Templates/00000190.css",
                 ),
                 implementation=(
                     "B121-B124 select package HTML templates, 1f09 sections are bucketed "
-                    "by numeric section id, captured section HTML replaces matching "
-                    "<!--&IND####;--> placeholders, and missing placeholders are left empty"
+                    "by packed-BCD section id, captured section HTML replaces matching "
+                    "<!--&IND####;--> placeholders, link sections can fill image-anchor "
+                    "prefix slots, and missing placeholders are left empty"
                 ),
                 notes=(
                     "The subset excludes exact JavaScript audio-player lifecycle, runtime "

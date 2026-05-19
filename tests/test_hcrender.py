@@ -1146,6 +1146,31 @@ def test_hc0190_applies_html_template_section_placeholders() -> None:
     assert rendered.stats["hc0190_template_placeholders_empty"] == 1
 
 
+def test_hc0190_uses_bcd_sections_and_link_anchor_template_slots() -> None:
+    body = (
+        b"\x1f\x09\x00\x10"
+        + b"\x1f\x42"
+        + jis_ascii_text("link")
+        + b"\x1f\x62\x00\x00\x00\x02\x08\x08"
+        + b"\x1f\x0a"
+        + b"\xb1\x21"
+    )
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0190",
+            html_templates={"b121": '<p><!--&IND0010;--><img src="tyosya.png"></a></p>'},
+        ),
+    )
+
+    assert '<a class="lv-hc-link" href="lvaddr://00000002/0808"' in rendered.html
+    assert '<img src="tyosya.png"></a>' in rendered.html
+    assert "link</a><img" not in rendered.html
+    assert rendered.html.count("<a ") == rendered.html.count("</a>")
+    assert rendered.stats["hc0190_template_link_prefixes"] == 1
+    assert rendered.stats["hc0190_template_placeholders_filled"] == 1
+
+
 def test_hc009c_maps_sections_links_private_images_and_marker_images() -> None:
     body = (
         b"\x1f\x09\x00\x01"

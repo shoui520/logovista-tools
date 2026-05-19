@@ -2037,11 +2037,23 @@ def _plain_from_html(value: str) -> str:
     return "\n".join(line.rstrip() for line in "".join(out).splitlines()).strip()
 
 
-def _decode_pointer_payload(payload: bytes) -> dict[str, int] | None:
+def _packed_bcd_to_int(payload: bytes) -> int:
+    value = 0
+    for byte in payload:
+        value = value * 10 + ((byte >> 4) & 0x0F)
+        value = value * 10 + (byte & 0x0F)
+    return value
+
+
+def _decode_pointer_payload(payload: bytes, *, packed_bcd: bool = False) -> dict[str, int] | None:
     if len(payload) < 6:
         return None
-    block = int.from_bytes(payload[:4], "big")
-    offset = int.from_bytes(payload[4:6], "big")
+    if packed_bcd:
+        block = _packed_bcd_to_int(payload[:4])
+        offset = _packed_bcd_to_int(payload[4:6])
+    else:
+        block = int.from_bytes(payload[:4], "big")
+        offset = int.from_bytes(payload[4:6], "big")
     return {"block": block, "offset": offset}
 
 
@@ -2657,12 +2669,31 @@ def _hc0190_close_section(contexts: list[_Context], sections: dict[int, str], st
     return True
 
 
+def _hc0190_template_anchor_prefix(section_html: str) -> str | None:
+    match = re.fullmatch(
+        r'(<a\s+[^>]+>)(?P<label>.*?)</a>(?P<trailing><br\s*/?>)?',
+        section_html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if match is None:
+        return None
+    return match.group(1)
+
+
 def _hc0190_apply_template(template: str, sections: dict[int, str], stats: Counter[str]) -> str:
     def replace(match: re.Match[str]) -> str:
         section = int(match.group(1), 10)
         if section in sections:
+            section_html = sections[section]
+            tail = template[match.end() :]
+            if re.match(r"\s*<img\b", tail, flags=re.IGNORECASE):
+                anchor_prefix = _hc0190_template_anchor_prefix(section_html)
+                if anchor_prefix is not None:
+                    stats["hc0190_template_link_prefixes"] += 1
+                    stats["hc0190_template_placeholders_filled"] += 1
+                    return anchor_prefix
             stats["hc0190_template_placeholders_filled"] += 1
-            return sections[section]
+            return section_html
         stats["hc0190_template_placeholders_empty"] += 1
         return ""
 
@@ -5253,7 +5284,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         stats["hc013a_honbun2_closures"] += 1
                     if _renderer_code(options) == "0190":
                         _hc0190_close_section(contexts, hc0190_sections, stats)
-                        section = int.from_bytes(payload, "big")
+                        section = _packed_bcd_to_int(payload)
                         contexts.append(
                             _Context(
                                 kind="hc0190_section",
@@ -9140,7 +9171,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if op in LINK_END_OPS:
                 ctx = _pop_context(contexts, "link")
                 target_payload = payload or (ctx.payload[-6:] if ctx and len(ctx.payload) >= 6 else b"")
-                target = _decode_pointer_payload(target_payload)
+                target = _decode_pointer_payload(target_payload, packed_bcd=_renderer_code(options) == "0190")
                 link = {
                     "start_control": f"1f{ctx.start_op:02x}" if ctx else None,
                     "end_control": f"1f{op:02x}",
