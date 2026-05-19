@@ -2379,6 +2379,8 @@ def build_hc_behavior_profile(
         implemented.add("HC015x_t_contents_exact_body_html")
     if code == "0160" and rendererdb_ok:
         implemented.add("HC0160_unanchored_t_contents_exact_body_html")
+    if code == "0C80" and rendererdb_ok:
+        implemented.add("HC0C80_array_no_t_contents_exact_body_html")
     if code == "013F" and rendererdb_ok:
         implemented.add("HC013F_block_offset_exact_body_html")
         implemented.add("HC013F_raw_honmon_state_controls")
