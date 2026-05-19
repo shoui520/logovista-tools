@@ -1,5 +1,6 @@
 from pathlib import Path
 import argparse
+import re
 import sqlite3
 
 from logovista_tools.entries import DictionarySource
@@ -68,6 +69,9 @@ def test_hc_render_pcmdata_audio_range_decodes_bcd_range() -> None:
     rendered = render_hc_body(body)
 
     assert 'class="lv-hc-audio"' in rendered.html
+    assert 'href="#lv-audio-pcmdata:00000123:0045-00000123:0067"' in rendered.html
+    assert 'data-lv-original-href="lved.sond:pcmdata:00000123:0045-00000123:0067"' in rendered.html
+    assert re.search(r'(?<![\w-])href="lved\.sond:', rendered.html) is None
     assert "pcmdata:00000123:0045-00000123:0067" in rendered.html
     assert rendered.audio[0]["target"]["component"] == "PCMDATA.DIC"
     assert rendered.audio[0]["target"]["start_block"] == 123
@@ -7032,6 +7036,36 @@ def test_hc_render_exact_rendererdb_html_rewrites_extracted_renderer_links(tmp_p
     assert 'data-lv-dataid="6"' in rendered
     assert 'data-lv-target-anchor="000006_00A0100"' in rendered
     assert 'data-lv-missing-target' not in rendered
+
+
+def test_hc_render_exact_rendererdb_html_rewrites_internal_addr_and_image_links(tmp_path: Path) -> None:
+    dict_out = tmp_path / "DICT"
+    (dict_out / "media").mkdir(parents=True)
+    (dict_out / "media" / "0000006801.jpg").write_bytes(b"\xff\xd8\xff")
+    entries = dict_out / "rendererdb_entries.jsonl"
+    entries.write_text(
+        '{"dict_id":"DICT","data_id":5,'
+        '"html":"<a href=\\"lved.addr00000109:0226\\">jump</a>'
+        '<a href=\\"lved.image:0000006801.jpg\\"><img src=\\"0000006801.jpg\\"></a>",'
+        '"plain":"A"}\n',
+        encoding="utf-8",
+    )
+
+    html_path = _write_exact_hc_entries_html_from_rendererdb(
+        {"entries_path": str(entries)},
+        dict_out,
+        stylesheet=None,
+        vertical=False,
+    )
+
+    rendered = html_path.read_text(encoding="utf-8")
+    assert 'href="lvaddr://00000109/0226"' in rendered
+    assert 'data-lv-original-href="lved.addr00000109:0226"' in rendered
+    assert 'data-lv-address-block="00000109"' in rendered
+    assert 'data-lv-address-offset="0226"' in rendered
+    assert 'href="media/0000006801.jpg"' in rendered
+    assert 'data-lv-original-href="lved.image:0000006801.jpg"' in rendered
+    assert re.search(r'(?<![\w-])href="lved\.', rendered) is None
 
 
 def test_hc_render_exact_rendererdb_html_closes_self_closing_anchors(tmp_path: Path) -> None:

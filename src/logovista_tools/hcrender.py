@@ -2189,6 +2189,13 @@ def _audio_target(pointer: PcmPointer | None) -> dict[str, Any] | None:
 
 def _audio_href(target: dict[str, Any] | None) -> str:
     if target is None:
+        return "#lv-audio-unresolved"
+    safe_id = re.sub(r"[^0-9A-Za-z_.:-]+", "-", str(target["resource_id"]))
+    return f"#lv-audio-{safe_id}"
+
+
+def _audio_original_href(target: dict[str, Any] | None) -> str:
+    if target is None:
         return "lved.sond:unresolved"
     return f"lved.sond:{target['resource_id']}"
 
@@ -5125,6 +5132,44 @@ def _rewrite_exact_body_asset_refs(
             f'data-lv-dataid="{data_id}"{anchor_attr}{missing}'
         )
 
+    def replace_addr_href(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        quote = match.group(2)
+        block = html.unescape(match.group(3))
+        offset = html.unescape(match.group(4))
+        suffix_quote = match.group(5)
+        if not block or not offset:
+            return match.group(0)
+        original = f"lved.addr{block}:{offset}"
+        target = f"lvaddr://{block}/{offset}"
+        return (
+            f'{prefix}{quote}{_escape_attr(target)}{suffix_quote} '
+            f'data-lv-original-href="{_escape_attr(original)}" '
+            f'data-lv-address-block="{_escape_attr(block)}" '
+            f'data-lv-address-offset="{_escape_attr(offset)}"'
+        )
+
+    def replace_image_href(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        quote = match.group(2)
+        scheme = match.group(3)
+        reference = html.unescape(match.group(4))
+        suffix_quote = match.group(5)
+        if not reference:
+            return match.group(0)
+        original = f"lved.{scheme}:{reference}"
+        candidates = [
+            dict_out / reference,
+            dict_out / "media" / reference,
+            dict_out / "rendererdb" / dict_out.name / "media" / reference,
+        ]
+        mapped = next((_relative_browser_path(path, dict_out) for path in candidates if path.is_file()), reference)
+        return (
+            f'{prefix}{quote}{_escape_attr(mapped)}{suffix_quote} '
+            f'data-lv-original-href="{_escape_attr(original)}" '
+            f'data-lv-image-ref="{_escape_attr(reference)}"'
+        )
+
     rewritten = _normalize_exact_body_fragment_html(fragment)
     rewritten = re.sub(r'src=(["\'])([^"\']+)\1', replace_src, rewritten)
     rewritten = re.sub(
@@ -5136,6 +5181,18 @@ def _rewrite_exact_body_asset_refs(
     rewritten = re.sub(
         r'(\bhref\s*=\s*)(["\'])lved\.dataid:([^"\']+)(["\'])',
         replace_dataid_href,
+        rewritten,
+        flags=re.IGNORECASE,
+    )
+    rewritten = re.sub(
+        r'(\bhref\s*=\s*)(["\'])lved\.addr([0-9A-Za-z]+):([0-9A-Za-z]+)(["\'])',
+        replace_addr_href,
+        rewritten,
+        flags=re.IGNORECASE,
+    )
+    rewritten = re.sub(
+        r'(\bhref\s*=\s*)(["\'])lved\.(imag|image):([^"\']+)(["\'])',
+        replace_image_href,
         rewritten,
         flags=re.IGNORECASE,
     )
@@ -9819,6 +9876,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 attrs = [
                     f'class="{_escape_attr(audio_class)}"',
                     f'href="{_escape_attr(_audio_href(target))}"',
+                    f'data-lv-original-href="{_escape_attr(_audio_original_href(target))}"',
                     f'data-lv-audio-status="{_escape_attr("resolved_range" if target else "unresolved_range")}"',
                 ]
                 if target:

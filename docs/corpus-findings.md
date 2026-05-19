@@ -1132,7 +1132,9 @@ JIS/control-byte to HTML transducer around raw SSED body bytes. Common behavior:
   grammar still treats `1f44` as the 10-byte start of the `1f44`/`1f64` pair.
 - `1f4a`/`1f6a` produces sound links for addressed PCMDATA-style ranges.
   Renderers commonly emit an `img_mark2` sound icon when a package-local
-  `sound` image asset exists.
+  `sound` image asset exists. `hc-render` preserves the recovered
+  `lved.sond:...` target as metadata but uses safe `#lv-audio-...` fragment
+  hrefs in generated standalone HTML.
 - `1f36`, `1f37`, `1f48`, `1f49`, `1f4b`, `1f4c`, `1f4e`, `1f4f`, and
   `1fe0`..`1fe6` are renderer-private/layout controls. They carry structured
   payloads or state changes and should not be emitted as literal body text.
@@ -2580,7 +2582,10 @@ sounds to `ziptomedia/`. When renderer-sidecar HTML becomes the top-level visual
 entry body, extracted `lved.ziptomedia:` links are rewritten to those local audio
 files. `lved.dataid:` links are rewritten to local entry or named-anchor targets,
 with the original renderer URI preserved in `data-lv-original-href` for
-inspection. Renderer-sidecar fragments may also use XML-style self-closing
+inspection. `lved.addr...` links are normalized to `lvaddr://...` targets and
+`lved.image:` / `lved.imag:` links are normalized to local image references when
+possible, again preserving the original renderer URI for inspection.
+Renderer-sidecar fragments may also use XML-style self-closing
 `<a name="..."/>` anchors; `hc-render` normalizes these to explicit
 `<a name="..."></a>` elements before concatenating entries so browser HTML
 parsers do not treat them as unclosed anchors. It also fixes the observed

@@ -236,7 +236,9 @@ semantics that are now understood:
 - internal address links from paired link controls;
 - `COLSCR.DIC` picture/media placeholders from `1f3c` / `1f4d`-style payloads;
 - `PCMDATA.DIC` audio range links from `1f4a` / `1f6a`, using the package
-  `sound` image asset when present;
+  `sound` image asset when present. Generated standalone HTML rewrites the
+  browser-facing link to a safe `#lv-audio-...` fragment and preserves the
+  recovered HC `lved.sond:...` target in `data-lv-original-href`;
 - Unicode gaiji first, then image-backed gaiji, then a safe placeholder;
 - private renderer directive suppression with metadata counts;
 - vertical-rendering hints as classes/metadata rather than hard-coded layout.
@@ -1361,9 +1363,10 @@ media and still exported by filename/magic. PROYAL53 also uses
 sound directory such as `_DCT_NAME_Sound_Files`, decrypts LogoFontCipher-wrapped
 loose sound files, and writes portable `.wav` / `.mp3` assets for the
 references that are physically present. In `hc-render`, exact renderer-sidecar
-HTML additionally rewrites extracted `lved.ziptomedia:` hrefs to local files and
-rewrites `lved.dataid:` hrefs to local entry/anchor targets in the generated
-visual HTML.
+HTML additionally rewrites extracted `lved.ziptomedia:` hrefs to local files,
+rewrites `lved.dataid:` hrefs to local entry/anchor targets, and normalizes
+renderer-sidecar `lved.addr...` / `lved.image...` links to app-facing address
+or local-image targets in the generated visual HTML.
 
 ### `spindex`
 

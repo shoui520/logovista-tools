@@ -17,6 +17,15 @@ spans without inventing a link target. A focused recheck of the raw-gap
 packages from the current sweep leaves only the named `no_hc_renderer_plugin_declared`
 classification for those dictionaries.
 
+Standalone-output note: raw-HONMON `1f4a`/`1f6a` audio links keep the recovered
+HC `lved.sond:...` template in `data-lv-original-href`, but generated HTML uses
+safe `#lv-audio-...` fragment hrefs. Exact renderer-sidecar links are similarly
+normalized for known internal schemes: `lved.dataid:` to local entry/anchor
+targets, `lved.addr...` to `lvaddr://...`, `lved.image:` / `lved.imag:` to local
+image references when possible, and extracted `lved.ziptomedia:` to local audio
+files when `--write-ziptomedia` has materialized them. This is browser/app
+output normalization, not a claim of exact HC runtime parity.
+
 ## Status Vocabulary
 
 | Status | Meaning |
