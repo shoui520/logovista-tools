@@ -1160,6 +1160,8 @@ def _hc009b_section_parts(code: str, *, vertical: bool) -> tuple[list[str], str 
     value = _hc009b_section_value(code)
     if value is None:
         return [], None, None
+    if value > 0x40:
+        return [], None, "ignored_outlier"
     if value == 0x0C:
         return ['<div class="header">'], "</div>", "header"
     margin_prop = "margin-left" if vertical else "margin-top"

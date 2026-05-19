@@ -1520,6 +1520,17 @@ def test_hc009b_maps_header_honbun_links_and_template_gaiji() -> None:
     assert rendered.stats["hc009b_nonprinting_controls"] == 1
 
 
+def test_hc009b_ignores_outlier_section_payloads_instead_of_huge_margins() -> None:
+    body = b"\x1f\x09\x91\x9e" + jis_text("国基本データ")
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="009B"))
+
+    assert "国基本データ" in rendered.plain
+    assert "margin-top:149112px" not in rendered.html
+    assert "margin-left:149112px" not in rendered.html
+    assert rendered.stats["hc009b_section_ignored_outlier"] == 1
+
+
 def test_hc009c_asset_preparation_copies_thumbnail_and_icon_dirs(tmp_path: Path) -> None:
     package = tmp_path / "_DCT_SESGRASS"
     package.mkdir()

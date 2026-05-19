@@ -1179,7 +1179,8 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "1f09 sections open honbun margin containers or header blocks, "
                     "1f0a closes the active section, 1f41/1f61 wrap midashi text, "
                     "1f42/1f43 links use lineLink, image-backed gaiji use img_gaiji, "
-                    "and 1f5c/1f6d are consumed as renderer state"
+                    "1f5c/1f6d are consumed as renderer state, and rare high-valued "
+                    "1f09 outliers are ignored instead of becoming enormous margins"
                 ),
                 notes="The subset excludes fixed HTMLs/body fallback loading, custom DIB file generation, exact previous/next navigation footer generation, and broader visual parity.",
             )
