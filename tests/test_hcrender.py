@@ -3819,6 +3819,30 @@ def test_hc0142_maps_midashi_honbun_and_line_links() -> None:
     assert rendered.stats["hc0142_nonprinting_controls"] == 1
 
 
+def test_hc0142_consumes_media_close_renderer_state_controls() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_text("見出し")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + jis_text("本文")
+        + b"\x1f\x4d"
+        + b"\x00" * 12
+        + b"\x00\x01\x65\x51\x17\x30"
+        + b"\x3f\x74\x3c\x30"
+        + b"\x1f\x6d"
+        + b"\x1f\x5c"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0142"))
+
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert "unknown_control_1f5c" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc0142_nonprinting_controls"] == 3
+    assert rendered.stats["media_placeholders"] == 1
+
+
 def test_hc0142_math_plain_text_image_and_overline_markers() -> None:
     body = (
         b"\xb1\x77"

@@ -1854,6 +1854,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 evidence=(
                     "HC0142 epwing2HtmlBodydataVertical 1f41/1f0a midashi-to-honbun transition",
                     "HC0142 1f42/1f43 lineLink anchor branch",
+                    "HC0142 1f5c/1f6d renderer-state branch after media controls",
                     "HC0142 1f10 overline/rubar branch",
                     "HC0142 B177/B178 math span, B13F icotype_1, A164 margin, and B157/B16A-B170 plain_text branches",
                     "Templates/00000142.css class definitions",
@@ -1861,7 +1862,8 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 implementation=(
                     "1f41 starts midashi, 1f61 is consumed as renderer state, first 1f0a "
                     "closes midashi and opens the honbun container, later 1f0a emits line "
-                    "breaks, internal links use lineLink, and recovered marker gaiji emit "
+                    "breaks, internal links use lineLink, 1f5c/1f6d are consumed as "
+                    "renderer state, and recovered marker gaiji emit "
                     "math/plain_text/icotype/margin or classed gaiji image markup"
                 ),
                 notes=(
