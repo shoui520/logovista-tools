@@ -4908,6 +4908,7 @@ def _prepare_hc_render_assets(
         html_templates = _load_hc0190_templates(source)
     if renderer is not None and renderer.code.upper() == "00A0":
         html_templates = _load_hc00a0_templates(source)
+        copied += _copy_package_directory_assets(source, "mp3", dict_out)
     if renderer is not None and renderer.code.upper() == "009C":
         copied += _add_hc009c_image_sources(source, dict_out, output_sources)
     if renderer is not None and renderer.code.upper() == "00A4":
@@ -5333,7 +5334,33 @@ def _hc00a0_rewrite_asset_sources(fragment: str, options: HcRenderOptions) -> st
             return match.group(0)
         return f'src={quote}{_escape_attr(mapped)}{quote}'
 
-    return re.sub(r'src=(["\'])([^"\']+)\1', replace, fragment)
+    def replace_audio_control(match: re.Match[str]) -> str:
+        tag = match.group(0)
+        detail_no = match.group("detail")
+        filename = html.unescape(match.group("file")).strip()
+        if "/" in filename or "\\" in filename or ":" in filename or Path(filename).suffix.lower() != ".mp3":
+            return tag
+        href = f"mp3/{filename}"
+        onclick = f"lvedPlay('{detail_no}','{filename}')"
+        tag_without_onclick = re.sub(
+            r'\s+onclick=(["\'])lvedPlay\(\s*["\'][^"\']+["\']\s*,\s*["\'][^"\']+["\']\s*\);?\1',
+            "",
+            tag,
+            flags=re.IGNORECASE,
+        )
+        return (
+            f'<a class="lv-hc-audio hc00a0-audio" href="{_escape_attr(href)}" '
+            f'data-lv-audio-src="{_escape_attr(href)}" '
+            f'data-lv-original-onclick="{_escape_attr(onclick)}">{tag_without_onclick}</a>'
+        )
+
+    rewritten = re.sub(r'src=(["\'])([^"\']+)\1', replace, fragment)
+    return re.sub(
+        r'<img\b[^>]*\s+onclick=(["\'])lvedPlay\(\s*["\'](?P<detail>[^"\']+)["\']\s*,\s*["\'](?P<file>[^"\']+)["\']\s*\);?\1[^>]*>',
+        replace_audio_control,
+        rewritten,
+        flags=re.IGNORECASE,
+    )
 
 
 def _bmp_bytes_from_ga16_glyph(glyph: bytes, width: int, height: int) -> bytes:

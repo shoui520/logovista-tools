@@ -1486,6 +1486,58 @@ def test_hc009c_asset_preparation_copies_thumbnail_and_icon_dirs(tmp_path: Path)
     assert copied >= 3
 
 
+def test_hc00a0_asset_preparation_copies_mp3_assets(tmp_path: Path) -> None:
+    package = tmp_path / "_DCT_GKBUSINE"
+    (package / "HTMLs").mkdir(parents=True)
+    (package / "Templates").mkdir()
+    (package / "mp3").mkdir()
+    idx = package / "GKBUSINE.IDX"
+    honmon = package / "HONMON.DIC"
+    idx.write_bytes(b"")
+    honmon.write_bytes(b"")
+    (package / "HTMLs" / "Header.html").write_text("header", encoding="cp932")
+    (package / "HTMLs" / "Detail.html").write_text("detail", encoding="cp932")
+    (package / "Templates" / "sound.png").write_bytes(b"PNG")
+    (package / "Templates" / "000000A0.css").write_text(".x{}", encoding="cp932")
+    (package / "mp3" / "0001.mp3").write_bytes(b"ID3")
+    source = DictionarySource(
+        dict_id="GKBUSINE",
+        idx=idx,
+        title="test",
+        honmon=honmon,
+        honmon_start_block=0,
+        gaiji_map={},
+        image_sources={"sound": "Templates/sound.png"},
+    )
+    renderer = HcRendererClassification(
+        path=package / "HC00A0.dll",
+        code="00A0",
+        expected_numeric_index="000000A0.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=(),
+        features={},
+    )
+
+    image_sources, html_templates, stylesheet, copied = _prepare_hc_render_assets(source, tmp_path / "out", renderer)
+
+    assert image_sources["sound"] == "Templates/sound.png"
+    assert html_templates == {"Header": "header", "Detail": "detail"}
+    assert stylesheet == "hc-renderer.css"
+    assert (tmp_path / "out" / "mp3" / "0001.mp3").read_bytes() == b"ID3"
+    assert copied >= 3
+
+
 def test_hc013d_maps_sections_to_drug_layout_classes() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -3745,7 +3797,9 @@ def test_hc00a0_applies_detail_template_and_play_sound_directive() -> None:
     assert '<td class="english">HELLO</td>' in rendered.html
     assert '<td class="japanese">こんにちは</td>' in rendered.html
     assert 'src="Templates/sound.png"' in rendered.html
-    assert "lvedPlay('0001','0001.mp3')" in rendered.html
+    assert 'class="lv-hc-audio hc00a0-audio" href="mp3/0001.mp3"' in rendered.html
+    assert 'data-lv-original-onclick="lvedPlay(&#x27;0001&#x27;,&#x27;0001.mp3&#x27;)"' in rendered.html
+    assert "onclick=\"lvedPlay('0001','0001.mp3')" not in rendered.html
     assert 'src="Templates/ok-2.png"' in rendered.html
     assert "lv-hc-section" not in rendered.html
     assert rendered.plain == "HELLO\nこんにちは"
@@ -6816,6 +6870,7 @@ def test_hc00a0_profile_records_sql_detail_subset_without_claiming_parity() -> N
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC00A0_phrase_detail_renderer" in data["implemented_semantics"]
+    assert "HC00A0_playable_mp3_audio_links" in data["implemented_semantics"]
     assert data["family"] == "sql_hook_renderer"
     assert data["exact_hc_parity"] is False
     assert "sql_hook" in data["named_gaps"]

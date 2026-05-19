@@ -2373,6 +2373,7 @@ def build_hc_behavior_profile(
         implemented.add("HC00B3_honbun_margin_sections")
     if code == "00A0":
         implemented.add("HC00A0_phrase_detail_renderer")
+        implemented.add("HC00A0_playable_mp3_audio_links")
     if code == "0159" and rendererdb_ok:
         implemented.add("HC0159_t_contents_exact_body_html")
     if code in {"015A", "015B", "015C", "015D", "015E", "015F"} and rendererdb_ok:
