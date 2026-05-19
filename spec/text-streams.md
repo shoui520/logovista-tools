@@ -334,9 +334,10 @@ Practical interpretation:
 The `entries` and `titles` commands stay on the native `.DIC`/`.IDX` path. The
 `fulldb` command follows declared `DictFULLDB` payloads after decoding body IDs
 from raw HONMON records. The `rendererdb` command handles raw-ID-assisted
-renderer/app DB bodies, including Windows `t_contents`/`HONBUN` sidecars and
-the observed Android `DICTID(Html)` rowid layout. The `gaiji-report` command
-reads SQLite only as auxiliary validation evidence.
+renderer/app DB bodies, including Windows `t_contents`/`HONBUN` sidecars,
+HC0155's `main(ID, Class, C_text, J_text, Pinyin)` renderer table, and the
+observed Android `DICTID(Html)` rowid layout. The `gaiji-report` command reads
+SQLite only as auxiliary validation evidence.
 
 Renderer/app DBs and declared `DictFULLDB` payloads are related but not the
 same declaration mechanism. Renderer/app DBs are not `DictFULLDB` entries in

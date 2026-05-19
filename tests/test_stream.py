@@ -63,6 +63,7 @@ from logovista_tools.pcmdata import (
 )
 from logovista_tools.profiles import ProfileTarget, build_profile
 from logovista_tools.rendererdb import (
+    HonmonIdRecord,
     block_offset_body_columns,
     block_offset_body_tables,
     blob_extension,
@@ -73,7 +74,10 @@ from logovista_tools.rendererdb import (
     html_media_reference_rows,
     html_to_plain,
     html_ziptomedia_reference_rows,
+    hc0155_class_label,
+    hc0155_main_body_html,
     honbun_columns,
+    main_id_text_columns,
     iter_honmon_id_records,
     media_table_name,
     media_type_counts,
@@ -83,6 +87,7 @@ from logovista_tools.rendererdb import (
     t_contents_columns,
     ziptomedia_reference_names,
     ziptomedia_source_path,
+    extract_main_id_text_database,
 )
 from logovista_tools.decoded_model import static_package_resources_for_idx, windows_sidecars_for_idx
 from logovista_tools.resources import load_image_resource_profile, relative_image_source
@@ -1362,6 +1367,10 @@ def test_vlpljbl_magic_and_sqlite_roles() -> None:
         == "sqlite_row_ordered_honbun_renderer_body"
     )
     assert sqlite_role_for_tables(({"name": "MAIN", "columns": ["Block", "Offset", "Body"]},)) == "sqlite_block_offset_body"
+    assert (
+        sqlite_role_for_tables(({"name": "main", "columns": ["ID", "Class", "C_text", "J_text", "Pinyin"]},))
+        == "sqlite_renderer_body"
+    )
     assert sqlite_role_for_tables(({"name": "EntryPayload", "columns": ["content_id", "body_html"]},)) == "sqlite_renderer_body"
     assert (
         sqlite_role_for_tables(({"name": "D_Example", "columns": ["No", "Block", "Offset", "Keyword", "Midashi", "Title"]},))
@@ -1618,6 +1627,67 @@ def test_rendererdb_extracts_block_offset_body_rows(tmp_path: Path) -> None:
     html_out = (out_dir / "rendererdb_entries.html").read_text(encoding="utf-8")
     assert "horizontal one" in html_out
     assert summary["rendererdb_html_path"].endswith("rendererdb_entries.html")
+
+    con.close()
+
+
+def test_rendererdb_extracts_hc0155_main_id_text_rows(tmp_path: Path) -> None:
+    db_path = tmp_path / "CJJC160.sqlite"
+    con = sqlite3.connect(db_path)
+    con.execute("create table main (ID text primary key, Class text, C_text text, J_text text, Pinyin text)")
+    con.execute("insert into main values ('00000001', 'U', '阿', 'ア', 'auu')")
+    con.execute("insert into main values ('00000002', '機械工学', '机械扫描器', '機械式走査装置', 'jiuxieusaoumiaouqiuu')")
+    con.commit()
+    con.row_factory = sqlite3.Row
+
+    source = DictionarySource(
+        dict_id="CJJC160",
+        idx=tmp_path / "CJJC160.IDX",
+        title="test",
+        honmon=tmp_path / "HONMON.DIC",
+        honmon_start_block=2,
+        gaiji_map={},
+    )
+    ids = {
+        1: HonmonIdRecord(1, 0, 0, 2, 0, 2, 2),
+        2: HonmonIdRecord(2, 1, 32, 2, 32, 2, 34),
+    }
+    args = Namespace(
+        include_html=True,
+        limit=None,
+        media_limit=None,
+        write_media=False,
+        write_ziptomedia=False,
+        ziptomedia_limit=None,
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    assert main_id_text_columns(con)["C_text"] == "C_text"
+    assert hc0155_class_label("U") == "未分類"
+    assert 'href="lved.addr2:32"' in hc0155_main_body_html(
+        data_id=1,
+        class_value="U",
+        c_text="阿",
+        j_text="ア",
+        previous_id=None,
+        next_id=2,
+        honmon_start_block=2,
+    )
+
+    summary = extract_main_id_text_database(source, {}, db_path, con, ids, out_dir, args)
+
+    assert summary["status"] == "ok_main_id_text_body"
+    assert summary["entries_matched_to_raw_honmon"] == 2
+    assert summary["entries_emitted"] == 2
+    rows = (out_dir / "rendererdb_entries.jsonl").read_text(encoding="utf-8").splitlines()
+    assert '"class_label": "未分類"' in rows[0]
+    assert '<sub>[ 未分類]</sub> 阿' in rows[0]
+    assert '<div class=\\"contents\\">機械式走査装置</div>' in rows[1]
+    html_out = (out_dir / "rendererdb_entries.html").read_text(encoding="utf-8")
+    assert "forward.gif" in html_out
+    assert "back.gif" in html_out
+    assert "機械式走査装置" in html_out
 
     con.close()
 

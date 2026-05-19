@@ -111,6 +111,8 @@ def _family_for_code(code: str | None, renderer: HcRendererClassification | None
         return "no_hc_renderer"
     if code in {"015A", "015B", "015E", "015F"}:
         return "modern_dense_t_contents_renderer"
+    if code == "0155":
+        return "hc0155_main_id_text_renderer"
     if code == "014F":
         return "ejje_search_sidecar_renderer"
     if code == "0C80":
@@ -184,6 +186,34 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     evidence=("modifyHeadwordEx export", "address threshold branch"),
                     implementation=None,
                     notes="The DLL applies product-specific headword transforms based on body address ranges.",
+                ),
+            ]
+        )
+    if code == "0155":
+        rows.extend(
+            [
+                HcHookBehavior(
+                    name="main_id_text_body_lookup",
+                    status="implemented_when_sidecar_present",
+                    evidence=(
+                        "main ID/Class/C_text/J_text/Pinyin SQL strings",
+                        "dense HONMON decimal ID anchors",
+                        "previous/next dense ID address formula",
+                    ),
+                    implementation="rendererdb main.ID join and HC0155 C_text/J_text body composition",
+                    notes=(
+                        "The DLL queries main by decimal ID and composes the entry body "
+                        "from Class, C_text, and J_text. Product-specific search/helper, "
+                        "modifyHeadword, plugin, user-data, and custom-DIB hooks remain "
+                        "named gaps."
+                    ),
+                ),
+                HcHookBehavior(
+                    name="main_id_text_class_label",
+                    status="implemented",
+                    evidence=("HC0155 Class query branch", "U substitution string"),
+                    implementation='Class value "U" renders as the visible 未分類 label',
+                    notes="Other class labels are preserved as stored in the renderer DB.",
                 ),
             ]
         )
@@ -2264,6 +2294,8 @@ def build_hc_behavior_profile(
     if code == "013F" and rendererdb_ok:
         implemented.add("HC013F_block_offset_exact_body_html")
         implemented.add("HC013F_raw_honmon_state_controls")
+    if code == "0155" and rendererdb_ok:
+        implemented.add("HC0155_main_id_text_exact_body_html")
     if code == "0132":
         implemented.add("HC0132_finance_section_layout")
     if code == "013C":

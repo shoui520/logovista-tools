@@ -87,8 +87,10 @@ and non-SSED reader status are tracked separately in
   `sound` image assets for PCMDATA audio links when available, and reports
   product-specific hooks as named behavior gaps rather than claiming exact
   plugin parity.
-- Renderer/app SQLite extraction through raw HONMON ID anchors and
-  `t_contents` rows, with optional `media` BLOB export.
+- Renderer/app SQLite extraction through raw HONMON ID anchors and supported
+  renderer schemas including `t_contents`, `HONBUN`, and HC0155-style
+  `main(ID, Class, C_text, J_text, Pinyin)` rows, with optional `media` BLOB
+  export.
 - Renderer SQLite extraction for the `BRINEN15` dense-anchor variant:
   marker-at-byte-0 HONMON ID rows, `f_data_id` / `f_contents` `t_contents`
   schemas, and two-column `t_media(f_name, f_blob)` JPEG stores.

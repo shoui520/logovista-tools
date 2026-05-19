@@ -480,6 +480,32 @@ def block_offset_body_tables(con: sqlite3.Connection) -> list[tuple[str, dict[st
     return rows
 
 
+def main_id_text_columns(con: sqlite3.Connection) -> dict[str, str]:
+    """Return HC0155 ``main`` table columns keyed by decimal HONMON ID.
+
+    HC0155 queries these columns literally through the SQL strings embedded in
+    the renderer DLL:
+    ``SELECT C_text/J_text/Class FROM main WHERE ID = ?``.  This is therefore
+    intentionally schema-specific rather than a generic text-table guess.
+    """
+
+    if not table_exists(con, "main"):
+        return {}
+    columns = table_column_map(con, "main")
+    required = ("id", "class", "c_text", "j_text")
+    if not all(name in columns for name in required):
+        return {}
+    resolved = {
+        "ID": columns["id"],
+        "Class": columns["class"],
+        "C_text": columns["c_text"],
+        "J_text": columns["j_text"],
+    }
+    if "pinyin" in columns:
+        resolved["Pinyin"] = columns["pinyin"]
+    return resolved
+
+
 def choose_block_offset_body_table(
     tables: list[tuple[str, dict[str, str]]],
     *,
@@ -495,6 +521,66 @@ def choose_block_offset_body_table(
             if table.upper().endswith(suffix):
                 return (table, columns)
     return tables[0]
+
+
+def dense_id_to_block_offset(data_id: int, *, honmon_start_block: int) -> tuple[int, int]:
+    """Return the HC0155 dense-HONMON address for a 32-byte decimal ID row."""
+
+    relative = data_id * 32 - 32
+    return (honmon_start_block + relative // BLOCK_SIZE, relative % BLOCK_SIZE)
+
+
+def hc0155_class_label(value: str | None) -> str:
+    """Return the class label after HC0155's visible class substitution."""
+
+    text = (value or "").strip()
+    return "未分類" if text == "U" else text
+
+
+def hc0155_main_body_html(
+    *,
+    data_id: int,
+    class_value: str | None,
+    c_text: str | None,
+    j_text: str | None,
+    previous_id: int | None,
+    next_id: int | None,
+    honmon_start_block: int,
+) -> str:
+    """Build the body HTML emitted by HC0155 for ``main`` table rows.
+
+    The structure mirrors the decompiled body path: optional previous/next
+    navigation links, ``midashi`` heading with a class sublabel, and a
+    ``contents`` block containing the Japanese/Chinese counterpart text.
+    """
+
+    parts = [
+        "<html>\n",
+        '<meta http-equiv="X-UA-Compatible" content="IE=edge">\n',
+        '<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">\n',
+        '<link rel="stylesheet" type="text/css" href="00000155.css">\n',
+        '</head>\n<body class="main">\n',
+    ]
+    if next_id is not None:
+        block, offset = dense_id_to_block_offset(next_id, honmon_start_block=honmon_start_block)
+        parts.append(
+            f'<a href="lved.addr{block}:{offset}" class="lineLink">'
+            '<img src="forward.gif" class="page_movement_img"></a>\n'
+        )
+    if previous_id is not None:
+        block, offset = dense_id_to_block_offset(previous_id, honmon_start_block=honmon_start_block)
+        parts.append(
+            f'<a href="lved.addr{block}:{offset}" class="lineLink">'
+            '<img src="back.gif" class="page_movement_img"></a>\n'
+        )
+    label = hc0155_class_label(class_value)
+    parts.append('<div class="midashi">')
+    if label:
+        parts.append(f"<sub>[ {html.escape(label)}]</sub> ")
+    parts.append(f"{html.escape(c_text or '')}</div>\n")
+    parts.append(f'<div class="contents">{html.escape(j_text or "")}</div>\n')
+    parts.append("<br>\n</body>\n</html>\n")
+    return "".join(parts)
 
 
 def html_rows_matching(con: sqlite3.Connection, pattern: str) -> int | None:
@@ -841,6 +927,192 @@ def extract_block_offset_body_database(
     return summary
 
 
+def extract_main_id_text_database(
+    source: DictionarySource,
+    summary: dict[str, Any],
+    db_path: Path,
+    con: sqlite3.Connection,
+    ids_by_data_id: dict[int, HonmonIdRecord],
+    dict_out: Path,
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    """Extract HC0155 ``main`` rows keyed by dense HONMON decimal IDs."""
+
+    columns = main_id_text_columns(con)
+    if not columns:
+        summary.update({"status": "unsupported_main_id_text_schema", "entries_emitted": 0})
+        return summary
+    id_col = columns["ID"]
+    class_col = columns["Class"]
+    c_col = columns["C_text"]
+    j_col = columns["J_text"]
+    pinyin_col = columns.get("Pinyin")
+    select_parts = [
+        f"{quote_identifier(id_col)} as {quote_identifier('ID')}",
+        f"{quote_identifier(class_col)} as {quote_identifier('Class')}",
+        f"{quote_identifier(c_col)} as {quote_identifier('C_text')}",
+        f"{quote_identifier(j_col)} as {quote_identifier('J_text')}",
+    ]
+    if pinyin_col is not None:
+        select_parts.append(f"{quote_identifier(pinyin_col)} as {quote_identifier('Pinyin')}")
+    query = f"select {', '.join(select_parts)} from main order by {quote_identifier(id_col)}"
+
+    emitted = 0
+    matched_ids = 0
+    extra_rows = 0
+    non_numeric_id_rows = 0
+    non_numeric_id_samples: list[str] = []
+    class_counts: Counter[str] = Counter()
+    ziptomedia_refs: Counter[str] = Counter()
+    html_path = dict_out / "rendererdb_entries.html"
+    html_out = html_path.open("w", encoding="utf-8") if args.include_html else None
+    if html_out is not None:
+        write_rendererdb_html_header(html_out, title=f"{source.dict_id} rendererdb")
+    try:
+        with (dict_out / "rendererdb_entries.jsonl").open("w", encoding="utf-8") as out:
+            previous_id: int | None = None
+            pending: sqlite3.Row | None = None
+            pending_data_id: int | None = None
+            for row in con.execute(query):
+                data_id = parse_decimal_int(row["ID"])
+                if data_id is None:
+                    non_numeric_id_rows += 1
+                    if len(non_numeric_id_samples) < 10:
+                        non_numeric_id_samples.append(str(row["ID"]))
+                    extra_rows += 1
+                    continue
+                if pending is not None and pending_data_id is not None:
+                    raw = ids_by_data_id.get(pending_data_id)
+                    if raw is None:
+                        extra_rows += 1
+                    else:
+                        matched_ids += 1
+                        class_value = str(pending["Class"] or "")
+                        class_counts[hc0155_class_label(class_value)] += 1
+                        html_value = hc0155_main_body_html(
+                            data_id=pending_data_id,
+                            class_value=class_value,
+                            c_text=pending["C_text"],
+                            j_text=pending["J_text"],
+                            previous_id=previous_id,
+                            next_id=data_id,
+                            honmon_start_block=source.honmon_start_block,
+                        )
+                        ziptomedia_refs.update(ziptomedia_reference_names(html_value))
+                        if args.limit is None or emitted < args.limit:
+                            record: dict[str, Any] = {
+                                "dict_id": source.dict_id,
+                                "dict_title": source.title,
+                                "data_id": pending_data_id,
+                                "raw_honmon": honmon_id_record_to_json(raw),
+                                "type": "main",
+                                "class": class_value,
+                                "class_label": hc0155_class_label(class_value),
+                                "title": pending["C_text"],
+                                "plain": html_to_plain(html_value),
+                            }
+                            if "Pinyin" in pending.keys():
+                                record["pinyin"] = pending["Pinyin"]
+                            if args.include_html:
+                                record["html"] = html_value
+                            out.write(json.dumps(record, ensure_ascii=False) + "\n")
+                            if html_out is not None:
+                                label = html.escape(str(record["data_id"]))
+                                html_out.write(
+                                    f"<!-- {source.dict_id} {label} -->\n"
+                                    f'<div class="rendererdb-entry">{html_value}</div>\n'
+                                )
+                            emitted += 1
+                    previous_id = pending_data_id
+                pending = row
+                pending_data_id = data_id
+            if pending is not None and pending_data_id is not None:
+                raw = ids_by_data_id.get(pending_data_id)
+                if raw is None:
+                    extra_rows += 1
+                else:
+                    matched_ids += 1
+                    class_value = str(pending["Class"] or "")
+                    class_counts[hc0155_class_label(class_value)] += 1
+                    html_value = hc0155_main_body_html(
+                        data_id=pending_data_id,
+                        class_value=class_value,
+                        c_text=pending["C_text"],
+                        j_text=pending["J_text"],
+                        previous_id=previous_id,
+                        next_id=None,
+                        honmon_start_block=source.honmon_start_block,
+                    )
+                    ziptomedia_refs.update(ziptomedia_reference_names(html_value))
+                    if args.limit is None or emitted < args.limit:
+                        record = {
+                            "dict_id": source.dict_id,
+                            "dict_title": source.title,
+                            "data_id": pending_data_id,
+                            "raw_honmon": honmon_id_record_to_json(raw),
+                            "type": "main",
+                            "class": class_value,
+                            "class_label": hc0155_class_label(class_value),
+                            "title": pending["C_text"],
+                            "plain": html_to_plain(html_value),
+                        }
+                        if "Pinyin" in pending.keys():
+                            record["pinyin"] = pending["Pinyin"]
+                        if args.include_html:
+                            record["html"] = html_value
+                        out.write(json.dumps(record, ensure_ascii=False) + "\n")
+                        if html_out is not None:
+                            label = html.escape(str(record["data_id"]))
+                            html_out.write(
+                                f"<!-- {source.dict_id} {label} -->\n"
+                                f'<div class="rendererdb-entry">{html_value}</div>\n'
+                            )
+                        emitted += 1
+    finally:
+        if html_out is not None:
+            write_rendererdb_html_footer(html_out)
+            html_out.close()
+
+    content_rows = table_count(con, "main") or 0
+    ziptomedia_summary = summarize_ziptomedia_refs(source.idx, ziptomedia_refs)
+    summary.update(
+        {
+            "status": "ok_main_id_text_body",
+            "sqlite_path": str(db_path),
+            "rendererdb_html_path": str(html_path) if args.include_html else None,
+            "main_rows": content_rows,
+            "main_schema": "HC0155 main(ID, Class, C_text, J_text, Pinyin)",
+            "main_id_rule": "data_id = decimal(main.ID)",
+            "entries_matched_to_raw_honmon": matched_ids,
+            "entries_emitted": emitted,
+            "db_rows_without_raw_honmon_id": extra_rows,
+            "non_numeric_id_rows": non_numeric_id_rows,
+            "non_numeric_id_samples": non_numeric_id_samples,
+            "raw_honmon_ids_missing_in_db": max(0, len(ids_by_data_id) - matched_ids),
+            "class_counts_sampled": dict(sorted(class_counts.items())),
+            "media_table": media_table_name(con),
+            "media_rows": table_count(con, media_table_name(con)) if media_table_name(con) else None,
+            "media_type_counts": media_type_counts(con),
+            "html_rows_with_media_references": None,
+            "html_rows_with_ziptomedia_references": None,
+            **ziptomedia_summary,
+        }
+    )
+    if args.write_media:
+        summary.update(write_media_records(con, dict_out / "media", limit=args.media_limit))
+    if args.write_ziptomedia:
+        sound_dir = Path(ziptomedia_summary["ziptomedia_dir"]) if ziptomedia_summary["ziptomedia_dir"] else None
+        summary.update(
+            write_ziptomedia_records(
+                sound_dir,
+                ziptomedia_refs,
+                dict_out / "ziptomedia",
+                limit=args.ziptomedia_limit,
+            )
+        )
+    return summary
+
+
 def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
     dict_out = out_dir / source.dict_id
     dict_out.mkdir(parents=True, exist_ok=True)
@@ -903,6 +1175,13 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
                 return summary
             if block_offset_body_tables(con):
                 summary = extract_block_offset_body_database(source, summary, expanded, db_path, con, dict_out, args)
+                (dict_out / "rendererdb_summary.json").write_text(
+                    json.dumps(summary, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                return summary
+            if main_id_text_columns(con):
+                summary = extract_main_id_text_database(source, summary, db_path, con, ids_by_data_id, dict_out, args)
                 (dict_out / "rendererdb_summary.json").write_text(
                     json.dumps(summary, ensure_ascii=False, indent=2),
                     encoding="utf-8",

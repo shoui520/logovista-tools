@@ -122,16 +122,19 @@ toolkit HTML renderer: text/style controls, internal links, `COLSCR.DIC`
 picture placeholders, `PCMDATA.DIC` sound ranges, Unicode/image gaiji fallback,
 private directive suppression, and vertical-rendering metadata. It also invokes
 the clear schema-backed renderer sidecar paths (`t_contents`, `HONBUN`,
-Android body DBs, media tables, and ziptomedia references) automatically when
-those sidecars are present. The command distinguishes **exact entry-body HTML**
-from **exact HC DLL parity**. For dense renderer DB products such as the
-modern `t_contents` family, the entry body can be taken from the same renderer
-sidecar HTML that the HC plugin queries; product hooks can still remain open.
+HC0155-style `main(ID, Class, C_text, J_text, Pinyin)`, Android body DBs,
+media tables, and ziptomedia references) automatically when those sidecars are
+present. The command distinguishes **exact entry-body HTML** from **exact HC
+DLL parity**. For dense renderer DB products such as the modern `t_contents`
+family, and for HC0155's ID-keyed `main` table, the entry body can be taken
+from the same renderer sidecar data that the HC plugin queries; product hooks
+can still remain open.
 
 Current code-level renderer families are:
 
 ```text
 modern_dense_t_contents_renderer  dense HONMON ID anchors -> t_contents f_Html
+hc0155_main_id_text_renderer      dense HONMON ID anchors -> main C_text/J_text
 ejje_search_sidecar_renderer      t_Search_* category SQL helper tables
 britannica_panel_media_renderer   Panel lifecycle + Media/HTMLs resources
 britannica_yearbook_array_renderer array_no-based t_contents indirection
