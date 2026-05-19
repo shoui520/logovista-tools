@@ -11859,6 +11859,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 }
             )
             gaps.add("unterminated_private_directive")
+        elif ctx.kind == "link" and ctx.start_op == 0x42 and _renderer_code(options) == "008B":
+            ctx.parent.extend(ctx.parts)
+            stats["hc008b_unterminated_link_recovered"] += 1
         else:
             ctx.parent.extend(ctx.parts)
             gaps.add(f"unterminated_{ctx.kind}")

@@ -1338,6 +1338,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "HC008B epwing2HtmlBodydata 1f09 section branch",
                     "HC008B 1f41/1f61 midashi branch",
                     "HC008B 1f42/1f43 lineLink/lineLink2 branch",
+                    "HC008B malformed 1f42 entry sample with no matching close control",
                     "HC008B image/media template branch",
                     "Templates/0000008B.css class definitions",
                 ),
@@ -1345,7 +1346,8 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "1f41/1f61 wrap midashi, 1f09 section 0002 opens kaisou, "
                     "section 0003 opens contents_body, 1f42 uses lineLink2 by "
                     "default, 1f43 uses lineLink, image-backed gaiji use img_gaiji, "
-                    "and 1f5c/1f6d are consumed as renderer state"
+                    "1f5c/1f6d are consumed as renderer state, and malformed "
+                    "unterminated 1f42 link labels are recovered as plain text"
                 ),
                 notes="The subset excludes exact neighboring-JIS conditional link class selection, medical icon marker branches, fixed HTMLs/fix fallback loading, generated gaiji GIF emission, and broader visual parity.",
             )
@@ -2318,6 +2320,7 @@ def build_hc_behavior_profile(
         implemented.add("HC0069_midashi_contents_and_margin_sections")
     if code == "008B":
         implemented.add("HC008B_kaisou_contents_and_midashi_sections")
+        implemented.add("HC008B_unterminated_line_link_plaintext_recovery")
     if code == "009D":
         implemented.add("HC009D_section_and_kakomi_layout")
     if code == "012E":

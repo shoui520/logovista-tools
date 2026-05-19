@@ -4134,6 +4134,18 @@ def test_hc008b_wraps_midashi_contents_kaisou_sections_and_line_links() -> None:
     assert rendered.stats["hc008b_nonprinting_controls"] == 1
 
 
+def test_hc008b_recovers_unterminated_line_link_as_plain_text() -> None:
+    body = b"\x1f\x42" + jis_text("未閉リンク")
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="008B"))
+
+    assert "未閉リンク" in rendered.html
+    assert "lv-hc-link" not in rendered.html
+    assert "lvaddr://" not in rendered.html
+    assert "unterminated_link" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc008b_unterminated_link_recovered"] == 1
+
+
 def test_hc0065_renders_grammar_label_and_template_image_markers() -> None:
     rendered = render_hc_body(
         b"\xa1\x74\xa4\x30\xa4\x31\xa4\x32\xa4\x33\xa2\x51\xa2\x53",
@@ -5481,6 +5493,7 @@ def test_hc008b_profile_records_medical_expert_subset_without_claiming_parity() 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC008B_kaisou_contents_and_midashi_sections" in data["implemented_semantics"]
+    assert "HC008B_unterminated_line_link_plaintext_recovery" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "visual_parity_unverified" in data["named_gaps"]
 
