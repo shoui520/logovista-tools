@@ -7061,11 +7061,13 @@ def test_hc_render_exact_rendererdb_html_closes_self_closing_anchors(tmp_path: P
 def test_exact_rendererdb_fragment_normalizer_fixes_known_fragment_leaks() -> None:
     typo = '<span class="hin">*</sapn>'
     open_div = '<div class="midashi">A</div><div class="honbun"><div>body</div>'
+    extra_close = '<div class="midashi">A</div></div>'
 
     assert _normalize_exact_body_fragment_html(typo) == '<span class="hin">*</span>'
     assert _normalize_exact_body_fragment_html(open_div).endswith("</div>")
     assert _normalize_exact_body_fragment_html(open_div).count("<div") == 3
     assert _normalize_exact_body_fragment_html(open_div).count("</div>") == 3
+    assert _normalize_exact_body_fragment_html(extra_close) == '<div class="midashi">A</div>'
 
 
 def test_hc_behavior_profile_names_exact_body_without_claiming_full_parity() -> None:

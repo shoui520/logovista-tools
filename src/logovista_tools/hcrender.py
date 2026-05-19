@@ -4951,56 +4951,116 @@ def _ziptomedia_href_map(rendererdb_summary: dict[str, Any], dict_out: Path) -> 
     return refs
 
 
-class _FragmentOpenTagScanner(HTMLParser):
-    """Track tags that remain open at the end of one renderer-sidecar fragment."""
+class _RendererFragmentNormalizer(HTMLParser):
+    """Normalize one renderer-sidecar fragment for standalone browser output."""
 
-    TRACKED_TAGS = frozenset({"a", "b", "div", "font", "i", "p", "small", "span", "sub", "sup"})
+    TRACKED_TAGS = frozenset(
+        {
+            "a",
+            "b",
+            "dd",
+            "div",
+            "dl",
+            "dt",
+            "em",
+            "font",
+            "i",
+            "li",
+            "ol",
+            "p",
+            "rb",
+            "rt",
+            "ruby",
+            "small",
+            "span",
+            "strong",
+            "sub",
+            "sup",
+            "table",
+            "tbody",
+            "td",
+            "tfoot",
+            "th",
+            "thead",
+            "tr",
+            "u",
+            "ul",
+        }
+    )
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=False)
         self.stack: list[str] = []
+        self.parts: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.parts.append(self.get_starttag_text() or f"<{tag}>")
         lower = tag.lower()
         if lower in self.TRACKED_TAGS:
             self.stack.append(lower)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        return
+        raw = self.get_starttag_text() or f"<{tag}/>"
+        lower = tag.lower()
+        if lower == "a":
+            self.parts.append(re.sub(r"\s*/\s*>$", ">", raw) + "</a>")
+            return
+        self.parts.append(raw)
 
     def handle_endtag(self, tag: str) -> None:
         lower = tag.lower()
         if lower not in self.TRACKED_TAGS:
+            self.parts.append(f"</{tag}>")
+            return
+        if lower not in self.stack:
             return
         while self.stack:
             current = self.stack.pop()
-            if current == lower:
-                break
+            if current != lower:
+                self.parts.append(f"</{current}>")
+                continue
+            self.parts.append(f"</{lower}>")
+            break
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+    def handle_entityref(self, name: str) -> None:
+        self.parts.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        self.parts.append(f"&#{name};")
+
+    def handle_comment(self, data: str) -> None:
+        self.parts.append(f"<!--{data}-->")
+
+    def handle_decl(self, decl: str) -> None:
+        self.parts.append(f"<!{decl}>")
+
+    def handle_pi(self, data: str) -> None:
+        self.parts.append(f"<?{data}>")
+
+    def normalized(self) -> str:
+        while self.stack:
+            self.parts.append(f"</{self.stack.pop()}>")
+        return "".join(self.parts)
 
 
-def _close_open_exact_body_tags(fragment: str) -> str:
-    scanner = _FragmentOpenTagScanner()
+def _normalize_renderer_fragment_structure(fragment: str) -> str:
+    normalizer = _RendererFragmentNormalizer()
     try:
-        scanner.feed(fragment)
-        scanner.close()
+        normalizer.feed(fragment)
+        normalizer.close()
     except Exception:
         return fragment
-    if not scanner.stack:
-        return fragment
-    return fragment + "".join(f"</{tag}>" for tag in reversed(scanner.stack))
+    return normalizer.normalized()
 
 
 def _normalize_exact_body_fragment_html(fragment: str) -> str:
     """Normalize renderer-sidecar fragments enough to keep entry DOMs isolated."""
 
     normalized = re.sub(r"</sapn\s*>", "</span>", fragment, flags=re.IGNORECASE)
-    normalized = re.sub(
-        r"<a\b([^>]*)/\s*>",
-        lambda match: f"<a{match.group(1).rstrip()}></a>",
-        normalized,
-        flags=re.IGNORECASE,
-    )
-    return _close_open_exact_body_tags(normalized)
+    return _normalize_renderer_fragment_structure(normalized)
 
 
 def _rewrite_exact_body_asset_refs(
