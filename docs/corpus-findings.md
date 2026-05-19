@@ -2579,7 +2579,10 @@ sounds to `ziptomedia/`. When renderer-sidecar HTML becomes the top-level visual
 entry body, extracted `lved.ziptomedia:` links are rewritten to those local audio
 files. `lved.dataid:` links are rewritten to local entry or named-anchor targets,
 with the original renderer URI preserved in `data-lv-original-href` for
-inspection.
+inspection. Renderer-sidecar fragments may also use XML-style self-closing
+`<a name="..."/>` anchors; `hc-render` normalizes these to explicit
+`<a name="..."></a>` elements before concatenating entries so browser HTML
+parsers do not treat them as unclosed anchors.
 
 PROYAL53 also has ten extensionless files under `dat/`. These are not SQLite
 tables or SSED components. Each file is LogoFontCipher-wrapped `RIFF/WAVE`

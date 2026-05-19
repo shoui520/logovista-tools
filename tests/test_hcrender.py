@@ -7012,6 +7012,30 @@ def test_hc_render_exact_rendererdb_html_rewrites_extracted_renderer_links(tmp_p
     assert 'data-lv-missing-target' not in rendered
 
 
+def test_hc_render_exact_rendererdb_html_closes_self_closing_anchors(tmp_path: Path) -> None:
+    dict_out = tmp_path / "DICT"
+    dict_out.mkdir(parents=True)
+    entries = dict_out / "rendererdb_entries.jsonl"
+    entries.write_text(
+        '{"dict_id":"DICT","data_id":5,'
+        '"html":"<a name=\\"Idx1000\\" /><a href=\\"lved.dataid:000005\\">self</a>",'
+        '"plain":"A"}\n',
+        encoding="utf-8",
+    )
+
+    html_path = _write_exact_hc_entries_html_from_rendererdb(
+        {"entries_path": str(entries)},
+        dict_out,
+        stylesheet=None,
+        vertical=False,
+    )
+
+    rendered = html_path.read_text(encoding="utf-8")
+    assert '<a name="Idx1000"></a>' in rendered
+    assert '<a name="Idx1000" />' not in rendered
+    assert rendered.count("<a ") == rendered.count("</a>")
+
+
 def test_hc_behavior_profile_names_exact_body_without_claiming_full_parity() -> None:
     renderer = HcRendererClassification(
         path=Path("HC015F.dll"),

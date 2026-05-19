@@ -4958,6 +4958,10 @@ def _rewrite_exact_body_asset_refs(
 ) -> str:
     """Rewrite bare renderer-sidecar asset names to copied package assets."""
 
+    def close_self_closing_anchor(match: re.Match[str]) -> str:
+        attrs = match.group(1).rstrip()
+        return f"<a{attrs}></a>"
+
     def replace_src(match: re.Match[str]) -> str:
         quote = match.group(1)
         src = html.unescape(match.group(2))
@@ -5011,7 +5015,13 @@ def _rewrite_exact_body_asset_refs(
             f'data-lv-dataid="{data_id}"{anchor_attr}{missing}'
         )
 
-    rewritten = re.sub(r'src=(["\'])([^"\']+)\1', replace_src, fragment)
+    rewritten = re.sub(
+        r"<a\b([^>]*)/\s*>",
+        close_self_closing_anchor,
+        fragment,
+        flags=re.IGNORECASE,
+    )
+    rewritten = re.sub(r'src=(["\'])([^"\']+)\1', replace_src, rewritten)
     rewritten = re.sub(
         r'(\bhref\s*=\s*)(["\'])lved\.ziptomedia:([^"\']+)(["\'])',
         replace_ziptomedia_href,
