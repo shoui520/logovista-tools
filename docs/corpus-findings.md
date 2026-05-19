@@ -1540,6 +1540,16 @@ implementation, not a string-only inference, and it remains visually incomplete
 until the product wrapper, remaining section/layout state, and remaining custom
 hooks are validated.
 
+The Dconci87 branch-subset proof case is `HC00C6.dll`. Its body loop maps
+`1f09` sections to `midashi`, `midashi_JE`, `yakugo`, `contents`, and
+`exampleyakugo` blocks, uses `exam.png` for contiguous example sections, and
+treats A23C/A23D, A24C/A24D, A244/A245, and B126 as renderer styling or layout
+markers rather than ordinary gaiji. Some of these markers are wrapped in
+halfwidth controls in the raw body stream; the renderer consumes the wrapper
+when the payload is structural, such as halfwidth-wrapped A244 supAB markers or
+empty `1f04`/`1f05` runs before rule-line state. Generated custom-character DIB
+output and remaining visual parity are still open.
+
 The GKBUSINE/GKTRAVEL branch-subset proof case is `HC00A0.dll`. Its phrase
 renderer uses `HTMLs/Header.html` and `HTMLs/Detail.html` as templates. The
 raw body loop stores `1f09` section `0001` as the English phrase slot and

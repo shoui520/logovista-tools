@@ -453,6 +453,10 @@ and non-SSED reader status are tracked separately in
   `Templates/00000146.css`. The full PROYAL43 raw-HONMON render now emits no
   raw behavior gaps. Product wrapper state, custom hooks, and representative
   visual parity remain incomplete.
+- `HC00C6.dll` now consumes halfwidth-wrapped structural markers observed in
+  Dconci87: A244 supAB marker wrappers and empty `1f04`/`1f05` runs no longer
+  produce empty halfwidth spans in generated HTML. Custom DIB output and
+  broader visual parity remain incomplete.
 - `HC0142.dll` now has a focused raw-HONMON branch-subset proof: `1f41` starts
   the `midashi` block, `1f0a` transitions into the `honbun` block or emits line
   breaks, internal links use `lineLink`, and recovered marker gaiji emit

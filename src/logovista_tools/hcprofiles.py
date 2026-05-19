@@ -380,6 +380,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "HC00C6 A23C/A23D and A24C/A24D partwaku branches",
                     "HC00C6 close-marker-in-halfwidth branch observed in Dconci87 entries",
                     "HC00C6 A244 supAB marker state",
+                    "Dconci87 halfwidth-wrapped A244 supAB and empty 1f04/1f05 structural runs",
                     "Templates/000000c6.css class definitions",
                 ),
                 implementation=(
@@ -387,7 +388,9 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "example sections insert exam.png once per contiguous block, A23C/A23D and "
                     "A24C/A24D create partwaku boxes including close markers that arrive inside "
                     "halfwidth spans with trailing text, A244/A245 wraps A/B labels as supAB, and "
-                    "template-backed gaiji markers use HC00C6 image classes"
+                    "template-backed gaiji markers use HC00C6 image classes; halfwidth-wrapped "
+                    "A244 markers and empty halfwidth control pairs are consumed as structural "
+                    "renderer state rather than emitted as empty spans"
                 ),
                 notes="The branch subset excludes unresolved DAT_* literal branches and the custom DIB transformation path.",
             )

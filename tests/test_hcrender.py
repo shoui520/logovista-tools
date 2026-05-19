@@ -300,6 +300,29 @@ def test_hc00c6_closes_partwaku_before_trailing_halfwidth_text() -> None:
     assert rendered.stats.get("hc00c6_unmatched_style_markers", 0) == 0
 
 
+def test_hc00c6_handles_supab_marker_when_halfwidth_wrapped() -> None:
+    body = b"\x1f\x04\xa2\x44\x1f\x05" + jis_ascii("B")
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00C6"))
+
+    assert rendered.html == '<div class="lv-hc-render"><sup class="supAB">B</sup></div>'
+    assert '<span class="lv-hc-halfwidth"></span>' not in rendered.html
+    assert rendered.stats["hc00c6_supab_markers"] == 2
+    assert rendered.stats["hc00c6_supab_halfwidth_markers"] == 1
+    assert rendered.stats["hc00c6_supab_halfwidth_labels"] == 1
+
+
+def test_hc00c6_suppresses_empty_halfwidth_pair() -> None:
+    body = b"\x1f\x04\x1f\x05" + b"\xb1\x26"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00C6"))
+
+    assert rendered.html == '<div class="lv-hc-render"><br><hr class="line"></div>'
+    assert '<span class="lv-hc-halfwidth"></span>' not in rendered.html
+    assert rendered.stats["hc00c6_rule_lines"] == 1
+    assert rendered.stats["hc00c6_empty_halfwidth_spans_suppressed"] == 1
+
+
 def test_hc02be_maps_sections_to_ind_blocks() -> None:
     rendered = render_hc_body(
         b"\x1f\x09\x00\x01" + jis_ascii("H") + b"\x1f\x09\x00\x10" + jis_ascii("D"),

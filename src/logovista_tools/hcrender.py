@@ -7816,11 +7816,41 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if (
                 _renderer_code(options) == "00C6"
+                and hc00c6_supab_pending
+                and op == 0x04
+                and i + 5 < len(data)
+                and data[i + 4 : i + 6] == b"\x1f\x05"
+            ):
+                label = normalize_fullwidth_ascii(decode_jis_pair(data[i + 2 : i + 4]))
+                if label in {"A", "B"}:
+                    _current_parts(root_parts, contexts).append(f'<sup class="supAB">{_escape_text(label)}</sup>')
+                    text_parts = _current_text_parts(contexts)
+                    if text_parts is not None:
+                        text_parts.append(label)
+                    stats["hc00c6_supab_markers"] += 1
+                    stats["hc00c6_supab_halfwidth_labels"] += 1
+                    hc00c6_supab_pending = False
+                    i += 6
+                    continue
+
+            if _renderer_code(options) == "00C6" and op == 0x04 and i + 3 < len(data) and data[i + 2 : i + 4] == b"\x1f\x05":
+                stats["hc00c6_empty_halfwidth_spans_suppressed"] += 1
+                i += 4
+                continue
+
+            if (
+                _renderer_code(options) == "00C6"
                 and op == 0x04
                 and i + 5 < len(data)
                 and data[i + 4 : i + 6] == b"\x1f\x05"
             ):
                 close_key = f"{data[i + 2]:02x}{data[i + 3]:02x}"
+                if close_key == "a244":
+                    hc00c6_supab_pending = True
+                    stats["hc00c6_supab_markers"] += 1
+                    stats["hc00c6_supab_halfwidth_markers"] += 1
+                    i += 6
+                    continue
                 if close_key in HC00C6_CLOSE_MARKERS:
                     if hc00c6_marker_stack and hc00c6_marker_stack[-1][0] == close_key:
                         _current_parts(root_parts, contexts).append(hc00c6_marker_stack.pop()[1])
