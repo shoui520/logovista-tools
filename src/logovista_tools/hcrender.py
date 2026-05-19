@@ -1263,14 +1263,43 @@ def _hc00a4_private_image_src(text: str, options: HcRenderOptions) -> str | None
     )
 
 
-def _hc00a4_private_html_fragment(text: str, options: HcRenderOptions) -> str | None:
+def _repair_hc00a4_private_html_fragment(fragment: str) -> tuple[str, int]:
+    """Normalize HC00A4 fixed HTML fragments before inline insertion.
+
+    IKUIKU fixed HTML includes contain table footers written as
+    ``<tfoot><tr><td>...</td></tfoot>``. Browsers autoclose the row, but the
+    generated proof HTML becomes source-unbalanced when multiple entries are
+    concatenated. Insert the explicit row close without otherwise changing the
+    fragment.
+    """
+
+    repairs = 0
+
+    def close_tfoot_row(match: re.Match[str]) -> str:
+        nonlocal repairs
+        body = match.group(1)
+        if re.search(r"</tr\s*>", body, flags=re.IGNORECASE):
+            return match.group(0)
+        repairs += 1
+        return f"<tfoot>{body}</tr></tfoot>"
+
+    repaired = re.sub(
+        r"<tfoot\b[^>]*>(.*?)</tfoot\s*>",
+        close_tfoot_row,
+        fragment,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return repaired, repairs
+
+
+def _hc00a4_private_html_fragment(text: str, options: HcRenderOptions) -> tuple[str, int] | None:
     name = _hc00a4_private_resource_name(text, "HTM")
     if name is None:
         return None
     fragment = options.html_templates.get(name.casefold()) or options.html_templates.get(Path(name).stem.casefold())
     if fragment is None:
         return None
-    return _hc00a0_rewrite_asset_sources(fragment, options)
+    return _repair_hc00a4_private_html_fragment(_hc00a0_rewrite_asset_sources(fragment, options))
 
 
 def _extract_first_url(text: str) -> str | None:
@@ -9785,8 +9814,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             continue
                         html_fragment = _hc00a4_private_html_fragment(directive_text, options)
                         if html_fragment is not None:
-                            ctx.parent.append(html_fragment)
+                            html_text, repair_count = html_fragment
+                            ctx.parent.append(html_text)
                             stats["hc00a4_private_html_includes"] += 1
+                            if repair_count:
+                                stats["hc00a4_private_html_table_rows_repaired"] += repair_count
                             private_directives.append(
                                 {
                                     "start_control": f"1f{ctx.start_op:02x}",

@@ -1229,8 +1229,9 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "RUB:E/RUB:S private directives render ruby7 markup, B12C/B12D/"
                     "B12E/B132/B133 are consumed as renderer state markers, B12F emits "
                     "the product mark image, IMG:F/HTM:F private directives resolve "
-                    "images/ and HTMLs/htmls resources, links use lineLink, and media "
-                    "controls receive img_inline placeholders"
+                    "images/ and HTMLs/htmls resources, omitted table-footer row closes "
+                    "inside those fixed HTML snippets are normalized before insertion, "
+                    "links use lineLink, and media controls receive img_inline placeholders"
                 ),
                 notes=(
                     "The subset excludes exact previous/next navigation footer generation, "

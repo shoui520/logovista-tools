@@ -1567,8 +1567,11 @@ or state-only transitions; `1f41`/`1f61` wrap `midashi`; halfwidth spans inside
 that state use `hankakuMidashi`; `RUB:E`/`RUB:S` private directives produce
 `ruby7` markup; B12C/B12D/B12E/B132/B133 are consumed as renderer state
 markers; B12F emits the product mark image; and `IMG:F...` / `HTM:F...`
-private directives resolve package `images/` and `HTMLs/htmls` resources. Fixed
-HTML/body fallback loading, exact previous/next navigation footer generation,
+private directives resolve package `images/` and `HTMLs/htmls` resources.
+Observed `HTM:F...` fixed HTML snippets can omit `</tr>` before `</tfoot>`;
+the renderer normalizes that row close before insertion so concatenated proof
+HTML remains structurally balanced. Fixed HTML/body fallback loading outside
+that direct include path, exact previous/next navigation footer generation,
 custom DIB output, and visual parity remain named gaps.
 
 The IBIO4 branch-subset proof case is `HC0068.dll`. Its body loop uses the

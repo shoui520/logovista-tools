@@ -2461,6 +2461,26 @@ def test_hc00a4_maps_sections_ruby_marker_images_and_line_links() -> None:
     assert rendered.stats["hc00a4_private_html_includes"] == 1
 
 
+def test_hc00a4_repairs_omitted_tfoot_row_close_in_fixed_html_include() -> None:
+    html_directive = b"\x1f\xe2\x00\x0e" + jis_fullwidth_ascii("HTM:FTable.htm") + b"\x1f\xe3\x00\x00"
+    body = b"\x1f\x09\x00\x10" + html_directive
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="00A4",
+            html_templates={
+                "table.htm": '<table><tfoot><tr><td>note</td></tfoot><tbody><tr><td>body</td></tr></tbody></table>',
+            },
+        ),
+    )
+
+    assert "<tfoot><tr><td>note</td></tr></tfoot>" in rendered.html
+    assert rendered.html.count("<tr") == rendered.html.count("</tr>")
+    assert rendered.stats["hc00a4_private_html_includes"] == 1
+    assert rendered.stats["hc00a4_private_html_table_rows_repaired"] == 1
+
+
 def test_hkdksr_medical_renderers_map_sections_links_and_template_gaiji() -> None:
     body = (
         b"\x1f\x09\x00\x01"
