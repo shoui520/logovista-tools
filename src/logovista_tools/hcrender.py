@@ -16,6 +16,7 @@ import shutil
 import sys
 from collections import Counter
 from dataclasses import dataclass, field, replace
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -4950,6 +4951,58 @@ def _ziptomedia_href_map(rendererdb_summary: dict[str, Any], dict_out: Path) -> 
     return refs
 
 
+class _FragmentOpenTagScanner(HTMLParser):
+    """Track tags that remain open at the end of one renderer-sidecar fragment."""
+
+    TRACKED_TAGS = frozenset({"a", "b", "div", "font", "i", "p", "small", "span", "sub", "sup"})
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.stack: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        lower = tag.lower()
+        if lower in self.TRACKED_TAGS:
+            self.stack.append(lower)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        return
+
+    def handle_endtag(self, tag: str) -> None:
+        lower = tag.lower()
+        if lower not in self.TRACKED_TAGS:
+            return
+        while self.stack:
+            current = self.stack.pop()
+            if current == lower:
+                break
+
+
+def _close_open_exact_body_tags(fragment: str) -> str:
+    scanner = _FragmentOpenTagScanner()
+    try:
+        scanner.feed(fragment)
+        scanner.close()
+    except Exception:
+        return fragment
+    if not scanner.stack:
+        return fragment
+    return fragment + "".join(f"</{tag}>" for tag in reversed(scanner.stack))
+
+
+def _normalize_exact_body_fragment_html(fragment: str) -> str:
+    """Normalize renderer-sidecar fragments enough to keep entry DOMs isolated."""
+
+    normalized = re.sub(r"</sapn\s*>", "</span>", fragment, flags=re.IGNORECASE)
+    normalized = re.sub(
+        r"<a\b([^>]*)/\s*>",
+        lambda match: f"<a{match.group(1).rstrip()}></a>",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    return _close_open_exact_body_tags(normalized)
+
+
 def _rewrite_exact_body_asset_refs(
     fragment: str,
     dict_out: Path,
@@ -4958,10 +5011,6 @@ def _rewrite_exact_body_asset_refs(
     data_ids: set[int] | None = None,
 ) -> str:
     """Rewrite bare renderer-sidecar asset names to copied package assets."""
-
-    def close_self_closing_anchor(match: re.Match[str]) -> str:
-        attrs = match.group(1).rstrip()
-        return f"<a{attrs}></a>"
 
     def replace_src(match: re.Match[str]) -> str:
         quote = match.group(1)
@@ -5016,12 +5065,7 @@ def _rewrite_exact_body_asset_refs(
             f'data-lv-dataid="{data_id}"{anchor_attr}{missing}'
         )
 
-    rewritten = re.sub(
-        r"<a\b([^>]*)/\s*>",
-        close_self_closing_anchor,
-        fragment,
-        flags=re.IGNORECASE,
-    )
+    rewritten = _normalize_exact_body_fragment_html(fragment)
     rewritten = re.sub(r'src=(["\'])([^"\']+)\1', replace_src, rewritten)
     rewritten = re.sub(
         r'(\bhref\s*=\s*)(["\'])lved\.ziptomedia:([^"\']+)(["\'])',

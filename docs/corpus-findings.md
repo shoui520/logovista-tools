@@ -2583,7 +2583,10 @@ with the original renderer URI preserved in `data-lv-original-href` for
 inspection. Renderer-sidecar fragments may also use XML-style self-closing
 `<a name="..."/>` anchors; `hc-render` normalizes these to explicit
 `<a name="..."></a>` elements before concatenating entries so browser HTML
-parsers do not treat them as unclosed anchors.
+parsers do not treat them as unclosed anchors. It also fixes the observed
+renderer-sidecar `</sapn>` typo to `</span>` and appends missing close tags for
+still-open per-entry containers at the end of each exact-body fragment, keeping
+one entry's DOM state from leaking into the next generated entry wrapper.
 
 PROYAL53 also has ten extensionless files under `dat/`. These are not SQLite
 tables or SSED components. Each file is LogoFontCipher-wrapped `RIFF/WAVE`

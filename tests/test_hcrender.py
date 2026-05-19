@@ -6,6 +6,7 @@ from logovista_tools.entries import DictionarySource
 from logovista_tools.hcrender import (
     HcRenderOptions,
     _has_entry_body_sidecar,
+    _normalize_exact_body_fragment_html,
     _prepare_hc_render_assets,
     _renderer_behavior_gaps,
     _rendererdb_args,
@@ -7055,6 +7056,16 @@ def test_hc_render_exact_rendererdb_html_closes_self_closing_anchors(tmp_path: P
     assert '<a name="Idx1000"></a>' in rendered
     assert '<a name="Idx1000" />' not in rendered
     assert rendered.count("<a ") == rendered.count("</a>")
+
+
+def test_exact_rendererdb_fragment_normalizer_fixes_known_fragment_leaks() -> None:
+    typo = '<span class="hin">*</sapn>'
+    open_div = '<div class="midashi">A</div><div class="honbun"><div>body</div>'
+
+    assert _normalize_exact_body_fragment_html(typo) == '<span class="hin">*</span>'
+    assert _normalize_exact_body_fragment_html(open_div).endswith("</div>")
+    assert _normalize_exact_body_fragment_html(open_div).count("<div") == 3
+    assert _normalize_exact_body_fragment_html(open_div).count("</div>") == 3
 
 
 def test_hc_behavior_profile_names_exact_body_without_claiming_full_parity() -> None:
