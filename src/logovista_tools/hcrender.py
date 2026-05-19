@@ -11842,6 +11842,17 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 )
                 i += 2
                 continue
+            if _renderer_code(options) == "00A3" and key == "b261":
+                _append_gaiji_value(
+                    _current_parts(root_parts, contexts),
+                    _current_text_parts(contexts),
+                    "b167",
+                    options,
+                    stats,
+                )
+                stats["hc00a3_b261_alias_markers"] += 1
+                i += 2
+                continue
             _append_gaiji_value(_current_parts(root_parts, contexts), _current_text_parts(contexts), key, options, stats)
             if _renderer_code(options) == "02C1":
                 hc02c1_section_just_opened = False

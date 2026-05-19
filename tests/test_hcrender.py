@@ -5177,6 +5177,19 @@ def test_hc00a3_maps_viku_quiz_answer_sections_and_state_controls() -> None:
     assert rendered.stats["hc00a3_nonprinting_controls"] == 2
 
 
+def test_hc00a3_aliases_b261_to_b167_gaiji_image() -> None:
+    rendered = render_hc_body(
+        bytes.fromhex("b261"),
+        HcRenderOptions(renderer_code="00A3", image_sources={"b167": "gaiji/b167.bmp"}),
+    )
+
+    assert 'data-gaiji-code="b167"' in rendered.html
+    assert 'src="gaiji/b167.bmp"' in rendered.html
+    assert 'data-gaiji-code="b261"' not in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc00a3_b261_alias_markers"] == 1
+
+
 def test_hc00a3_profile_records_viku_subset_without_claiming_parity() -> None:
     row = HcRendererClassification(
         path=Path("HC00A3.dll"),
