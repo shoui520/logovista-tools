@@ -163,6 +163,26 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
             ]
         )
+    if code == "0156":
+        rows.append(
+            HcHookBehavior(
+                name="hc0156_main_id_text_body_lookup",
+                status="implemented_when_sidecar_present",
+                evidence=("main(ID, Class, K_text, J_text) SQL sidecar", "dense HONMON decimal ID anchors"),
+                implementation="rendererdb main.ID join",
+                notes="Normal entry body text is supplied by the LogoFontCipher SQLite sidecar; raw HONMON records are numeric anchors.",
+            )
+        )
+    if code in {"0161", "0162"}:
+        rows.append(
+            HcHookBehavior(
+                name="order_id_t_contents_body_lookup",
+                status="implemented_when_sidecar_present",
+                evidence=("t_contents(f_order_id, f_contents, f_media) SQL sidecar", "dense HONMON decimal ID anchors"),
+                implementation="rendererdb f_order_id join",
+                notes="Normal entry body HTML is supplied by the LogoFontCipher SQLite sidecar; raw HONMON records are numeric anchors.",
+            )
+        )
     if code == "015F":
         rows.extend(
             [
@@ -2313,6 +2333,10 @@ def build_hc_behavior_profile(
         implemented.add("HC013F_raw_honmon_state_controls")
     if code == "0155" and rendererdb_ok:
         implemented.add("HC0155_main_id_text_exact_body_html")
+    if code == "0156" and rendererdb_ok:
+        implemented.add("HC0156_main_id_text_exact_body_html")
+    if code in {"0161", "0162"} and rendererdb_ok:
+        implemented.add("HC016x_order_id_t_contents_exact_body_html")
     if code == "0132":
         implemented.add("HC0132_finance_section_layout")
     if code == "013C":

@@ -1518,6 +1518,23 @@ def test_rendererdb_contents_id_html_text_aliases() -> None:
     con.close()
 
 
+def test_rendererdb_order_id_contents_aliases() -> None:
+    con = sqlite3.connect(":memory:")
+    con.execute(
+        "create table t_contents ("
+        "f_order_id integer primary key, f_midashi text, f_contents text, f_media text)"
+    )
+
+    columns = t_contents_columns(con)
+
+    assert columns["f_DataId"] == "f_order_id"
+    assert columns["f_Title"] == "f_midashi"
+    assert columns["f_Html"] == "f_contents"
+    assert columns["f_Media"] == "f_media"
+
+    con.close()
+
+
 def test_rendererdb_decimal_id_parser_is_lossless() -> None:
     assert parse_decimal_int(123) == 123
     assert parse_decimal_int("00123") == 123
@@ -1688,6 +1705,20 @@ def test_rendererdb_extracts_hc0155_main_id_text_rows(tmp_path: Path) -> None:
     assert "forward.gif" in html_out
     assert "back.gif" in html_out
     assert "機械式走査装置" in html_out
+
+    con.close()
+
+
+def test_rendererdb_main_id_text_accepts_korean_text_column() -> None:
+    con = sqlite3.connect(":memory:")
+    con.execute("create table main (ID text primary key, Class text, K_text text, J_text text)")
+
+    columns = main_id_text_columns(con)
+
+    assert columns["ID"] == "ID"
+    assert columns["Class"] == "Class"
+    assert columns["C_text"] == "K_text"
+    assert columns["J_text"] == "J_text"
 
     con.close()
 

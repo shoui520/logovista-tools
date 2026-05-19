@@ -410,7 +410,7 @@ def media_type_counts(con: sqlite3.Connection) -> dict[str, int]:
 def t_contents_columns(con: sqlite3.Connection) -> dict[str, str]:
     columns = table_column_map(con, "t_contents")
     aliases = {
-        "f_DataId": ("f_dataid", "f_data_id", "f_contents_id"),
+        "f_DataId": ("f_dataid", "f_data_id", "f_contents_id", "f_order_id"),
         "f_Type": ("f_type",),
         "f_DataGroupId": ("f_datagroupid", "f_data_group_id"),
         "f_Anchor": ("f_anchor",),
@@ -497,13 +497,16 @@ def main_id_text_columns(con: sqlite3.Connection) -> dict[str, str]:
     if not table_exists(con, "main"):
         return {}
     columns = table_column_map(con, "main")
-    required = ("id", "class", "c_text", "j_text")
+    required = ("id", "class", "j_text")
     if not all(name in columns for name in required):
+        return {}
+    c_text_col = columns.get("c_text") or columns.get("k_text")
+    if c_text_col is None:
         return {}
     resolved = {
         "ID": columns["id"],
         "Class": columns["class"],
-        "C_text": columns["c_text"],
+        "C_text": c_text_col,
         "J_text": columns["j_text"],
     }
     if "pinyin" in columns:
