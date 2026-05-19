@@ -2914,6 +2914,43 @@ def _image_or_named_template(key: str, options: HcRenderOptions) -> str:
     return _image_source_for_key(key, options) or f"{key.upper()}.png"
 
 
+def _hc013a_custom_dib_html(key: str, options: HcRenderOptions, *, in_heading: bool) -> tuple[str, bool]:
+    """Return the HC013A custom-DIB image HTML recovered from FUN_1000175e.
+
+    HC013A asks imgctl to derive variant PNGs from a base ``%4x.png`` when it
+    exists, but the body renderer emits an ``img_dummy`` spacer plus the derived
+    filename even if the bitmap is absent.  Missing files are therefore a
+    resource condition, not an unknown renderer branch.
+    """
+
+    stem = key.lower()
+    if in_heading:
+        suffix = "_M"
+        css_class = "img_gaiji_midashi"
+        style = ' style="height:1.0em;"'
+    elif options.vertical:
+        suffix = "_C"
+        css_class = "img_gaiji_v"
+        style = ""
+    else:
+        suffix = ""
+        css_class = "img_gaiji"
+        style = ' style="height:1em;"'
+    vertical_suffix = "_V" if options.vertical else ""
+    derived_stem = f"{stem}{suffix}{vertical_suffix}"
+    derived_name = f"{derived_stem}.png"
+    lookup_stem = derived_stem.lower()
+    lookup_name = derived_name.lower()
+    src = options.image_sources.get(lookup_stem) or options.image_sources.get(lookup_name) or derived_name
+    dummy_src = _dummy_image_source(options) or "dummy.gif"
+    resolved = lookup_stem in options.image_sources or lookup_name in options.image_sources
+    return (
+        f'<img class="img_dummy" src="{_escape_attr(dummy_src)}">'
+        f'<img src="{_escape_attr(src)}"{style} class="{css_class}">',
+        resolved,
+    )
+
+
 def _dummy_image_source(options: HcRenderOptions) -> str | None:
     return (
         _image_source_for_key("dummy", options)
@@ -10070,13 +10107,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     and not options.gaiji_map.get(key)
                     and _image_source_for_key(key, options) is None
                 ):
-                    _current_parts(root_parts, contexts).append(
-                        '<span class="lv-hc-gaiji lv-hc-custom-dib-missing img_gaiji" '
-                        f'data-gaiji-code="{_escape_attr(key)}" '
-                        'data-hc-behavior="custom-gaiji-bitmap"></span>'
-                    )
+                    html, resolved = _hc013a_custom_dib_html(key, options, in_heading=0x41 in style_stack)
+                    _current_parts(root_parts, contexts).append(html)
                     stats["hc013a_custom_dib_gaiji"] += 1
-                    gaps.add("hc013a_custom_gaiji_bitmap_unresolved")
+                    if not resolved:
+                        stats["hc013a_custom_dib_missing_resource"] += 1
                     i += 2
                     continue
             if _renderer_code(options) == "00A4":

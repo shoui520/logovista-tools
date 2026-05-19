@@ -175,14 +175,17 @@ def test_hc013a_maps_layout_markers_without_generic_placeholders() -> None:
     assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
 
 
-def test_hc013a_missing_b263_uses_named_custom_bitmap_gap() -> None:
-    rendered = render_hc_body(b"\xb2\x63" + b"".join(jis_ascii(ch) for ch in "abandonar"), HcRenderOptions(renderer_code="013A"))
+def test_hc013a_missing_b263_uses_dll_custom_bitmap_template() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x41\x01\x00" + b"\xb2\x63" + b"".join(jis_ascii(ch) for ch in "abandonar") + b"\x1f\x61",
+        HcRenderOptions(renderer_code="013A"),
+    )
 
     assert "lv-hc-gaiji-placeholder" not in rendered.html
-    assert 'class="lv-hc-gaiji lv-hc-custom-dib-missing img_gaiji"' in rendered.html
-    assert 'data-gaiji-code="b263"' in rendered.html
+    assert '<img class="img_dummy" src="dummy.gif"><img src="b263_M.png" style="height:1.0em;" class="img_gaiji_midashi">' in rendered.html
     assert rendered.stats["hc013a_custom_dib_gaiji"] == 1
-    assert "hc013a_custom_gaiji_bitmap_unresolved" in rendered.named_behavior_gaps
+    assert rendered.stats["hc013a_custom_dib_missing_resource"] == 1
+    assert "hc013a_custom_gaiji_bitmap_unresolved" not in rendered.named_behavior_gaps
 
 
 def test_hc013f_consumes_renderer_state_control() -> None:
