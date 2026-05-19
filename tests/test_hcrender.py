@@ -225,7 +225,10 @@ def test_hc013a_inserts_exam_badge_once_per_example_block() -> None:
     )
 
     assert rendered.html.count('src="Templates/exam.png" class="ex_img"') == 2
-    assert rendered.html.count('data-lv-section="0011"') == 3
+    assert 'class="lv-hc-section"' not in rendered.html
+    assert '<div class="contents">' in rendered.html
+    assert rendered.stats["hc013a_contents_blocks"] == 2
+    assert rendered.stats["hc013a_example_translation_sections"] == 1
     assert rendered.stats["section_images"] == 2
 
 
@@ -233,6 +236,7 @@ def test_hc013a_reports_missing_exam_asset_without_faking_image() -> None:
     rendered = render_hc_body(b"\x1f\x09\x00\x11" + jis_ascii("A"), HcRenderOptions(renderer_code="013A"))
 
     assert "exam.png" not in rendered.html
+    assert '<div class="contents">' in rendered.html
     assert "missing_section_image_exam" in rendered.named_behavior_gaps
 
 
@@ -250,8 +254,8 @@ def test_hc013a_maps_layout_markers_without_generic_placeholders() -> None:
 
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="013A"))
 
-    assert '<div class="honbun2"><strong><span class="lv-hc-halfwidth">a</span>' in rendered.html
-    assert '<span class="lv-hc-halfwidth">o</span></strong></div>' in rendered.html
+    assert '<div class="honbun2"><strong><span class="hankaku">a</span>' in rendered.html
+    assert '<span class="hankaku">o</span></strong></div>' in rendered.html
     assert "lv-hc-gaiji-placeholder" not in rendered.html
     assert 'data-gaiji-code="b26a"' not in rendered.html
     assert 'data-gaiji-code="b26b"' not in rendered.html
@@ -260,6 +264,31 @@ def test_hc013a_maps_layout_markers_without_generic_placeholders() -> None:
     assert rendered.stats["hc013a_suppressed_gaiji_markers"] == 2
     assert rendered.stats["hc013a_nonprinting_controls"] == 1
     assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert 'class="lv-hc-section"' not in rendered.html
+
+
+def test_hc013a_maps_heading_marker_classes_and_halfwidth() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + b"\xb2\x62"
+        + jis_ascii("a")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x02"
+        + jis_ascii_text("body")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="013A"))
+
+    assert '<div class="midashi2">' in rendered.html
+    assert '<span class="hankakuMidashi">a</span>' in rendered.html
+    assert '<span class="hankaku">body</span>' in rendered.html
+    assert 'class="lv-hc-heading"' not in rendered.html
+    assert 'class="lv-hc-section"' not in rendered.html
+    assert rendered.stats["hc013a_midashi2_blocks"] == 1
+    assert rendered.stats["hc013a_midashi_state_sections"] == 1
+    assert rendered.stats["hc013a_body_state_sections"] == 1
+    assert rendered.stats["hc013a_hankaku_midashi_spans"] == 1
 
 
 def test_hc013a_missing_b263_uses_dll_custom_bitmap_template() -> None:

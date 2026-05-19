@@ -797,6 +797,12 @@ HC00C7_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x61, 0x6D}
 HC013A_NONPRINTING_CONTROL_OPS = {0x6D}
 HC013A_SUPPRESSED_GAIJI_MARKERS = {"a225", "a226", "b26a", "b26b"}
 HC013A_CUSTOM_BITMAP_MARKERS = {"b263"}
+HC013A_HEADING_MARKER_CLASSES = {
+    "b261": "midashi",
+    "b262": "midashi2",
+    "b263": "midashi3",
+}
+HC013A_EXAMPLE_SECTION_VALUES = {10, 11, 12}
 
 HC013F_NONPRINTING_CONTROL_OPS = {0x6D}
 
@@ -2638,6 +2644,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
 def _style_close_tag(start_op: int, options: HcRenderOptions) -> str | None:
     if _renderer_code(options) in {"0142", "0147"} and start_op == 0x10:
         return "label"
+    if _renderer_code(options) == "013A" and start_op in {0x04, 0x41}:
+        return "span" if start_op == 0x04 else "div"
     if _renderer_code(options) == "0091" and start_op == 0x04:
         return "span"
     if _renderer_code(options) == "0090" and start_op == 0x04:
@@ -5830,6 +5838,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0132_honbun_open = False
     hc0132_section_close: str | None = None
     hc013a_honbun2_open = False
+    hc013a_section_close: str | None = None
+    hc013a_contents_open = False
     i = 0
     while i < len(data):
         byte = data[i]
@@ -5890,6 +5900,82 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         i += 2 + arg_len
                         continue
                     root = _current_parts(root_parts, contexts)
+                    if _renderer_code(options) == "013A":
+                        value = _packed_bcd_to_int(payload)
+                        if hc013a_contents_open and value not in HC013A_EXAMPLE_SECTION_VALUES:
+                            root.append("</div>")
+                            hc013a_contents_open = False
+                            stats["hc013a_contents_closures"] += 1
+                        if hc013a_section_close is not None:
+                            root.append(hc013a_section_close)
+                            hc013a_section_close = None
+                            stats["hc013a_section_closures"] += 1
+                        if value == 1:
+                            stats["hc013a_midashi_state_sections"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if value == 2:
+                            stats["hc013a_body_state_sections"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if value == 3:
+                            root.append("<br>")
+                            stats["hc013a_break_sections"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if value == 4:
+                            root.append("<br><strong><i>")
+                            hc013a_section_close = "</i></strong>"
+                            stats["hc013a_strong_italic_sections"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if value == 10:
+                            root.append("<br>")
+                            stats["hc013a_example_note_break_sections"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if value == 11:
+                            if not hc013a_contents_open:
+                                image_src = _section_image_src(
+                                    _SectionImageRule(
+                                        image_key="exam",
+                                        css_class="ex_img",
+                                        group_codes=frozenset({"0010", "0011", "0012"}),
+                                    ),
+                                    options.image_sources,
+                                )
+                                root.append("<br>")
+                                if image_src is None:
+                                    gaps.add("missing_section_image_exam")
+                                else:
+                                    root.append(f'<img src="{_escape_attr(image_src)}" class="ex_img"><br>')
+                                    stats["section_images"] += 1
+                                root.append('<div class="contents">')
+                                hc013a_contents_open = True
+                                stats["hc013a_contents_blocks"] += 1
+                            else:
+                                root.append("<br>")
+                                stats["hc013a_repeated_example_sections"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if value == 12:
+                            stats["hc013a_example_translation_sections"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if value == 13:
+                            root.append(
+                                '<br><table width=98% border=0 cellpadding=5 cellspacing=1 bgcolor="#000000">'
+                                '<tr bgcolor="#f2f2f2"><td>'
+                            )
+                            hc013a_section_close = "</td></tr></table>"
+                            stats["hc013a_table_sections"] += 1
+                            i += 2 + arg_len
+                            continue
+                        stats["hc013a_unmapped_sections"] += 1
+                        gaps.add(f"hc013a_unmapped_section_{code}")
+                        root.append(f'<span class="lv-hc-section" data-lv-section="{_escape_attr(code)}"></span>')
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "0063":
                         next_control = data[i + 2 + arg_len : i + 4 + arg_len]
                         if next_control == b"\x1f\x41":
@@ -9648,6 +9734,36 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 _current_parts(root_parts, contexts).append(hc0158_marker_stack.pop()[1])
                 stats["hc0158_section_end_style_markers"] += 1
 
+            if _renderer_code(options) == "013A" and op == 0x41:
+                marker_key = _two_byte_key_at(data, i + 2 + arg_len)
+                css_class = HC013A_HEADING_MARKER_CLASSES.get(marker_key or "", "midashi")
+                _current_parts(root_parts, contexts).append(f'<div class="{css_class}">')
+                style_stack.append(op)
+                stats["headings"] += 1
+                stats["hc013a_heading_blocks"] += 1
+                stats[f"hc013a_{css_class}_blocks"] += 1
+                if marker_key not in HC013A_HEADING_MARKER_CLASSES:
+                    stats["hc013a_default_midashi_blocks"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "013A" and op == 0x04:
+                style_context = contexts[-1] if contexts else None
+                in_heading = 0x41 in style_stack or any(0x41 in ctx.style_stack for ctx in contexts)
+                css_class = "hankakuMidashi" if in_heading else "hankaku"
+                _current_parts(root_parts, contexts).append(f'<span class="{css_class}">')
+                if style_context is not None:
+                    style_context.style_stack.append(op)
+                    style_context.halfwidth_depth += 1
+                else:
+                    style_stack.append(op)
+                    halfwidth_depth += 1
+                stats["hc013a_halfwidth_spans"] += 1
+                if in_heading:
+                    stats["hc013a_hankaku_midashi_spans"] += 1
+                i += 2 + arg_len
+                continue
+
             style_spec = _style_start_spec(op, options)
             if style_spec is not None:
                 if _renderer_code(options) == "012D" and hc012d_pending_honbun_user:
@@ -9704,6 +9820,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     hc012e_section_close = "</div>"
                 if _renderer_code(options) == "012D" and op == 0x61 and closed_requested_style:
                     hc012d_pending_honbun_user = True
+                if _renderer_code(options) == "013A" and op == 0x61 and closed_requested_style:
+                    stats["hc013a_midashi_closures"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -12164,6 +12282,14 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append("</strong></div>")
         hc013a_honbun2_open = False
         stats["hc013a_honbun2_closures"] += 1
+    if hc013a_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc013a_section_close)
+        hc013a_section_close = None
+        stats["hc013a_section_closures"] += 1
+    if hc013a_contents_open:
+        _current_parts(root_parts, contexts).append("</div>")
+        hc013a_contents_open = False
+        stats["hc013a_contents_closures"] += 1
     if hc009c_marker_stack or hc009c_section_close is not None:
         _hc009c_close_section(_current_parts(root_parts, contexts), hc009c_marker_stack, hc009c_section_close)
     if hc02c5_section_close is not None:
