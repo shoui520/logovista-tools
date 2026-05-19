@@ -265,10 +265,18 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
         rows.append(
             HcHookBehavior(
                 name="britannica_panel_media_html",
-                status="classified_partially_implemented",
-                evidence=("initializePanel/finalizePanel exports", "Media/HTMLs body template strings"),
-                implementation="Panel/Britannica auxiliary file decoders where available",
-                notes="Panel lifecycle and media HTML paths are product behavior; exact viewer UI callbacks are not emulated.",
+                status="branch_subset_implemented",
+                evidence=(
+                    "initializePanel/finalizePanel exports",
+                    "Media/HTMLs body template strings",
+                    "HC00DE body loop B421/B422 no-output/state branches",
+                ),
+                implementation=(
+                    "Panel/Britannica auxiliary file decoders where available; "
+                    "B421 and B422 renderer-state gaiji markers are consumed without "
+                    "generic missing-glyph placeholders"
+                ),
+                notes="Panel lifecycle and media HTML paths are product behavior; exact viewer UI callbacks and Media/HTMLs template replacement are not yet emulated.",
             )
         )
     if code in {"013A", "0137", "013F", "0142", "0146", "0147", "02BE", "02BF", "02C1", "02C2", "02C4", "02C5", "02C7", "02C9", "02CB", "02CC", "02CD", "02D1"}:
@@ -2303,6 +2311,8 @@ def build_hc_behavior_profile(
         implemented.add("HC_GEN_YEAR_section_icons_and_template_markers")
     if code == "00C4":
         implemented.add("HC00C4_section_icon_and_gaiji_layout")
+    if code in {"00D3", "00D5", "00DE"}:
+        implemented.add("HC_BRITANNICA_state_gaiji_marker_suppression")
     if code == "005C":
         implemented.add("HC005C_heading_section_marker_and_gaiji_layout")
     if code == "02C1":

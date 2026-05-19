@@ -1795,6 +1795,8 @@ HC0067_NONPRINTING_CONTROL_OPS = {0x6D}
 HC0020_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x61, 0x6D}
 HC0020_SUPPRESSED_JIS_MARKERS = {"224d"}
 HC008B_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
+HC_BRITANNICA_PANEL_RENDERERS = {"00D3", "00D5", "00DE"}
+HC_BRITANNICA_SUPPRESSED_GAIJI_MARKERS = {"b421", "b422"}
 HC0048_NONPRINTING_CONTROL_OPS = {0x02, 0x41, 0x4C, 0x5C, 0x6D}
 HC0048_MIDASHI_MARKERS = {"2178", "217a", "2221", "2223", "2227"}
 HC00AC_NONPRINTING_CONTROL_OPS = {0x02, 0x41, 0x4C, 0x5C, 0x6D}
@@ -2187,6 +2189,10 @@ def _is_hc005c_renderer(options: HcRenderOptions) -> bool:
 
 def _is_hc_hkdksr_medical_renderer(options: HcRenderOptions) -> bool:
     return _renderer_code(options) in HC_HKDKSR_MEDICAL_RENDERERS
+
+
+def _is_hc_britannica_panel_renderer(options: HcRenderOptions) -> bool:
+    return _renderer_code(options) in HC_BRITANNICA_PANEL_RENDERERS
 
 
 def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
@@ -10087,6 +10093,12 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if _renderer_code(options) == "0190" and key in HC0190_TEMPLATE_MARKERS:
                 hc0190_template_key = key
                 stats["hc0190_template_markers"] += 1
+                i += 2
+                continue
+            if _is_hc_britannica_panel_renderer(options) and key in HC_BRITANNICA_SUPPRESSED_GAIJI_MARKERS:
+                stats["hc_britannica_state_markers"] += 1
+                if key == "b422":
+                    stats["hc_britannica_custom_body_state_markers"] += 1
                 i += 2
                 continue
             if _renderer_code(options) == "013A":

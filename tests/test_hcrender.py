@@ -115,6 +115,17 @@ def test_hc_render_gaiji_prefers_unicode_then_image_then_placeholder() -> None:
     assert rendered.stats["gaiji_placeholder"] == 1
 
 
+def test_hc00de_suppresses_britannica_state_gaiji_markers() -> None:
+    rendered = render_hc_body(b"\xb4\x21\xb4\x22" + jis_text("本文"), HcRenderOptions(renderer_code="00DE"))
+
+    assert "本文" in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert 'data-gaiji-code="b421"' not in rendered.html
+    assert 'data-gaiji-code="b422"' not in rendered.html
+    assert rendered.stats["hc_britannica_state_markers"] == 2
+    assert rendered.stats["hc_britannica_custom_body_state_markers"] == 1
+
+
 def test_hc013a_inserts_exam_badge_once_per_example_block() -> None:
     body = (
         b"\x1f\x09\x00\x11"
@@ -5496,6 +5507,37 @@ def test_hc008b_profile_records_medical_expert_subset_without_claiming_parity() 
     assert "HC008B_unterminated_line_link_plaintext_recovery" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "visual_parity_unverified" in data["named_gaps"]
+
+
+def test_hc00de_profile_records_britannica_state_marker_subset_without_claiming_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC00DE.dll"),
+        code="00DE",
+        expected_numeric_index="000000DE.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=("Media/HTMLs/%d-%d.html",),
+        sql_snippets=(),
+        image_templates=(),
+        features={"custom_gaiji_dib": True, "headword_modifier": True, "panel_hooks": True},
+    )
+
+    data = build_hc_behavior_profile(row).as_dict()
+
+    assert "HC_BRITANNICA_state_gaiji_marker_suppression" in data["implemented_semantics"]
+    assert data["exact_hc_parity"] is False
+    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "modify_headword_hook" in data["named_gaps"]
+    assert "visual_parity_unverified" in data["named_gaps"]
+    assert any(hook["name"] == "britannica_panel_media_html" for hook in data["hook_behaviors"])
 
 
 def test_hc009b_profile_records_honbun_margin_subset_without_claiming_parity() -> None:
