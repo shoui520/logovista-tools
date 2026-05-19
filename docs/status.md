@@ -293,10 +293,10 @@ and non-SSED reader status are tracked separately in
 - `HC02BE.dll` now has a focused raw-HONMON branch-subset proof for KQDENTAL:
   section `1f09` payloads map to `ind_####` product classes; phonetic gaiji
   markers become half/full-width accent-image composites using `aigu.png`,
-  `grave.png`, `tilde*.png`, and `macron.png`; B928/B929 create `hatsuon`
-  spans; B92C/B92D create `yomigana` spans; and B924/B925 are suppressed as
-  renderer selectors. Panel, SQL/search, modifyHeadword, and custom DIB hooks
-  remain named gaps.
+  `grave.png`, `tilde*.png`, and `macron.png`, including the A129/A12A
+  full-width wave accent branches; B928/B929 create `hatsuon` spans; B92C/B92D
+  create `yomigana` spans; and B924/B925 are suppressed as renderer selectors.
+  Panel, SQL/search, modifyHeadword, and custom DIB hooks remain named gaps.
 - `HC02BC.dll` now has a focused raw-HONMON branch-subset proof for STEDMAN6:
   section `1f09` payloads map to `midashi`, `komidashi`, `honbun`, and
   `contents` block shapes; section `0002` emits `fukumidashi.png` when

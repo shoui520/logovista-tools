@@ -1328,6 +1328,8 @@ HC02BE_NOOP_MARKERS = {"b924", "b925", "b92a", "b933", "b935"}
 HC02BE_NONPRINTING_CONTROL_OPS = {0x41}
 HC02BE_ACCENT_MARKERS: dict[str, tuple[str, str, str, str]] = {
     # marker -> (visible base HTML, wrapper class, image class, image key)
+    "a129": ("&#xFF5E;", "nowrap_full", "grave_full", "grave"),
+    "a12a": ("&#xFF5E;", "nowrap_full", "aigu_full", "aigu"),
     "a138": ("A", "nowrap_half", "aigu_half", "aigu"),
     "a139": ("E", "nowrap_half", "aigu_half", "aigu"),
     "a13a": ("I", "nowrap_half", "aigu_half", "aigu"),

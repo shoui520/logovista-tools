@@ -1214,7 +1214,8 @@ as phonetic renderer commands: half-width and full-width base characters are
 combined with `aigu.png`, `grave.png`, `tilde.png`, `tilde_aigu.png`,
 `tilde_grave.png`, or `macron.png`; B928/B929 wrap pronunciation text in
 `hatsuon`; B92C/B92D wrap reading text in `yomigana`; B926/B927 emit the
-corresponding parentheses; and B924/B925 are consumed as renderer selectors.
+corresponding parentheses; A129/A12A render full-width wave accent composites;
+and B924/B925 are consumed as renderer selectors.
 Panel lifecycle, SQL/search, `modifyHeadword`, and custom DIB paths remain
 named gaps, so exact HC02BE visual parity is not claimed.
 

@@ -396,6 +396,27 @@ def test_hc02be_renders_phonetic_accent_composite_markers() -> None:
     assert rendered.stats["hc02be_accent_markers"] == 2
 
 
+def test_hc02be_renders_fullwidth_wave_accent_composite_markers() -> None:
+    rendered = render_hc_body(
+        b"\xa1\x29\xa1\x2a",
+        HcRenderOptions(
+            renderer_code="02BE",
+            image_sources={"grave": "Templates/grave.png", "aigu": "Templates/aigu.png"},
+        ),
+    )
+
+    assert (
+        '<span class="nowrap_full">&#xFF5E;<img class="grave_full" src="Templates/grave.png"></span>'
+        in rendered.html
+    )
+    assert (
+        '<span class="nowrap_full">&#xFF5E;<img class="aigu_full" src="Templates/aigu.png"></span>'
+        in rendered.html
+    )
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc02be_accent_markers"] == 2
+
+
 def test_hc02be_renders_pronunciation_and_yomigana_markers() -> None:
     rendered = render_hc_body(
         b"\xb9\x28" + jis_ascii("P") + b"\xb9\x29"
