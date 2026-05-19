@@ -442,8 +442,10 @@ and non-SSED reader status are tracked separately in
   marker/image combinations are handled from the decompiled body-loop branch
   table; `PCMDATA.DIC` sound ranges use the package `sound.png` template when
   present. DCONCI98 group-opening sections now suppress the structural line
-  terminator that previously created empty group children. Product wrapper,
-  remaining section/layout state, and custom hooks remain visually incomplete.
+  terminator that previously created empty group children. The shared fallback
+  stylesheet no longer overrides product CSS for generic classes such as
+  `midashi` and image markers. Product wrapper, remaining section/layout state,
+  and custom hooks remain visually incomplete.
 - `HC0146.dll` now has a focused raw-HONMON branch-subset proof: B230/B231
   `plain_font`, B232/B233 `color_font`, B234/B235 `not_italic_font`,
   B238/B239 and B244/B245 `under_line`, B354/B355 `small`, B240 literal

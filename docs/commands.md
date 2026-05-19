@@ -271,8 +271,9 @@ file. If a supported renderer/app sidecar supplies exact entry-body HTML,
 records, while `raw_honmon_entries.html` remains available for decoder
 inspection. The command writes a normalized product stylesheet and copies
 template/image assets next to the output HTML, including renderer `Templates/`
-assets needed by sidecar bodies with bare `sound.png`-style references. This
-improves inspection quality, but the command still reports
+assets needed by sidecar bodies with bare `sound.png`-style references. Shared
+fallback rules use low-specificity selectors so copied product CSS can override
+generic fallback layout. This improves inspection quality, but the command still reports
 `exact_hc_parity=false` until the product wrapper, section-state, media/link,
 custom gaiji, and hook behavior are all covered.
 
@@ -1359,7 +1360,10 @@ media and still exported by filename/magic. PROYAL53 also uses
 `lved.ziptomedia:NAME.wav` links. `--write-ziptomedia` discovers a sibling
 sound directory such as `_DCT_NAME_Sound_Files`, decrypts LogoFontCipher-wrapped
 loose sound files, and writes portable `.wav` / `.mp3` assets for the
-references that are physically present.
+references that are physically present. In `hc-render`, exact renderer-sidecar
+HTML additionally rewrites extracted `lved.ziptomedia:` hrefs to local files and
+rewrites `lved.dataid:` hrefs to local entry/anchor targets in the generated
+visual HTML.
 
 ### `spindex`
 

@@ -244,6 +244,7 @@ def write_ziptomedia_records(
     out_dir.mkdir(parents=True, exist_ok=True)
     written = 0
     errors: list[dict[str, str]] = []
+    files: list[dict[str, str]] = []
     for reference in sorted(refs):
         if limit is not None and written >= limit:
             break
@@ -255,10 +256,14 @@ def write_ziptomedia_records(
         except Exception as exc:  # pragma: no cover - exercised by corpus probes.
             errors.append({"reference": reference, "error": str(exc)})
             continue
-        (out_dir / safe_ziptomedia_name(reference, data)).write_bytes(data)
+        output = out_dir / safe_ziptomedia_name(reference, data)
+        output.write_bytes(data)
+        files.append({"reference": reference, "path": str(output)})
         written += 1
     return {
         "ziptomedia_written": written,
+        "ziptomedia_output_dir": str(out_dir),
+        "ziptomedia_written_files": files,
         "ziptomedia_write_errors": errors[:20],
     }
 

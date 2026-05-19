@@ -4854,6 +4854,9 @@ def test_hc_render_assets_copy_images_and_normalise_product_css(tmp_path: Path) 
     assert (tmp_path / "out" / "Templates" / "00000146.css").is_file()
     css = (tmp_path / "out" / "hc-renderer.css").read_text(encoding="utf-8")
     assert ".lv-hc-render" in css
+    assert ":where(.lv-hc-render .midashi)" in css
+    assert ".lv-hc-render .midashi {" not in css
+    assert ":where(.lv-hc-render img)" in css
     assert "$midashi-font-size$" not in css
     assert "1.35em" in css
     assert "#111111" in css
@@ -6947,6 +6950,45 @@ def test_hc_render_exact_rendererdb_html_becomes_visual_entry_html(tmp_path: Pat
     assert '<div class="midashi">A</div>' in rendered
     assert 'src="Templates/sound.png"' in rendered
     assert "lved.ziptomedia:000010.wav" in rendered
+    assert 'id="lv-dataid-5" data-lv-dataid="5"' in rendered
+
+
+def test_hc_render_exact_rendererdb_html_rewrites_extracted_renderer_links(tmp_path: Path) -> None:
+    dict_out = tmp_path / "DICT"
+    (dict_out / "rendererdb" / "DICT" / "ziptomedia").mkdir(parents=True)
+    audio = dict_out / "rendererdb" / "DICT" / "ziptomedia" / "000010.wav"
+    audio.write_bytes(b"RIFFxxxxWAVE")
+    entries = dict_out / "rendererdb_entries.jsonl"
+    entries.write_text(
+        "\n".join(
+            [
+                '{"dict_id":"DICT","data_id":"000005","html":"<a href=\\"lved.ziptomedia:000010.wav\\"><img src=\\"sound.png\\"></a><a href=\\"lved.dataid:000006#000006_00A0100\\">next</a>","plain":"A"}',
+                '{"dict_id":"DICT","data_id":6,"html":"<div>target</div>","plain":"target"}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    html_path = _write_exact_hc_entries_html_from_rendererdb(
+        {
+            "entries_path": str(entries),
+            "ziptomedia_written_files": [{"reference": "000010.wav", "path": str(audio)}],
+        },
+        dict_out,
+        stylesheet=None,
+        vertical=False,
+    )
+
+    rendered = html_path.read_text(encoding="utf-8")
+    assert 'href="rendererdb/DICT/ziptomedia/000010.wav"' in rendered
+    assert 'data-lv-original-href="lved.ziptomedia:000010.wav"' in rendered
+    assert 'data-lv-ziptomedia="000010.wav"' in rendered
+    assert 'href="#000006_00A0100"' in rendered
+    assert 'data-lv-original-href="lved.dataid:000006#000006_00A0100"' in rendered
+    assert 'data-lv-dataid="6"' in rendered
+    assert 'data-lv-target-anchor="000006_00A0100"' in rendered
+    assert 'data-lv-missing-target' not in rendered
 
 
 def test_hc_behavior_profile_names_exact_body_without_claiming_full_parity() -> None:

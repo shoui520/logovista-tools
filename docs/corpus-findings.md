@@ -2573,6 +2573,13 @@ That is not a body-decoding blocker. It means a full text/image conversion is
 well covered, while complete audio export requires a package/install that
 contains the missing ziptomedia files.
 
+`hc-render --compare-rendererdb --write-ziptomedia` writes available referenced
+sounds to `ziptomedia/`. When renderer-sidecar HTML becomes the top-level visual
+entry body, extracted `lved.ziptomedia:` links are rewritten to those local audio
+files. `lved.dataid:` links are rewritten to local entry or named-anchor targets,
+with the original renderer URI preserved in `data-lv-original-href` for
+inspection.
+
 PROYAL53 also has ten extensionless files under `dat/`. These are not SQLite
 tables or SSED components. Each file is LogoFontCipher-wrapped `RIFF/WAVE`
 audio; decrypting the file gives the app-ready `.wav` payload directly. The

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import re
 import shutil
 import sys
@@ -114,44 +115,44 @@ HC_RENDER_BASE_CSS = """
   margin: 0.75rem 0 1.25rem;
   line-height: 1.65;
 }
-.lv-hc-render .lv-hc-heading {
+:where(.lv-hc-render .lv-hc-heading) {
   display: block;
 }
-.lv-hc-render .lv-hc-section {
+:where(.lv-hc-render .lv-hc-section) {
   display: none;
 }
-.lv-hc-render img {
+:where(.lv-hc-render img) {
   max-height: 1.4em;
   vertical-align: middle;
 }
-.lv-hc-render .lv-hc-gaiji-placeholder {
+:where(.lv-hc-render .lv-hc-gaiji-placeholder) {
   display: inline-block;
   min-width: 1em;
   min-height: 1em;
   border: 1px solid #999;
   vertical-align: -0.15em;
 }
-.lv-hc-render .lv-hc-link,
-.lv-hc-render .lv-hc-audio {
+:where(.lv-hc-render .lv-hc-link),
+:where(.lv-hc-render .lv-hc-audio) {
   text-decoration: none;
 }
-.lv-hc-render .midashi {
+:where(.lv-hc-render .midashi) {
   font-weight: 700;
   font-size: 1.15em;
   margin: 0.2em 0 0.35em;
 }
-.lv-hc-render .contents_body {
+:where(.lv-hc-render .contents_body) {
   margin-top: 0.25em;
 }
-.lv-hc-render .medblk,
-.lv-hc-render .medblkcaution,
-.lv-hc-render .medprice,
-.lv-hc-render .medimage,
-.lv-hc-render .medcaution,
-.lv-hc-render .notmedblock {
+:where(.lv-hc-render .medblk),
+:where(.lv-hc-render .medblkcaution),
+:where(.lv-hc-render .medprice),
+:where(.lv-hc-render .medimage),
+:where(.lv-hc-render .medcaution),
+:where(.lv-hc-render .notmedblock) {
   margin: 0.25em 0;
 }
-.lv-hc-render .med {
+:where(.lv-hc-render .med) {
   font-weight: 600;
 }
 """.strip()
@@ -4899,10 +4900,63 @@ def _write_hc_html_footer(html_out: Any) -> None:
     html_out.write("</body>\n</html>\n")
 
 
-def _rewrite_exact_body_asset_refs(fragment: str, dict_out: Path) -> str:
+def _relative_browser_path(path: Path, base: Path) -> str:
+    try:
+        relative = path.resolve().relative_to(base.resolve())
+    except ValueError:
+        relative = Path(os.path.relpath(path, base))
+    return relative.as_posix()
+
+
+def _decimal_data_id(value: Any) -> int | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(text, 10)
+    except ValueError:
+        return None
+
+
+def _split_lved_dataid(value: str) -> tuple[int | None, str | None]:
+    data_id_text, separator, anchor = value.partition("#")
+    data_id = _decimal_data_id(data_id_text)
+    if not separator or not anchor:
+        return data_id, None
+    return data_id, anchor
+
+
+def _ziptomedia_href_map(rendererdb_summary: dict[str, Any], dict_out: Path) -> dict[str, str]:
+    refs: dict[str, str] = {}
+    files = rendererdb_summary.get("ziptomedia_written_files")
+    if not isinstance(files, list):
+        return refs
+    for row in files:
+        if not isinstance(row, dict):
+            continue
+        reference = row.get("reference")
+        path_value = row.get("path")
+        if not isinstance(reference, str) or not isinstance(path_value, str):
+            continue
+        output_path = Path(path_value)
+        if not output_path.is_file():
+            continue
+        refs[reference] = _relative_browser_path(output_path, dict_out)
+    return refs
+
+
+def _rewrite_exact_body_asset_refs(
+    fragment: str,
+    dict_out: Path,
+    *,
+    ziptomedia_hrefs: dict[str, str] | None = None,
+    data_ids: set[int] | None = None,
+) -> str:
     """Rewrite bare renderer-sidecar asset names to copied package assets."""
 
-    def replace(match: re.Match[str]) -> str:
+    def replace_src(match: re.Match[str]) -> str:
         quote = match.group(1)
         src = html.unescape(match.group(2))
         lower = src.lower()
@@ -4922,7 +4976,53 @@ def _rewrite_exact_body_asset_refs(fragment: str, dict_out: Path) -> str:
                 return f"src={quote}{_escape_attr(str(Path(dirname) / src))}{quote}"
         return match.group(0)
 
-    return re.sub(r'src=(["\'])([^"\']+)\1', replace, fragment)
+    def replace_ziptomedia_href(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        quote = match.group(2)
+        reference = html.unescape(match.group(3))
+        suffix_quote = match.group(4)
+        mapped = (ziptomedia_hrefs or {}).get(reference)
+        if mapped is None:
+            return match.group(0)
+        original = f"lved.ziptomedia:{reference}"
+        return (
+            f'{prefix}{quote}{_escape_attr(mapped)}{suffix_quote} '
+            f'data-lv-original-href="{_escape_attr(original)}" '
+            f'data-lv-ziptomedia="{_escape_attr(reference)}"'
+        )
+
+    def replace_dataid_href(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        quote = match.group(2)
+        raw_id = html.unescape(match.group(3))
+        suffix_quote = match.group(4)
+        data_id, anchor = _split_lved_dataid(raw_id)
+        if data_id is None:
+            return match.group(0)
+        original = f"lved.dataid:{raw_id}"
+        target = f"#{anchor}" if anchor else f"#lv-dataid-{data_id}"
+        missing = "" if data_ids is None or data_id in data_ids else ' data-lv-missing-target="true"'
+        anchor_attr = f' data-lv-target-anchor="{_escape_attr(anchor)}"' if anchor else ""
+        return (
+            f'{prefix}{quote}{_escape_attr(target)}{suffix_quote} '
+            f'data-lv-original-href="{_escape_attr(original)}" '
+            f'data-lv-dataid="{data_id}"{anchor_attr}{missing}'
+        )
+
+    rewritten = re.sub(r'src=(["\'])([^"\']+)\1', replace_src, fragment)
+    rewritten = re.sub(
+        r'(\bhref\s*=\s*)(["\'])lved\.ziptomedia:([^"\']+)(["\'])',
+        replace_ziptomedia_href,
+        rewritten,
+        flags=re.IGNORECASE,
+    )
+    rewritten = re.sub(
+        r'(\bhref\s*=\s*)(["\'])lved\.dataid:([^"\']+)(["\'])',
+        replace_dataid_href,
+        rewritten,
+        flags=re.IGNORECASE,
+    )
+    return rewritten
 
 
 def _write_exact_hc_entries_html_from_rendererdb(
@@ -4938,22 +5038,42 @@ def _write_exact_hc_entries_html_from_rendererdb(
     entries_path = Path(str(entries_path_value))
     if not entries_path.is_file():
         return None
-    html_path = dict_out / "hc_entries.html"
-    with entries_path.open("r", encoding="utf-8") as jsonl, html_path.open("w", encoding="utf-8") as html_out:
-        _write_hc_html_header(html_out, stylesheet=stylesheet, vertical=vertical)
+    records: list[dict[str, Any]] = []
+    with entries_path.open("r", encoding="utf-8") as jsonl:
         for line in jsonl:
             if not line.strip():
                 continue
-            record = json.loads(line)
+            row = json.loads(line)
+            if isinstance(row, dict):
+                records.append(row)
+    data_ids = {
+        data_id
+        for data_id in (_decimal_data_id(record.get("data_id")) for record in records)
+        if data_id is not None
+    }
+    ziptomedia_hrefs = _ziptomedia_href_map(rendererdb_summary, dict_out)
+    html_path = dict_out / "hc_entries.html"
+    with html_path.open("w", encoding="utf-8") as html_out:
+        _write_hc_html_header(html_out, stylesheet=stylesheet, vertical=vertical)
+        for record in records:
+            data_id = _decimal_data_id(record.get("data_id"))
             label = html.escape(str(record.get("data_id") or record.get("entry_index") or ""))
             fragment = record.get("html")
             if isinstance(fragment, str) and fragment:
-                body_html = _rewrite_exact_body_asset_refs(fragment, dict_out)
+                body_html = _rewrite_exact_body_asset_refs(
+                    fragment,
+                    dict_out,
+                    ziptomedia_hrefs=ziptomedia_hrefs,
+                    data_ids=data_ids,
+                )
             else:
                 body_html = f"<pre>{html.escape(str(record.get('plain') or ''))}</pre>"
+            entry_attrs = 'class="rendererdb-entry exact-rendererdb-entry"'
+            if data_id is not None:
+                entry_attrs += f' id="lv-dataid-{data_id}" data-lv-dataid="{data_id}"'
             html_out.write(
                 f"<!-- {record.get('dict_id', '')} {label} rendererdb -->\n"
-                f'<div class="rendererdb-entry exact-rendererdb-entry">{body_html}</div>\n'
+                f"<div {entry_attrs}>{body_html}</div>\n"
             )
         _write_hc_html_footer(html_out)
     return html_path

@@ -170,8 +170,8 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     name="ziptomedia_audio_extraction",
                     status="implemented",
                     evidence=("createMediaFileFromZip export", "lved.ziptomedia HTML references"),
-                    implementation="rendererdb ziptomedia reference extraction and LogoFontCipher decrypt",
-                    notes="The DLL shells through a helper to create referenced media; toolkit resolves the same referenced files directly.",
+                    implementation="rendererdb ziptomedia reference extraction, LogoFontCipher decrypt, and local HTML href rewriting",
+                    notes="The DLL shells through a helper to create referenced media; toolkit resolves the same referenced files directly and rewrites extracted links to browser-usable paths.",
                 ),
                 HcHookBehavior(
                     name="royal_example_search_helpers",
