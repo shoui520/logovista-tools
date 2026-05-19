@@ -5299,6 +5299,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0146_column_frame_close: str | None = None
     hc0157_section_close: str | None = None
     hc0157_group_close: str | None = None
+    hc0157_group_open_part_count: int | None = None
     hc0142_honbun_open = False
     hc0142_current_section: str | None = None
     hc0142_marker_stack: list[tuple[str, str]] = []
@@ -6368,6 +6369,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             if hc0157_group_close is not None:
                                 root.append(hc0157_group_close)
                                 hc0157_group_close = None
+                                hc0157_group_open_part_count = None
                                 stats["hc0157_group_closures"] += 1
                             stats["hc0157_state_sections"] += 1
                             i += 2 + arg_len
@@ -6376,9 +6378,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         if group_class is not None:
                             if hc0157_group_close is not None:
                                 root.append(hc0157_group_close)
-                            root.append(f'<div class="{_escape_attr(group_class)}"><div>')
-                            hc0157_section_close = "</div>"
+                            root.append(f'<div class="{_escape_attr(group_class)}">')
+                            hc0157_section_close = None
                             hc0157_group_close = "</div>"
+                            hc0157_group_open_part_count = len(root)
                             stats["hc0157_group_sections"] += 1
                             stats[f"hc0157_section_{group_class}"] += 1
                             i += 2 + arg_len
@@ -6392,8 +6395,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             if value in HC0157_SIMPLE_SECTION_CLASSES and hc0157_group_close is not None:
                                 root.append(hc0157_group_close)
                                 hc0157_group_close = None
+                                hc0157_group_open_part_count = None
                             root.append(f'<div class="{_escape_attr(css_class)}">')
                             hc0157_section_close = "</div>"
+                            hc0157_group_open_part_count = None
                             stats["hc0157_section_blocks"] += 1
                             stats[f"hc0157_section_{css_class.replace(' ', '_')}"] += 1
                             i += 2 + arg_len
@@ -7170,7 +7175,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         parts.append(hc0157_section_close)
                         hc0157_section_close = None
                         stats["hc0157_section_closures"] += 1
+                    elif hc0157_group_open_part_count is not None and len(parts) == hc0157_group_open_part_count:
+                        hc0157_group_open_part_count = None
+                        stats["hc0157_group_open_linebreaks_suppressed"] += 1
                     else:
+                        hc0157_group_open_part_count = None
                         parts.append("<br>")
                         stats["line_breaks"] += 1
                     i += 2 + arg_len

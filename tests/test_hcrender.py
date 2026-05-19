@@ -4462,10 +4462,12 @@ def test_hc0157_maps_dconci98_section_layout() -> None:
     assert '<div class="midashi">' in rendered.html
     assert '<div class="komidashi">' in rendered.html
     assert '<div class="textline gogi_ej">' in rendered.html
-    assert '<div class="yourei_ej"><div>' in rendered.html
+    assert '<div class="yourei_ej"><div></div>' not in rendered.html
+    assert '<div class="yourei_ej"><div class="textline yourei_ej_main">' in rendered.html
     assert '<div class="textline yourei_ej_main">' in rendered.html
     assert '<div class="textline yourei_ej_sub">' in rendered.html
-    assert '<div class="haseigo"><div>' in rendered.html
+    assert '<div class="haseigo"><div></div>' not in rendered.html
+    assert '<div class="haseigo"><div class="textline haseigo_main">' in rendered.html
     assert '<div class="textline haseigo_main">' in rendered.html
     assert '<div class="textline haseigo_sub">' in rendered.html
     assert "lv-hc-section" not in rendered.html

@@ -1532,10 +1532,13 @@ B15C/B15D, B160-B17D, B221-B226, B228/B229/B22A, B23C-B23F, and B240/B241
 open or close named CSS spans; B157/B158 and B172/B173 both style the following
 region and render their own gaiji/image value; and B22D-B23B render circled
 number gaiji inside a red span. Its `1f4a`/`1f6a` path also uses the
-`sound.png` / `img_mark2` template when available. This is a branch-table
+`sound.png` / `img_mark2` template when available. Group-opening section codes
+such as `0010`, `0020`, and `0030` open only the surrounding example/phrase
+group; the immediately following line terminator is structural and is suppressed
+instead of producing an empty child block. This is a branch-table
 implementation, not a string-only inference, and it remains visually incomplete
-until the product wrapper, section/layout state, and remaining custom hooks are
-validated.
+until the product wrapper, remaining section/layout state, and remaining custom
+hooks are validated.
 
 The GKBUSINE/GKTRAVEL branch-subset proof case is `HC00A0.dll`. Its phrase
 renderer uses `HTMLs/Header.html` and `HTMLs/Detail.html` as templates. The
