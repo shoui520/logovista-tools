@@ -156,6 +156,19 @@ HC_RENDER_BASE_CSS = """
 :where(.lv-hc-render .med) {
   font-weight: 600;
 }
+:where(.lv-hc-render .hc0190-readaloud-player) {
+  margin: 1rem 0;
+  padding: 0.75rem;
+  border-top: 1px solid #c9c9c9;
+}
+:where(.lv-hc-render .hc0190-readaloud-player audio) {
+  width: min(36rem, 100%);
+  display: block;
+}
+:where(.lv-hc-render .hc0190-readaloud-player a) {
+  display: inline-block;
+  margin-top: 0.4rem;
+}
 """.strip()
 
 HC_RENDER_BASE_SCRIPT = """
@@ -235,6 +248,7 @@ class HcRenderOptions:
     gaiji_map: dict[str, str] = field(default_factory=dict)
     image_sources: dict[str, str] = field(default_factory=dict)
     html_templates: dict[str, str] = field(default_factory=dict)
+    renderer_assets: dict[str, str] = field(default_factory=dict)
     renderer_code: str | None = None
     vertical: bool = False
     include_debug_metadata: bool = False
@@ -2873,6 +2887,46 @@ def _hc0190_apply_template(template: str, sections: dict[int, str], stats: Count
     return re.sub(r"<!--&IND(\d{4});-->", replace, template)
 
 
+HC0190_LVED_MCI_ONCLICK_RE = re.compile(
+    r"\s+onclick=(?P<quote>[\"'])(?P<value>[^\"']*\blved(?:Play|Pause|Stop)\b[^\"']*)(?P=quote)",
+    re.IGNORECASE,
+)
+
+
+def _hc0190_preserve_mci_handlers_as_metadata(body: str, stats: Counter[str]) -> str:
+    def replace(match: re.Match[str]) -> str:
+        stats["hc0190_mci_handlers_preserved_as_metadata"] += 1
+        return f' data-lv-original-onclick="{_escape_attr(match.group("value"))}"'
+
+    return HC0190_LVED_MCI_ONCLICK_RE.sub(replace, body)
+
+
+def _hc0190_readaloud_player_html(options: HcRenderOptions, stats: Counter[str]) -> str:
+    audio_src = options.renderer_assets.get("hc0190_audio_src")
+    if not audio_src:
+        return ""
+    stats["hc0190_readaloud_audio_players"] += 1
+    transcript_src = options.renderer_assets.get("hc0190_transcript_src")
+    text_sidecar = options.renderer_assets.get("hc0190_text_sidecar")
+    time_sidecar = options.renderer_assets.get("hc0190_time_sidecar")
+    attrs = [
+        'class="hc0190-readaloud-player"',
+        f'data-lv-audio-src="{_escape_attr(audio_src)}"',
+    ]
+    if text_sidecar:
+        attrs.append(f'data-lv-text-sidecar="{_escape_attr(text_sidecar)}"')
+    if time_sidecar:
+        attrs.append(f'data-lv-time-sidecar="{_escape_attr(time_sidecar)}"')
+    parts = [
+        f"<div {' '.join(attrs)}>",
+        f'<audio controls preload="metadata" src="{_escape_attr(audio_src)}"></audio>',
+    ]
+    if transcript_src:
+        parts.append(f'<a class="hc0190-transcript-link" href="{_escape_attr(transcript_src)}">synchronized text</a>')
+    parts.append("</div>")
+    return "".join(parts)
+
+
 def _hc009c_section_parts(code: str, options: HcRenderOptions) -> tuple[list[str], str | None]:
     try:
         value = int(code, 16)
@@ -4803,6 +4857,52 @@ def _html_body_inner(text: str) -> str:
     return text
 
 
+HC0190_TEMPLATE_ASSET_ATTR_RE = re.compile(
+    r"(?P<prefix>\b(?:src|href)\s*=\s*)(?P<quote>[\"'])(?P<value>[^\"']+)(?P=quote)",
+    re.IGNORECASE,
+)
+
+
+def _is_external_or_special_asset_ref(value: str) -> bool:
+    stripped = value.strip()
+    if not stripped or stripped.startswith("#"):
+        return True
+    if re.match(r"^[a-z][a-z0-9+.-]*:", stripped, flags=re.IGNORECASE):
+        return True
+    return stripped.casefold() == "hc-renderer.css"
+
+
+def _hc0190_rewrite_template_asset_refs(source: DictionarySource, fragment: str) -> str:
+    """Rewrite HC0190 template-local assets to copied Templates/ assets.
+
+    HC0190 HTMLs/b12x.html files refer to main.js, honbun.html, play.gif, and
+    badge images as if those files were in the same temporary output directory.
+    In the package they live under Templates/, and hc-render preserves that
+    directory in the standalone output.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        value = html.unescape(match.group("value"))
+        if _is_external_or_special_asset_ref(value):
+            return match.group(0)
+        if "/" in value or "\\" in value:
+            return match.group(0)
+        path_part, separator, suffix = value.partition("#")
+        query_separator = "?"
+        if "?" in path_part:
+            path_part, query_separator, query = path_part.partition("?")
+            suffix = query_separator + query + (separator + suffix if separator else "")
+        elif separator:
+            suffix = separator + suffix
+        template_relative = f"Templates/{path_part}"
+        if _resolve_package_relative(source, template_relative) is None:
+            return match.group(0)
+        rewritten = template_relative + suffix
+        return f"{match.group('prefix')}{match.group('quote')}{_escape_attr(rewritten)}{match.group('quote')}"
+
+    return HC0190_TEMPLATE_ASSET_ATTR_RE.sub(replace, fragment)
+
+
 def _load_hc0190_templates(source: DictionarySource) -> dict[str, str]:
     templates: dict[str, str] = {}
     for key in ("b121", "b122", "b123", "b124"):
@@ -4811,7 +4911,8 @@ def _load_hc0190_templates(source: DictionarySource) -> dict[str, str]:
         if path is None:
             continue
         text = path.read_bytes().decode("cp932", errors="replace")
-        templates[key] = _html_body_inner(text).replace("&cssPath;", "hc-renderer.css")
+        fragment = _html_body_inner(text).replace("&cssPath;", "hc-renderer.css")
+        templates[key] = _hc0190_rewrite_template_asset_refs(source, fragment)
     return templates
 
 
@@ -4876,15 +4977,41 @@ def _add_hc00a4_image_sources(source: DictionarySource, dict_out: Path, output_s
     return copied
 
 
+def _prepare_hc0190_readaloud_assets(source: DictionarySource, dict_out: Path) -> tuple[dict[str, str], int]:
+    copied = 0
+    assets: dict[str, str] = {}
+    exinfo = load_exinfo_for_idx(source.idx)
+    mp3_name = None
+    if exinfo is not None:
+        mp3_name = exinfo.general.get("MP3NAME")
+    mp3_name = mp3_name or "shizuku.mp3"
+    if _resolve_package_relative(source, mp3_name) is not None:
+        if _copy_package_asset(source, mp3_name, dict_out):
+            copied += 1
+        assets["hc0190_audio_src"] = Path(mp3_name).as_posix()
+    for key, rel in (
+        ("hc0190_text_sidecar", "shizuku_honbun.txt"),
+        ("hc0190_time_sidecar", "shizuku_time.txt"),
+    ):
+        if _resolve_package_relative(source, rel) is not None:
+            if _copy_package_asset(source, rel, dict_out):
+                copied += 1
+            assets[key] = rel
+    if _resolve_package_relative(source, "Templates/honbun.html") is not None:
+        assets["hc0190_transcript_src"] = "Templates/honbun.html#0"
+    return assets, copied
+
+
 def _prepare_hc_render_assets(
     source: DictionarySource,
     dict_out: Path,
     renderer: HcRendererClassification | None,
-) -> tuple[dict[str, str], dict[str, str], str | None, int]:
+) -> tuple[dict[str, str], dict[str, str], str | None, int, dict[str, str]]:
     """Copy package assets needed by the generated standalone HC HTML."""
 
     copied = 0
     output_sources: dict[str, str] = {}
+    renderer_assets: dict[str, str] = {}
     for key, value in sorted((source.image_sources or {}).items()):
         output_sources[key] = value
         if _copy_package_asset(source, value, dict_out):
@@ -4906,6 +5033,9 @@ def _prepare_hc_render_assets(
     html_templates: dict[str, str] = {}
     if renderer is not None and renderer.code.upper() == "0190":
         html_templates = _load_hc0190_templates(source)
+        hc0190_assets, hc0190_copied = _prepare_hc0190_readaloud_assets(source, dict_out)
+        renderer_assets.update(hc0190_assets)
+        copied += hc0190_copied
     if renderer is not None and renderer.code.upper() == "00A0":
         html_templates = _load_hc00a0_templates(source)
         copied += _copy_package_directory_assets(source, "mp3", dict_out)
@@ -4914,7 +5044,7 @@ def _prepare_hc_render_assets(
     if renderer is not None and renderer.code.upper() == "00A4":
         html_templates = _load_hc00a4_templates(source)
         copied += _add_hc00a4_image_sources(source, dict_out, output_sources)
-    return output_sources, html_templates, stylesheet_output, copied
+    return output_sources, html_templates, stylesheet_output, copied, renderer_assets
 
 
 def _write_hc_html_header(html_out: Any, *, stylesheet: str | None, vertical: bool) -> None:
@@ -12681,6 +12811,23 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     elif _renderer_code(options) == "0190" and hc0190_sections:
         body = "".join(value for _, value in sorted(hc0190_sections.items()))
         gaps.add("missing_hc0190_template_marker")
+    if _renderer_code(options) == "0190":
+        body = _hc0190_preserve_mci_handlers_as_metadata(body, stats)
+        if hc0190_template_key == "b124":
+            player = _hc0190_readaloud_player_html(options, stats)
+            if player:
+                body += player
+                audio.append(
+                    {
+                        "target": {
+                            "component": "file",
+                            "resource_id": f"file:{options.renderer_assets['hc0190_audio_src']}",
+                            "path": options.renderer_assets["hc0190_audio_src"],
+                        },
+                        "status": "file_reference",
+                        "role": "readaloud_audio",
+                    }
+                )
     body = _rewrite_lved_addr_hrefs(body)
     rendered_html = f'<div class="{" ".join(classes)}">{body}</div>'
     return HcRenderResult(
@@ -12801,11 +12948,12 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
     reader = SsedRandomReader(source.honmon)
     entries_path = dict_out / "hc_entries.jsonl"
     html_path = dict_out / "raw_honmon_entries.html"
-    image_sources, html_templates, stylesheet, copied_assets = _prepare_hc_render_assets(source, dict_out, renderer)
+    image_sources, html_templates, stylesheet, copied_assets, renderer_assets = _prepare_hc_render_assets(source, dict_out, renderer)
     options = HcRenderOptions(
         gaiji_map=source.gaiji_map,
         image_sources=image_sources,
         html_templates=html_templates,
+        renderer_assets=renderer_assets,
         renderer_code=renderer.code if renderer is not None else None,
         vertical=bool(getattr(args, "vertical", False)),
     )

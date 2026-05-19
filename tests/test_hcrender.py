@@ -1334,6 +1334,97 @@ def test_hc0190_uses_bcd_sections_and_link_anchor_template_slots() -> None:
     assert rendered.stats["hc0190_template_placeholders_filled"] == 1
 
 
+def test_hc0190_playback_template_gets_browser_audio_player() -> None:
+    body = b"\x1f\x09\x00\x04" + jis_ascii("T") + b"\xb1\x24"
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0190",
+            html_templates={
+                "b124": '<img id="cmdPlay" src="Templates/play.gif" onclick="lvedPlay();">'
+                '<iframe src="Templates/honbun.html#0"></iframe><!--&IND0004;-->'
+            },
+            renderer_assets={
+                "hc0190_audio_src": "shizuku.mp3",
+                "hc0190_text_sidecar": "shizuku_honbun.txt",
+                "hc0190_time_sidecar": "shizuku_time.txt",
+                "hc0190_transcript_src": "Templates/honbun.html#0",
+            },
+        ),
+    )
+
+    assert '<audio controls preload="metadata" src="shizuku.mp3"></audio>' in rendered.html
+    assert 'class="hc0190-transcript-link" href="Templates/honbun.html#0"' in rendered.html
+    assert re.search(r'(?<!original-)onclick="lvedPlay\(\);"', rendered.html) is None
+    assert 'data-lv-original-onclick="lvedPlay();"' in rendered.html
+    assert rendered.audio[0]["target"]["path"] == "shizuku.mp3"
+    assert rendered.audio[0]["role"] == "readaloud_audio"
+    assert rendered.stats["hc0190_readaloud_audio_players"] == 1
+    assert rendered.stats["hc0190_mci_handlers_preserved_as_metadata"] == 1
+
+
+def test_hc0190_asset_preparation_rewrites_template_assets_and_copies_readaloud_files(tmp_path: Path) -> None:
+    package = tmp_path / "_DCT_SIZK0101"
+    (package / "HTMLs").mkdir(parents=True)
+    (package / "Templates").mkdir()
+    idx = package / "SIZK0101.IDX"
+    honmon = package / "HONMON.DIC"
+    idx.write_bytes(b"")
+    honmon.write_bytes(b"")
+    (package / "EXINFO.INI").write_text("[GENERAL]\nHTMLDLL=HC0190.dll\nMP3NAME=shizuku.mp3\n", encoding="cp932")
+    (package / "HTMLs" / "b124.html").write_text(
+        '<html><body><link href="&cssPath;"><script src="main.js"></script>'
+        '<img src="play.gif" onclick="lvedPlay();"><iframe src="honbun.html#0"></iframe></body></html>',
+        encoding="cp932",
+    )
+    for name in ("main.js", "play.gif", "honbun.html"):
+        (package / "Templates" / name).write_bytes(name.encode("ascii"))
+    (package / "shizuku.mp3").write_bytes(b"ID3")
+    (package / "shizuku_honbun.txt").write_bytes(b"\xff\xfeH\x00")
+    (package / "shizuku_time.txt").write_bytes(b"\xff\xfe0\x00")
+    source = DictionarySource(
+        dict_id="SIZK0101",
+        idx=idx,
+        title="test",
+        honmon=honmon,
+        honmon_start_block=0,
+        gaiji_map={},
+        image_sources={},
+    )
+    renderer = HcRendererClassification(
+        path=package / "HC0190.dll",
+        code="0190",
+        expected_numeric_index="00000190.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=(),
+        features={},
+    )
+
+    _image_sources, html_templates, _stylesheet, copied, renderer_assets = _prepare_hc_render_assets(source, tmp_path / "out", renderer)
+
+    assert 'href="hc-renderer.css"' in html_templates["b124"]
+    assert 'src="Templates/main.js"' in html_templates["b124"]
+    assert 'src="Templates/play.gif"' in html_templates["b124"]
+    assert 'src="Templates/honbun.html#0"' in html_templates["b124"]
+    assert renderer_assets["hc0190_audio_src"] == "shizuku.mp3"
+    assert renderer_assets["hc0190_text_sidecar"] == "shizuku_honbun.txt"
+    assert renderer_assets["hc0190_time_sidecar"] == "shizuku_time.txt"
+    assert renderer_assets["hc0190_transcript_src"] == "Templates/honbun.html#0"
+    assert (tmp_path / "out" / "shizuku.mp3").read_bytes() == b"ID3"
+    assert copied >= 5
+
+
 def test_hc009c_maps_sections_links_private_images_and_marker_images() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -1475,7 +1566,7 @@ def test_hc009c_asset_preparation_copies_thumbnail_and_icon_dirs(tmp_path: Path)
     out_dir = tmp_path / "out"
     out_dir.mkdir()
 
-    image_sources, _, _, copied = _prepare_hc_render_assets(source, out_dir, renderer)
+    image_sources, _, _, copied, _ = _prepare_hc_render_assets(source, out_dir, renderer)
 
     assert image_sources["hc009c_thumb_50042100"] == "images_thumb/50042100.png"
     assert image_sources["hc009c_icon_71042100"] == "images_icon/71042100.png"
@@ -1529,7 +1620,7 @@ def test_hc00a0_asset_preparation_copies_mp3_assets(tmp_path: Path) -> None:
         features={},
     )
 
-    image_sources, html_templates, stylesheet, copied = _prepare_hc_render_assets(source, tmp_path / "out", renderer)
+    image_sources, html_templates, stylesheet, copied, _ = _prepare_hc_render_assets(source, tmp_path / "out", renderer)
 
     assert image_sources["sound"] == "Templates/sound.png"
     assert html_templates == {"Header": "header", "Detail": "detail"}
@@ -4987,7 +5078,7 @@ def test_hc_render_assets_copy_images_and_normalise_product_css(tmp_path: Path) 
         features={},
     )
 
-    image_sources, html_templates, stylesheet, copied = _prepare_hc_render_assets(source, tmp_path / "out", renderer)
+    image_sources, html_templates, stylesheet, copied, _ = _prepare_hc_render_assets(source, tmp_path / "out", renderer)
 
     assert image_sources == {"b157": "Templates/b157_M.png"}
     assert html_templates == {}

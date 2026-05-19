@@ -1885,11 +1885,14 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "B121-B124 select package HTML templates, 1f09 sections are bucketed "
                     "by packed-BCD section id, captured section HTML replaces matching "
                     "<!--&IND####;--> placeholders, link sections can fill image-anchor "
-                    "prefix slots, and missing placeholders are left empty"
+                    "prefix slots, template-local assets are rewritten to copied Templates/ "
+                    "files, and the B124 playback page exposes the declared read-aloud MP3 "
+                    "through a browser-native audio control"
                 ),
                 notes=(
-                    "The subset excludes exact JavaScript audio-player lifecycle, runtime "
-                    "fix-directory override behavior, original viewer temp-file output, and "
+                    "The subset preserves original lved.mci JavaScript hooks as metadata but "
+                    "does not implement the exact JavaScript/MCI player lifecycle, runtime "
+                    "fix-directory override behavior, original viewer temp-file output, or "
                     "full visual parity across all read-aloud set volumes."
                 ),
             )
@@ -2489,6 +2492,7 @@ def build_hc_behavior_profile(
         implemented.add("HC0141_section_and_marker_layout")
     if code == "0190":
         implemented.add("HC0190_html_template_section_substitution")
+        implemented.add("HC0190_readaloud_mp3_audio_player")
     if code == "009C":
         implemented.add("HC009C_section_image_index_layout")
     if code == "02C5":
