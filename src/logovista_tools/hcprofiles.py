@@ -2224,10 +2224,10 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
         rows.append(
             HcHookBehavior(
                 name="block_offset_htmls_template",
-                status="classified",
+                status="classified_inactive_current_corpus",
                 evidence=("HTMLs/%d-%d.html template",),
                 implementation="loose HTML/media extraction paths",
-                notes="Shared GEN renderer can prefer prebuilt HTML files for some entry resources.",
+                notes="The DLL contains a fixed-HTML fallback template, but the checked HC009B packages do not carry an HTMLs payload directory; keep this named without treating it as an active render gap.",
             )
         )
     if code == "0137":
@@ -2546,7 +2546,7 @@ def build_hc_behavior_profile(
         )
 
     raw_gap_names = () if rendererdb_ok else tuple(sorted(str(key) for key in (raw_gaps or {}).keys()))
-    non_gap_status_prefixes = ("implemented", "branch_subset_implemented")
+    non_gap_status_prefixes = ("implemented", "branch_subset_implemented", "classified_inactive")
     hook_gap_names = tuple(sorted(hook.name for hook in hooks if not hook.status.startswith(non_gap_status_prefixes)))
     branch_subset_names = tuple(sorted(hook.name for hook in hooks if hook.status.startswith("branch_subset_implemented")))
     notes: list[str] = []

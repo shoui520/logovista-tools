@@ -5813,7 +5813,10 @@ def test_hc009b_profile_records_honbun_margin_subset_without_claiming_parity() -
 
     assert "HC009B_honbun_margin_sections" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "block_offset_htmls_template" in data["named_gaps"]
+    hooks = {row["name"]: row for row in data["hook_behaviors"]}
+    assert hooks["block_offset_htmls_template"]["status"] == "classified_inactive_current_corpus"
+    assert "block_offset_htmls_template" not in data["named_gaps"]
+    assert "visual_parity_unverified" in data["named_gaps"]
 
 
 def test_hc009d_profile_records_kakomi_subset_without_claiming_parity() -> None:
