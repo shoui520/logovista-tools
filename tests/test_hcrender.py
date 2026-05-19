@@ -4470,6 +4470,27 @@ def test_hc0146_renders_color_font_markers_without_gaiji_placeholders() -> None:
     assert rendered.stats["hc0146_style_markers"] == 2
 
 
+def test_hc0146_repairs_color_font_inside_bold_style() -> None:
+    body = (
+        b"\x1f\xe0\x00\x00"
+        + b"\xb2\x32"
+        + jis_ascii("A")
+        + b"\x1f\xe1\x00\x00"
+        + b"\x1f\xe0\x00\x00"
+        + jis_ascii("B")
+        + b"\xb2\x33"
+        + b"\x1f\xe1\x00\x00"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0146"))
+
+    assert '<font class="color_font"><b><span class="lv-hc-halfwidth">A</span></b>' in rendered.html
+    assert '<b><span class="lv-hc-halfwidth">B</span></b></font>' in rendered.html
+    assert rendered.html.count("<b>") == rendered.html.count("</b>")
+    assert rendered.html.count("<font") == rendered.html.count("</font>")
+    assert rendered.stats["hc0146_color_font_bold_nesting_repairs"] == 2
+
+
 def test_hc0146_renders_recovered_style_marker_pairs() -> None:
     body = (
         b"\xb2\x30"

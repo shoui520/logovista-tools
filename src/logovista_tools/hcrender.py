@@ -11163,7 +11163,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 text_parts = _current_text_parts(contexts)
                 marker = HC0146_OPEN_MARKERS.get(key)
                 if marker is not None:
-                    parts.append(marker.html)
+                    if key == "b232" and 0xE0 in style_stack:
+                        parts.append('</b><font class="color_font"><b>')
+                        stats["hc0146_color_font_bold_nesting_repairs"] += 1
+                    else:
+                        parts.append(marker.html)
                     if marker.close_code is not None:
                         hc0146_marker_stack.append((marker.close_code, marker.close_html))
                     if marker.render_self:
@@ -11173,7 +11177,12 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     continue
                 if key in HC0146_CLOSE_MARKERS:
                     if hc0146_marker_stack and hc0146_marker_stack[-1][0] == key:
-                        parts.append(hc0146_marker_stack.pop()[1])
+                        close_code, close_html = hc0146_marker_stack.pop()
+                        if close_code == "b233" and 0xE0 in style_stack:
+                            parts.append("</b></font><b>")
+                            stats["hc0146_color_font_bold_nesting_repairs"] += 1
+                        else:
+                            parts.append(close_html)
                         stats["hc0146_style_markers"] += 1
                     else:
                         stats["hc0146_unmatched_style_markers"] += 1
