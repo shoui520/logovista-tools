@@ -3244,6 +3244,14 @@ def test_hc0090_maps_lineinfo_sections_links_and_gaiji_classes() -> None:
     assert rendered.stats["hc0090_hankakuMidashi_spans"] == 1
 
 
+def test_hc0090_renders_a255_a256_as_linebreak_markers() -> None:
+    rendered = render_hc_body(bytes.fromhex("a255a256"), HcRenderOptions(renderer_code="0090"))
+
+    assert rendered.html == '<div class="lv-hc-render"><br><br></div>'
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["hc0090_linebreak_markers"] == 2
+
+
 def test_hc014f_maps_midashi_contents_links_decoration_and_gaiji_classes() -> None:
     body = (
         b"\x1f\x09\x00\x01"

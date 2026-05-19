@@ -1684,6 +1684,7 @@ HC0091_MARK_IMAGE_PATTERNS = {
     "4a64": ("hosoku", "hosoku.gif", ("422d",), ("2161",), 14),
 }
 HC0090_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
+HC0090_LINEBREAK_MARKERS = {"a255", "a256"}
 HC0135_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x6D}
 HC0135_NOOP_SECTION_VALUES = {
     0x05,
@@ -11804,6 +11805,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2
                 continue
             if _renderer_code(options) == "0090":
+                if key in HC0090_LINEBREAK_MARKERS:
+                    _current_parts(root_parts, contexts).append("<br>")
+                    stats["hc0090_linebreak_markers"] += 1
+                    i += 2
+                    continue
                 _append_hc0090_gaiji_value(
                     _current_parts(root_parts, contexts),
                     _current_text_parts(contexts),

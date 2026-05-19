@@ -1676,7 +1676,8 @@ heading section ends, and maps section 5 to a `yourei` wrapper in the recovered
 subset. The same branch family switches halfwidth spans between
 `hankakuMidashi` and `hankaku`, applies `lineLink` to internal links, and uses
 the `dummy.gif` spacer plus `img_gaiji_midashi` or `img_gaiji` for image-backed
-gaiji. Address-sensitive `yourei` versus `youreihan`, private smallcap
+gaiji. A255/A256 are renderer line-break markers and emit `<br>` rather than
+gaiji placeholders. Address-sensitive `yourei` versus `youreihan`, private smallcap
 directives, fixed HTML/fix fallback loading, generated custom-character GIF
 output, and visual parity remain named gaps.
 
