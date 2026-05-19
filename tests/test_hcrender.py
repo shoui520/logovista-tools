@@ -3437,14 +3437,13 @@ def test_hc013c_maps_sections_icons_links_and_state_markers() -> None:
     assert rendered.stats["hc013c_nonprinting_controls"] == 1
 
 
-def test_hc013c_missing_b121_uses_named_custom_bitmap_gap() -> None:
+def test_hc013c_missing_b121_uses_dll_no_output_bitmap_fallback() -> None:
     rendered = render_hc_body(b"\x1f\x41\x00\x00\xb1\x21" + jis_text("見出し") + b"\x1f\x61", HcRenderOptions(renderer_code="013C"))
 
     assert "lv-hc-gaiji-placeholder" not in rendered.html
-    assert 'class="lv-hc-gaiji lv-hc-custom-dib-missing img_gaiji"' in rendered.html
-    assert 'data-gaiji-code="b121"' in rendered.html
-    assert rendered.stats["hc013c_custom_dib_gaiji"] == 1
-    assert "hc013c_custom_gaiji_bitmap_unresolved" in rendered.named_behavior_gaps
+    assert 'data-gaiji-code="b121"' not in rendered.html
+    assert rendered.stats["hc013c_custom_bitmap_fallback_suppressed"] == 1
+    assert "hc013c_custom_gaiji_bitmap_unresolved" not in rendered.named_behavior_gaps
 
 
 def test_hc013c_uses_vertical_margin_axis() -> None:

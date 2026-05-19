@@ -1361,6 +1361,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "HC013C 1f42/1f43 lineLink branch",
                     "HC013C 1fe2 2331-2334 img_icon directive branch",
                     "HC013C image-backed gaiji template branch",
+                    "HC013C B121/B122 custom-bitmap fallback branch",
                     "HC013C modifyHeadword removes B121/B122/A435 and suppresses A436-delimited ranges",
                     "Templates/0000013C.css class definitions",
                 ),
@@ -1370,7 +1371,9 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "closes the active section, 1f41/1f61 wrap midashi text, internal "
                     "links use lineLink, 1fe2 2331-2334 emit 1.png-4.png img_icon "
                     "markers, image-backed gaiji use img_gaiji, and A435/A436 plus "
-                    "1f5c/1f6d are consumed as renderer state"
+                    "1f5c/1f6d are consumed as renderer state; B121/B122 without "
+                    "Unicode or package PNG evidence follow the DLL's no-output "
+                    "runtime bitmap fallback instead of rendering a generic placeholder"
                 ),
                 notes="The subset excludes JIS-content-triggered img_mark branches, exact generated custom-bitmap output, modifyHeadword application to external hit lists, exact previous/next navigation footer generation, and broader visual parity.",
             )
@@ -2255,6 +2258,7 @@ def build_hc_behavior_profile(
         implemented.add("HC0132_finance_section_layout")
     if code == "013C":
         implemented.add("HC013C_honbun_margin_sections")
+        implemented.add("HC013C_custom_bitmap_no_output_fallback")
     if code == "02C0":
         implemented.add("HC02C0_honbun_margin_sections")
     if code == "02CA":

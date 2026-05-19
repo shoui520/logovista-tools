@@ -10425,13 +10425,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 and not options.gaiji_map.get(key)
                 and _image_source_for_key(key, options) is None
             ):
-                _current_parts(root_parts, contexts).append(
-                    '<span class="lv-hc-gaiji lv-hc-custom-dib-missing img_gaiji" '
-                    f'data-gaiji-code="{_escape_attr(key)}" '
-                    'data-hc-behavior="custom-gaiji-bitmap"></span>'
-                )
-                stats["hc013c_custom_dib_gaiji"] += 1
-                gaps.add("hc013c_custom_gaiji_bitmap_unresolved")
+                stats["hc013c_custom_bitmap_fallback_suppressed"] += 1
                 i += 2
                 continue
             if _renderer_code(options) == "0142":
