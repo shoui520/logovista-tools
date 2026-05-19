@@ -1834,6 +1834,7 @@ HC0020_SUPPRESSED_JIS_MARKERS = {"224d"}
 HC008B_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
 HC_BRITANNICA_PANEL_RENDERERS = {"00D3", "00D5", "00DE"}
 HC_BRITANNICA_SUPPRESSED_GAIJI_MARKERS = {"b421", "b422"}
+HC_BRITANNICA_STATE_SECTION_CODES = {"0001", "0003"}
 HC0048_NONPRINTING_CONTROL_OPS = {0x02, 0x41, 0x4C, 0x5C, 0x6D}
 HC0048_MIDASHI_MARKERS = {"2178", "217a", "2221", "2223", "2227"}
 HC00AC_NONPRINTING_CONTROL_OPS = {0x02, 0x41, 0x4C, 0x5C, 0x6D}
@@ -2302,6 +2303,8 @@ def _link_css_class(options: HcRenderOptions, start_op: int | None) -> str:
         return "lv-hc-link lineLink"
     if _renderer_code(options) == "00AD" and start_op in {0x42, 0x43}:
         return "lv-hc-link lineLink"
+    if _is_hc_britannica_panel_renderer(options) and start_op in {0x42, 0x43}:
+        return "lv-hc-link lineLink"
     if _renderer_code(options) == "004D":
         if start_op == 0x42:
             return "lv-hc-link lineLink2"
@@ -2461,6 +2464,10 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("span", ' class="hankaku"')
     if _is_hc00c4_renderer(options) and op == 0x41:
         return None
+    if _is_hc_britannica_panel_renderer(options) and op == 0x04:
+        return ("span", ' class="hankaku"')
+    if _is_hc_britannica_panel_renderer(options) and op == 0x41:
+        return ("div", ' class="midashi"')
     if _renderer_code(options) == "008C" and op == 0x04:
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "008C" and op == 0x41:
@@ -7496,6 +7503,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             hc0065_midashi_open = True
                             stats["hc0065_midashi_blocks"] += 1
                         stats["hc0065_state_sections"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _is_hc_britannica_panel_renderer(options) and code in HC_BRITANNICA_STATE_SECTION_CODES:
+                        stats["hc_britannica_state_sections"] += 1
                         i += 2 + arg_len
                         continue
                     if active_section_image_rules and all(

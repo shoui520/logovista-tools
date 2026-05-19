@@ -178,6 +178,30 @@ def test_hc00de_suppresses_britannica_state_gaiji_markers() -> None:
     assert rendered.stats["hc_britannica_custom_body_state_markers"] == 1
 
 
+def test_hc00de_maps_britannica_heading_sections_and_links_without_generic_markers() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_text("見出し")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + b"\x1f\x42"
+        + jis_text("リンク")
+        + b"\x1f\x62\x00\x00\x00\x01\x00\x20"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00DE"))
+
+    assert '<div class="midashi">見出し</div>' in rendered.html
+    assert 'class="lv-hc-heading"' not in rendered.html
+    assert 'class="lv-hc-section"' not in rendered.html
+    assert 'data-lv-section=' not in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert rendered.stats["hc_britannica_state_sections"] == 2
+    assert rendered.stats["links"] == 1
+
+
 def test_hc013a_inserts_exam_badge_once_per_example_block() -> None:
     body = (
         b"\x1f\x09\x00\x11"
@@ -5727,6 +5751,7 @@ def test_hc00de_profile_records_britannica_state_marker_subset_without_claiming_
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC_BRITANNICA_state_gaiji_marker_suppression" in data["implemented_semantics"]
+    assert "HC_BRITANNICA_midashi_state_sections_and_line_links" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]

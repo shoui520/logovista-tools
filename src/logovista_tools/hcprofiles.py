@@ -299,10 +299,14 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 evidence=(
                     "initializePanel/finalizePanel exports",
                     "Media/HTMLs body template strings",
+                    "HC00DE body loop 1f41 midashi and 1f42 lineLink branches",
                     "HC00DE body loop B421/B422 no-output/state branches",
                 ),
                 implementation=(
                     "Panel/Britannica auxiliary file decoders where available; "
+                    "1f09 section 0001/0003 controls are consumed as renderer state, "
+                    "1f41 opens the product midashi block, 1f42/1f43 links use "
+                    "lineLink, and "
                     "B421 and B422 renderer-state gaiji markers are consumed without "
                     "generic missing-glyph placeholders"
                 ),
@@ -2354,6 +2358,7 @@ def build_hc_behavior_profile(
         implemented.add("HC00C4_section_icon_and_gaiji_layout")
     if code in {"00D3", "00D5", "00DE"}:
         implemented.add("HC_BRITANNICA_state_gaiji_marker_suppression")
+        implemented.add("HC_BRITANNICA_midashi_state_sections_and_line_links")
     if code == "005C":
         implemented.add("HC005C_heading_section_marker_and_gaiji_layout")
     if code == "02C1":
