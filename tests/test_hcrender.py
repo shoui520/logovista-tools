@@ -11,6 +11,7 @@ from logovista_tools.hcrender import (
     _prepare_hc_render_assets,
     _renderer_behavior_gaps,
     _rendererdb_args,
+    _rewrite_lved_addr_hrefs,
     _schema_backed_sidecars,
     _write_exact_hc_entries_html_from_rendererdb,
     render_hc_body,
@@ -6996,7 +6997,8 @@ def test_hc_render_exact_rendererdb_html_becomes_visual_entry_html(tmp_path: Pat
     assert 'href="hc-renderer.css"' in rendered
     assert '<div class="midashi">A</div>' in rendered
     assert 'src="Templates/sound.png"' in rendered
-    assert "lved.ziptomedia:000010.wav" in rendered
+    assert 'href="#lv-ziptomedia-000010.wav"' in rendered
+    assert 'data-lv-original-href="lved.ziptomedia:000010.wav"' in rendered
     assert 'id="lv-dataid-5" data-lv-dataid="5"' in rendered
 
 
@@ -7065,6 +7067,14 @@ def test_hc_render_exact_rendererdb_html_rewrites_internal_addr_and_image_links(
     assert 'data-lv-address-offset="0226"' in rendered
     assert 'href="media/0000006801.jpg"' in rendered
     assert 'data-lv-original-href="lved.image:0000006801.jpg"' in rendered
+    assert re.search(r'(?<![\w-])href="lved\.', rendered) is None
+
+
+def test_hc_render_rewrites_embedded_fixed_html_lved_addr_links() -> None:
+    rendered = _rewrite_lved_addr_hrefs('<a href="lved.addr00000133:0208">(jump)</a>')
+
+    assert 'href="lvaddr://00000133/0208"' in rendered
+    assert 'data-lv-original-href="lved.addr00000133:0208"' in rendered
     assert re.search(r'(?<![\w-])href="lved\.', rendered) is None
 
 

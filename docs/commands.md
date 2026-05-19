@@ -1363,10 +1363,12 @@ media and still exported by filename/magic. PROYAL53 also uses
 sound directory such as `_DCT_NAME_Sound_Files`, decrypts LogoFontCipher-wrapped
 loose sound files, and writes portable `.wav` / `.mp3` assets for the
 references that are physically present. In `hc-render`, exact renderer-sidecar
-HTML additionally rewrites extracted `lved.ziptomedia:` hrefs to local files,
-rewrites `lved.dataid:` hrefs to local entry/anchor targets, and normalizes
-renderer-sidecar `lved.addr...` / `lved.image...` links to app-facing address
-or local-image targets in the generated visual HTML.
+HTML additionally rewrites extracted `lved.ziptomedia:` hrefs to local files
+when the audio has been materialized, or to safe `#lv-ziptomedia-...` fragments
+when it has not. It also rewrites `lved.dataid:` hrefs to local entry/anchor
+targets and normalizes renderer-sidecar or fixed-HTML `lved.addr...` /
+`lved.image...` links to app-facing address or local-image targets in the
+generated visual HTML.
 
 ### `spindex`
 

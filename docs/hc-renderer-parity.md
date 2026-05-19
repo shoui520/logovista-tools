@@ -23,8 +23,10 @@ safe `#lv-audio-...` fragment hrefs. Exact renderer-sidecar links are similarly
 normalized for known internal schemes: `lved.dataid:` to local entry/anchor
 targets, `lved.addr...` to `lvaddr://...`, `lved.image:` / `lved.imag:` to local
 image references when possible, and extracted `lved.ziptomedia:` to local audio
-files when `--write-ziptomedia` has materialized them. This is browser/app
-output normalization, not a claim of exact HC runtime parity.
+files when `--write-ziptomedia` has materialized them or safe
+`#lv-ziptomedia-...` fragments otherwise. The same `lved.addr...` normalization
+also applies to fixed HTML snippets inserted by raw-HONMON profiles. This is
+browser/app output normalization, not a claim of exact HC runtime parity.
 
 ## Status Vocabulary
 

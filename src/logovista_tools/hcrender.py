@@ -2187,11 +2187,14 @@ def _audio_target(pointer: PcmPointer | None) -> dict[str, Any] | None:
     }
 
 
+def _safe_href_token(value: str) -> str:
+    return re.sub(r"[^0-9A-Za-z_.:-]+", "-", value)
+
+
 def _audio_href(target: dict[str, Any] | None) -> str:
     if target is None:
         return "#lv-audio-unresolved"
-    safe_id = re.sub(r"[^0-9A-Za-z_.:-]+", "-", str(target["resource_id"]))
-    return f"#lv-audio-{safe_id}"
+    return f"#lv-audio-{_safe_href_token(str(target['resource_id']))}"
 
 
 def _audio_original_href(target: dict[str, Any] | None) -> str:
@@ -4939,6 +4942,32 @@ def _split_lved_dataid(value: str) -> tuple[int | None, str | None]:
     return data_id, anchor
 
 
+def _rewrite_lved_addr_hrefs(fragment: str) -> str:
+    def replace_addr_href(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        quote = match.group(2)
+        block = html.unescape(match.group(3))
+        offset = html.unescape(match.group(4))
+        suffix_quote = match.group(5)
+        if not block or not offset:
+            return match.group(0)
+        original = f"lved.addr{block}:{offset}"
+        target = f"lvaddr://{block}/{offset}"
+        return (
+            f'{prefix}{quote}{_escape_attr(target)}{suffix_quote} '
+            f'data-lv-original-href="{_escape_attr(original)}" '
+            f'data-lv-address-block="{_escape_attr(block)}" '
+            f'data-lv-address-offset="{_escape_attr(offset)}"'
+        )
+
+    return re.sub(
+        r'(\bhref\s*=\s*)(["\'])lved\.addr([0-9A-Za-z]+):([0-9A-Za-z]+)(["\'])',
+        replace_addr_href,
+        fragment,
+        flags=re.IGNORECASE,
+    )
+
+
 def _ziptomedia_href_map(rendererdb_summary: dict[str, Any], dict_out: Path) -> dict[str, str]:
     refs: dict[str, str] = {}
     files = rendererdb_summary.get("ziptomedia_written_files")
@@ -5105,9 +5134,9 @@ def _rewrite_exact_body_asset_refs(
         reference = html.unescape(match.group(3))
         suffix_quote = match.group(4)
         mapped = (ziptomedia_hrefs or {}).get(reference)
-        if mapped is None:
-            return match.group(0)
         original = f"lved.ziptomedia:{reference}"
+        if mapped is None:
+            mapped = f"#lv-ziptomedia-{_safe_href_token(reference)}"
         return (
             f'{prefix}{quote}{_escape_attr(mapped)}{suffix_quote} '
             f'data-lv-original-href="{_escape_attr(original)}" '
@@ -5130,23 +5159,6 @@ def _rewrite_exact_body_asset_refs(
             f'{prefix}{quote}{_escape_attr(target)}{suffix_quote} '
             f'data-lv-original-href="{_escape_attr(original)}" '
             f'data-lv-dataid="{data_id}"{anchor_attr}{missing}'
-        )
-
-    def replace_addr_href(match: re.Match[str]) -> str:
-        prefix = match.group(1)
-        quote = match.group(2)
-        block = html.unescape(match.group(3))
-        offset = html.unescape(match.group(4))
-        suffix_quote = match.group(5)
-        if not block or not offset:
-            return match.group(0)
-        original = f"lved.addr{block}:{offset}"
-        target = f"lvaddr://{block}/{offset}"
-        return (
-            f'{prefix}{quote}{_escape_attr(target)}{suffix_quote} '
-            f'data-lv-original-href="{_escape_attr(original)}" '
-            f'data-lv-address-block="{_escape_attr(block)}" '
-            f'data-lv-address-offset="{_escape_attr(offset)}"'
         )
 
     def replace_image_href(match: re.Match[str]) -> str:
@@ -5184,12 +5196,7 @@ def _rewrite_exact_body_asset_refs(
         rewritten,
         flags=re.IGNORECASE,
     )
-    rewritten = re.sub(
-        r'(\bhref\s*=\s*)(["\'])lved\.addr([0-9A-Za-z]+):([0-9A-Za-z]+)(["\'])',
-        replace_addr_href,
-        rewritten,
-        flags=re.IGNORECASE,
-    )
+    rewritten = _rewrite_lved_addr_hrefs(rewritten)
     rewritten = re.sub(
         r'(\bhref\s*=\s*)(["\'])lved\.(imag|image):([^"\']+)(["\'])',
         replace_image_href,
@@ -12470,6 +12477,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     elif _renderer_code(options) == "0190" and hc0190_sections:
         body = "".join(value for _, value in sorted(hc0190_sections.items()))
         gaps.add("missing_hc0190_template_marker")
+    body = _rewrite_lved_addr_hrefs(body)
     rendered_html = f'<div class="{" ".join(classes)}">{body}</div>'
     return HcRenderResult(
         html=rendered_html,

@@ -2580,11 +2580,14 @@ contains the missing ziptomedia files.
 `hc-render --compare-rendererdb --write-ziptomedia` writes available referenced
 sounds to `ziptomedia/`. When renderer-sidecar HTML becomes the top-level visual
 entry body, extracted `lved.ziptomedia:` links are rewritten to those local audio
-files. `lved.dataid:` links are rewritten to local entry or named-anchor targets,
+files when available, or to safe `#lv-ziptomedia-...` fragments when the audio
+has not been materialized. `lved.dataid:` links are rewritten to local entry or
+named-anchor targets,
 with the original renderer URI preserved in `data-lv-original-href` for
-inspection. `lved.addr...` links are normalized to `lvaddr://...` targets and
-`lved.image:` / `lved.imag:` links are normalized to local image references when
-possible, again preserving the original renderer URI for inspection.
+inspection. `lved.addr...` links from renderer-sidecar or fixed-HTML fragments
+are normalized to `lvaddr://...` targets and `lved.image:` / `lved.imag:` links
+are normalized to local image references when possible, again preserving the
+original renderer URI for inspection.
 Renderer-sidecar fragments may also use XML-style self-closing
 `<a name="..."/>` anchors; `hc-render` normalizes these to explicit
 `<a name="..."></a>` elements before concatenating entries so browser HTML
