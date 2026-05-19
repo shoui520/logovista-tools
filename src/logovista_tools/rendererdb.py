@@ -445,6 +445,31 @@ def honbun_columns(con: sqlite3.Connection) -> dict[str, str]:
     return {canonical: columns[canonical.lower()] for canonical in wanted if canonical.lower() in columns}
 
 
+def honbun_array_body_columns(con: sqlite3.Connection) -> dict[str, str]:
+    """Return HC0153 ``HONBUN`` columns keyed by decimal array slot IDs."""
+
+    if not table_exists(con, "HONBUN"):
+        return {}
+    columns = table_column_map(con, "HONBUN")
+    aliases = {
+        "f_Number": ("f_number",),
+        "f_ArrayNo": ("f_array_no",),
+        "f_DataId": ("f_data_id",),
+        "f_Title": ("f_midashi",),
+        "f_Html": ("f_contents",),
+        "f_Plain": ("f_honbun",),
+    }
+    resolved: dict[str, str] = {}
+    for canonical, candidates in aliases.items():
+        for candidate in candidates:
+            if candidate in columns:
+                resolved[canonical] = columns[candidate]
+                break
+    if {"f_ArrayNo", "f_DataId", "f_Title", "f_Html"} <= set(resolved):
+        return resolved
+    return {}
+
+
 def block_offset_body_columns(con: sqlite3.Connection, table: str) -> dict[str, str]:
     """Return canonical column names for renderer HTML rows keyed by body address."""
 
@@ -776,6 +801,151 @@ def extract_honbun_ordered_database(
             "media_rows": table_count(con, media_table_name(con)) if media_table_name(con) else None,
             "media_type_counts": media_type_counts(con),
             "html_rows_with_media_references": None,
+            "html_rows_with_ziptomedia_references": None,
+            **ziptomedia_summary,
+        }
+    )
+    if args.write_media:
+        summary.update(write_media_records(con, dict_out / "media", limit=args.media_limit))
+    if args.write_ziptomedia:
+        sound_dir = Path(ziptomedia_summary["ziptomedia_dir"]) if ziptomedia_summary["ziptomedia_dir"] else None
+        summary.update(
+            write_ziptomedia_records(
+                sound_dir,
+                ziptomedia_refs,
+                dict_out / "ziptomedia",
+                limit=args.ziptomedia_limit,
+            )
+        )
+    return summary
+
+
+def extract_honbun_array_body_database(
+    source: DictionarySource,
+    summary: dict[str, Any],
+    expanded: bytes,
+    db_path: Path,
+    con: sqlite3.Connection,
+    dict_out: Path,
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    """Extract HC0153-style ``HONBUN`` rows keyed by ``f_array_no``.
+
+    HC0153's renderer DLL queries ``HONBUN`` by ``f_array_no`` and the corpus
+    instance stores raw HONMON as fixed 32-byte placeholder slots.  A body row
+    with ``f_array_no = 00000700`` maps to raw HONMON slot 7; subanchors use
+    neighboring ``ANCHOR.f_array_no`` values such as ``00000701``.
+    """
+
+    columns = honbun_array_body_columns(con)
+    if not columns:
+        summary.update({"status": "unsupported_honbun_array_schema", "entries_emitted": 0})
+        return summary
+
+    array_col = columns["f_ArrayNo"]
+    data_id_col = columns["f_DataId"]
+    title_col = columns["f_Title"]
+    html_col = columns["f_Html"]
+    plain_col = columns.get("f_Plain")
+    number_col = columns.get("f_Number")
+
+    raw_slices = list(iter_entry_slices_with_boundaries(expanded))
+    select_parts = [
+        f"{quote_identifier(array_col)} as {quote_identifier('f_ArrayNo')}",
+        f"{quote_identifier(data_id_col)} as {quote_identifier('f_DataId')}",
+        f"{quote_identifier(title_col)} as {quote_identifier('f_Title')}",
+        f"{quote_identifier(html_col)} as {quote_identifier('f_Html')}",
+    ]
+    if plain_col is not None:
+        select_parts.append(f"{quote_identifier(plain_col)} as {quote_identifier('f_Plain')}")
+    if number_col is not None:
+        select_parts.append(f"{quote_identifier(number_col)} as {quote_identifier('f_Number')}")
+    query = (
+        f"select {', '.join(select_parts)} from HONBUN "
+        f"order by cast({quote_identifier(array_col)} as integer), rowid"
+    )
+
+    emitted = 0
+    matched = 0
+    malformed_array_rows = 0
+    rows_without_raw_slot = 0
+    ziptomedia_refs: Counter[str] = Counter()
+    html_media_rows = 0
+    html_path = dict_out / "rendererdb_entries.html"
+    html_out = html_path.open("w", encoding="utf-8") if args.include_html else None
+    if html_out is not None:
+        write_rendererdb_html_header(html_out, title=f"{source.dict_id} rendererdb")
+    try:
+        with (dict_out / "rendererdb_entries.jsonl").open("w", encoding="utf-8") as out:
+            for row in con.execute(query):
+                array_no = parse_decimal_int(row["f_ArrayNo"])
+                html_value = row["f_Html"] or ""
+                ziptomedia_refs.update(ziptomedia_reference_names(html_value))
+                if 'class="media"' in html_value or "class='media'" in html_value:
+                    html_media_rows += 1
+                if array_no is None or array_no <= 0 or array_no % 100:
+                    malformed_array_rows += 1
+                    continue
+                slot = array_no // 100
+                if slot < 1 or slot > len(raw_slices):
+                    rows_without_raw_slot += 1
+                    continue
+                start, end = raw_slices[slot - 1]
+                raw = {
+                    "entry_index": slot,
+                    "start_offset": start,
+                    "end_offset": end,
+                    "start_block": source.honmon_start_block + start // BLOCK_SIZE,
+                    "start_block_offset": start % BLOCK_SIZE,
+                }
+                matched += 1
+                if args.limit is None or emitted < args.limit:
+                    plain_value = row["f_Plain"] if "f_Plain" in row.keys() and row["f_Plain"] else html_to_plain(html_value)
+                    record: dict[str, Any] = {
+                        "dict_id": source.dict_id,
+                        "dict_title": source.title,
+                        "type": "HONBUN",
+                        "id": row["f_Number"] if "f_Number" in row.keys() else None,
+                        "array_no": row["f_ArrayNo"],
+                        "array_slot": slot,
+                        "data_id": row["f_DataId"],
+                        "title": row["f_Title"],
+                        "raw_honmon": raw,
+                        "plain": plain_value,
+                    }
+                    if args.include_html:
+                        record["html"] = html_value
+                    out.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    if html_out is not None:
+                        label = html.escape(str(row["f_ArrayNo"]))
+                        html_out.write(f"<!-- {source.dict_id} {label} -->\n<div class=\"rendererdb-entry\">{html_value}</div>\n")
+                    emitted += 1
+    finally:
+        if html_out is not None:
+            write_rendererdb_html_footer(html_out)
+            html_out.close()
+
+    content_rows = table_count(con, "HONBUN") or 0
+    ziptomedia_summary = summarize_ziptomedia_refs(source.idx, ziptomedia_refs)
+    anchor_rows = table_count(con, "ANCHOR") if table_exists(con, "ANCHOR") else None
+    summary.update(
+        {
+            "status": "ok_honbun_array_body",
+            "sqlite_path": str(db_path),
+            "rendererdb_html_path": str(html_path) if args.include_html else None,
+            "honbun_rows": content_rows,
+            "anchor_rows": anchor_rows,
+            "honbun_array_id_rule": "raw_slot = int(f_array_no) / 100 for HONBUN rows",
+            "raw_honmon_entry_slices": len(raw_slices),
+            "entries_matched_to_raw_honmon": matched,
+            "entries_emitted": emitted,
+            "honbun_rows_without_raw_honmon_slot": rows_without_raw_slot,
+            "honbun_rows_with_malformed_array_no": malformed_array_rows,
+            "raw_honmon_entries_missing_in_db": 0,
+            "media_table": media_table_name(con),
+            "media_rows": table_count(con, media_table_name(con)) if media_table_name(con) else None,
+            "media_type_counts": media_type_counts(con),
+            "html_rows_with_media_references": html_media_rows,
             "html_rows_with_ziptomedia_references": None,
             **ziptomedia_summary,
         }
@@ -1175,7 +1345,12 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
         con.row_factory = sqlite3.Row
         if not table_exists(con, "t_contents"):
             if table_exists(con, "HONBUN"):
-                summary = extract_honbun_ordered_database(source, summary, expanded, db_path, con, dict_out, args)
+                if honbun_columns(con):
+                    summary = extract_honbun_ordered_database(source, summary, expanded, db_path, con, dict_out, args)
+                elif honbun_array_body_columns(con):
+                    summary = extract_honbun_array_body_database(source, summary, expanded, db_path, con, dict_out, args)
+                else:
+                    summary.update({"status": "unsupported_honbun_schema", "entries_emitted": 0})
                 (dict_out / "rendererdb_summary.json").write_text(
                     json.dumps(summary, ensure_ascii=False, indent=2),
                     encoding="utf-8",

@@ -183,6 +183,16 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Normal entry body HTML is supplied by the LogoFontCipher SQLite sidecar; raw HONMON records are numeric anchors.",
             )
         )
+    if code == "0153":
+        rows.append(
+            HcHookBehavior(
+                name="honbun_array_body_lookup",
+                status="implemented_when_sidecar_present",
+                evidence=("HONBUN(f_array_no, f_data_id, f_midashi, f_contents, f_honbun)", "ANCHOR(f_array_no, f_anchor)", "dense HONMON fixed slots"),
+                implementation="rendererdb HONBUN.f_array_no slot join",
+                notes="Normal entry body HTML is supplied by the LogoFontCipher SQLite HONBUN table; raw HONMON slots are placeholders.",
+            )
+        )
     if code == "015F":
         rows.extend(
             [
@@ -2337,6 +2347,8 @@ def build_hc_behavior_profile(
         implemented.add("HC0156_main_id_text_exact_body_html")
     if code in {"0161", "0162"} and rendererdb_ok:
         implemented.add("HC016x_order_id_t_contents_exact_body_html")
+    if code == "0153" and rendererdb_ok:
+        implemented.add("HC0153_honbun_array_exact_body_html")
     if code == "0132":
         implemented.add("HC0132_finance_section_layout")
     if code == "013C":

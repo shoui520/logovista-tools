@@ -76,7 +76,9 @@ from logovista_tools.rendererdb import (
     html_ziptomedia_reference_rows,
     hc0155_class_label,
     hc0155_main_body_html,
+    extract_honbun_array_body_database,
     honbun_columns,
+    honbun_array_body_columns,
     main_id_text_columns,
     iter_honmon_id_records,
     media_table_name,
@@ -1573,6 +1575,88 @@ def test_rendererdb_honbun_columns_are_case_insensitive() -> None:
     assert columns["ID"] == "id"
     assert columns["Title_UTF8"] == "title_utf8"
     assert columns["Contents_HTML_box"] == "contents_html_box"
+
+    con.close()
+
+
+def test_rendererdb_honbun_array_body_columns_are_detected() -> None:
+    con = sqlite3.connect(":memory:")
+    con.execute(
+        "create table HONBUN ("
+        "f_number integer primary key, f_array_no text, f_data_id text, "
+        "f_midashi text, f_contents text, f_honbun text)"
+    )
+
+    columns = honbun_array_body_columns(con)
+
+    assert columns["f_Number"] == "f_number"
+    assert columns["f_ArrayNo"] == "f_array_no"
+    assert columns["f_DataId"] == "f_data_id"
+    assert columns["f_Title"] == "f_midashi"
+    assert columns["f_Html"] == "f_contents"
+    assert columns["f_Plain"] == "f_honbun"
+
+    con.close()
+
+
+def test_rendererdb_extracts_honbun_array_body_rows(tmp_path: Path) -> None:
+    db_path = tmp_path / "vlpljblF.sqlite"
+    con = sqlite3.connect(db_path)
+    con.execute(
+        "create table HONBUN ("
+        "f_number integer primary key, f_array_no text, f_data_id text, "
+        "f_midashi text, f_contents text, f_honbun text)"
+    )
+    con.execute("create table ANCHOR (f_number integer primary key, f_array_no text, f_anchor text)")
+    con.execute(
+        "insert into HONBUN values "
+        "(1, '00000100', 'Kalpha', 'alpha', '<div class=\"midashi\">alpha</div>', 'alpha plain')"
+    )
+    con.execute(
+        "insert into HONBUN values "
+        "(2, '00000200', 'Kbeta', 'beta', '<a href=\"lved.dataid:Kalpha\">alpha</a>', 'beta plain')"
+    )
+    con.execute("insert into ANCHOR values (1, '00000201', 'S000000')")
+    con.commit()
+    con.row_factory = sqlite3.Row
+
+    source = DictionarySource(
+        dict_id="HOUGAKU5",
+        idx=tmp_path / "HOUGAKU5.IDX",
+        title="test",
+        honmon=tmp_path / "HONMON.DIC",
+        honmon_start_block=4,
+        gaiji_map={},
+    )
+    expanded = (
+        b"\x1f\x09\x00\x01\x1f\x41\x01\x60\x1f\x04" + b"\x21\x21" * 8 + b"\x1f\x05\x1f\x61\x1f\x0a"
+        + b"\x1f\x09\x00\x01\x1f\x41\x01\x60\x1f\x04" + b"\x21\x21" * 8 + b"\x1f\x05\x1f\x61\x1f\x0a"
+    )
+    args = Namespace(
+        include_html=True,
+        limit=None,
+        media_limit=None,
+        write_media=False,
+        write_ziptomedia=False,
+        ziptomedia_limit=None,
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    summary = extract_honbun_array_body_database(source, {}, expanded, db_path, con, out_dir, args)
+
+    assert summary["status"] == "ok_honbun_array_body"
+    assert summary["honbun_rows"] == 2
+    assert summary["anchor_rows"] == 1
+    assert summary["entries_matched_to_raw_honmon"] == 2
+    assert summary["entries_emitted"] == 2
+    rows = (out_dir / "rendererdb_entries.jsonl").read_text(encoding="utf-8").splitlines()
+    assert '"array_slot": 1' in rows[0]
+    assert '"data_id": "Kalpha"' in rows[0]
+    assert '"start_block": 4' in rows[0]
+    assert '"start_block_offset": 32' in rows[1]
+    html_out = (out_dir / "rendererdb_entries.html").read_text(encoding="utf-8")
+    assert 'href="lved.dataid:Kalpha"' in html_out
 
     con.close()
 

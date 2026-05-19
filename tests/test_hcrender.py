@@ -6949,6 +6949,52 @@ def test_hc016x_profile_records_order_id_contents_body_without_claiming_hook_par
     assert "fulltext_search_hook" in data["named_gaps"]
 
 
+def test_hc0153_profile_records_honbun_array_body_without_claiming_hook_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0153.dll"),
+        code="0153",
+        expected_numeric_index="00000153.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=("vlpljblF",),
+        dic_tokens=(),
+        vlpljbl_tokens=("HONBUN", "ANCHOR", "f_array_no", "f_data_id"),
+        html_templates=("Templates/00000153.css",),
+        sql_snippets=("SELECT f_contents FROM HONBUN WHERE f_array_no = ? ;",),
+        image_templates=("b16c.png",),
+        features={
+            "custom_gaiji_dib": True,
+            "dictionary_original_search": True,
+            "fulltext_search": True,
+            "headword_modifier": True,
+            "sql_hooks": True,
+            "user_data_hooks": True,
+        },
+    )
+
+    data = build_hc_behavior_profile(
+        row,
+        rendererdb_summary={
+            "status": "ok_honbun_array_body",
+            "honbun_rows": 2,
+            "entries_matched_to_raw_honmon": 2,
+        },
+    ).as_dict()
+
+    assert data["body_strategy"] == "rendererdb_html"
+    assert data["body_strategy_status"] == "exact_entry_body_html"
+    assert "HC0153_honbun_array_exact_body_html" in data["implemented_semantics"]
+    hooks = {row["name"]: row for row in data["hook_behaviors"]}
+    assert hooks["honbun_array_body_lookup"]["status"] == "implemented_when_sidecar_present"
+    assert data["exact_hc_parity"] is False
+    assert "user_data_hook" in data["named_gaps"]
+
+
 def test_hc013f_profile_records_block_offset_rendererdb_body_without_claiming_hook_parity() -> None:
     row = HcRendererClassification(
         path=Path("HC013F.dll"),
@@ -7177,6 +7223,36 @@ def test_hc_render_exact_rendererdb_html_rewrites_extracted_renderer_links(tmp_p
     assert 'data-lv-original-href="lved.dataid:000006#000006_00A0100"' in rendered
     assert 'data-lv-dataid="6"' in rendered
     assert 'data-lv-target-anchor="000006_00A0100"' in rendered
+    assert 'data-lv-missing-target' not in rendered
+
+
+def test_hc_render_exact_rendererdb_html_rewrites_string_dataid_links(tmp_path: Path) -> None:
+    dict_out = tmp_path / "DICT"
+    entries = dict_out / "rendererdb_entries.jsonl"
+    entries.parent.mkdir()
+    entries.write_text(
+        "\n".join(
+            [
+                '{"dict_id":"DICT","data_id":"Kalpha","html":"<div>alpha</div>","plain":"alpha"}',
+                '{"dict_id":"DICT","data_id":"Kbeta","html":"<a href=\\"lved.dataid:Kalpha\\">alpha</a>","plain":"beta"}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    html_path = _write_exact_hc_entries_html_from_rendererdb(
+        {"entries_path": str(entries)},
+        dict_out,
+        stylesheet=None,
+        vertical=False,
+    )
+
+    rendered = html_path.read_text(encoding="utf-8")
+    assert 'id="lv-dataid-Kalpha" data-lv-dataid="Kalpha"' in rendered
+    assert 'href="#lv-dataid-Kalpha"' in rendered
+    assert 'data-lv-original-href="lved.dataid:Kalpha"' in rendered
+    assert 'data-lv-dataid="Kalpha"' in rendered
     assert 'data-lv-missing-target' not in rendered
 
 

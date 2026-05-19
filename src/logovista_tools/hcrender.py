@@ -4949,12 +4949,23 @@ def _decimal_data_id(value: Any) -> int | None:
         return None
 
 
-def _split_lved_dataid(value: str) -> tuple[int | None, str | None]:
+def _split_lved_dataid(value: str) -> tuple[str | None, str | None]:
     data_id_text, separator, anchor = value.partition("#")
-    data_id = _decimal_data_id(data_id_text)
+    data_id = data_id_text.strip() or None
     if not separator or not anchor:
         return data_id, None
     return data_id, anchor
+
+
+def _data_id_match_keys(value: Any) -> set[str]:
+    text = str(value or "").strip()
+    if not text:
+        return set()
+    keys = {text}
+    decimal = _decimal_data_id(text)
+    if decimal is not None:
+        keys.add(str(decimal))
+    return keys
 
 
 def _rewrite_lved_addr_hrefs(fragment: str) -> str:
@@ -5119,7 +5130,7 @@ def _rewrite_exact_body_asset_refs(
     dict_out: Path,
     *,
     ziptomedia_hrefs: dict[str, str] | None = None,
-    data_ids: set[int] | None = None,
+    data_id_targets: dict[str, str] | None = None,
 ) -> str:
     """Rewrite bare renderer-sidecar asset names to copied package assets."""
 
@@ -5167,13 +5178,18 @@ def _rewrite_exact_body_asset_refs(
         if data_id is None:
             return match.group(0)
         original = f"lved.dataid:{raw_id}"
-        target = f"#{anchor}" if anchor else f"#lv-dataid-{data_id}"
-        missing = "" if data_ids is None or data_id in data_ids else ' data-lv-missing-target="true"'
+        target_data_id = next(
+            (data_id_targets[key] for key in _data_id_match_keys(data_id) if data_id_targets and key in data_id_targets),
+            None,
+        )
+        safe_data_id = _safe_href_token(target_data_id or data_id)
+        target = f"#{anchor}" if anchor else f"#lv-dataid-{safe_data_id}"
+        missing = "" if data_id_targets is None or target_data_id is not None else ' data-lv-missing-target="true"'
         anchor_attr = f' data-lv-target-anchor="{_escape_attr(anchor)}"' if anchor else ""
         return (
             f'{prefix}{quote}{_escape_attr(target)}{suffix_quote} '
             f'data-lv-original-href="{_escape_attr(original)}" '
-            f'data-lv-dataid="{data_id}"{anchor_attr}{missing}'
+            f'data-lv-dataid="{_escape_attr(data_id)}"{anchor_attr}{missing}'
         )
 
     def replace_image_href(match: re.Match[str]) -> str:
@@ -5242,17 +5258,19 @@ def _write_exact_hc_entries_html_from_rendererdb(
             row = json.loads(line)
             if isinstance(row, dict):
                 records.append(row)
-    data_ids = {
-        data_id
-        for data_id in (_decimal_data_id(record.get("data_id")) for record in records)
-        if data_id is not None
-    }
+    data_id_targets: dict[str, str] = {}
+    for record in records:
+        raw_data_id = str(record.get("data_id") or "").strip()
+        if not raw_data_id:
+            continue
+        for key in _data_id_match_keys(raw_data_id):
+            data_id_targets.setdefault(key, raw_data_id)
     ziptomedia_hrefs = _ziptomedia_href_map(rendererdb_summary, dict_out)
     html_path = dict_out / "hc_entries.html"
     with html_path.open("w", encoding="utf-8") as html_out:
         _write_hc_html_header(html_out, stylesheet=stylesheet, vertical=vertical)
         for record in records:
-            data_id = _decimal_data_id(record.get("data_id"))
+            raw_data_id = str(record.get("data_id") or "").strip()
             label = html.escape(str(record.get("data_id") or record.get("entry_index") or ""))
             fragment = record.get("html")
             if isinstance(fragment, str) and fragment:
@@ -5260,13 +5278,14 @@ def _write_exact_hc_entries_html_from_rendererdb(
                     fragment,
                     dict_out,
                     ziptomedia_hrefs=ziptomedia_hrefs,
-                    data_ids=data_ids,
+                    data_id_targets=data_id_targets,
                 )
             else:
                 body_html = f"<pre>{html.escape(str(record.get('plain') or ''))}</pre>"
             entry_attrs = 'class="rendererdb-entry exact-rendererdb-entry"'
-            if data_id is not None:
-                entry_attrs += f' id="lv-dataid-{data_id}" data-lv-dataid="{data_id}"'
+            if raw_data_id:
+                safe_data_id = _safe_href_token(raw_data_id)
+                entry_attrs += f' id="lv-dataid-{safe_data_id}" data-lv-dataid="{_escape_attr(raw_data_id)}"'
             html_out.write(
                 f"<!-- {record.get('dict_id', '')} {label} rendererdb -->\n"
                 f"<div {entry_attrs}>{body_html}</div>\n"
