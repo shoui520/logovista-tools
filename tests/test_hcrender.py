@@ -4380,6 +4380,25 @@ def test_hc0157_uses_line_link_for_internal_addresses() -> None:
     assert 'data-lv-offset="40"' in rendered.html
 
 
+def test_hc0157_closes_style_markers_inside_links() -> None:
+    body = (
+        b"\x1f\x42"
+        + b"\xb2\x21"
+        + jis_fullwidth_ascii("A")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x03"
+        + b"\xb2\x22"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0157"))
+
+    assert '<a class="lv-hc-link lineLink"' in rendered.html
+    assert '<span class="smallcap">Ａ</span></a>' in rendered.html
+    assert "</a></span>" not in rendered.html
+    assert rendered.stats["hc0157_link_scoped_style_closures"] == 1
+    assert rendered.stats["hc0157_link_scoped_close_markers"] == 1
+    assert "unterminated_hc0157_marker_b222" not in rendered.named_behavior_gaps
+
+
 def test_hc0157_treats_1f12_1f13_as_noop_controls() -> None:
     rendered = render_hc_body(b"\x1f\x12" + jis_ascii("A") + b"\x1f\x13", HcRenderOptions(renderer_code="0157"))
 

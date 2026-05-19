@@ -5226,7 +5226,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     contexts: list[_Context] = []
     style_stack: list[int] = []
     hc0158_marker_stack: list[tuple[str, str]] = []
-    hc0157_marker_stack: list[tuple[str, str]] = []
+    hc0157_marker_stack: list[tuple[str, str, int]] = []
+    hc0157_link_scoped_close_markers: Counter[str] = Counter()
     hc0146_marker_stack: list[tuple[str, str]] = []
     hc00c6_marker_stack: list[tuple[str, str]] = []
     hc009d_marker_stack: list[tuple[str, str]] = []
@@ -9364,6 +9365,12 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if op in LINK_END_OPS:
                 ctx = _pop_context(contexts, "link")
+                if _renderer_code(options) == "0157" and ctx is not None:
+                    while hc0157_marker_stack and hc0157_marker_stack[-1][2] > ctx.start_offset:
+                        close_code, close_html, _start = hc0157_marker_stack.pop()
+                        ctx.parts.append(close_html)
+                        hc0157_link_scoped_close_markers[close_code] += 1
+                        stats["hc0157_link_scoped_style_closures"] += 1
                 target_payload = payload or (ctx.payload[-6:] if ctx and len(ctx.payload) >= 6 else b"")
                 target = _decode_pointer_payload(target_payload, packed_bcd=_link_payload_is_packed_bcd(options))
                 link = {
@@ -11207,7 +11214,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if marker is not None:
                     parts.append(marker.html)
                     if marker.close_code is not None:
-                        hc0157_marker_stack.append((marker.close_code, marker.close_html))
+                        hc0157_marker_stack.append((marker.close_code, marker.close_html, i))
                     if marker.render_self:
                         _append_gaiji_value(parts, text_parts, key, options, stats)
                     stats["hc0157_style_markers"] += 1
@@ -11225,6 +11232,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     if hc0157_marker_stack and hc0157_marker_stack[-1][0] == key:
                         parts.append(hc0157_marker_stack.pop()[1])
                         stats["hc0157_style_markers"] += 1
+                    elif hc0157_link_scoped_close_markers[key]:
+                        hc0157_link_scoped_close_markers[key] -= 1
+                        stats["hc0157_link_scoped_close_markers"] += 1
                     else:
                         stats["hc0157_unmatched_style_markers"] += 1
                     i += 2
@@ -11233,6 +11243,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     if hc0157_marker_stack and hc0157_marker_stack[-1][0] == key:
                         parts.append(hc0157_marker_stack.pop()[1])
                         stats["hc0157_style_markers"] += 1
+                    elif hc0157_link_scoped_close_markers[key]:
+                        hc0157_link_scoped_close_markers[key] -= 1
+                        stats["hc0157_link_scoped_close_markers"] += 1
                     else:
                         stats["hc0157_unmatched_style_markers"] += 1
                     i += 2
@@ -11567,7 +11580,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(close_html)
         gaps.add(f"unterminated_hc0158_marker_{close_code}")
     while hc0157_marker_stack:
-        close_code, close_html = hc0157_marker_stack.pop()
+        close_code, close_html, _start = hc0157_marker_stack.pop()
         _current_parts(root_parts, contexts).append(close_html)
         gaps.add(f"unterminated_hc0157_marker_{close_code}")
     while hc0146_marker_stack:
