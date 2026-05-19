@@ -229,6 +229,8 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 evidence=(
                     "HC0135 epwing2HtmlBodydataVertical 1f09 section branch",
                     "HC0135 1f0a heading/body transition branch",
+                    "HC0135 1f09 state-only section values 7/35 and conditional value 23 branch",
+                    "HC0135 1f09 value 23 line-break lookbehind branch",
                     "HC0135 1f06/1f07 sizedown-subscript branch",
                     "HC0135 1f42/1f43 lineLink templates",
                     "HC0135 1fe2/1fe3 named private image directive branch",
@@ -239,7 +241,9 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "1f09 value 1 opens midashi, 1f0a closes midashi and opens "
                     "contents_body, values 9/11/12 map to content_IND0/1/2, "
                     "value 30 maps to contents_yourei, value 38 emits exam.png "
-                    "when the template is present, 1f06/1f07 emit sizedown subscript, "
+                    "when the template is present, values 7 and 35 are state-only, "
+                    "value 23 emits a break only when it follows a halfwidth-close control, "
+                    "1f06/1f07 emit sizedown subscript, "
                     "internal links use lineLink, named private directives render "
                     "template icons, and image-backed gaiji use dummy.gif plus "
                     "img_gaiji or img_gaiji_midashi"

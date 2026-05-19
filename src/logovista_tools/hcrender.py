@@ -1653,6 +1653,7 @@ HC0135_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x6D}
 HC0135_NOOP_SECTION_VALUES = {
     0x05,
     0x06,
+    0x07,
     0x08,
     0x10,
     0x11,
@@ -1666,6 +1667,7 @@ HC0135_NOOP_SECTION_VALUES = {
     0x20,
     0x21,
     0x22,
+    0x23,
     0x24,
     0x25,
     0x27,
@@ -3785,7 +3787,12 @@ def _hc0135_section_value(code: str) -> int | None:
         return None
 
 
-def _hc0135_section_parts(code: str, options: HcRenderOptions) -> tuple[list[str], str | None, str | None]:
+def _hc0135_section_parts(
+    code: str,
+    options: HcRenderOptions,
+    *,
+    previous_pair: bytes = b"",
+) -> tuple[list[str], str | None, str | None]:
     value = _hc0135_section_value(code)
     if value is None:
         return [], None, None
@@ -3797,6 +3804,10 @@ def _hc0135_section_parts(code: str, options: HcRenderOptions) -> tuple[list[str
         return ['<div class="content_IND2">'], "</div>", "content_IND2"
     if value == 0x1E:
         return ['<p class="contents_yourei">'], "</p>", "contents_yourei"
+    if value == 0x17:
+        if previous_pair == b"\x1f\x05":
+            return ["<br>"], None, "conditional_break"
+        return [], None, "state_only"
     if value == 0x26:
         src = _image_source_for_key("exam", options) or _image_source_for_key("exam.png", options)
         if src is not None:
@@ -5692,7 +5703,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                                 root.append('<div class="contents_body">')
                                 hc0135_contents_body_open = True
                                 stats["hc0135_contents_body_blocks"] += 1
-                        section_parts, next_hc0135_section_close, state = _hc0135_section_parts(code, options)
+                        section_parts, next_hc0135_section_close, state = _hc0135_section_parts(
+                            code,
+                            options,
+                            previous_pair=data[i - 2 : i] if i >= 2 else b"",
+                        )
                         if next_hc0135_section_close is not None and hc0135_section_close is not None:
                             root.append(hc0135_section_close)
                             stats["hc0135_section_closures"] += 1

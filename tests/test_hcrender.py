@@ -3247,6 +3247,34 @@ def test_hc0135_maps_sinmei_sections_private_images_links_and_gaiji_classes() ->
     assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
 
 
+def test_hc0135_maps_sinmei_state_sections_from_dll_branch_table() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + jis_fullwidth_ascii("H")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x07"
+        + jis_text("状態")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x23"
+        + jis_text("参照")
+        + b"\x1f\x04"
+        + jis_text("小")
+        + b"\x1f\x05"
+        + b"\x1f\x09\x00\x17"
+        + jis_text("改行")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0135"))
+
+    assert "hc0135_unmapped_section_0007" not in rendered.named_behavior_gaps
+    assert "hc0135_unmapped_section_0017" not in rendered.named_behavior_gaps
+    assert "hc0135_unmapped_section_0023" not in rendered.named_behavior_gaps
+    assert rendered.html.count("<div") == rendered.html.count("</div>")
+    assert rendered.stats["hc0135_section_state_only"] == 2
+    assert rendered.stats["hc0135_section_conditional_break"] == 1
+    assert "<br>改行" in rendered.html
+
+
 def test_hc0091_maps_midashi_contents_marker_images_links_and_gaiji_classes() -> None:
     body = (
         b"\x1f\x41\x00\x00"
