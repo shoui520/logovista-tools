@@ -1498,16 +1498,17 @@ parity remain named gaps, so exact HC0151 visual parity is not claimed.
 The HKDKSR13 branch-subset proof case is `HC013D.dll`. Its vertical body loop
 maps `1f09` section payloads to product drug-layout classes such as `title3`,
 `medblk`, `med`, `medprice`, `medimage`, `mednamelist*`, and `indent##`.
-The `1f41` path opens the recovered `midashi` block, internal links use
-`lineLink`, `1f6d` is consumed as renderer state, image-backed gaiji use the
-product `img_gaiji` class, and recovered JIS-pair lookahead branches emit the
-`syohatsu`, `midashi*`, `title*`, litre-unit, and entity templates. In the
-first 200-entry HKDKSR13 sample, generic `lv-hc-heading` wrappers dropped from
-200 to 0, `lineLink` anchors rose from 0 to 2,222, product `medimage` blocks
-rose from 0 to 407, and `unknown_control_1f6d` gaps dropped to 0. Custom DIB
-generation, `modifyHeadword`, exact contents/table/click-menu lifecycle, full
-picture extraction into final HTML, and broader representative visual parity
-remain named gaps, so exact HC013D visual parity is not claimed.
+The same packed-BCD section grammar maps `0031..0034` to the recovered gray
+multi-cell table branch, `0042/0043` to product-code tables, and `0070..0072`
+to the click-menu title plus hidden-field branch. The `1f41` path opens the
+recovered `midashi` block, internal links use `lineLink`, `1f6d` is consumed
+as renderer state, image-backed gaiji use the product `img_gaiji` class, and
+recovered JIS-pair lookahead branches emit the `syohatsu`, `midashi*`,
+`title*`, litre-unit, and entity templates. In the full HKDKSR13 raw-HONMON
+render, raw behavior gaps dropped to 0 and table/tr/td/div/span tags are
+balanced. Custom DIB generation, `modifyHeadword`, full picture extraction
+into final HTML, and broader representative visual parity remain named gaps,
+so exact HC013D visual parity is not claimed.
 
 The ARCHSIC4 branch-subset proof case is `HC0158.dll`. Its body loop treats a
 subset of `.uni`-empty B3xx gaiji codes as inline HTML/CSS commands rather than
@@ -1612,8 +1613,9 @@ branches map B157-B159 and B25A-B351 to `img_mark4`, while B23B and
 B357-B424 map to `gaiji_icon`. The clear BCD `1f09` section subset now emits
 the recovered sub-caption, example-text, example-translation, idiom, and
 column-frame templates. B236/B237/B241 and B44F-B451 are consumed as renderer
-template selectors rather than displayed as glyphs. Residual HC0146 section
-branches remain named gaps until their stateful wrapper behavior is recovered.
+template selectors rather than displayed as glyphs. The full PROYAL43
+raw-HONMON render now emits no raw behavior gaps; remaining work is exact
+renderer wrapper state, custom hooks, and representative visual parity.
 
 The KQSYNONM branch-subset proof case is `HC0091.dll`. Its body loop uses
 `midashi` and `contents_body` wrappers, switches halfwidth text between

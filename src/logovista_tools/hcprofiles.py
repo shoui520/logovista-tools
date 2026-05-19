@@ -1647,15 +1647,18 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
                 implementation=(
                     "1f09 sections map to midashi-adjacent title3/medblk/med/medprice/"
-                    "medimage/mednamelist/indent blocks, internal links use lineLink, "
-                    "1f6d is consumed as renderer state, template-backed gaiji markers use "
-                    "img_gaiji, and recovered syohatsu/midashi/title/litre/entity JIS "
-                    "branches emit the DLL template HTML"
+                    "medimage/mednamelist/indent blocks, packed-BCD 0031-0034 sections "
+                    "open gray multi-cell tables, 0042/0043 sections open product-code "
+                    "tables, 0070-0072 sections implement the click-menu title/hidden-field "
+                    "triplet, internal links use lineLink, 1f6d is consumed as renderer "
+                    "state, template-backed gaiji markers use img_gaiji, and recovered "
+                    "syohatsu/midashi/title/litre/entity JIS branches emit the DLL "
+                    "template HTML"
                 ),
                 notes=(
                     "The subset excludes custom DIB generation, modifyHeadword, exact "
-                    "contents2-5 state transitions, table_pc/clickmenu lifecycle, and "
-                    "full COLSCR picture extraction into HTML."
+                    "contents2-5 state transitions, full COLSCR picture extraction into "
+                    "HTML, and representative visual parity."
                 ),
             )
         )
@@ -1934,8 +1937,9 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
                 notes=(
                     "The implementation covers branches whose destination template is "
-                    "recovered from the body loop and package CSS; residual stateful "
-                    "section branches remain named gaps."
+                    "recovered from the body loop and package CSS. The full PROYAL43 "
+                    "raw-HONMON pass emits no raw behavior gaps, but product wrapper state, "
+                    "custom hooks, and representative visual parity remain incomplete."
                 ),
             )
         )

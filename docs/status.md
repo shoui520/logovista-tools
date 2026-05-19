@@ -410,13 +410,15 @@ and non-SSED reader status are tracked separately in
 - `HC013D.dll` now has a focused raw-HONMON branch-subset proof for HKDKSR13:
   `1f09` section payloads map to drug-layout classes such as `title3`,
   `medblk`, `med`, `medprice`, `medimage`, `mednamelist*`, and `indent##`;
-  `1f41` opens the recovered `midashi` block; internal links carry
-  `lineLink`; `1f6d` is consumed as renderer state; image-backed gaiji use
-  `img_gaiji`; and recovered JIS-pair lookahead branches emit the
-  `syohatsu`, `midashi*`, `title*`, litre-unit, and entity templates. Custom
-  DIB generation, `modifyHeadword`, exact contents/table/click-menu lifecycle,
-  full picture extraction into final HTML, and broader visual parity remain
-  named gaps.
+  packed-BCD `0031..0034` opens the recovered gray multi-cell table grammar;
+  `0042/0043` opens product-code tables; `0070..0072` maps the click-menu
+  title/hidden-field triplet; `1f41` opens the recovered `midashi` block;
+  internal links carry `lineLink`; `1f6d` is consumed as renderer state;
+  image-backed gaiji use `img_gaiji`; and recovered JIS-pair lookahead
+  branches emit the `syohatsu`, `midashi*`, `title*`, litre-unit, and entity
+  templates. The full HKDKSR13 raw-HONMON render now emits no raw behavior
+  gaps. Custom DIB generation, `modifyHeadword`, full picture extraction into
+  final HTML, and broader visual parity remain named gaps.
 - `HC009D.dll` now has a focused raw-HONMON branch-subset proof for GKCEREMO:
   `1f09` section payloads map to product `lineinfoN` blocks; section `0008`
   uses the next B14x renderer marker to open product kakomi boxes such as
@@ -445,8 +447,9 @@ and non-SSED reader status are tracked separately in
   abbreviation text, recovered image-marker classes, and the clear BCD `1f09`
   section subset for sub-caption, example, translation, idiom, and column
   frames are handled from the decompiled body-loop branch table and
-  `Templates/00000146.css`. Residual section branches, product wrapper state,
-  and custom hooks remain visually incomplete.
+  `Templates/00000146.css`. The full PROYAL43 raw-HONMON render now emits no
+  raw behavior gaps. Product wrapper state, custom hooks, and representative
+  visual parity remain incomplete.
 - `HC0142.dll` now has a focused raw-HONMON branch-subset proof: `1f41` starts
   the `midashi` block, `1f0a` transitions into the `honbun` block or emits line
   breaks, internal links use `lineLink`, and recovered marker gaiji emit

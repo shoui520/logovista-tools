@@ -1316,7 +1316,7 @@ def test_hc013d_maps_sections_to_drug_layout_classes() -> None:
         + jis_ascii("I")
         + b"\x1f\x09\x00\x41"
         + jis_ascii("S")
-        + b"\x1f\x09\x00\x42"
+        + b"\x1f\x09\x00\x50"
         + jis_ascii("T")
     )
 
@@ -1329,7 +1329,7 @@ def test_hc013d_maps_sections_to_drug_layout_classes() -> None:
     assert '<div class="medprice">' in rendered.html
     assert '<div class="medimage">' in rendered.html
     assert '<div class="indent41">' in rendered.html
-    assert '<div class="indent42">' in rendered.html
+    assert '<div class="indent50">' in rendered.html
     assert "lv-hc-section" not in rendered.html
     assert rendered.stats["hc013d_section_blocks"] == 7
     assert rendered.stats["hc013d_midashi_state_sections"] == 1
@@ -1344,6 +1344,88 @@ def test_hc013d_internal_links_use_line_link_class_and_1f6d_is_nonprinting() -> 
     assert 'href="lvaddr://00000002/0048"' in rendered.html
     assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
     assert rendered.stats["hc013d_nonprinting_controls"] == 1
+
+
+def test_hc013d_maps_clickmenu_section_triplet() -> None:
+    body = (
+        b"\x1f\x09\x00\x70"
+        + jis_text("見出し")
+        + b"\x1f\x09\x00\x71"
+        + jis_text("詳細")
+        + b"\x1f\x09\x00\x72"
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="013D"))
+
+    assert 'class="clickmenu"' in rendered.html
+    assert 'src="menuoff.png"' in rendered.html
+    assert 'style="display:none;"' in rendered.html
+    assert "詳細" in rendered.html
+    assert "hc013d_unmapped_section_0070" not in rendered.named_behavior_gaps
+    assert "hc013d_unmapped_section_0071" not in rendered.named_behavior_gaps
+    assert "hc013d_unmapped_section_0072" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc013d_clickmenu_titles"] == 1
+    assert rendered.stats["hc013d_clickmenu_fields"] == 1
+    assert rendered.stats["hc013d_clickmenu_field_closures"] == 1
+
+
+def test_hc013d_uses_bcd_values_for_medname_list_sections() -> None:
+    body = (
+        b"\x1f\x09\x00\x20"
+        + jis_ascii("A")
+        + b"\x1f\x09\x00\x21"
+        + jis_ascii("B")
+        + b"\x1f\x09\x00\x22"
+        + jis_ascii("C")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="013D"))
+
+    assert '<div class="mednamelist1">' in rendered.html
+    assert '<div class="mednamelist2">' in rendered.html
+    assert '<div class="mednamelist3">' in rendered.html
+    assert "hc013d_unmapped_section_0020" not in rendered.named_behavior_gaps
+    assert "hc013d_unmapped_section_0021" not in rendered.named_behavior_gaps
+    assert "hc013d_unmapped_section_0022" not in rendered.named_behavior_gaps
+
+
+def test_hc013d_maps_gray_table_bcd_section_sequence() -> None:
+    body = (
+        b"\x1f\x09\x00\x31"
+        + jis_ascii("A")
+        + b"\x1f\x09\x00\x32"
+        + jis_ascii("B")
+        + b"\x1f\x09\x00\x33"
+        + jis_ascii("C")
+        + b"\x1f\x09\x00\x34"
+        + jis_ascii("D")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="013D"))
+
+    assert '<table cellpadding="3" cellspacing="1" bgcolor="#666666" style="margin:8px;">' in rendered.html
+    assert rendered.html.count("<table") == rendered.html.count("</table>")
+    assert rendered.html.count("<tr") == rendered.html.count("</tr>")
+    assert rendered.html.count("<td") == rendered.html.count("</td>")
+    assert "hc013d_unmapped_section_0031" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc013d_gray_tables"] == 1
+    assert rendered.stats["hc013d_gray_table_cells"] == 3
+    assert rendered.stats["hc013d_gray_table_closures"] == 1
+
+
+def test_hc013d_maps_product_code_table_bcd_sections() -> None:
+    body = b"\x1f\x09\x00\x42" + jis_ascii("A") + b"\x1f\x09\x00\x43" + jis_ascii("B")
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="013D"))
+
+    assert '<table class="table_pc"><tr class="tr_pc"><td class="td_pc1">' in rendered.html
+    assert '</td><td class="td_pc2">' in rendered.html
+    assert rendered.html.count("<table") == rendered.html.count("</table>")
+    assert "hc013d_unmapped_section_0042" not in rendered.named_behavior_gaps
+    assert "hc013d_unmapped_section_0043" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc013d_pc_tables"] == 1
+    assert rendered.stats["hc013d_pc_table_second_cells"] == 1
 
 
 def test_hc013d_renders_template_gaiji_with_product_image_class() -> None:
@@ -4385,6 +4467,97 @@ def test_hc0146_maps_recovered_example_and_translation_sections() -> None:
     assert rendered.stats["hc0146_section_exam_text"] == 1
     assert rendered.stats["hc0146_section_exam_translate"] == 1
     assert rendered.stats["hc0146_section_idiom_text_color"] == 1
+
+
+def test_hc0146_maps_synonym_column_title_and_frame_state() -> None:
+    body = (
+        b"\x1f\x09\x00\x70"
+        + b"\xb2\x32\xb2\x27\xb2\x33"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x71"
+        + jis_text("類語")
+        + b"\x1f\x0a"
+        + jis_text("本文")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x80"
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0146"))
+
+    assert '<div class="column_frame cm_f_synonym">' in rendered.html
+    assert '<p class="column_title cm_t_synonym"><img src="b227.png" class="column_icon">類語</p>' in rendered.html
+    assert "本文<br>" in rendered.html
+    assert "hc0146_unmapped_section_branch" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc0146_synonym_icon_selectors"] == 1
+    assert rendered.stats["hc0146_section_synonym_column_title"] == 1
+    assert rendered.stats["hc0146_column_frame_closures"] == 1
+
+
+def test_hc0146_maps_relation_column_title_and_frame_state() -> None:
+    body = (
+        b"\x1f\x09\x01\x50"
+        + b"\xb2\x32\xb2\x29\xb2\x33"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x01\x53"
+        + jis_text("関連")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x01\x60"
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0146"))
+
+    assert '<div class="column_frame cm_f_relation">' in rendered.html
+    assert '<p class="column_title cm_t_relation"><img src="b229.png" class="column_icon"></p>' in rendered.html
+    assert "関連<br>" in rendered.html
+    assert "hc0146_unmapped_section_branch" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc0146_section_relation_column_title"] == 1
+    assert rendered.stats["hc0146_column_frame_closures"] == 1
+
+
+def test_hc0146_maps_residual_state_and_indent_sections() -> None:
+    body = (
+        b"\x1f\x09\x02\x00"
+        + jis_text("通常")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x02\x92"
+        + jis_text("流し")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x02\x30"
+        + jis_text("追加")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x03\x40"
+        + jis_text("補足")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x03\x51"
+        + jis_text("字下げ")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x01\x40"
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0146"))
+
+    assert "通常<br>" in rendered.html
+    assert "流し<br>" in rendered.html
+    assert "追加<br>" in rendered.html
+    assert "補足<br>" in rendered.html
+    assert '<span class="indent_minus">字下げ</span>' in rendered.html
+    assert "hc0146_unmapped_section_branch" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc0146_state_sections"] == 5
+    assert rendered.stats["hc0146_section_indent_minus"] == 1
+
+
+def test_hc0146_consumes_renderer_state_close_control() -> None:
+    rendered = render_hc_body(
+        jis_text("前") + b"\x1f\x6d" + b"\x1f\x0a" + jis_text("後"),
+        HcRenderOptions(renderer_code="0146"),
+    )
+
+    assert "前<br>後" in rendered.html
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["hc0146_nonprinting_controls"] == 1
 
 
 def test_hc_render_assets_copy_images_and_normalise_product_css(tmp_path: Path) -> None:

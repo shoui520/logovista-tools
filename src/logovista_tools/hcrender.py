@@ -506,6 +506,7 @@ HC0146_IMAGE_MARKERS: dict[str, _RendererImageGaijiRule] = {
     "b23b": _RendererImageGaijiRule("gaiji_icon"),
     **{f"b{value:03x}": _RendererImageGaijiRule("gaiji_icon") for value in range(0x357, 0x425)},
 }
+HC0146_NONPRINTING_CONTROL_OPS = {0x6D}
 
 HC0146_STATE_SECTION_VALUES = {
     1,
@@ -515,17 +516,25 @@ HC0146_STATE_SECTION_VALUES = {
     80,
     100,
     120,
+    140,
+    153,
     160,
+    200,
+    230,
+    231,
     260,
     261,
     262,
     270,
     280,
     290,
+    291,
+    292,
     300,
     310,
     320,
     321,
+    340,
     350,
     360,
     370,
@@ -545,6 +554,7 @@ HC0146_STATE_SECTION_VALUES = {
     600,
     620,
     621,
+    622,
     623,
     680,
     700,
@@ -554,6 +564,20 @@ HC0146_STATE_SECTION_VALUES = {
     790,
     800,
     9999,
+}
+
+HC0146_FRAME_CLOSE_SECTION_VALUES = {
+    50,
+    80,
+    100,
+    120,
+    140,
+    160,
+    600,
+    650,
+    670,
+    700,
+    760,
 }
 
 HC0146_SECTION_TEMPLATES: dict[int, tuple[str, str, str]] = {
@@ -597,6 +621,7 @@ HC0146_SECTION_TEMPLATES: dict[int, tuple[str, str, str]] = {
     180: ('<span class="indent_minus">', "</span>", "indent_minus"),
     181: ('<span class="indent_minus">', "</span>", "indent_minus"),
     190: ('<span class="indent_minus">', "</span>", "indent_minus"),
+    351: ('<span class="indent_minus">', "</span>", "indent_minus"),
     210: ('<div class="column_frame exam_frame"><span class="exam_text">', "</span></div>", "exam_text"),
     211: ('<div class="column_frame exam_frame"><span class="exam_text">', "</span></div>", "exam_text"),
     212: ('<div class="column_frame exam_frame"><span class="exam_text">', "</span></div>", "exam_text"),
@@ -1949,23 +1974,16 @@ HC0142_DIRECT_HALF_IMAGE_MARKERS = {"a13f", "a162", "a163", "b169"}
 HC0142_NONPRINTING_CONTROL_OPS = {0x61}
 HC013D_NONPRINTING_CONTROL_OPS = {0x6D}
 HC013D_MED_SECTION_CLASSES = {
-    "0004": ("div", ' class="title3"'),
-    "0006": ("span", ' class="med"'),
-    "0008": ("div", ' class="medblk"'),
-    "0010": ("div", ' class="medprice"'),
-    "0011": ("div", ' class="medimage"'),
-    "0014": ("div", ' class="mednamelist1"'),
-    "0015": ("div", ' class="mednamelist2"'),
-    "0016": ("div", ' class="mednamelist3"'),
+    4: ("div", ' class="title3"'),
+    6: ("span", ' class="med"'),
+    8: ("div", ' class="medblk"'),
+    10: ("div", ' class="medprice"'),
+    11: ("div", ' class="medimage"'),
+    20: ("div", ' class="mednamelist1"'),
+    21: ("div", ' class="mednamelist2"'),
+    22: ("div", ' class="mednamelist3"'),
 }
-HC013D_INDENT_SECTION_CODES = {
-    *(f"{value:04x}" for value in range(0x32, 0x46)),
-    "0050",
-    "0051",
-    "0052",
-    "0060",
-    "0061",
-}
+HC013D_INDENT_SECTION_VALUES = frozenset({40, 41, *range(50, 70)})
 HC013D_TITLE_TRIGGER_SEQUENCES = {
     ("4a2c", "4e60"),
     ("3d68", "4a7d"),
@@ -3915,17 +3933,33 @@ def _hc0141_section_close_for_parts(parts: list[str]) -> str | None:
     return _hc0145_section_close_for_parts(parts)
 
 
+def _hc013d_bcd_value(code: str) -> int | None:
+    if len(code) != 4:
+        return None
+    try:
+        raw = bytes.fromhex(code)
+    except ValueError:
+        return None
+    value = 0
+    for byte in raw:
+        high = byte >> 4
+        low = byte & 0x0F
+        if high > 9 or low > 9:
+            return None
+        value = value * 100 + high * 10 + low
+    return value
+
+
 def _hc013d_section_parts(code: str) -> tuple[list[str], str | None]:
-    tag_spec = HC013D_MED_SECTION_CLASSES.get(code)
+    value = _hc013d_bcd_value(code)
+    if value is None:
+        return [], None
+    tag_spec = HC013D_MED_SECTION_CLASSES.get(value)
     if tag_spec is not None:
         tag, attrs = tag_spec
         return [f"<{tag}{attrs}>"], f"</{tag}>"
-    if code in HC013D_INDENT_SECTION_CODES:
-        return [f'<div class="indent{code[-2:]}">'], "</div>"
-    try:
-        value = int(code, 10)
-    except ValueError:
-        return [], None
+    if value in HC013D_INDENT_SECTION_VALUES:
+        return [f'<div class="indent{value:02d}">'], "</div>"
     if value in {2, 3, 5, 7, 9, 12, 13}:
         return [f'<div style="margin-left:{value * 4}px;">'], "</div>"
     return [], None
@@ -5039,6 +5073,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0151_contents_open = False
     hc0151_small_depth = 0
     hc0146_section_close: str | None = None
+    hc0146_column_frame_close: str | None = None
     hc0157_section_close: str | None = None
     hc0157_group_close: str | None = None
     hc0142_honbun_open = False
@@ -5047,6 +5082,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc02bc_section_open = False
     hc02be_section_open = False
     hc02be_section_close: str | None = None
+    hc013d_clickmenu_close: str | None = None
+    hc013d_clickmenu_field_close: str | None = None
+    hc013d_gray_table_open = False
+    hc013d_pc_table_open = False
     hc0190_sections: dict[int, str] = {}
     hc0190_template_key: str | None = None
     hc00b6_section_close: str | None = None
@@ -6027,6 +6066,56 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         if hc0146_section_close is not None:
                             root.append(hc0146_section_close)
                             hc0146_section_close = None
+                        section_value = _hc0146_section_value(code)
+                        if section_value == 70:
+                            section_end = _find_control_offset(data, i + 2 + arg_len, 0x0A)
+                            if section_end is not None:
+                                i = section_end
+                            else:
+                                i += 2 + arg_len
+                            stats["hc0146_synonym_icon_selectors"] += 1
+                            continue
+                        if section_value == 71:
+                            if hc0146_column_frame_close is not None:
+                                root.append(hc0146_column_frame_close)
+                                hc0146_column_frame_close = None
+                                stats["hc0146_column_frame_closures"] += 1
+                            root.append(
+                                '<div class="column_frame cm_f_synonym"><p class="column_title cm_t_synonym">'
+                                '<img src="b227.png" class="column_icon">'
+                            )
+                            hc0146_section_close = "</p>"
+                            hc0146_column_frame_close = "</div>"
+                            stats["hc0146_template_sections"] += 1
+                            stats["hc0146_section_synonym_column_title"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if section_value == 150:
+                            if hc0146_column_frame_close is not None:
+                                root.append(hc0146_column_frame_close)
+                                hc0146_column_frame_close = None
+                                stats["hc0146_column_frame_closures"] += 1
+                            root.append(
+                                '<div class="column_frame cm_f_relation"><p class="column_title cm_t_relation">'
+                                '<img src="b229.png" class="column_icon">'
+                            )
+                            hc0146_section_close = "</p>"
+                            hc0146_column_frame_close = "</div>"
+                            stats["hc0146_template_sections"] += 1
+                            stats["hc0146_section_relation_column_title"] += 1
+                            section_end = _find_control_offset(data, i + 2 + arg_len, 0x0A)
+                            if section_end is not None:
+                                i = section_end
+                            else:
+                                i += 2 + arg_len
+                            continue
+                        if (
+                            section_value in HC0146_FRAME_CLOSE_SECTION_VALUES
+                            and hc0146_column_frame_close is not None
+                        ):
+                            root.append(hc0146_column_frame_close)
+                            hc0146_column_frame_close = None
+                            stats["hc0146_column_frame_closures"] += 1
                         section_parts, hc0146_section_close, section_label, section_is_fallback = _hc0146_section_parts(code)
                         if not section_parts:
                             stats["hc0146_state_sections"] += 1
@@ -6303,9 +6392,98 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "013D":
+                        section_value = _hc013d_bcd_value(code)
+                        if hc013d_pc_table_open and section_value not in {42, 43}:
+                            root.append("</td></tr></table><br>")
+                            hc013d_pc_table_open = False
+                            stats["hc013d_pc_table_closures"] += 1
+                        if hc013d_gray_table_open and section_value not in {31, 32, 33, 34}:
+                            root.append("</td></tr></table>")
+                            hc013d_gray_table_open = False
+                            stats["hc013d_gray_table_closures"] += 1
                         if hc013d_section_close is not None:
                             root.append(hc013d_section_close)
                             hc013d_section_close = None
+                        if hc013d_clickmenu_close is not None:
+                            root.append(hc013d_clickmenu_close)
+                            hc013d_clickmenu_close = None
+                            stats["hc013d_clickmenu_title_closures"] += 1
+                        if section_value == 31:
+                            if hc013d_gray_table_open:
+                                root.append('</td></tr><tr bgcolor="#FFFFFF"><td>')
+                                stats["hc013d_gray_table_rows"] += 1
+                            else:
+                                root.append(
+                                    '<table cellpadding="3" cellspacing="1" bgcolor="#666666" '
+                                    'style="margin:8px;"><tr bgcolor="#FFFFFF"><td>'
+                                )
+                                hc013d_gray_table_open = True
+                                stats["hc013d_gray_tables"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if section_value in {32, 33, 34}:
+                            if not hc013d_gray_table_open:
+                                root.append(
+                                    '<table cellpadding="3" cellspacing="1" bgcolor="#666666" '
+                                    'style="margin:8px;"><tr bgcolor="#FFFFFF"><td>'
+                                )
+                                hc013d_gray_table_open = True
+                                stats["hc013d_gray_table_implicit_opens"] += 1
+                            root.append("</td><td>")
+                            stats["hc013d_gray_table_cells"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if section_value == 42:
+                            if hc013d_pc_table_open:
+                                root.append('</td></tr><tr class="tr_pc"><td class="td_pc1">')
+                                stats["hc013d_pc_table_rows"] += 1
+                            else:
+                                root.append('<table class="table_pc"><tr class="tr_pc"><td class="td_pc1">')
+                                hc013d_pc_table_open = True
+                                stats["hc013d_pc_tables"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if section_value == 43:
+                            if not hc013d_pc_table_open:
+                                root.append('<table class="table_pc"><tr class="tr_pc"><td class="td_pc1">')
+                                hc013d_pc_table_open = True
+                                stats["hc013d_pc_table_implicit_opens"] += 1
+                            root.append('</td><td class="td_pc2">')
+                            stats["hc013d_pc_table_second_cells"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if section_value == 70:
+                            menu_index = stats["hc013d_clickmenu_titles"]
+                            root.append(
+                                f'<div><span id="lv-hc013d-menu-{menu_index}" class="clickmenu" '
+                                'style="cursor:hand;">'
+                            )
+                            hc013d_clickmenu_close = (
+                                f'<img src="menuoff.png" id="lv-hc013d-img-{menu_index}" '
+                                'class="img_gaiji"></span></div>'
+                            )
+                            stats["hc013d_clickmenu_titles"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if section_value == 71:
+                            if hc013d_clickmenu_field_close is not None:
+                                root.append(hc013d_clickmenu_field_close)
+                                stats["hc013d_clickmenu_field_closures"] += 1
+                            field_index = stats["hc013d_clickmenu_fields"]
+                            root.append(f'<div id="lv-hc013d-field-{field_index}" style="display:none;">')
+                            hc013d_clickmenu_field_close = "</div>"
+                            stats["hc013d_clickmenu_fields"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if section_value == 72:
+                            if hc013d_clickmenu_field_close is not None:
+                                root.append(hc013d_clickmenu_field_close)
+                                hc013d_clickmenu_field_close = None
+                                stats["hc013d_clickmenu_field_closures"] += 1
+                            else:
+                                stats["hc013d_unmatched_clickmenu_field_closures"] += 1
+                            i += 2 + arg_len
+                            continue
                         section_parts, section_close = _hc013d_section_parts(code)
                         root.extend(section_parts)
                         hc013d_section_close = section_close
@@ -7349,6 +7527,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "0142" and op in HC0142_NONPRINTING_CONTROL_OPS:
                 stats["hc0142_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0146" and op in HC0146_NONPRINTING_CONTROL_OPS:
+                stats["hc0146_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -11272,6 +11455,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         stats["hc012d_yindex_field_closures"] += 1
     if hc013d_section_close is not None:
         _current_parts(root_parts, contexts).append(hc013d_section_close)
+    if hc013d_pc_table_open:
+        _current_parts(root_parts, contexts).append("</td></tr></table><br>")
+        stats["hc013d_pc_table_closures"] += 1
+    if hc013d_gray_table_open:
+        _current_parts(root_parts, contexts).append("</td></tr></table>")
+        stats["hc013d_gray_table_closures"] += 1
+    if hc013d_clickmenu_close is not None:
+        _current_parts(root_parts, contexts).append(hc013d_clickmenu_close)
+    if hc013d_clickmenu_field_close is not None:
+        _current_parts(root_parts, contexts).append(hc013d_clickmenu_field_close)
     if hc0141_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0141_section_close)
     if hc0144_section_close is not None:
@@ -11504,6 +11697,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append("</div>")
     if hc0146_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0146_section_close)
+    if hc0146_column_frame_close is not None:
+        _current_parts(root_parts, contexts).append(hc0146_column_frame_close)
     if hc0157_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0157_section_close)
     if hc0157_group_close is not None:
