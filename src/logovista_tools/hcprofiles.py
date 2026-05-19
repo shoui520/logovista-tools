@@ -193,6 +193,26 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Normal entry body HTML is supplied by the LogoFontCipher SQLite HONBUN table; raw HONMON slots are placeholders.",
             )
         )
+    if code == "014D":
+        rows.append(
+            HcHookBehavior(
+                name="honbun_ordered_body_lookup",
+                status="implemented_when_sidecar_present",
+                evidence=("HONBUN(ID, Title_UTF8, Contents_HTML_box)", "row-order match with raw HONMON entries"),
+                implementation="rendererdb ordered HONBUN row join",
+                notes="Normal entry body HTML is supplied by the LogoFontCipher SQLite HONBUN table in raw-entry order.",
+            )
+        )
+    if code == "02D0":
+        rows.append(
+            HcHookBehavior(
+                name="hc02d0_t_contents_body_lookup",
+                status="implemented_when_sidecar_present",
+                evidence=("t_contents f_DataId/f_Html SQL sidecar", "dense HONMON decimal ID anchors"),
+                implementation="rendererdb data_id join",
+                notes="Normal entry body HTML is supplied by the LogoFontCipher SQLite sidecar; raw HONMON records are decimal ID anchors.",
+            )
+        )
     if code == "015F":
         rows.extend(
             [
@@ -2351,6 +2371,10 @@ def build_hc_behavior_profile(
         implemented.add("HC016x_order_id_t_contents_exact_body_html")
     if code == "0153" and rendererdb_ok:
         implemented.add("HC0153_honbun_array_exact_body_html")
+    if code == "014D" and rendererdb_ok:
+        implemented.add("HC014D_honbun_ordered_exact_body_html")
+    if code == "02D0" and rendererdb_ok:
+        implemented.add("HC02D0_t_contents_exact_body_html")
     if code == "0132":
         implemented.add("HC0132_finance_section_layout")
     if code == "013C":

@@ -7038,6 +7038,90 @@ def test_hc0153_profile_records_honbun_array_body_without_claiming_hook_parity()
     assert "user_data_hook" in data["named_gaps"]
 
 
+def test_hc014d_profile_records_ordered_honbun_body_without_claiming_hook_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC014D.dll"),
+        code="014D",
+        expected_numeric_index="0000014D.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=("vlpljblF",),
+        dic_tokens=(),
+        vlpljbl_tokens=("HONBUN", "Contents_HTML_box"),
+        html_templates=("Templates/0000014D.css",),
+        sql_snippets=("SELECT Contents_HTML_box FROM HONBUN",),
+        image_templates=(),
+        features={
+            "custom_gaiji_dib": True,
+            "headword_modifier": True,
+            "sql_hooks": True,
+            "plugin_hooks": True,
+            "user_data_hooks": True,
+        },
+    )
+
+    data = build_hc_behavior_profile(
+        row,
+        rendererdb_summary={
+            "status": "ok_honbun_ordered",
+            "honbun_rows": 20,
+            "entries_matched_to_raw_honmon": 20,
+        },
+    ).as_dict()
+
+    assert data["body_strategy"] == "rendererdb_html"
+    assert "HC014D_honbun_ordered_exact_body_html" in data["implemented_semantics"]
+    hooks = {row["name"]: row for row in data["hook_behaviors"]}
+    assert hooks["honbun_ordered_body_lookup"]["status"] == "implemented_when_sidecar_present"
+    assert data["exact_hc_parity"] is False
+
+
+def test_hc02d0_profile_records_t_contents_body_without_claiming_hook_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC02D0.dll"),
+        code="02D0",
+        expected_numeric_index="000002D0.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=("vlpljblh",),
+        dic_tokens=(),
+        vlpljbl_tokens=("t_contents", "f_DataId", "f_Html"),
+        html_templates=("Templates/000002D0.css",),
+        sql_snippets=("SELECT f_Html FROM t_contents WHERE f_DataId = ?",),
+        image_templates=(),
+        features={
+            "custom_gaiji_dib": True,
+            "dictionary_original_search": True,
+            "fulltext_search": True,
+            "headword_modifier": True,
+            "sql_hooks": True,
+            "plugin_hooks": True,
+            "user_data_hooks": True,
+        },
+    )
+
+    data = build_hc_behavior_profile(
+        row,
+        rendererdb_summary={"status": "ok", "t_contents_rows": 20, "entries_matched_to_raw_honmon": 20},
+    ).as_dict()
+
+    assert data["body_strategy"] == "rendererdb_html"
+    assert "HC02D0_t_contents_exact_body_html" in data["implemented_semantics"]
+    hooks = {row["name"]: row for row in data["hook_behaviors"]}
+    assert hooks["hc02d0_t_contents_body_lookup"]["status"] == "implemented_when_sidecar_present"
+    assert data["exact_hc_parity"] is False
+
+
 def test_hc013f_profile_records_block_offset_rendererdb_body_without_claiming_hook_parity() -> None:
     row = HcRendererClassification(
         path=Path("HC013F.dll"),
