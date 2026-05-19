@@ -5213,6 +5213,21 @@ def _rewrite_exact_body_asset_refs(
             f'data-lv-image-ref="{_escape_attr(reference)}"'
         )
 
+    def replace_bookmark_href(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        quote = match.group(2)
+        reference = html.unescape(match.group(3))
+        suffix_quote = match.group(4)
+        if not reference:
+            return match.group(0)
+        original = f"lved.bookmark:{reference}"
+        target = f"#lv-bookmark-{_safe_href_token(reference)}"
+        return (
+            f'{prefix}{quote}{_escape_attr(target)}{suffix_quote} '
+            f'data-lv-original-href="{_escape_attr(original)}" '
+            f'data-lv-bookmark="{_escape_attr(reference)}"'
+        )
+
     rewritten = _normalize_exact_body_fragment_html(fragment)
     rewritten = re.sub(r'src=(["\'])([^"\']+)\1', replace_src, rewritten)
     rewritten = re.sub(
@@ -5228,6 +5243,12 @@ def _rewrite_exact_body_asset_refs(
         flags=re.IGNORECASE,
     )
     rewritten = _rewrite_lved_addr_hrefs(rewritten)
+    rewritten = re.sub(
+        r'(\bhref\s*=\s*)(["\'])lved\.bookmark:([^"\']+)(["\'])',
+        replace_bookmark_href,
+        rewritten,
+        flags=re.IGNORECASE,
+    )
     rewritten = re.sub(
         r'(\bhref\s*=\s*)(["\'])lved\.(imag|image):([^"\']+)(["\'])',
         replace_image_href,

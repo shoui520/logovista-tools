@@ -1,4 +1,5 @@
 import plistlib
+import json
 import sqlite3
 from argparse import Namespace
 from pathlib import Path
@@ -71,6 +72,7 @@ from logovista_tools.rendererdb import (
     discover_android_body_databases,
     discover_ziptomedia_dir,
     extract_block_offset_body_database,
+    extract_rendererdb_dictionary,
     html_media_reference_rows,
     html_to_plain,
     html_ziptomedia_reference_rows,
@@ -124,6 +126,7 @@ from logovista_tools.windows import (
     sqlite_role_for_tables,
     vlpljbl_suffix,
 )
+from logovista_tools.writer import encode_sseddata_literal
 
 
 def test_normalize_fullwidth_ascii() -> None:
@@ -1535,6 +1538,55 @@ def test_rendererdb_order_id_contents_aliases() -> None:
     assert columns["f_Media"] == "f_media"
 
     con.close()
+
+
+def test_rendererdb_unanchored_t_contents_rows_are_extractable(tmp_path: Path) -> None:
+    idx = tmp_path / "TEST.IDX"
+    honmon = tmp_path / "HONMON.DIC"
+    db = tmp_path / "body.db"
+    idx.write_bytes(b"")
+    honmon.write_bytes(encode_sseddata_literal(b"", start_block=2, kind=0))
+    con = sqlite3.connect(db)
+    con.execute(
+        "create table t_contents ("
+        "f_data_id integer primary key, f_midashi text, f_contents text, f_media text)"
+    )
+    con.execute(
+        "insert into t_contents values "
+        "(1001, 'title one', '<p><a href=\"lved.bookmark:C001\">one</a></p>', '')"
+    )
+    con.execute("insert into t_contents values (1002, 'title two', '<p>two</p>', '')")
+    con.commit()
+    con.close()
+    source = DictionarySource(
+        dict_id="TEST",
+        idx=idx,
+        title="test",
+        honmon=honmon,
+        honmon_start_block=2,
+        gaiji_map={},
+    )
+    args = Namespace(
+        decrypted_db=db,
+        include_html=True,
+        limit=1,
+        write_media=False,
+        media_limit=None,
+        write_ziptomedia=False,
+        ziptomedia_limit=None,
+    )
+
+    summary = extract_rendererdb_dictionary(source, tmp_path / "out", args)
+    entries = (tmp_path / "out" / "TEST" / "rendererdb_entries.jsonl").read_text(encoding="utf-8").splitlines()
+
+    assert summary["status"] == "ok_t_contents_unanchored_body"
+    assert summary["raw_honmon_id_records"] == 0
+    assert summary["t_contents_rows"] == 2
+    assert summary["unanchored_t_contents_rows"] == 2
+    assert summary["entries_matched_to_raw_honmon"] == 0
+    assert summary["entries_emitted"] == 1
+    assert summary["body_selection_source"] == "rendererdb_data_id"
+    assert json.loads(entries[0])["raw_honmon"] is None
 
 
 def test_rendererdb_decimal_id_parser_is_lossless() -> None:

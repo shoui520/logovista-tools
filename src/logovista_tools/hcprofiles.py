@@ -109,7 +109,7 @@ def _rendererdb_ok(rendererdb_summary: dict[str, Any] | None) -> bool:
 def _family_for_code(code: str | None, renderer: HcRendererClassification | None) -> str:
     if code is None:
         return "no_hc_renderer"
-    if code in {"015A", "015B", "015D", "015E", "015F"}:
+    if code in {"015A", "015B", "015C", "015D", "015E", "015F"}:
         return "modern_dense_t_contents_renderer"
     if code == "0155":
         return "hc0155_main_id_text_renderer"
@@ -134,7 +134,7 @@ def _family_for_code(code: str | None, renderer: HcRendererClassification | None
 
 def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
     rows: list[HcHookBehavior] = []
-    if code in {"015A", "015B", "015D", "015E", "015F"}:
+    if code in {"015A", "015B", "015C", "015D", "015E", "015F"}:
         rows.append(
             HcHookBehavior(
                 name="t_contents_body_lookup",
@@ -142,6 +142,23 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 evidence=("t_contents f_DataId/f_Html SQL", "dense HONMON decimal ID anchors"),
                 implementation="rendererdb data_id join",
                 notes="HC code selects f_Html/f_Title_SS/f_Keyword by f_DataId and related group IDs.",
+            )
+        )
+    if code == "0160":
+        rows.append(
+            HcHookBehavior(
+                name="unanchored_t_contents_body_lookup",
+                status="implemented_when_sidecar_present",
+                evidence=(
+                    "t_contents(f_data_id,f_midashi,f_contents,f_media) SQL sidecar",
+                    "select*.html lved.dataid references",
+                    "raw HONMON has no dense decimal anchors",
+                ),
+                implementation="rendererdb f_data_id row extraction without raw-HONMON join",
+                notes=(
+                    "Normal entry bodies are selected by renderer/app data IDs rather than by raw HONMON anchor records; "
+                    "the extractor preserves that distinction instead of inventing raw body addresses."
+                ),
             )
         )
     if code == "0159":
@@ -2358,8 +2375,10 @@ def build_hc_behavior_profile(
         implemented.add("HC00A0_phrase_detail_renderer")
     if code == "0159" and rendererdb_ok:
         implemented.add("HC0159_t_contents_exact_body_html")
-    if code in {"015A", "015B", "015D", "015E", "015F"} and rendererdb_ok:
+    if code in {"015A", "015B", "015C", "015D", "015E", "015F"} and rendererdb_ok:
         implemented.add("HC015x_t_contents_exact_body_html")
+    if code == "0160" and rendererdb_ok:
+        implemented.add("HC0160_unanchored_t_contents_exact_body_html")
     if code == "013F" and rendererdb_ok:
         implemented.add("HC013F_block_offset_exact_body_html")
         implemented.add("HC013F_raw_honmon_state_controls")

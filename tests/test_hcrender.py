@@ -6863,6 +6863,47 @@ def test_hc0159_profile_records_exact_rendererdb_body_without_claiming_hook_pari
     assert "modify_headword_hook" in data["named_gaps"]
 
 
+def test_hc015c_profile_records_t_contents_body_without_claiming_hook_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC015C.dll"),
+        code="015C",
+        expected_numeric_index="0000015C.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=("vlpljblF",),
+        dic_tokens=(),
+        vlpljbl_tokens=("t_contents", "f_DataId", "f_Html"),
+        html_templates=("Templates/0000015C.css",),
+        sql_snippets=("SELECT f_Html FROM t_contents WHERE f_DataId = ?",),
+        image_templates=(),
+        features={
+            "custom_gaiji_dib": True,
+            "dictionary_original_search": True,
+            "fulltext_search": True,
+            "headword_modifier": True,
+            "sql_hooks": True,
+        },
+    )
+
+    data = build_hc_behavior_profile(
+        row,
+        rendererdb_summary={"status": "ok", "t_contents_rows": 20, "entries_matched_to_raw_honmon": 20},
+    ).as_dict()
+
+    assert data["body_strategy"] == "rendererdb_html"
+    assert data["body_strategy_status"] == "exact_entry_body_html"
+    assert "HC015x_t_contents_exact_body_html" in data["implemented_semantics"]
+    hooks = {row["name"]: row for row in data["hook_behaviors"]}
+    assert hooks["t_contents_body_lookup"]["status"] == "implemented_when_sidecar_present"
+    assert data["exact_hc_parity"] is False
+    assert "modify_headword_hook" in data["named_gaps"]
+
+
 def test_hc015d_profile_records_t_contents_body_without_claiming_hook_parity() -> None:
     row = HcRendererClassification(
         path=Path("HC015D.dll"),
@@ -6902,6 +6943,54 @@ def test_hc015d_profile_records_t_contents_body_without_claiming_hook_parity() -
     assert "HC015x_t_contents_exact_body_html" in data["implemented_semantics"]
     hooks = {row["name"]: row for row in data["hook_behaviors"]}
     assert hooks["t_contents_body_lookup"]["status"] == "implemented_when_sidecar_present"
+    assert data["exact_hc_parity"] is False
+    assert "plugin_function_hook" in data["named_gaps"]
+
+
+def test_hc0160_profile_records_unanchored_t_contents_body_without_claiming_hook_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0160.dll"),
+        code="0160",
+        expected_numeric_index="00000160.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=("vlpljblF",),
+        dic_tokens=(),
+        vlpljbl_tokens=("t_contents", "f_data_id", "f_contents"),
+        html_templates=("Templates/00000160.css", "select0.html", "select1.html"),
+        sql_snippets=("SELECT f_contents FROM t_contents WHERE f_data_id = ?",),
+        image_templates=("icon_bm.png", "icon_bm_on.png"),
+        features={
+            "custom_gaiji_dib": True,
+            "dictionary_original_search": True,
+            "fulltext_search": True,
+            "headword_modifier": True,
+            "plugin_hooks": True,
+            "sql_hooks": True,
+            "user_data_hooks": True,
+        },
+    )
+
+    data = build_hc_behavior_profile(
+        row,
+        rendererdb_summary={
+            "status": "ok_t_contents_unanchored_body",
+            "t_contents_rows": 20,
+            "entries_matched_to_raw_honmon": 0,
+            "unanchored_t_contents_rows": 20,
+        },
+    ).as_dict()
+
+    assert data["body_strategy"] == "rendererdb_html"
+    assert data["body_strategy_status"] == "exact_entry_body_html"
+    assert "HC0160_unanchored_t_contents_exact_body_html" in data["implemented_semantics"]
+    hooks = {row["name"]: row for row in data["hook_behaviors"]}
+    assert hooks["unanchored_t_contents_body_lookup"]["status"] == "implemented_when_sidecar_present"
     assert data["exact_hc_parity"] is False
     assert "plugin_function_hook" in data["named_gaps"]
 
@@ -7325,7 +7414,7 @@ def test_hc_render_exact_rendererdb_html_rewrites_extracted_renderer_links(tmp_p
         "\n".join(
             [
                 '{"dict_id":"DICT","data_id":"000005","html":"<a href=\\"lved.ziptomedia:000010.wav\\"><img src=\\"sound.png\\"></a><a href=\\"lved.dataid:000006#000006_00A0100\\">next</a>","plain":"A"}',
-                '{"dict_id":"DICT","data_id":6,"html":"<div>target</div>","plain":"target"}',
+                '{"dict_id":"DICT","data_id":6,"html":"<div>target</div><a href=\\"lved.bookmark:C001_00000000\\">bookmark</a>","plain":"target"}',
             ]
         )
         + "\n",
@@ -7351,6 +7440,10 @@ def test_hc_render_exact_rendererdb_html_rewrites_extracted_renderer_links(tmp_p
     assert 'data-lv-dataid="6"' in rendered
     assert 'data-lv-target-anchor="000006_00A0100"' in rendered
     assert 'data-lv-missing-target' not in rendered
+    assert 'href="#lv-bookmark-C001_00000000"' in rendered
+    assert 'data-lv-original-href="lved.bookmark:C001_00000000"' in rendered
+    assert 'data-lv-bookmark="C001_00000000"' in rendered
+    assert re.search(r'(?<![\w-])href="lved\.', rendered) is None
 
 
 def test_hc_render_exact_rendererdb_html_rewrites_string_dataid_links(tmp_path: Path) -> None:

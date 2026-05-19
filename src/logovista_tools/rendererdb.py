@@ -1394,12 +1394,14 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
         emitted = 0
         matched_ids = 0
         extra_rows = 0
+        unanchored_rows = 0
         non_numeric_data_id_rows = 0
         non_numeric_data_id_samples: list[str] = []
         type_counts: Counter[int] = Counter()
         ziptomedia_refs: Counter[str] = Counter()
         group_count = 0
         group_ids: set[int] = set()
+        allow_unanchored_t_contents = not raw_ids
         html_path = dict_out / "rendererdb_entries.html"
         html_out = html_path.open("w", encoding="utf-8") if args.include_html else None
         if html_out is not None:
@@ -1416,11 +1418,6 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
                             non_numeric_data_id_samples.append(str(data_id_value))
                         extra_rows += 1
                         continue
-                    raw = ids_by_data_id.get(data_id)
-                    if raw is None:
-                        extra_rows += 1
-                        continue
-                    matched_ids += 1
                     if "f_Type" in row_keys and row["f_Type"] is not None:
                         type_value = parse_decimal_int(row["f_Type"])
                         if type_value is not None:
@@ -1434,12 +1431,20 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
                     plane = row["f_Plane"] if "f_Plane" in row_keys else None
                     media_value = row["f_Media"] if "f_Media" in row_keys else None
                     ziptomedia_refs.update(ziptomedia_reference_names(html_value))
+                    raw = ids_by_data_id.get(data_id)
+                    if raw is None:
+                        extra_rows += 1
+                        if not allow_unanchored_t_contents:
+                            continue
+                        unanchored_rows += 1
+                    else:
+                        matched_ids += 1
                     if args.limit is None or emitted < args.limit:
                         record = {
                             "dict_id": source.dict_id,
                             "dict_title": source.title,
                             "data_id": data_id,
-                            "raw_honmon": honmon_id_record_to_json(raw),
+                            "raw_honmon": honmon_id_record_to_json(raw) if raw is not None else None,
                             "type": row["f_Type"] if "f_Type" in row_keys else None,
                             "data_group_id": row["f_DataGroupId"] if "f_DataGroupId" in row_keys else None,
                             "anchor": row["f_Anchor"] if "f_Anchor" in row_keys else None,
@@ -1479,12 +1484,14 @@ def extract_rendererdb_dictionary(source: DictionarySource, out_dir: Path, args:
         ziptomedia_summary = summarize_ziptomedia_refs(source.idx, ziptomedia_refs)
         summary.update(
             {
-                "status": "ok",
+                "status": "ok_t_contents_unanchored_body" if unanchored_rows and not matched_ids else "ok",
                 "rendererdb_html_path": str(html_path) if args.include_html else None,
                 "t_contents_rows": content_rows,
                 "entries_matched_to_raw_honmon": matched_ids,
+                "unanchored_t_contents_rows": unanchored_rows,
                 "entries_emitted": emitted,
                 "db_rows_without_raw_honmon_id": extra_rows,
+                "body_selection_source": "rendererdb_data_id" if unanchored_rows and not matched_ids else "raw_honmon_anchor",
                 "db_rows_with_non_numeric_data_id": non_numeric_data_id_rows,
                 "non_numeric_data_id_samples": non_numeric_data_id_samples,
                 "raw_honmon_ids_missing_in_db": max(0, len(raw_ids) - matched_ids),
