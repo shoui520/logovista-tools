@@ -87,6 +87,23 @@ def test_hc_render_pcmdata_audio_uses_sound_icon_when_asset_is_available() -> No
     assert rendered.stats["audio_images"] == 1
 
 
+def test_hc_render_common_media_close_state_is_not_unknown() -> None:
+    rendered = render_hc_body(jis_ascii("A") + b"\x1f\x6d" + jis_ascii("B"))
+
+    assert "AB" in rendered.plain
+    assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
+    assert rendered.stats["common_renderer_state_controls"] == 1
+
+
+def test_hc_render_unterminated_link_preserves_visible_label_without_gap() -> None:
+    rendered = render_hc_body(jis_text("前") + b"\x1f\x42" + jis_text("未終端リンク") + jis_text("後"))
+
+    assert "前未終端リンク後" in rendered.plain
+    assert "未終端リンク" in rendered.html
+    assert "unterminated_link" not in rendered.named_behavior_gaps
+    assert rendered.stats["unterminated_links_recovered"] == 1
+
+
 def test_hc_render_private_directive_suppresses_visible_text() -> None:
     body = jis_ascii("A") + b"\x1f\xe2\x00\x00" + jis_ascii("B") + b"\x1f\xe3\x00\x00" + jis_ascii("C")
 

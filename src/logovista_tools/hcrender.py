@@ -86,6 +86,7 @@ PRIVATE_START_OPS = {0xE2}
 PRIVATE_END_OPS = {0xE3}
 VERTICAL_HINT_OPS = {0x36, 0x37, 0x4B, 0x4C}
 PRIVATE_RENDERER_DIRECTIVE_OPS = {0x4E, 0x4F, 0xE4, 0xE6}
+COMMON_RENDERER_STATE_OPS = {0x6D}
 
 HC_CSS_DEFAULTS = {
     "$font-family-Jpn$": '"Yu Mincho", "Hiragino Mincho ProN", "Meiryo", serif',
@@ -9881,6 +9882,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if op in COMMON_RENDERER_STATE_OPS:
+                stats["common_renderer_state_controls"] += 1
+                i += 2 + arg_len
+                continue
+
             if op in KNOWN_NONPRINTING_CONTROLS:
                 stats["nonprinting_controls"] += 1
                 i += 2 + arg_len
@@ -11978,6 +11984,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         elif ctx.kind == "link" and ctx.start_op == 0x42 and _renderer_code(options) == "008B":
             ctx.parent.extend(ctx.parts)
             stats["hc008b_unterminated_link_recovered"] += 1
+        elif ctx.kind == "link":
+            ctx.parent.extend(ctx.parts)
+            stats["unterminated_links_recovered"] += 1
         else:
             ctx.parent.extend(ctx.parts)
             gaps.add(f"unterminated_{ctx.kind}")

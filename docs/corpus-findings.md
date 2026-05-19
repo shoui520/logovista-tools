@@ -471,6 +471,11 @@ Most frequent and structurally important controls from the atlas:
 1fe2 / 1fe3   private renderer directive span pair; 1fe2 has 2-byte payload
 ```
 
+Current HC rendering treats `1f6d` as a no-output renderer/media-close state
+even when a dictionary has no declared HC plugin. This is consistent with the
+recovered HC body loops that consume `1f6d` after media/reference controls;
+the common renderer does not emit visible placeholder text for it.
+
 The `1fe2` / `1fe3` pair is common and should not be rendered as ordinary
 visible body text. Its payload text carries renderer directives such as `IMG:`,
 `RUB:`, `SMC:`, `IDX:`, `HTM:`, `SQL:`, `GTH:`, `BOX:`, and

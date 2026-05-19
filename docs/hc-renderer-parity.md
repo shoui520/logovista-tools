@@ -10,6 +10,13 @@ formatting `lved.addr` targets. The toolkit keeps that behavior
 renderer-specific; renderers without recovered BCD evidence continue to use
 the generic binary pointer decoder.
 
+Common renderer note: packages with no declared HC plugin still share the
+SSED/HC control stream. The common renderer now treats `1f6d` as a no-output
+media/reference close state and preserves visible text from unterminated link
+spans without inventing a link target. A focused recheck of the raw-gap
+packages from the current sweep leaves only the named `no_hc_renderer_plugin_declared`
+classification for those dictionaries.
+
 ## Status Vocabulary
 
 | Status | Meaning |
