@@ -6863,6 +6863,49 @@ def test_hc0159_profile_records_exact_rendererdb_body_without_claiming_hook_pari
     assert "modify_headword_hook" in data["named_gaps"]
 
 
+def test_hc015d_profile_records_t_contents_body_without_claiming_hook_parity() -> None:
+    row = HcRendererClassification(
+        path=Path("HC015D.dll"),
+        code="015D",
+        expected_numeric_index="0000015D.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=("vlpljblb",),
+        dic_tokens=(),
+        vlpljbl_tokens=("t_contents", "f_DataId", "f_Html"),
+        html_templates=("Templates/0000015D.css",),
+        sql_snippets=("SELECT f_Html FROM t_contents WHERE f_DataId = ?",),
+        image_templates=(),
+        features={
+            "custom_gaiji_dib": True,
+            "dictionary_original_search": True,
+            "fulltext_search": True,
+            "headword_modifier": True,
+            "sql_hooks": True,
+            "plugin_hooks": True,
+            "user_data_hooks": True,
+        },
+    )
+
+    data = build_hc_behavior_profile(
+        row,
+        rendererdb_summary={"status": "ok", "t_contents_rows": 20, "entries_matched_to_raw_honmon": 20},
+    ).as_dict()
+
+    assert data["body_strategy"] == "rendererdb_html"
+    assert data["body_strategy_status"] == "exact_entry_body_html"
+    assert "HC015x_t_contents_exact_body_html" in data["implemented_semantics"]
+    hooks = {row["name"]: row for row in data["hook_behaviors"]}
+    assert hooks["t_contents_body_lookup"]["status"] == "implemented_when_sidecar_present"
+    assert data["exact_hc_parity"] is False
+    assert "plugin_function_hook" in data["named_gaps"]
+
+
 def test_hc0156_profile_records_main_id_text_body_without_claiming_hook_parity() -> None:
     row = HcRendererClassification(
         path=Path("HC0156.dll"),
