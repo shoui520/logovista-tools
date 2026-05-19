@@ -4298,6 +4298,8 @@ def test_hc0157_uses_line_link_for_internal_addresses() -> None:
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="0157"))
 
     assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert 'href="lvaddr://00000003/0040"' in rendered.html
+    assert 'data-lv-offset="40"' in rendered.html
 
 
 def test_hc0157_treats_1f12_1f13_as_noop_controls() -> None:

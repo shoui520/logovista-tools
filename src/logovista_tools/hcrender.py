@@ -2057,6 +2057,10 @@ def _decode_pointer_payload(payload: bytes, *, packed_bcd: bool = False) -> dict
     return {"block": block, "offset": offset}
 
 
+def _link_payload_is_packed_bcd(options: HcRenderOptions) -> bool:
+    return _renderer_code(options) in {"0157", "0190"}
+
+
 def _pointer_href(pointer: dict[str, int] | None) -> str:
     if pointer is None:
         return "lvaddr://unresolved"
@@ -9171,7 +9175,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if op in LINK_END_OPS:
                 ctx = _pop_context(contexts, "link")
                 target_payload = payload or (ctx.payload[-6:] if ctx and len(ctx.payload) >= 6 else b"")
-                target = _decode_pointer_payload(target_payload, packed_bcd=_renderer_code(options) == "0190")
+                target = _decode_pointer_payload(target_payload, packed_bcd=_link_payload_is_packed_bcd(options))
                 link = {
                     "start_control": f"1f{ctx.start_op:02x}" if ctx else None,
                     "end_control": f"1f{op:02x}",

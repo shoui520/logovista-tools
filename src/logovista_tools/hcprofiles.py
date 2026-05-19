@@ -1983,13 +1983,15 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 evidence=(
                     "HC0157 epwing2HtmlBodydataVertical 1f09 section branch ladder",
                     "HC0157 epwing2HtmlBodydataVertical A14D/A14E accent branches",
+                    "HC0157 packed-BCD 1f62/1f63 link target formatter",
                     "HC0157 B156-B241 CSS span branch ladder",
                     "Templates/00000157.css class definitions",
                 ),
                 implementation=(
                     "1f09 sections map to komidashi/gogi/example/phrase/derivative/compound "
-                    "layout blocks, A14D/A14E accent markers, B156-B241 CSS span delimiters, "
-                    "and B22D-B23B red circled-number gaiji wrappers"
+                    "layout blocks, 1f62/1f63 link target payloads decode as packed BCD, "
+                    "A14D/A14E accent markers, B156-B241 CSS span delimiters, and B22D-B23B "
+                    "red circled-number gaiji wrappers"
                 ),
                 notes="Branches that call the custom-character path render the same gaiji code inside the opened span instead of swallowing it as metadata.",
             )
