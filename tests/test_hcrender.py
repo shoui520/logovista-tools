@@ -833,7 +833,7 @@ def test_hc012d_uses_line_link_and_link_k_marker() -> None:
 
     assert '<img class="lv-hc-gaiji gaiji" src="Templates/link_k.png"' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'href="lvaddr://00000002/0030"' in rendered.html
     assert rendered.stats["hc012d_inline_image_markers"] == 1
 
 
@@ -915,7 +915,7 @@ def test_hc0145_uses_line_links_and_img_gaiji_class() -> None:
 
     assert '<img class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji" src="Templates/b921.png"' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'href="lvaddr://00000002/0030"' in rendered.html
     assert rendered.stats["gaiji_image"] == 1
 
 
@@ -985,7 +985,7 @@ def test_hc0144_internal_links_use_line_link_class() -> None:
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="0144"))
 
     assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'href="lvaddr://00000002/0030"' in rendered.html
 
 
 def test_hc03e8_maps_sections_and_consumes_heading_state() -> None:
@@ -1115,7 +1115,7 @@ def test_hc0141_internal_links_use_line_link_class_and_img_gaiji() -> None:
 
     assert 'class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji"' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'href="lvaddr://00000002/0030"' in rendered.html
 
 
 def test_hc0190_applies_html_template_section_placeholders() -> None:
@@ -1205,7 +1205,7 @@ def test_hc009c_maps_sections_links_private_images_and_marker_images() -> None:
     assert '<div class="midashi">ＴＩＴＬＥ<img src="Templates/B148m.gif" class="img_season" alt="b148"></div>' in rendered.html
     assert '<div class="honbun" style="margin-left:3em">' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'href="lvaddr://00000002/0030"' in rendered.html
     assert '<a class="hc009c-image-link" href="images/50042100.jpg">' in rendered.html
     assert '<img src="images_thumb/50042100.png" class="img_button" alt="50042100">' in rendered.html
     assert "lv-hc-section" not in rendered.html
@@ -1257,7 +1257,7 @@ def test_hc009b_maps_header_honbun_links_and_template_gaiji() -> None:
     assert '<div class="header"><div class="midashi">Ｈ</div></div>' in rendered.html
     assert '<div class="honbun" style="margin-top:12px">' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'href="lvaddr://00000002/0030"' in rendered.html
     assert '<img class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji"' in rendered.html
     assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
     assert "lv-hc-section" not in rendered.html
@@ -1541,7 +1541,7 @@ def test_hc02c2_line_links_use_product_class() -> None:
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="02C2"))
 
     assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'href="lvaddr://00000002/0030"' in rendered.html
 
 
 def test_hc02c8_maps_zukaiho_sections_tables_and_links() -> None:
@@ -2500,7 +2500,7 @@ def test_hc_gen_year_maps_sections_icons_links_and_template_markers() -> None:
         assert 'src="Templates/B133.png"' in rendered.html
         assert 'class="lv-hc-gaiji img_mark2"' in rendered.html
         assert 'class="lv-hc-link lineLink"' in rendered.html
-        assert 'href="lvaddr://00000002/0048"' in rendered.html
+        assert 'href="lvaddr://00000002/0030"' in rendered.html
         assert 'data-lv-section' not in rendered.html
         assert 'data-gaiji-code="b130"' not in rendered.html
         assert rendered.stats["hc_gen_year_section_blocks"] == 1
@@ -2572,7 +2572,7 @@ def test_hc00c4_maps_sections_links_and_template_gaiji() -> None:
     assert '<img src="arrow1.png" class="icon_s">' in rendered.html
     assert '<font class="font_down">' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'href="lvaddr://00000002/0030"' in rendered.html
     assert 'src="Templates/B126.png"' in rendered.html
     assert 'class="lv-hc-gaiji gaiji"' in rendered.html
     assert "lv-hc-section" not in rendered.html
@@ -2656,7 +2656,7 @@ def test_hc02c0_maps_sections_icons_links_and_state_markers() -> None:
     assert '<img src="Templates/1.png" class="img_icon"/><br>' in rendered.html
     assert '<img class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji" src="Templates/B121.png"' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'href="lvaddr://00000002/0030"' in rendered.html
     assert 'data-lv-section' not in rendered.html
     assert 'data-gaiji-code="b138"' not in rendered.html
     assert 'data-gaiji-code="b14c"' not in rendered.html
@@ -2710,7 +2710,7 @@ def test_hc02ca_maps_sections_icons_template_markers_and_literal_marker() -> Non
     assert 'src="B12F.png"' in rendered.html
     assert "\U00020bb7" in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'href="lvaddr://00000002/0030"' in rendered.html
     assert 'data-gaiji-code="b130"' not in rendered.html
     assert 'data-gaiji-code="b131"' not in rendered.html
     assert rendered.stats["hc02ca_section_blocks"] == 1
@@ -2770,7 +2770,7 @@ def test_hc0136_maps_sections_icons_links_and_state_controls() -> None:
     assert '<img src="Templates/1.png" class="img_icon"/><br>' in rendered.html
     assert '<img class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji" src="Templates/B121.png"' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'href="lvaddr://00000002/0030"' in rendered.html
     assert 'data-lv-section' not in rendered.html
     assert rendered.stats["hc0136_section_blocks"] == 1
     assert rendered.stats["hc0136_section_state"] == 1
@@ -3358,7 +3358,7 @@ def test_hc00ac_maps_honbun_sections_links_and_marker_suppression() -> None:
     assert '<div class="honbun" style="margin-left:7em;text-indent:-7em;">' in rendered.html
     assert "見出し" in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'href="lvaddr://00000002/0030"' in rendered.html
     assert "lv-hc-section" not in rendered.html
     assert "lv-hc-heading" not in rendered.html
     assert 'data-gaiji-code="b139"' not in rendered.html
@@ -3395,7 +3395,7 @@ def test_hc013c_maps_sections_icons_links_and_state_markers() -> None:
     assert '<img src="Templates/1.png" class="img_icon"/><br>' in rendered.html
     assert '<img class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji" src="Templates/B121.png"' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'href="lvaddr://00000002/0030"' in rendered.html
     assert 'data-lv-section' not in rendered.html
     assert 'data-gaiji-code="a435"' not in rendered.html
     assert 'data-gaiji-code="a436"' not in rendered.html
@@ -3450,7 +3450,7 @@ def test_hc00b3_maps_sections_links_and_state_controls() -> None:
     assert '<div class="honbun" style="margin-left:12px">' in rendered.html
     assert '<img class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji" src="Templates/B121.png"' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'href="lvaddr://00000002/0030"' in rendered.html
     assert 'data-lv-section' not in rendered.html
     assert rendered.stats["hc00b3_section_blocks"] == 1
     assert rendered.stats["hc00b3_section_state"] == 1
@@ -3573,7 +3573,7 @@ def test_hc02c1_uses_line_links_and_template_image_gaiji() -> None:
     )
 
     assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'href="lvaddr://00000002/0030"' in rendered.html
     assert 'src="Templates/B14C.png"' in rendered.html
     assert 'class="lv-hc-gaiji img_mark4"' in rendered.html
     assert 'src="Templates/b135.png"' in rendered.html
@@ -3616,7 +3616,7 @@ def test_hc02bf_line_links_use_product_class() -> None:
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="02BF"))
 
     assert 'class="lv-hc-link lineLink"' in rendered.html
-    assert 'href="lvaddr://00000002/0048"' in rendered.html
+    assert 'href="lvaddr://00000002/0030"' in rendered.html
 
 
 def test_hc02c5_wraps_headings_and_decoded_sections() -> None:

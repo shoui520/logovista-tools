@@ -353,6 +353,56 @@ HC0157_STANDALONE_MARKERS = {
 }
 HC0157_NOOP_MARKERS = {"b17e"}
 HC0157_RED_GAIJI_RANGE = range(0xB22D, 0xB23C)
+HC_PACKED_BCD_LINK_RENDERERS = frozenset(
+    {
+        "009B",
+        "009C",
+        "009F",
+        "00A3",
+        "00A4",
+        "00A6",
+        "00A9",
+        "00AA",
+        "00AB",
+        "00AC",
+        "00AD",
+        "00B3",
+        "00BB",
+        "00C4",
+        "00C5",
+        "00C6",
+        "012D",
+        "012E",
+        "012F",
+        "0131",
+        "0132",
+        "0136",
+        "0137",
+        "013A",
+        "013C",
+        "0141",
+        "0142",
+        "0144",
+        "0145",
+        "0157",
+        "0158",
+        "0190",
+        "02BC",
+        "02BE",
+        "02BF",
+        "02C0",
+        "02C1",
+        "02C2",
+        "02C4",
+        "02C7",
+        "02C9",
+        "02CA",
+        "02CB",
+        "02CC",
+        "02CD",
+        "02D1",
+    }
+)
 HC0157_GROUP_START_CLASSES = {
     10: "yourei_ej",
     20: "seiku",
@@ -2058,7 +2108,7 @@ def _decode_pointer_payload(payload: bytes, *, packed_bcd: bool = False) -> dict
 
 
 def _link_payload_is_packed_bcd(options: HcRenderOptions) -> bool:
-    return _renderer_code(options) in {"0157", "0190"}
+    return _renderer_code(options) in HC_PACKED_BCD_LINK_RENDERERS
 
 
 def _pointer_href(pointer: dict[str, int] | None) -> str:

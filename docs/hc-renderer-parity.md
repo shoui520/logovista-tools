@@ -4,6 +4,12 @@ This page tracks Windows `HC????.dll` renderer behavior by exact SHA-256 family.
 
 Parity is only promoted when the relevant DLL code path or branch table is understood and a real or synthetic render proves the behavior. String sightings, exports, SQL text, and template names are evidence, not implementation by themselves.
 
+Implementation note: many recovered HC body loops decode `1f62`/`1f63`
+internal-link block/offset payloads through a packed-BCD helper before
+formatting `lved.addr` targets. The toolkit keeps that behavior
+renderer-specific; renderers without recovered BCD evidence continue to use
+the generic binary pointer decoder.
+
 ## Status Vocabulary
 
 | Status | Meaning |
