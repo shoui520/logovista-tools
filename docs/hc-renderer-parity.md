@@ -43,10 +43,10 @@ browser/app output normalization, not a claim of exact HC runtime parity.
 | Status | Families |
 |---|---:|
 | `common_controls_candidate_verify` | 0 |
-| `common_controls_plus_named_hooks` | 12 |
-| `exact_body_sidecar_supported_hc_hooks_unprofiled` | 11 |
+| `common_controls_plus_named_hooks` | 0 |
+| `exact_body_sidecar_supported_hc_hooks_unprofiled` | 20 |
 | `needs_marker_branch_decode` | 0 |
-| `decoded_branch_subset_visual_incomplete` | 86 |
+| `decoded_branch_subset_visual_incomplete` | 89 |
 
 | Family | Families |
 |---|---:|
