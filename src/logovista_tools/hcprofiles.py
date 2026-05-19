@@ -892,7 +892,8 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "1f09 closes the previous block and opens a 3-pixel-multiplied "
                     "margin-left section, 1f41/1f61 wrap heading text in midashi, "
                     "1f0a closes heading sections or emits body breaks, 1f04/1f05 "
-                    "map to hankaku spans, 1f42/1f43 use the recovered link classes, "
+                    "map to hankaku spans, nested product halfwidth spans are closed "
+                    "when an enclosing bold style ends first, 1f42/1f43 use the recovered link classes, "
                     "2179/217a emit template image gaiji when assets are present, "
                     "and 1f5c/1f6d are consumed as renderer state"
                 ),

@@ -1924,6 +1924,17 @@ def test_hc0076_maps_medical_body_sections_links_and_template_markers() -> None:
     assert rendered.stats["hc0076_nonprinting_controls"] == 1
 
 
+def test_hc0076_closes_halfwidth_span_when_bold_ends_first() -> None:
+    rendered = render_hc_body(
+        b"\x1f\xe0\x00\x00\x1f\x04\x23\x3f\x1f\xe1\x1f\x05",
+        HcRenderOptions(renderer_code="0076"),
+    )
+
+    assert '<b><span class="hankaku">' in rendered.html
+    assert "</span></b>" in rendered.html
+    assert rendered.html.count("<span") == rendered.html.count("</span>")
+
+
 def test_hc00c7_maps_lineinfo_sections_and_template_gaiji() -> None:
     body = (
         b"\x1f\x09\x00\x01"

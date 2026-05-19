@@ -1418,6 +1418,16 @@ Custom DIB generation, `modifyHeadwordEx`, SQL example/idiom helpers, exact
 broader visual parity remain named gaps, so exact HC0144 visual parity is not
 claimed.
 
+The HKEBMBOK branch-subset proof case is `HC0076.dll`. Its body loop maps
+`1f09` sections to margin-left body blocks, uses `1f41`/`1f61` for the product
+`midashi` lifecycle, maps `1f04`/`1f05` to product `hankaku` spans, and applies
+the recovered `lineLink`, `lineLink2`, and `lineLink3` classes to internal
+links. The toolkit also handles the observed nesting where a product halfwidth
+span is still active when an enclosing bold style ends; the span is now closed
+before the bold close so the representative raw render stays tag-balanced.
+Generated custom-character GIF/DIB output, subtitle string-table branches,
+exact media wrapper lifecycle, and broader visual parity remain named gaps.
+
 The GENKANA5 branch-subset proof case is `HC03E8.dll`. Its vertical body loop
 contains the same visible `midashi`, `honbun`, `contents`, and `lineLink`
 strings used by the product stylesheet, plus a marker branch table for

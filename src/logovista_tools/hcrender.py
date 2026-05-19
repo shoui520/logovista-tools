@@ -2628,6 +2628,13 @@ def _style_close_tag(start_op: int, options: HcRenderOptions) -> str | None:
     return spec[0] if spec else None
 
 
+def _renderer_halfwidth_span_needs_explicit_close(start_op: int, options: HcRenderOptions) -> bool:
+    return start_op == 0x04 and (
+        _is_hc005c_renderer(options)
+        or _renderer_code(options) in {"0073", "0076", "007D", "008F"}
+    )
+
+
 def _decode_next_jis_text(data: bytes, offset: int) -> str:
     if offset + 1 >= len(data):
         return ""
@@ -2787,6 +2794,8 @@ def _close_context_styles(ctx: _Context, options: HcRenderOptions) -> None:
         close_tag = _style_close_tag(popped, options)
         if close_tag:
             ctx.parts.append(f"</{close_tag}>")
+        elif _renderer_halfwidth_span_needs_explicit_close(popped, options):
+            ctx.parts.append("</span>")
         if popped == 0x04 and ctx.halfwidth_depth:
             ctx.halfwidth_depth -= 1
 
@@ -9368,6 +9377,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             popped_tag = _style_close_tag(popped, options)
                             if popped_tag:
                                 _current_parts(root_parts, contexts).append(f"</{popped_tag}>")
+                            elif _renderer_halfwidth_span_needs_explicit_close(popped, options):
+                                _current_parts(root_parts, contexts).append("</span>")
                         if popped == 0x04:
                             if style_context is not None:
                                 style_context.halfwidth_depth = max(0, style_context.halfwidth_depth - 1)
