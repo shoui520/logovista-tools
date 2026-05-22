@@ -29,6 +29,20 @@ from .windows import file_magic_kind
 
 
 LVED_ADDR_RE = re.compile(r"lved\.addr(?P<block>[0-9A-Fa-f]{8}):(?P<offset>[0-9A-Fa-f]{4})")
+BRITANNICA_INLINE_ADDR_RE = re.compile(
+    r"(?:##S|＃＃Ｓ)(?P<block>[0-9A-Fa-f]{8}):(?P<offset>[0-9A-Fa-f]{4})(?P<label>.*?)(?:E##|Ｅ＃＃)"
+)
+BRITANNICA_BODY_OPEN_RE = re.compile(r"^\s*<body\b[^>]*>", re.IGNORECASE)
+BRITANNICA_BODY_CLOSE_RE = re.compile(r"</body>\s*$", re.IGNORECASE)
+BRITANNICA_WHATDAY_THREE_CELL_ROW_RE = re.compile(
+    r"(?P<open><tr\b[^>]*>\s*)"
+    r"(?P<first><td\b[^>]*>.*?</td>\s*)"
+    r"(?P<spacer><td\b[^>]*>.*?</td>\s*)"
+    r"(?P<third><td\b[^>]*>.*?</td>\s*)"
+    r"(?P<close></tr>)",
+    re.IGNORECASE | re.DOTALL,
+)
+BRITANNICA_WHATDAY_COLSPAN3_RE = re.compile(r"\bcolspan\s*=\s*([\"']?)3\1", re.IGNORECASE)
 WHATDAY_NAME_RE = re.compile(r"^(?P<month>\d{1,2})-(?P<day>\d{1,2})\.(?P<kind>body|top)$", re.IGNORECASE)
 BRITANNICA_TOP_NAME_RE = re.compile(r"^top_(?P<category>[A-Za-z0-9_-]+)\.dat$", re.IGNORECASE)
 TOP_ADDRESS_RE = re.compile(r"^(?P<block>[0-9A-Fa-f]{8}):(?P<offset>[0-9A-Fa-f]{4})$")
@@ -194,6 +208,78 @@ def parse_lved_address(value: str) -> LooseAddress | None:
     )
 
 
+def britannica_lvaddr_href(address: LooseAddress) -> str:
+    return f"lvaddr://{address.block:08x}/{address.offset:04x}"
+
+
+def expand_britannica_inline_address_markers(text: str) -> str:
+    """Expand Britannica DB inline address markers into normal links.
+
+    The chronology SQLite rows use full-width marker text such as
+    ``＃＃Ｓ0001bea5:0724モーツァルトＥ＃＃`` instead of HTML anchors.  Those
+    markers are renderer metadata, not entry text.
+    """
+
+    def repl(match: re.Match[str]) -> str:
+        raw = f"lved.addr{match.group('block')}:{match.group('offset')}"
+        address = parse_lved_address(raw)
+        label = html.escape(match.group("label"))
+        if address is None:
+            return label
+        return (
+            f'<a class="link" href="{britannica_lvaddr_href(address)}" '
+            f'data-lv-address="{html.escape(address.raw)}">{label}</a>'
+        )
+
+    return BRITANNICA_INLINE_ADDR_RE.sub(repl, text)
+
+
+def rewrite_britannica_lved_links(fragment: str) -> str:
+    """Rewrite Britannica ``lved.addr`` anchors to toolkit address URLs."""
+
+    def repl(match: re.Match[str]) -> str:
+        address = parse_lved_address(match.group(0))
+        if address is None:
+            return match.group(0)
+        return britannica_lvaddr_href(address)
+
+    return LVED_ADDR_RE.sub(repl, fragment)
+
+
+def normalize_britannica_whatday_table(fragment: str) -> str:
+    """Collapse Britannica ``whatday`` event rows from 3 columns to 2.
+
+    The raw HTML has ``year | spacer/marker | event`` rows.  The middle cell is
+    a reader layout artifact; standalone dictionary output keeps the useful
+    year and event columns and adjusts ``colSpan=3`` rows to two columns.
+    """
+
+    def replace_colspan(match: re.Match[str]) -> str:
+        quote = match.group(1)
+        return f"colSpan={quote}2{quote}" if quote else "colSpan=2"
+
+    def replace_row(match: re.Match[str]) -> str:
+        return match.group("open") + match.group("first") + match.group("third") + match.group("close")
+
+    normalized = BRITANNICA_WHATDAY_THREE_CELL_ROW_RE.sub(replace_row, fragment)
+    return BRITANNICA_WHATDAY_COLSPAN3_RE.sub(replace_colspan, normalized)
+
+
+def render_britannica_html_fragment(fragment: str) -> str:
+    """Return browser-ready Britannica auxiliary HTML.
+
+    This preserves the package's own table/layout markup while normalizing the
+    LogoVista link metadata that would otherwise leak as visible text or dead
+    ``lved.addr`` URLs in standalone output.
+    """
+
+    rendered = rewrite_britannica_lved_links(expand_britannica_inline_address_markers(fragment))
+    rendered = BRITANNICA_BODY_OPEN_RE.sub("", rendered, count=1)
+    rendered = BRITANNICA_BODY_CLOSE_RE.sub("", rendered, count=1)
+    rendered = normalize_britannica_whatday_table(rendered)
+    return rendered.strip()
+
+
 def parse_top_address(value: str) -> LooseAddress:
     match = TOP_ADDRESS_RE.fullmatch(value.strip())
     if match is None:
@@ -233,7 +319,7 @@ def parse_britannica_whatday_file(path: Path) -> BritannicaWhatdayFile:
         day=int(match.group("day")),
         kind=match.group("kind").lower(),
         encoding=encoding,
-        html=text,
+        html=render_britannica_html_fragment(text),
         text=plain,
         references=tuple(parser.references),
     )

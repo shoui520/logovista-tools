@@ -1,24 +1,42 @@
-from pathlib import Path
 import argparse
+import io
 import re
 import sqlite3
+from pathlib import Path
 
 from logovista_tools.entries import DictionarySource
 from logovista_tools.hcrender import (
+    HC_RENDER_BASE_CSS,
+    HC_RENDER_FINAL_CSS,
+    HC_RENDER_BASE_SCRIPT,
     HcRenderOptions,
+    PACKAGE_READER_STYLE,
+    _hc_entry_slice_containing_reader,
+    _hc_target_slice_reader,
     _has_entry_body_sidecar,
+    _hc00aa_entry_slices,
     _normalize_exact_body_fragment_html,
+    _normalise_hc_css,
     _prepare_hc_render_assets,
     _renderer_behavior_gaps,
     _rendererdb_args,
+    _rewrite_exact_body_asset_refs,
     _rewrite_lved_addr_hrefs,
     _schema_backed_sidecars,
+    _effective_renderer_code_for_source,
+    _hc_entry_slices_reader,
+    _source_prefers_vertical,
+    _strip_viewer_navigation_images,
     _write_exact_hc_entries_html_from_rendererdb,
+    _write_hc_html_header,
     render_hc_body,
 )
+from logovista_tools.colscr import MediaPointer
 from logovista_tools.hcprofiles import build_hc_behavior_profile
-from logovista_tools.resources import load_image_resource_profile
+from logovista_tools.resources import load_image_resource_profile, relative_image_source
+from logovista_tools.ssed import SsedRandomReader
 from logovista_tools.windows import HcRendererClassification, PeSummary
+from logovista_tools.writer import encode_sseddata_literal
 
 
 def jis_ascii(letter: str) -> bytes:
@@ -58,9 +76,169 @@ def test_hc_render_colscr_media_placeholder_decodes_bcd_target() -> None:
 
     assert 'class="lv-hc-media"' in rendered.html
     assert 'data-lv-resource="colscr:00000123:0045"' in rendered.html
+
+
+def test_viewer_navigation_images_are_suppressed_from_renderer_fragments(tmp_path: Path) -> None:
+    fragment = (
+        '<a href="lved.addr00001287:027a"><img src="Templates/backH.gif" class="img_mark4"></a>'
+        '<span>body</span>'
+        '<img src="forwardV.gif" class="img_mark4">'
+    )
+
+    stripped, removed = _strip_viewer_navigation_images(fragment)
+    rewritten = _rewrite_exact_body_asset_refs(fragment, tmp_path)
+
+    assert removed == 2
+    assert "backH" not in stripped
+    assert "forwardV" not in stripped
+    assert "backH" not in rewritten
+    assert "forwardV" not in rewritten
+    assert "<span>body</span>" in rewritten
+
+
+def test_hc_render_colscr_media_can_resolve_to_image() -> None:
+    payload = bytes.fromhex("000000000000000000000000000001230045")
+    seen: list[MediaPointer] = []
+
+    def resolve(pointer: MediaPointer) -> str:
+        seen.append(pointer)
+        return "media/colscr/00000123_0045.png"
+
+    rendered = render_hc_body(b"\x1f\x4d" + payload, HcRenderOptions(media_image_resolver=resolve))
+
+    assert '<img class="lv-hc-media"' in rendered.html
+    assert 'src="media/colscr/00000123_0045.png"' in rendered.html
+    assert 'data-lv-media-status="resolved_image"' in rendered.html
+    assert seen == [MediaPointer(payload=payload, block=123, offset=45)]
+    assert rendered.stats["media_images"] == 1
     assert rendered.media[0]["target"]["component"] == "COLSCR.DIC"
     assert rendered.media[0]["target"]["block"] == 123
     assert rendered.media[0]["target"]["offset"] == 45
+
+
+def test_hc_render_resolved_media_suppresses_following_filename_label() -> None:
+    payload = bytes.fromhex("000000000000000000000000000001230045")
+
+    def resolve(pointer: MediaPointer) -> str:
+        return "media/colscr/00000123_0045.bmp"
+
+    rendered = render_hc_body(
+        b"\x1f\x4d" + payload + jis_fullwidth_ascii("29") + jis_text("費用関数") + jis_fullwidth_ascii(".bmp"),
+        HcRenderOptions(media_image_resolver=resolve),
+    )
+
+    assert '<img class="lv-hc-media"' in rendered.html
+    assert "２９費用関数．ｂｍｐ" not in rendered.html
+    assert "２９費用関数．ｂｍｐ" not in rendered.plain
+    assert rendered.stats["suppressed_media_filename_label_chars"] == len("２９費用関数．ｂｍｐ")
+
+
+def test_hc_render_resolved_media_keeps_non_filename_caption() -> None:
+    payload = bytes.fromhex("000000000000000000000000000001230045")
+
+    def resolve(pointer: MediaPointer) -> str:
+        return "media/colscr/00000123_0045.bmp"
+
+    rendered = render_hc_body(b"\x1f\x4d" + payload + jis_text("図"), HcRenderOptions(media_image_resolver=resolve))
+
+    assert '<img class="lv-hc-media"' in rendered.html
+    assert "図" in rendered.html
+    assert "図" in rendered.plain
+
+
+def test_archsic3_part_of_speech_style_keeps_only_brackets_bold() -> None:
+    body = (
+        b"\x1f\x10"
+        + b"\x1f\xe0\x00\x03"
+        + jis_text("（")
+        + b"\x1f\xe1"
+        + jis_text("自ハ四")
+        + b"\x1f\xe0\x00\x03"
+        + jis_text("）")
+        + b"\x1f\xe1"
+        + b"\x1f\x11"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="ARCHSIC3"))
+
+    assert '<span class="archsic3-hinshi"><b>（</b>自ハ四<b>）</b></span>' in rendered.html
+    assert "<i>" not in rendered.html
+
+
+def test_archsic3_uses_legacy_renderer_profile_without_hc_dll() -> None:
+    source = DictionarySource("ARCHSIC3", Path("ARCHSIC3.IDX"), "ARCHSIC3", Path("HONMON.DIC"), 2, {})
+
+    assert _effective_renderer_code_for_source(source, None) == "ARCHSIC3"
+
+
+def test_hc0088_uses_legacy_stylesheet_renderer_without_hc_dll(tmp_path: Path) -> None:
+    package = tmp_path / "_DCT_NGYK300K"
+    templates = package / "Templates"
+    templates.mkdir(parents=True)
+    (templates / "00000088.css").write_text(".midashi{background:#97BB71}", encoding="utf-8")
+    source = DictionarySource("NGYK300K", package / "NGYK300K.IDX", "NGYK300K", package / "HONMON.DIC", 2, {})
+
+    assert _effective_renderer_code_for_source(source, None) == "0088"
+
+
+def test_hc0088_renders_mm_category_midashi_and_body_fields() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x00"
+        + b"\x1f\xe0\x00\x03"
+        + jis_text("壬生寺")
+        + b"\x1f\xe1"
+        + b"\x1f\x04"
+        + jis_text("　　")
+        + b"\x1f\x05"
+        + jis_text("ミブデラ（")
+        + b"\x1f\x10"
+        + jis_fullwidth_ascii("mibudera")
+        + b"\x1f\x11"
+        + jis_text("）〔寺院〕")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("［別名］壬生の地蔵さん")
+        + b"\x1f\x04"
+        + jis_text("　　")
+        + b"\x1f\x05"
+        + jis_text("［宗派］律宗")
+        + b"\x1f\x04"
+        + jis_text("　　")
+        + b"\x1f\x05"
+        + jis_text("［所在］京都府京都市中京区")
+        + b"\x1f\x04"
+        + jis_text("　　")
+        + b"\x1f\x05"
+        + jis_text("［本尊］地蔵菩薩")
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="0088", image_sources={"mm08": "Templates/MM08.png"}),
+    )
+
+    assert '<div class="lv-hc-render hc0088">' in rendered.html
+    assert '<div class="midashi"><img src="Templates/MM08.png" class="img_mark" alt="寺院"> 壬生寺</div>' in rendered.html
+    assert '<div class="midashi_yomi">ミブデラ(<i>mibudera</i>)</div>' in rendered.html
+    assert ".lv-hc-render.hc0088 .midashi {\n  margin-bottom: 0 !important;" in HC_RENDER_FINAL_CSS
+    assert ".lv-hc-render.hc0088 .midashi_yomi {\n  margin-top: 0 !important;" in HC_RENDER_FINAL_CSS
+    assert "〔寺院〕" not in rendered.html
+    assert rendered.html.count('class="hc0088-field"') == 4
+    assert '<div class="hc0088-field">［別名］壬生の地蔵さん</div>' in rendered.html
+    assert '<div class="hc0088-field">［本尊］地蔵菩薩</div>' in rendered.html
+    assert rendered.plain.splitlines() == [
+        "壬生寺",
+        "ミブデラ(mibudera)",
+        "［別名］壬生の地蔵さん",
+        "［宗派］律宗",
+        "［所在］京都府京都市中京区",
+        "［本尊］地蔵菩薩",
+    ]
+    assert rendered.stats["hc0088_category_images"] == 1
+    assert rendered.stats["hc0088_body_fields"] == 4
 
 
 def test_hc_render_pcmdata_audio_range_decodes_bcd_range() -> None:
@@ -167,6 +345,31 @@ def test_hc_render_gaiji_prefers_unicode_then_image_then_placeholder() -> None:
     assert rendered.stats["gaiji_placeholder"] == 1
 
 
+def test_hc_render_decodes_fullwidth_html_numeric_charrefs() -> None:
+    rendered = render_hc_body(jis_text("＆＃ｘ４Ｅ００；＆＃６５；"))
+
+    assert rendered.plain == "一A"
+    assert "一A" in rendered.html
+    assert "＆＃" not in rendered.html
+
+
+def test_hc0131_prefers_unicode_gaiji_mapping_over_bitmap_fallback() -> None:
+    rendered = render_hc_body(
+        b"\xa1\x31",
+        HcRenderOptions(
+            renderer_code="0131",
+            gaiji_map={"a131": "é"},
+            image_sources={"a131": "gaiji/GA16HALF/A131_uni_record_order.bmp"},
+        ),
+    )
+
+    assert rendered.plain == "é"
+    assert "é" in rendered.html
+    assert "GA16HALF" not in rendered.html
+    assert rendered.stats["gaiji_unicode"] == 1
+    assert rendered.stats["hc0131_unicode_gaiji"] == 1
+
+
 def test_hc00de_suppresses_britannica_state_gaiji_markers() -> None:
     rendered = render_hc_body(b"\xb4\x21\xb4\x22" + jis_text("本文"), HcRenderOptions(renderer_code="00DE"))
 
@@ -232,6 +435,31 @@ def test_hc013a_inserts_exam_badge_once_per_example_block() -> None:
     assert rendered.stats["section_images"] == 2
 
 
+def test_hc013a_does_not_double_break_before_example_badge() -> None:
+    body = (
+        b"\x1f\x09\x00\x02"
+        + jis_text("揺れ動く")
+        + jis_ascii_text(":")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x11"
+        + jis_ascii_text("Las hojas")
+        + b"\x1f\x09\x00\x12"
+        + jis_text("落ち葉")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="013A",
+            image_sources={"exam": "Templates/exam.png"},
+        ),
+    )
+
+    assert "揺れ動く<span class=\"hankaku\">:</span><br><img src=\"Templates/exam.png\" class=\"ex_img\">" in rendered.html
+    assert "<br><br><img" not in rendered.html
+    assert rendered.stats["hc013a_duplicate_example_lead_breaks_suppressed"] == 1
+
+
 def test_hc013a_reports_missing_exam_asset_without_faking_image() -> None:
     rendered = render_hc_body(b"\x1f\x09\x00\x11" + jis_ascii("A"), HcRenderOptions(renderer_code="013A"))
 
@@ -255,7 +483,7 @@ def test_hc013a_maps_layout_markers_without_generic_placeholders() -> None:
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="013A"))
 
     assert '<div class="honbun2"><strong><span class="hankaku">a</span>' in rendered.html
-    assert '<span class="hankaku">o</span></strong></div>' in rendered.html
+    assert '<span class="hankaku">o</span></strong>本文</div>' in rendered.html
     assert "lv-hc-gaiji-placeholder" not in rendered.html
     assert 'data-gaiji-code="b26a"' not in rendered.html
     assert 'data-gaiji-code="b26b"' not in rendered.html
@@ -280,7 +508,7 @@ def test_hc013a_maps_heading_marker_classes_and_halfwidth() -> None:
 
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="013A"))
 
-    assert '<div class="midashi2">' in rendered.html
+    assert '<div class="midashi2 hc013a-midashi">' in rendered.html
     assert '<span class="hankakuMidashi">a</span>' in rendered.html
     assert '<span class="hankaku">body</span>' in rendered.html
     assert 'class="lv-hc-heading"' not in rendered.html
@@ -302,6 +530,93 @@ def test_hc013a_missing_b263_uses_dll_custom_bitmap_template() -> None:
     assert rendered.stats["hc013a_custom_dib_gaiji"] == 1
     assert rendered.stats["hc013a_custom_dib_missing_resource"] == 1
     assert "hc013a_custom_gaiji_bitmap_unresolved" not in rendered.named_behavior_gaps
+
+
+def test_hc013a_haespjpn_spanish_entry_markers_and_example_lifecycle() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x00"
+        + b"\xb2\x61"
+        + jis_ascii_text("danzar")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x02"
+        + jis_ascii_text("[dan")
+        + b"\xa1\x39"
+        + jis_ascii_text("ar]")
+        + b"\x1f\xe2\x00\x07"
+        + bytes.fromhex("23532351234c2127b148")
+        + b"\x1f\xe3"
+        + b"\xb1\x3e"
+        + b"\xb1\x21"
+        + b"\x1f\x09\x00\x11"
+        + jis_ascii_text("Las ")
+        + b"\x1f\xe0\x00\x01"
+        + jis_ascii_text("danzan")
+        + b"\x1f\xe1"
+        + b"\x1f\x09\x00\x12"
+        + jis_text("落ち葉")
+        + b"\xb1\x23"
+        + jis_text("おせっかい")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="013A",
+            gaiji_map={"a139": "θ", "b121": "①", "b123": "③"},
+            image_sources={"b148": "Templates/b148.png", "b13e": "Templates/b13e.png", "exam": "Templates/exam.png"},
+        ),
+    )
+
+    assert '<div class="midashi hc013a-midashi">' in rendered.html
+    assert 'data-gaiji-code="b261"' not in rendered.html
+    assert '<i class="hc013a-phonetic">θ</i>' in rendered.html
+    assert 'src="Templates/b148.png"' in rendered.html
+    assert 'src="Templates/b13e.png" alt="b13e" data-gaiji-code="b13e"><br>' in rendered.html
+    assert '<i><span class="hankaku">danzan</span></i>' in rendered.html
+    assert rendered.html.index("</div>③") < rendered.html.index("おせっかい")
+    assert rendered.stats["hc013a_private_marker_images"] == 1
+    assert rendered.stats["hc013a_phonetic_italic_gaiji"] == 1
+
+
+def test_hc013a_haespjpn_japanese_entry_markers_and_gothic_decoration() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x00"
+        + b"\xb2\x61"
+        + jis_text("再開")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x02"
+        + b"\xb2\x65"
+        + jis_text("再開")
+        + b"\xb2\x65"
+        + jis_ascii_text(" reanudacion ")
+        + b"\x1f\xe0\x00\x04"
+        + jis_ascii_text("f")
+        + b"\x1f\xe1"
+        + b"\x1f\x09\x00\x03"
+        + b"\xb2\x64"
+        + jis_text("〜する")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("［・・・を］")
+        + jis_ascii_text(" ")
+        + b"\x1f\xe0\x00\x04"
+        + jis_ascii_text("algo")
+        + b"\x1f\xe1"
+        + b"\x1f\x0a"
+        + jis_text("次の行")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="013A"))
+
+    assert '<div class="midashi4 hc013a-midashi">' in rendered.html
+    assert 'data-gaiji-code="b261"' not in rendered.html
+    assert 'data-gaiji-code="b265"' not in rendered.html
+    assert '<span class="gothic"><b><i><span class="hankaku">f</span></i></b></span>' in rendered.html
+    assert '<span class="gothic"><b><i><span class="hankaku">algo</span></i></b></span>' in rendered.html
+    assert "〜する</strong>［・・・を］" in rendered.html
+    assert "algo</span></i></b></span><br>次の行" in rendered.html
 
 
 def test_hc013f_consumes_renderer_state_control() -> None:
@@ -410,6 +725,72 @@ def test_hc00c6_suppresses_empty_halfwidth_pair() -> None:
     assert rendered.stats["hc00c6_empty_halfwidth_spans_suppressed"] == 1
 
 
+def test_hc00c6_prefers_unicode_for_text_gaiji_and_expands_headword_macro() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_ascii_text("hand")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x07"
+        + jis_ascii_text("a horse 14 ")
+        + b"\xa2\x26"
+        + jis_ascii_text("s high")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x08"
+        + jis_text("肩の高さ")
+        + b"\x1f\x09\x00\x06"
+        + b"\xa1\x37\xa1\x7e\xa2\x21"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="00C6",
+            gaiji_map={"a137": "æ", "a17e": "《", "a221": "》", "a226": "〜"},
+            image_sources={
+                "a137": "gaiji/A137.bmp",
+                "a17e": "gaiji/A17E.bmp",
+                "a221": "gaiji/A221.bmp",
+                "a226": "gaiji/A226.bmp",
+            },
+        ),
+    )
+
+    assert "ahorse14" in rendered.html
+    assert "hand" in rendered.html
+    assert "shigh" in rendered.html
+    assert "æ《》" in rendered.html
+    assert 'data-gaiji-code="a137"' not in rendered.html
+    assert 'data-gaiji-code="a226"' not in rendered.html
+    assert '<div class="contents"><span class="lv-hc-halfwidth">ahorse14</span>hand<span class="lv-hc-halfwidth">shigh</span><br><span class="exampleyakugo">肩の高さ</span></div>' in rendered.html
+    assert rendered.stats["hc00c6_headword_macros"] == 1
+    assert rendered.stats["hc00c6_unicode_preferred_markers"] == 3
+    assert rendered.stats["hc00c6_example_translation_pairs_joined"] == 1
+
+
+def test_hc00c6_splits_pronunciation_and_partwaku_from_midashi() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + b"\x1f\xe0\x00\x00"
+        + jis_ascii_text("hand")
+        + b"\x1f\xe1"
+        + b"\x1f\x61"
+        + jis_ascii_text(" /hand/ ")
+        + b"\xa2\x3c"
+        + jis_ascii_text("n")
+        + b"\xa2\x3d"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00C6"))
+
+    assert '<div class="midashi"><b><span class="lv-hc-halfwidth">hand</span></b></div>' in rendered.html
+    assert '<div class="hc00c6-pronunciation"><span class="lv-hc-halfwidth">/hand/</span></div>' in rendered.html
+    assert '<div class="hc00c6-partwaku-line"><span class="partwaku"><span class="lv-hc-halfwidth">n</span></span></div>' in rendered.html
+    assert '<div class="midashi"><b><span class="lv-hc-halfwidth">hand</span></b><span class="lv-hc-halfwidth"> /hand/ </span>' not in rendered.html
+    assert rendered.stats["hc00c6_midashi_pronunciation_rows"] == 1
+
+
 def test_hc02be_maps_sections_to_ind_blocks() -> None:
     rendered = render_hc_body(
         b"\x1f\x09\x00\x01" + jis_ascii("H") + b"\x1f\x09\x00\x10" + jis_ascii("D"),
@@ -438,6 +819,37 @@ def test_hc02be_internal_links_use_product_line_link_class() -> None:
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="02BE"))
 
     assert 'class="lv-hc-link lineLink"' in rendered.html
+
+
+def test_hc02be_mode_one_decoration_is_italic_part_of_speech() -> None:
+    body = b"\x1f\xe0\x00\x01" + jis_ascii("n") + b"\x1f\xe1"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="02BE"))
+
+    assert '<i><span class="lv-hc-halfwidth">n</span></i>' in rendered.html
+    assert '<b><span class="lv-hc-halfwidth">n</span></b>' not in rendered.html
+    assert rendered.stats["hc02be_italic_decoration_spans"] == 1
+    assert rendered.stats["hc02be_decoration_closures"] == 1
+
+
+def test_hc02be_parent_slice_keeps_child_entry_sections() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + jis_ascii_text("denticle")
+        + b"\x1f\x09\x01\x01"
+        + jis_ascii_text("attached denticle")
+        + b"\x1f\x09\x01\x03"
+        + jis_text("付着性")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="02BE"))
+
+    assert '<div class="ind_0001">' in rendered.html
+    assert '<span class="ind_0101">' in rendered.html
+    assert '<span class="ind_0103">' in rendered.html
+    assert "denticle" in rendered.html
+    assert "attacheddenticle" in rendered.html
+    assert "付着性" in rendered.html
 
 
 def test_hc02be_renders_phonetic_accent_composite_markers() -> None:
@@ -504,13 +916,41 @@ def test_hc02bc_maps_sections_to_stedman_blocks() -> None:
         HcRenderOptions(renderer_code="02BC", image_sources={"fukumidashi": "Templates/fukumidashi.png"}),
     )
 
-    assert '<div class="midashi">' in rendered.html
+    assert '<div class="midashi hc02bc-midashi">' in rendered.html
     assert '<img src="Templates/fukumidashi.png" class="img_mark2">' in rendered.html
-    assert '<div class="komidashi"  style="margin-left:1.000000em;">' in rendered.html
+    assert '<div class="komidashi hc02bc-komidashi"  style="margin-left:1.000000em;">' in rendered.html
     assert '<div class="honbun" style="margin-left:1.000000em;">' in rendered.html
     assert '<div class="contents" style="text-indent:0em;">' in rendered.html
     assert "lv-hc-section" not in rendered.html
     assert rendered.stats["hc02bc_section_divs"] == 4
+
+
+def test_hc02bc_promotes_first_child_section_to_midashi() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x02" + b"\x1f\x12" + jis_ascii_text("child") + b"\x1f\x13",
+        HcRenderOptions(renderer_code="02BC", image_sources={"fukumidashi": "Templates/fukumidashi.png"}),
+    )
+
+    assert '<div class="midashi hc02bc-midashi"><b><span class="lv-hc-halfwidth">child</span></b></div>' in rendered.html
+    assert "fukumidashi.png" not in rendered.html
+    assert "hc02bc" in rendered.html
+
+
+def test_hc02bc_uses_stedman_decoration_semantics_and_suppresses_section_delimiters() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x12" + jis_ascii_text("bold") + b"\x1f\x13"
+        + b"\x1f\x0a"
+        + b"\x1f\xe0\x00\x01" + jis_ascii_text("italic") + b"\x1f\xe1",
+        HcRenderOptions(renderer_code="02BC"),
+    )
+
+    assert "<b><span class=\"lv-hc-halfwidth\">bold</span></b>" in rendered.html
+    assert "<i><span class=\"lv-hc-halfwidth\">italic</span></i>" in rendered.html
+    assert "<em>" not in rendered.html
+    assert '<div class="midashi hc02bc-midashi"><b>' in rendered.html
+    assert "</div><br>" not in rendered.html
+    assert rendered.stats["hc02bc_section_delimiters_suppressed"] == 1
 
 
 def test_hc02bc_consumes_state_controls_and_uses_line_link() -> None:
@@ -580,10 +1020,51 @@ def test_hc02bc_renders_medical_composite_markers() -> None:
     assert rendered.stats["hc02bc_composite_markers"] == 6
 
 
+def test_hc02bc_target_slice_expands_child_title_pointer(tmp_path: Path) -> None:
+    child_a = b"\x1f\x09\x00\x02" + jis_ascii_text("child A") + b"\x1f\x09\x00\x13" + jis_ascii_text("body A")
+    child_b = b"\x1f\x09\x00\x02" + jis_ascii_text("child B") + b"\x1f\x09\x00\x13" + jis_ascii_text("body B")
+    parent = b"\x1f\x09\x00\x01" + jis_ascii("P") + child_a + child_b
+    expanded = parent + b"\x1f\x09\x00\x01" + jis_ascii("N")
+    path = tmp_path / "HONMON.DIC"
+    path.write_bytes(encode_sseddata_literal(expanded, start_block=0, kind=0))
+    reader = SsedRandomReader(path)
+    target = expanded.index(jis_ascii_text("body B")) + 4
+
+    assert _hc_entry_slice_containing_reader(reader, "02BC", target) == (0, len(parent))
+    assert _hc_target_slice_reader(reader, "02BC", target) == (len(parent) - len(child_b), len(parent))
+
+    start, end = _hc_target_slice_reader(reader, "02BC", target) or (0, 0)
+    rendered = render_hc_body(reader.read(start, end - start), HcRenderOptions(renderer_code="02BC", entry_start_offset=start))
+    assert "childB" in rendered.plain
+    assert "bodyB" in rendered.plain
+    assert "childA" not in rendered.plain
+
+
+def test_hc02bc_resolved_media_suppresses_internal_image_label() -> None:
+    payload = b"\x00" * 12 + bytes.fromhex("00000001 0002")
+
+    def resolve(pointer: MediaPointer) -> str | None:
+        assert pointer.block == 1
+        assert pointer.offset == 2
+        return "media/colscr/00000001_0002.bmp"
+
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x05\x1f\x4d" + payload + jis_text("画像") + b"\x1f\x6d",
+        HcRenderOptions(renderer_code="02BC", media_image_resolver=resolve),
+    )
+
+    assert 'src="media/colscr/00000001_0002.bmp"' in rendered.html
+    assert "画像" not in rendered.html
+    assert "画像" not in rendered.plain
+    assert rendered.stats["hc02bc_suppressed_media_label_chars"] == 2
+
+
 def test_hc012e_maps_kanji_sections_and_hitsujun_image() -> None:
     rendered = render_hc_body(
         b"\x1f\x09\x00\x08"
-        + jis_ascii("H")
+        + jis_text("筆順")
+        + b"\x1f\x4d"
+        + bytes.fromhex("000000000000000000000000000001230045")
         + b"\x1f\x09\x00\x0c"
         + jis_ascii("B")
         + b"\x1f\x09\x00\x3f"
@@ -599,13 +1080,143 @@ def test_hc012e_maps_kanji_sections_and_hitsujun_image() -> None:
 
     assert "<!-- hitsujun start -->" in rendered.html
     assert '<img src="templates/hitsujun.png" class="img_gaiji">' in rendered.html
+    assert '<img src="templates/hitsujun.png" class="img_gaiji"><br><span class="hc012e-hitsujun-animation"' in rendered.html
+    assert '<span class="hc012e-hitsujun-animation" data-lv-role="stroke-order">' in rendered.html
+    assert "筆順" not in rendered.html
     assert '<div class="bushu">' in rendered.html
     assert '<table class="table_itaiji_2"><tr><td><div class="Itaiji">' in rendered.html
     assert '</div></td><td><div class="honbun">' in rendered.html
     assert '</div></td></tr></table><br>' in rendered.html
     assert rendered.stats["hc012e_hitsujun_sections"] == 1
+    assert rendered.stats["hc012e_suppressed_hitsujun_label_chars"] == 2
     assert rendered.stats["hc012e_table_cell_transitions"] == 1
     assert rendered.stats["hc012e_table_closures"] == 1
+
+
+def test_hc012e_suppresses_internal_counter_section_and_groups_kanji_summary() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x07"
+        + jis_text("長")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x20"
+        + jis_ascii_text("12955")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x14"
+        + jis_text("部首")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x26"
+        + jis_text("常用音"),
+        HcRenderOptions(renderer_code="012E"),
+    )
+
+    assert "12955" not in rendered.html
+    assert '<div class="hc012e-kanji-summary">' in rendered.html
+    assert '<div class="hc012e-kanji-main">' in rendered.html
+    assert '<div class="hc012e-kanji-meta">' in rendered.html
+    assert rendered.html.index('class="hc012e-kanji-main"') < rendered.html.index('class="hc012e-kanji-meta"')
+    assert rendered.html.count("<div") == rendered.html.count("</div>")
+    assert rendered.stats["hc012e_suppressed_sections"] == 1
+    assert rendered.stats["hc012e_suppressed_section_controls"] >= 1
+    assert rendered.stats["hc012e_suppressed_section_text"] == 5
+
+
+def test_hc013f_decodes_fullwidth_conjugation_table_as_collapsible_html() -> None:
+    table = (
+        "＜ｔａｂｌｅ　ｂｏｒｄｅｒ＝”２”　ｓｔｙｌｅ＝”ｗｒｉｔｉｎｇ−ｍｏｄｅ：ｔｂ−ｒｌ”＞"
+        "＜ｔｒ＞＜ｔｄ＞基本形＜／ｔｄ＞＜ｔｄ＞未然形＜／ｔｄ＞＜／ｔｒ＞"
+        "＜ｔｒ＞＜ｔｄ＞たいぎなり"
+    )
+    tail = "（たいぎに）＜／ｔｄ＞＜ｔｄ＞たいぎなら＜／ｔｄ＞＜／ｔｒ＞＜／ｔａｂｌｅ＞"
+    rendered = render_hc_body(
+        jis_text(table) + b"\x1f\x0a" + jis_text(tail),
+        HcRenderOptions(renderer_code="013F", image_sources={"katu": "templates/katu.png"}),
+    )
+
+    assert '<details class="hc013f-katu">' in rendered.html
+    assert '<img src="templates/katu.png" class="img_hinshi" alt="活用表">' in rendered.html
+    assert '<table class="hc013f-katu-table" border="2" style="writing-mode:tb-rl">' in rendered.html
+    assert "</tr><br><tr>" not in rendered.html
+    assert "たいぎなり<br>（たいぎに）" in rendered.html
+    assert "＜ｔａｂｌｅ" not in rendered.html
+    assert rendered.stats["hc013f_katu_tables"] == 1
+
+
+def test_hc013f_treats_zakukog_marker_gaiji_as_renderer_controls() -> None:
+    rendered = render_hc_body(
+        bytes.fromhex("b15b")
+        + jis_text("たいぎ")
+        + bytes.fromhex("b232")
+        + jis_text("（・なり）")
+        + bytes.fromhex("b233")
+        + bytes.fromhex("b162")
+        + jis_text("〔名〕")
+        + bytes.fromhex("b163")
+        + bytes.fromhex("b121")
+        + jis_text("重大な事柄。")
+        + bytes.fromhex("b122")
+        + jis_text("面倒なこと。")
+        + jis_text("餅舟")
+        + bytes.fromhex("b15c")
+        + jis_text("モチブネ")
+        + bytes.fromhex("b15e")
+        + jis_text("（もちぶね）"),
+        HcRenderOptions(renderer_code="013F"),
+    )
+
+    assert "たいぎ<sub>（・なり）</sub>" in rendered.html
+    assert "〔名〕" in rendered.html
+    assert "❶重大な事柄。❷面倒なこと。" in rendered.html
+    assert "餅舟モチブネ（もちぶね）" in rendered.html
+    for code in ("b121", "b122", "b15b", "b15c", "b162", "b163", "b15e", "b232", "b233"):
+        assert f'data-gaiji-code="{code}"' not in rendered.html
+    assert rendered.stats["hc013f_sense_number_markers"] == 2
+    assert rendered.stats["hc013f_suppressed_gaiji_markers"] == 5
+    assert rendered.stats["hc013f_subscript_markers"] == 2
+
+
+def test_hc013f_suppresses_post_colscr_alt_label_before_reference_link() -> None:
+    media_payload = bytes.fromhex("000000000000000000000000000442531574")
+    link_target = bytes.fromhex("000090761808")
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x11"
+        + jis_text("⇒")
+        + b"\x1f\x4d"
+        + media_payload
+        + jis_text("かはたけ【河竹】")
+        + b"\x1f\x42"
+        + bytes.fromhex("b229")
+        + jis_text("せいりゃうでん")
+        + b"\x1f\x62"
+        + link_target,
+        HcRenderOptions(
+            renderer_code="013F",
+            image_sources={"b229": "templates/b229.png"},
+            media_image_resolver=lambda pointer: "media/colscr/00044253_1574.bmp",
+        ),
+    )
+
+    assert "かはたけ" not in rendered.html
+    assert "河竹" not in rendered.html
+    assert 'src="media/colscr/00044253_1574.bmp" alt=""><br><a class="lv-hc-link"' in rendered.html
+    assert '<img class="lv-hc-gaiji lv-hc-gaiji-image" src="templates/b229.png" alt="b229" data-gaiji-code="b229">せいりゃうでん' in rendered.html
+    assert rendered.stats["hc013f_media_reference_breaks"] == 1
+    assert rendered.stats["hc013f_media_alt_labels_suppressed"] == 1
+    assert rendered.stats["hc013f_suppressed_media_alt_label_chars"] == len("かはたけ【河竹】")
+
+
+def test_hc_render_final_css_keeps_links_green_after_package_css() -> None:
+    assert "#5da24c" in HC_RENDER_FINAL_CSS
+    assert "!important" in HC_RENDER_FINAL_CSS
+    assert ".rendererdb-entry a[href]" in HC_RENDER_FINAL_CSS
+    assert ".rendererdb-entry .cref" in HC_RENDER_FINAL_CSS
+
+
+def test_hc_css_normalization_and_final_css_keep_dconci_red_classes() -> None:
+    assert "color:#FF0000;" in _normalise_hc_css(".red { color:FF0000; }")
+    assert ":where(.lv-hc-render .red)" in HC_RENDER_FINAL_CSS
+    assert ":where(.lv-hc-render .midashi_word.red)" in HC_RENDER_FINAL_CSS
+    assert ":where(.lv-hc-render .jerank1)" in HC_RENDER_FINAL_CSS
+    assert "color: #ff0000 !important;" in HC_RENDER_FINAL_CSS
 
 
 def test_hc012e_closes_table_sections_on_section_transition() -> None:
@@ -624,7 +1235,7 @@ def test_hc012e_closes_table_sections_on_section_transition() -> None:
     assert rendered.html.count("<td>") == 2
     assert rendered.html.count("</td>") == 2
     assert '<table class="table_oyaji"><tr><td><div class="Oyaji">' in rendered.html
-    assert '</div></td></tr></table><table class="table_itaiji_2"><tr><td><div class="Itaiji">' in rendered.html
+    assert '</div></td></tr></table></div></div><table class="table_itaiji_2"><tr><td><div class="Itaiji">' in rendered.html
     assert "lv-hc-section" not in rendered.html
 
 
@@ -638,6 +1249,88 @@ def test_hc012e_keeps_common_kun_section_normal_sized() -> None:
     assert "table_itaiji" not in rendered.html
     assert 'class="Itaiji"' not in rendered.html
     assert "lv-hc-section" not in rendered.html
+
+
+def test_hc012e_maps_decoration_to_bold_and_indents_onkun_children() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x26"
+        + b"\x1f\x12"
+        + jis_text("チョウ")
+        + b"\x1f\x13"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x25"
+        + jis_text("《音訓》")
+        + b"\x1f\x12"
+        + jis_text("チョウ")
+        + b"\x1f\x13",
+        HcRenderOptions(renderer_code="012E"),
+    )
+
+    assert "<b>チョウ</b>" in rendered.html
+    assert "<em>チョウ</em>" not in rendered.html
+    assert '<div class="honbun" style="margin-left:1.000000em;text-indent:-1.000000em;">《音訓》<b>チョウ</b></div>' in rendered.html
+    assert "</div><br>" not in rendered.html
+
+
+def test_hc012e_keeps_tsukaiwake_column_open_until_next_column_or_close() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x53"
+        + b"\xb2\x29"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x67"
+        + jis_text("チョウカン")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x66"
+        + jis_text("＝長間。")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x53"
+        + b"\xb2\x2a"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x67"
+        + jis_text("のどか"),
+        HcRenderOptions(renderer_code="012E", image_sources={"b229": "Gaijitemp/B229.png", "b22a": "Gaijitemp/B22A.png"}),
+    )
+
+    assert '<div class="column_Tsukaiwake">' in rendered.html
+    assert rendered.html.count('<div class="column_Tsukaiwake">') == 2
+    assert 'Gaijitemp/B229.png' in rendered.html
+    assert 'Gaijitemp/B22A.png' in rendered.html
+    assert re.search(r'<div class="column_Tsukaiwake">.*チョウカン<br>＝長間。.*</div>', rendered.html) is not None
+    assert rendered.stats["hc012e_column_inner_sections"] == 3
+    assert rendered.stats["hc012e_column_linebreaks"] >= 3
+
+
+def test_hc012e_closes_tsukaiwake_column_before_next_entry_section() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x53"
+        + b"\xb2\x2a"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x67"
+        + jis_text("のどか")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x66"
+        + jis_text("＝長間。")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + b"\x1f\x41\x01\x60"
+        + jis_text("［長跪］")
+        + b"\x1f\x61",
+        HcRenderOptions(renderer_code="012E", image_sources={"b22a": "Gaijitemp/B22A.png"}),
+    )
+
+    assert re.search(r'<div class="column_Tsukaiwake">.*＝長間。<br></div><div class="midashi">［長跪］</div>', rendered.html) is not None
+
+
+def test_hc012e_renders_b236_b237_as_bracket_side_images_outside_itaiji_table() -> None:
+    rendered = render_hc_body(
+        b"\xb2\x36" + jis_text("同字") + b"\xb2\x37",
+        HcRenderOptions(renderer_code="012E", image_sources={"b236": "Gaijitemp/B236.png", "b237": "Gaijitemp/B237.png"}),
+    )
+
+    assert 'src="Gaijitemp/B236.png"' in rendered.html
+    assert 'src="Gaijitemp/B237.png"' in rendered.html
+    assert rendered.html.index('Gaijitemp/B236.png') < rendered.html.index("同字") < rendered.html.index('Gaijitemp/B237.png')
+    assert rendered.stats["hc012e_bracket_side_markers"] == 1
 
 
 def test_hc012e_renders_color_size_direct_image_and_literal_markers() -> None:
@@ -775,6 +1468,41 @@ def test_hc012f_maps_sections_and_bunnya_link_images() -> None:
     assert rendered.stats["hc012f_link_icon_sections"] == 2
 
 
+def test_hc012f_keeps_related_link_punctuation_inline() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x05"
+        + b"\x1f\x42"
+        + jis_text("家督相続")
+        + b"\x1f\x62\x00\x00\x02\x65\x01\x34"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("、")
+        + b"\x1f\x09\x00\x05"
+        + b"\x1f\x42"
+        + jis_text("祭祀相続")
+        + b"\x1f\x62\x00\x00\x08\x80\x16\x96"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("、")
+        + b"\x1f\x09\x00\x05"
+        + b"\x1f\x42"
+        + jis_text("身分相続")
+        + b"\x1f\x62\x00\x00\x21\x93\x01\x12"
+        + b"\x1f\x0a",
+        HcRenderOptions(
+            renderer_code="012F",
+            image_sources={"link_2": "Templates/link_2.png"},
+        ),
+    )
+
+    assert '<div class="honbun hc012f-related-links">' in rendered.html
+    assert "</a></div><div class=\"honbun\">、</div>" not in rendered.html
+    assert "家督相続</a>、" in rendered.html
+    assert "祭祀相続</a>、" in rendered.html
+    assert "身分相続</a></div>" in rendered.html
+    assert rendered.html.count('<img src="Templates/link_2.png" class="img_gaiji">') == 3
+    assert rendered.stats["hc012f_related_link_separators"] == 2
+    assert rendered.stats["hc012f_related_link_groups"] == 1
+
+
 def test_hc012f_sizedown_and_template_gaiji_use_product_classes() -> None:
     rendered = render_hc_body(
         b"\x1f\x06" + jis_fullwidth_ascii("S") + b"\x1f\x07" + b"\xb1\x22",
@@ -830,6 +1558,96 @@ def test_hc0131_sizedown_and_link_class() -> None:
     assert '<span class="sizedown"><sub>Ｓ</sub></span>' in rendered.html
     assert '<a class="lv-hc-link lineLink"' in rendered.html
     assert rendered.stats["hc0131_sizedown_spans"] == 1
+
+
+def test_hc0131_groups_example_sections_and_suppresses_hidden_state_break() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x02"
+        + jis_fullwidth_ascii("/pron/")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x30"
+        + b"\x1f\xe2\x00\x07"
+        + jis_fullwidth_ascii("L")
+        + b"\x1f\xe3"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("━")
+        + b"\x1f\xe0\x00\x01"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("n")
+        + b"\x1f\x05"
+        + b"\x1f\xe1"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x17"
+        + jis_text("・")
+        + jis_fullwidth_ascii("example one.")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x17"
+        + jis_text("・")
+        + jis_fullwidth_ascii("example two.")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x04"
+        + jis_fullwidth_ascii("1"),
+        HcRenderOptions(renderer_code="0131"),
+    )
+
+    assert "／ｐｒｏｎ／<br>━" in rendered.html
+    assert "<br><br>━" not in rendered.html
+    assert '<i><span class="hankaku">n</span></i>' in rendered.html
+    assert rendered.html.count('<div class="contents">') == 1
+    assert "・ｅｘａｍｐｌｅｏｎｅ．" in rendered.html
+    assert "・ｅｘａｍｐｌｅｔｗｏ．" in rendered.html
+    assert rendered.html.index("・ｅｘａｍｐｌｅｏｎｅ．") < rendered.html.index("・ｅｘａｍｐｌｅｔｗｏ．")
+    assert rendered.html.index("・ｅｘａｍｐｌｅｔｗｏ．") < rendered.html.index('<div class="content_IND4"')
+    assert rendered.stats["hc0131_example_blocks"] == 1
+    assert rendered.stats["hc0131_example_sections"] == 2
+    assert rendered.stats["hc0131_state_line_breaks_suppressed"] == 1
+    assert rendered.stats["hc0131_italic_decoration_spans"] == 1
+
+
+def test_hc0131_splits_first_subsense_from_parent_number() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x04"
+        + b"\x1f\xe0\x00\x00"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("1")
+        + b"\x1f\x05"
+        + b"\x1f\xe1"
+        + b"\x1f\x04"
+        + b"\x21\x21"
+        + b"\x1f\x05"
+        + b"\x1f\xe0\x00\x00"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("a")
+        + b"\x1f\x05"
+        + b"\x1f\xe1"
+        + b"\x1f\x04"
+        + b"\x21\x21"
+        + jis_fullwidth_ascii("body")
+        + b"\x1f\x05"
+        + b"\x1f\x0a",
+        HcRenderOptions(renderer_code="0131"),
+    )
+
+    assert '<span class="hc0131-sense-number">1</span></div><div class="content_IND5">' in rendered.html
+    assert '<div class="content_IND5"><b><span class="hankaku">a</span></b>' in rendered.html
+    assert rendered.stats["hc0131_first_subsense_splits"] == 1
+
+
+def test_hc0131_keeps_example_decoration_bold_outside_pos_sections() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x17"
+        + jis_text("・")
+        + b"\x1f\xe0\x00\x01"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("loan")
+        + b"\x1f\x05"
+        + b"\x1f\xe1",
+        HcRenderOptions(renderer_code="0131"),
+    )
+
+    assert '<div class="contents">・<b><span class="hankaku">loan</span></b></div>' in rendered.html
+    assert rendered.stats["hc0131_bold_decoration_spans"] == 1
 
 
 def test_hc012d_maps_midashi_honbun_and_yorei_sections() -> None:
@@ -938,6 +1756,75 @@ def test_hc009d_maps_literals_breaks_checkbox_and_line_links() -> None:
     assert rendered.stats["hc009d_break_markers"] == 1
 
 
+def test_hc009d_merges_gakken_toc_sections_into_one_line() -> None:
+    body = (
+        b"\x1f\x09\x00\x12"
+        + b"\xb1\x24"
+        + jis_text("目次")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x13"
+        + b"\xb1\x2e"
+        + jis_text("参列する")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x14"
+        + b"\xb1\x2f"
+        + jis_text("会葬当日")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("本文")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="009D", image_sources={"b124": "Templates/b124.gif"}))
+
+    assert '<div class="lineinfo12 hc009d-toc-line">' in rendered.html
+    assert "目次" in rendered.html
+    assert "参列する" in rendered.html
+    assert "会葬当日" in rendered.html
+    assert rendered.html.index("目次") < rendered.html.index("参列する") < rendered.html.index("会葬当日")
+    toc_html = rendered.html.split('<div class="lineinfo12 hc009d-toc-line">', 1)[1].split("</div>", 1)[0]
+    assert "<br>" not in toc_html
+    assert rendered.stats["hc009d_toc_lines"] == 1
+    assert rendered.stats["hc009d_toc_linebreaks_suppressed"] == 3
+
+
+def test_hc009d_private_box_directive_renders_black_label() -> None:
+    box_start = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("BOX:2") + b"\x1f\xe3"
+    box_end = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("BOX:S") + b"\x1f\xe3"
+
+    rendered = render_hc_body(box_start + jis_text("順番") + box_end + jis_text("一般参列者"), HcRenderOptions(renderer_code="009D"))
+
+    assert '<span class="kuroKakomiShiroNuki hc009d-box-label">順番</span>' in rendered.html
+    assert "一般参列者" in rendered.html
+    assert rendered.stats["hc009d_box_label_starts"] == 1
+    assert rendered.stats["hc009d_box_label_ends"] == 1
+
+
+def test_hc009d_private_box_directive_renders_gray_topic_label() -> None:
+    box_start = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("BOX:1") + b"\x1f\xe3"
+    box_end = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("BOX:S") + b"\x1f\xe3"
+
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x03" + box_start + jis_text("●焼香はしきたりに従う") + box_end,
+        HcRenderOptions(renderer_code="009D"),
+    )
+
+    assert '<span class="kuroKakomi hc009d-gray-box-label">●焼香はしきたりに従う</span>' in rendered.html
+    assert rendered.stats["hc009d_gray_box_label_starts"] == 1
+    assert rendered.stats["hc009d_box_label_ends"] == 1
+
+
+def test_hc009d_private_ruby_directive_renders_furigana() -> None:
+    ruby_start = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:E") + b"\x1f\xe3"
+    ruby_end = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:S") + jis_text("まっこう") + b"\x1f\xe3"
+
+    rendered = render_hc_body(ruby_start + jis_text("抹香") + ruby_end, HcRenderOptions(renderer_code="009D"))
+
+    assert '<ruby class="ruby7"><rb class="rb7">抹香</rb>' in rendered.html
+    assert '<rt class="rt7">まっこう</rt>' in rendered.html
+    assert rendered.stats["hc009d_ruby_starts"] == 1
+    assert rendered.stats["hc009d_ruby_ends"] == 1
+
+
 def test_hc012d_honbun_user_transition_does_not_emit_empty_block_before_section() -> None:
     section_follows = render_hc_body(
         b"\x1f\x41\x01\x00" + jis_ascii("H") + b"\x1f\x61" + b"\x1f\x09\x00\x02" + jis_ascii("B"),
@@ -1000,6 +1887,38 @@ def test_hc012d_uses_line_link_and_link_k_marker() -> None:
     assert rendered.stats["hc012d_inline_image_markers"] == 1
 
 
+def test_hc012d_uses_kaisetsu_m_image_for_diamond_marker() -> None:
+    rendered = render_hc_body(
+        b"\x22\x21" + jis_text("「音連") + b"\x1f\x06" + jis_text("つ") + b"\x1f\x07" + jis_text("れる」"),
+        HcRenderOptions(renderer_code="012D", image_sources={"kaisetsu_m": "Templates/kaisetsu_m.png"}),
+    )
+
+    assert '<img class="lv-hc-gaiji gaiji" src="Templates/kaisetsu_m.png" alt="◆" data-gaiji-code="2221">' in rendered.html
+    assert ">◆" not in rendered.html
+    assert "「音連" in rendered.html
+    assert rendered.stats["hc012d_inline_image_markers"] == 1
+
+
+def test_hc_render_asset_preparation_registers_template_image_names(tmp_path: Path) -> None:
+    package = tmp_path / "DICT"
+    templates = package / "Templates"
+    templates.mkdir(parents=True)
+    (package / "DICT.IDX").write_bytes(b"")
+    (package / "HONMON.DIC").write_bytes(b"")
+    (templates / "kaisetsu_m.png").write_bytes(b"png")
+    (templates / "backH.gif").write_bytes(b"viewer chrome")
+
+    source = DictionarySource("DICT", package / "DICT.IDX", "DICT", package / "HONMON.DIC", 1, {})
+    output_sources, _templates, _stylesheet, _copied, _assets = _prepare_hc_render_assets(source, tmp_path / "out", None)
+
+    assert output_sources["kaisetsu_m"] == "Templates/kaisetsu_m.png"
+    assert output_sources["kaisetsu_m.png"] == "Templates/kaisetsu_m.png"
+    assert output_sources["templates/kaisetsu_m.png"] == "Templates/kaisetsu_m.png"
+    assert "backh" not in output_sources
+    assert "backh.gif" not in output_sources
+    assert not (tmp_path / "out" / "Templates" / "backH.gif").exists()
+
+
 def test_hc012d_maps_spacing_markers_and_gaiji_class() -> None:
     rendered = render_hc_body(
         b"\xa1\x34\xa1\x37\xb1\x21",
@@ -1046,6 +1965,53 @@ def test_hc0145_maps_decimal_sections_without_generic_heading() -> None:
     assert rendered.stats["hc0145_nonprinting_controls"] == 1
 
 
+def test_hc0145_groups_reader_example_lines_until_next_definition() -> None:
+    body = (
+        b"\x1f\x09\x00\x04"
+        + jis_ascii("a")
+        + jis_text("語義")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x08"
+        + jis_ascii_text("sourceone")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x09"
+        + jis_text("訳一")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x08"
+        + jis_ascii_text("sourcetwo")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x09"
+        + jis_text("訳二")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x05"
+        + jis_ascii("b")
+        + jis_text("次の語義")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x08"
+        + jis_ascii_text("sourcethree")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x09"
+        + jis_text("訳三")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0145"))
+
+    assert rendered.html.count('<div class="contents" style="text-indent:0em;">') == 2
+    assert (
+        '<div class="contents" style="text-indent:0em;">'
+        '<span class="lv-hc-halfwidth">sourceone</span> 訳一'
+        '<br><span class="lv-hc-halfwidth">sourcetwo</span> 訳二</div>'
+    ) in rendered.html
+    assert (
+        '<div class="contents" style="text-indent:0em;">'
+        '<span class="lv-hc-halfwidth">sourcethree</span> 訳三</div>'
+    ) in rendered.html
+    assert "</div>&nbsp;" not in rendered.html
+    assert rendered.stats["hc0145_example_blocks"] == 2
+    assert rendered.stats["hc0145_example_pair_joins"] == 3
+    assert rendered.stats["hc0145_example_pair_breaks"] == 1
+
+
 def test_hc0145_renders_literal_style_and_noop_markers() -> None:
     rendered = render_hc_body(
         b"\xa9\x21\xa9\x22\xa9\x23\xa9\x24\xb9\x2a\xb9\x2b\xb9\x34\xb9\x36"
@@ -1064,7 +2030,7 @@ def test_hc0145_renders_literal_style_and_noop_markers() -> None:
     assert "）" in rendered.html
     assert "[" in rendered.html
     assert "&nbsp;" in rendered.html
-    assert '<b><i><span class="lv-hc-halfwidth">B</span></i></b>' in rendered.html
+    assert '<i><span class="lv-hc-halfwidth">B</span></i>' in rendered.html
     assert "lv-hc-gaiji-placeholder" not in rendered.html
     assert rendered.stats["hc0145_literal_markers"] == 8
     assert rendered.stats["hc0145_style_markers"] == 2
@@ -1113,6 +2079,58 @@ def test_hc0144_maps_sections_and_consumes_heading_state() -> None:
     assert "hc0144_unmapped_section_0040" not in rendered.named_behavior_gaps
 
 
+def test_hc0144_joins_source_translation_example_pairs() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x08"
+        + jis_ascii_text("source")
+        + b"\x1f\x09\x00\x09"
+        + jis_text("訳")
+        + b"\x1f\x09\x00\x02"
+        + jis_text("本文"),
+        HcRenderOptions(renderer_code="0144"),
+    )
+
+    assert '<div class="contents" style="text-indent:0em;"><span class="lv-hc-halfwidth">source</span> <span class="lv-hc-example-translation-inline">訳</span></div>' in rendered.html
+    assert "</div>&nbsp;<div" not in rendered.html
+    assert rendered.stats["hc0144_example_translation_pairs_joined"] == 1
+
+
+def test_hc0144_italicizes_short_bracketed_grammar_labels() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x03"
+        + jis_text("［")
+        + b"\x1f\xe0\x00\x01"
+        + jis_ascii_text("pl.")
+        + b"\x1f\xe1"
+        + jis_text("］")
+        + jis_text(" ")
+        + b"\x1f\xe0\x00\x01"
+        + jis_ascii_text("dog")
+        + b"\x1f\xe1",
+        HcRenderOptions(renderer_code="0144"),
+    )
+
+    assert '［<i><span class="lv-hc-halfwidth">pl.</span></i>］' in rendered.html
+    assert '<b><span class="lv-hc-halfwidth">dog</span></b>' in rendered.html
+    assert rendered.stats["hc0144_grammar_labels_italicized"] == 1
+
+
+def test_hc0145_italicizes_short_angle_grammar_labels() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x03"
+        + jis_text("〈")
+        + b"\x1f\xe0\x00\x01"
+        + jis_ascii_text("that")
+        + b"\x1f\xe1"
+        + jis_text("〉"),
+        HcRenderOptions(renderer_code="0145"),
+    )
+
+    assert '〈<i><span class="lv-hc-halfwidth">that</span></i>〉' in rendered.html
+    assert '〈<b><span class="lv-hc-halfwidth">that</span></b>〉' not in rendered.html
+    assert rendered.stats["hc0145_grammar_labels_italicized"] == 1
+
+
 def test_hc0144_marker_subset_matches_decompiled_branch_table() -> None:
     body = (
         b"\xb9\x21"
@@ -1130,7 +2148,7 @@ def test_hc0144_marker_subset_matches_decompiled_branch_table() -> None:
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="0144", image_sources={"b921": "Templates/b921.png"}))
 
     assert "Templates/b921.png" not in rendered.html
-    assert '<b><i><span class="lv-hc-halfwidth">B</span></i></b>' in rendered.html
+    assert '<i><span class="lv-hc-halfwidth">B</span></i>' in rendered.html
     assert "≪" in rendered.html
     assert "≫" in rendered.html
     assert "（" in rendered.html
@@ -1149,6 +2167,44 @@ def test_hc0144_internal_links_use_line_link_class() -> None:
 
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert 'href="lvaddr://00000002/0030"' in rendered.html
+
+
+def test_hc0144_uses_arrow_image_for_part_of_speech_marker() -> None:
+    body = b"\xb9\x39" + jis_text("━") + b"\xb9\x24" + jis_ascii_text("n.") + b"\xb9\x25"
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="0144", image_sources={"b939": "Templates/b939.png"}),
+    )
+
+    assert (
+        '<img class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji" '
+        'src="Templates/b939.png" alt="▶" data-gaiji-code="b939">━'
+    ) in rendered.html
+    assert '<i><span class="lv-hc-halfwidth">n.</span></i>' in rendered.html
+    assert rendered.stats["hc0144_arrow_markers"] == 1
+
+
+def test_hc0144_prefers_unicode_for_pronunciation_gaiji_over_bitmaps() -> None:
+    body = (
+        b"\x1f\x04"
+        + b"\x23\x64\xa2\x42\x21\x4a\xa2\x7a\x21\x4b\x23\x67\x21\x21\x23\x64\xa2\x46\x23\x67"
+        + b"\x1f\x05"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0144",
+            gaiji_map={"a27a": "ː"},
+            image_sources={"a242": "gaiji/A242.bmp", "a246": "gaiji/A246.bmp"},
+        ),
+    )
+
+    assert "dɔ́(ː)g dɑ́g" in rendered.html
+    assert "gaiji/A242.bmp" not in rendered.html
+    assert "gaiji/A246.bmp" not in rendered.html
+    assert rendered.stats["hc0144_unicode_preferred_markers"] == 2
 
 
 def test_hc03e8_maps_sections_and_consumes_heading_state() -> None:
@@ -1195,7 +2251,7 @@ def test_hc03e8_marker_subset_matches_decompiled_branch_table() -> None:
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="03E8", image_sources={"b921": "Templates/b921.png"}))
 
     assert "Templates/b921.png" not in rendered.html
-    assert '<b><i><span class="lv-hc-halfwidth">B</span></i></b>' in rendered.html
+    assert '<i><span class="lv-hc-halfwidth">B</span></i>' in rendered.html
     assert "≪" in rendered.html
     assert "≫" in rendered.html
     assert "（" in rendered.html
@@ -1259,7 +2315,7 @@ def test_hc0141_marker_subset_matches_decompiled_branch_table() -> None:
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="0141", image_sources={"b926": "Templates/b926.png"}))
 
     assert "Templates/b926.png" not in rendered.html
-    assert '<b><i><span class="lv-hc-halfwidth">B</span></i></b>' in rendered.html
+    assert '<i><span class="lv-hc-halfwidth">B</span></i>' in rendered.html
     assert "≪" in rendered.html
     assert "≫" in rendered.html
     assert "（" in rendered.html
@@ -1279,6 +2335,109 @@ def test_hc0141_internal_links_use_line_link_class_and_img_gaiji() -> None:
     assert 'class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji"' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert 'href="lvaddr://00000002/0030"' in rendered.html
+
+
+def test_hc0141_inserts_cross_reference_arrow_after_double_pipe_link_marker() -> None:
+    body = b"\xa9\x24" + b"\x1f\x42" + jis_ascii_text("intervale") + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="0141", image_sources={"b939": "Templates/b939.png"}),
+    )
+
+    assert (
+        '<sup>||</sup><img class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji" '
+        'src="Templates/b939.png" alt="▶" data-gaiji-code="b939"><a class="lv-hc-link lineLink"'
+    ) in rendered.html
+    assert '<span class="lv-hc-halfwidth">intervale</span></a>' in rendered.html
+    assert rendered.stats["hc0141_cross_reference_arrows"] == 1
+
+
+def test_hc0141_does_not_insert_double_pipe_arrow_after_visible_text() -> None:
+    body = (
+        b"\xa9\x24"
+        + jis_text("《")
+        + b"\x1f\x42"
+        + jis_ascii_text("intervale")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="0141", image_sources={"b939": "Templates/b939.png"}),
+    )
+
+    assert "Templates/b939.png" not in rendered.html
+    assert "hc0141_cross_reference_arrows" not in rendered.stats
+
+
+def test_hc0141_groups_example_source_translation_pairs() -> None:
+    body = (
+        b"\x1f\x09\x00\x28"
+        + b"\x1f\x04"
+        + jis_text("ａ　ｎｅｗ　ｅｘｐｅｒｉｍｅｎｔ　ｉｎ　ｅｄｕｃａｔｉｏｎ")
+        + b"\x1f\x05"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x29"
+        + jis_text("教育上の新しい試み")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x28"
+        + b"\x1f\x04"
+        + jis_text("ｌｅａｒｎ　ｂｙ　ｅｘｐｅｒｉｍｅｎｔ")
+        + b"\x1f\x05"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x29"
+        + jis_text("実験して知る")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x20"
+        + jis_text("次の語義")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0141"))
+
+    assert rendered.html.count('<div class="contents" style="text-indent:0em;">') == 1
+    assert (
+        '<span class="lv-hc-halfwidth">a new experiment in education</span> '
+        '教育上の新しい試み<br><span class="lv-hc-halfwidth">learn by experiment</span> 実験して知る</div>'
+    ) in rendered.html
+    assert "</div>&nbsp;" not in rendered.html
+    assert rendered.stats["hc0141_example_blocks"] == 1
+    assert rendered.stats["hc0141_example_pair_joins"] == 2
+
+
+def test_hc0141_normalizes_visible_fullwidth_ascii_and_italic_mode() -> None:
+    body = (
+        b"\x1f\x09\x00\x02"
+        + jis_fullwidth_ascii("/")
+        + b"\x1f\xe0\x00\x01"
+        + jis_fullwidth_ascii("r")
+        + b"\x1f\xe1"
+        + jis_fullwidth_ascii("/")
+        + b"\x1f\x09\x00\x24"
+        + jis_text("実験する〈")
+        + b"\x1f\xe0\x00\x01"
+        + b"\x1f\x04"
+        + jis_text("ｗｉｔｈ")
+        + b"\x1f\xe1"
+        + jis_text("　ａ　ｎｅｗ　ｍｅｔｈｏｄ；　")
+        + b"\x1f\xe0\x00\x01"
+        + jis_text("ｉｎ")
+        + b"\x1f\xe1"
+        + jis_text("　ｐａｉｎｔｉｎｇ")
+        + jis_text("〉")
+        + b"\x1f\x0a"
+        + b"\x1f\x05"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0141"))
+
+    assert "/<i>r</i>/" in rendered.html
+    assert '実験する〈<span class="lv-hc-halfwidth"><i>with</i> a new method; <i>in</i> painting〉</span></div>' in rendered.html
+    assert "</div></span>" not in rendered.html
+    assert "ｗｉｔｈ" not in rendered.html
+    assert rendered.stats["hc0141_italic_decoration_spans"] == 3
+    assert rendered.stats["hc0141_halfwidth_closed_before_linebreak"] == 1
+    assert rendered.stats["hc0141_fullwidth_ascii_normalized"] > 0
 
 
 def test_hc0190_applies_html_template_section_placeholders() -> None:
@@ -1783,7 +2942,7 @@ def test_hc013d_renders_template_gaiji_with_product_image_class() -> None:
 def test_hc013d_decodes_jis_product_template_sequences() -> None:
     body = (
         bytes.fromhex("215a3d69215b")
-        + bytes.fromhex("215a403d3a5e")
+        + bytes.fromhex("215a403d3a5e3e704a73215b")
         + bytes.fromhex("236d234c")
         + bytes.fromhex("2364234c")
         + bytes.fromhex("2331234c")
@@ -1811,6 +2970,85 @@ def test_hc013d_decodes_jis_product_template_sequences() -> None:
     assert rendered.stats["hc013d_jis_template_markers"] == 9
 
 
+def test_hc013d_consumes_full_jis_label_macros_without_suffix_leaks() -> None:
+    body = (
+        bytes.fromhex("215a403d3a5e3e704a73215b")
+        + bytes.fromhex("215a3e26494a215b")
+        + bytes.fromhex("215a4a2c4e60215b")
+        + bytes.fromhex("215a3d684a7d4c5c452a215b")
+        + bytes.fromhex("215a32724062215b")
+        + bytes.fromhex("215a3b484d513e65244e436d3055215b")
+        + bytes.fromhex("2223")
+        + jis_text("基本的注意")
+        + bytes.fromhex("2223")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="013D",
+            image_sources={"midashi1": "Templates/midashi1.png", "midashi3": "Templates/midashi3.png"},
+        ),
+    )
+
+    assert '<img src="Templates/midashi1.png" class="img_midashi">' in rendered.html
+    assert '<img src="Templates/midashi3.png" class="img_midashi">' in rendered.html
+    assert '<div class="SubTitle_syouhin">商品</div>' in rendered.html
+    assert '<span class="title">分類</span>' in rendered.html
+    assert '<span class="title">処方目的</span>' in rendered.html
+    assert '<span class="title">解説</span>' in rendered.html
+    assert '<span class="title2">基本的注意</span>' in rendered.html
+    assert "情報】" not in rendered.html
+    assert "】" not in rendered.html
+    assert "的注意■" not in rendered.html
+
+
+def test_hc013d_keeps_drug_category_metadata_inside_midashi() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_text("薬品名")
+        + b"\x1f\x61"
+        + jis_text("［内服薬５‐１‐２］")
+        + b"\x1f\x0a"
+        + jis_text("本文")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="013D"))
+
+    assert '<div class="midashi">薬品名［内服薬５‐１‐２］</div>' in rendered.html
+    assert rendered.stats["hc013d_deferred_midashi_ends"] == 1
+    assert rendered.stats["hc013d_deferred_midashi_closures"] == 1
+
+
+def test_hc013d_groups_product_name_price_and_image_sections_into_cards() -> None:
+    body = (
+        b"\x1f\x09\x00\x06"
+        + jis_text("商品一")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x10"
+        + jis_text("十円")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x11"
+        + jis_text("写真一")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x06"
+        + jis_text("商品二")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x04"
+        + jis_text("次章")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="013D"))
+
+    assert rendered.html.count('class="hc013d-product-card"') == 2
+    assert '<div class="hc013d-product-card"><span class="med">商品一</span><div class="medprice">十円</div><div class="medimage">写真一</div></div>' in rendered.html
+    assert '<div class="hc013d-product-card"><span class="med">商品二</span></div><div class="title3">次章</div>' in rendered.html
+    assert rendered.stats["hc013d_product_cards"] == 2
+    assert rendered.stats["hc013d_product_card_closures"] == 2
+    assert rendered.stats["hc013d_product_linebreaks_suppressed"] == 4
+
+
 def test_hc02c2_maps_section_icons_and_moji_down_blocks() -> None:
     rendered = render_hc_body(
         b"\x1f\x09\x00\x01"
@@ -1827,15 +3065,54 @@ def test_hc02c2_maps_section_icons_and_moji_down_blocks() -> None:
     )
 
     assert '<div class="midashi">' in rendered.html
-    assert '<img src="1.png" class="img_icon"/><br>' in rendered.html
-    assert '<img src="2.png" class="img_icon"/><br>' in rendered.html
-    assert '<img src="3.png" class="img_icon"/><br>' in rendered.html
-    assert '<img src="4.png" class="img_icon"/><br>' in rendered.html
+    assert '<img src="Templates/1.png" class="img_icon"/><br>' in rendered.html
+    assert '<img src="Templates/2.png" class="img_icon"/><br>' in rendered.html
+    assert '<img src="Templates/3.png" class="img_icon"/><br>' in rendered.html
+    assert '<img src="Templates/4.png" class="img_icon"/><br>' in rendered.html
     assert '<p class="moji-down">' in rendered.html
     assert '<span class="lv-hc-halfwidth">A</span></p>' in rendered.html
     assert "lv-hc-section" not in rendered.html
     assert rendered.stats["hc02c2_section_blocks"] == 5
     assert rendered.stats["hc02c2_section_icons"] == 4
+
+
+def test_hc_base_css_keeps_renderer_marker_images_small_without_package_css() -> None:
+    assert ":where(.lv-hc-render .img_icon)" in HC_RENDER_BASE_CSS
+    assert "height: 1em;" in HC_RENDER_BASE_CSS
+    assert ":where(.lv-hc-render .img_icon_Small)" in HC_RENDER_BASE_CSS
+    assert ":where(.lv-hc-render .img_icon_Big)" in HC_RENDER_BASE_CSS
+
+
+def test_hc_html_header_links_stylesheet_instead_of_inlining_name() -> None:
+    out = io.StringIO()
+
+    _write_hc_html_header(out, stylesheet="hc-renderer.css", vertical=False)
+
+    html = out.getvalue()
+    assert '<link rel="stylesheet" href="hc-renderer.css">' in html
+    assert "<style>" not in html
+    assert "\nhc-renderer.css\n" not in html
+
+
+def test_hc02c2_preserves_numbered_text_and_section_marker_icon_classes() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x01"
+        + jis_text("たらーん")
+        + b"\x1f\x09\x00\x02"
+        + b"\xb1\x21"
+        + jis_text("流れている。")
+        + b"\x1f\x09\x00\x07"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("A")
+        + b"\x1f\x05"
+        + jis_text("：例文"),
+        HcRenderOptions(renderer_code="02C2", gaiji_map={"b121": "①"}),
+    )
+
+    assert '<div class="midashi">たらーん</div>' in rendered.html
+    assert "①" in rendered.html
+    assert '<img src="Templates/1.png" class="img_icon"/><br>' in rendered.html
+    assert '<p class="moji-down"><span class="lv-hc-halfwidth">A</span>：例文' in rendered.html
 
 
 def test_hc02c2_uses_template_gaiji_images_and_suppresses_heading_control() -> None:
@@ -1859,6 +3136,28 @@ def test_hc02c2_line_links_use_product_class() -> None:
 
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert 'href="lvaddr://00000002/0030"' in rendered.html
+
+
+def test_hc02c2_private_ruby_directives() -> None:
+    body = (
+        b"\x1f\xe2\x00\x01"
+        + jis_ascii_text("RUB:")
+        + jis_text("始")
+        + b"\x1f\xe3"
+        + jis_text("垂")
+        + b"\x1f\xe2\x00\x01"
+        + jis_ascii_text("RUB:")
+        + jis_text("終た")
+        + b"\x1f\xe3"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="02C2"))
+
+    assert '<ruby class="ruby7"><rb class="rb7">垂</rb>' in rendered.html
+    assert '<rt class="rt7">た</rt>' in rendered.html
+    assert rendered.stats["hc02c2_ruby_starts"] == 1
+    assert rendered.stats["hc02c2_ruby_ends"] == 1
+    assert rendered.stats["hc02c2_private_directives_handled"] == 2
 
 
 def test_hc02c8_maps_zukaiho_sections_tables_and_links() -> None:
@@ -2318,6 +3617,109 @@ def test_hc007d_maps_midashi_margin_links_and_template_gaiji() -> None:
     assert rendered.stats["hc007d_nonprinting_controls"] == 1
 
 
+def test_hc007d_decoration_state_does_not_leak_random_italics() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + b"\x1f\x41\x00\x00"
+        + b"\x1f\x61"
+        + b"\x1f\x10"
+        + b"\x1f\xe0\x11\x01"
+        + jis_ascii_text("n.")
+        + b"\x1f\xe1"
+        + b"\x1f\x11"
+        + b"\x1f\x0a"
+        + b"\x1f\x10"
+        + jis_text("《英口語》")
+        + b"\x1f\x11"
+        + b"\x1f\x10"
+        + jis_ascii_text("Nile")
+        + b"\x1f\x11"
+        + b"\x1f\x10"
+        + b"\x1f\xe0\x11\x01"
+        + jis_ascii_text("Crocodylus")
+        + b"\x1f\xe1"
+        + b"\x1f\x11"
+        + b"\x1f\x10"
+        + b"\x1f\xe0\x11\x03"
+        + jis_ascii_text("1")
+        + b"\x1f\xe1"
+        + b"\x1f\x11"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="007D"))
+
+    assert '<i><span class="hankaku">n.</span></i>' in rendered.html
+    assert '<i><span class="hankaku">Crocodylus</span></i>' in rendered.html
+    assert '<b><span class="hankaku">1</span></b>' in rendered.html
+    assert '<i><b><span class="hankaku">n.</span></b></i>' not in rendered.html
+    assert '<i>《英口語》</i>' not in rendered.html
+    assert '<i><span class="hankaku">Nile</span></i>' not in rendered.html
+    assert '<b><span class="hankaku">Crocodylus</span></b>' not in rendered.html
+    assert rendered.stats["hc007d_italic_spans"] == 2
+    assert rendered.stats["hc007d_bold_spans"] == 1
+    assert rendered.stats["hc007d_state_controls"] >= 8
+
+
+def test_hc007d_groups_bullet_examples_in_exsample_box() -> None:
+    section_prefix = b"\x1f\x09\x00\x02" + b"\x1f\x41\x02\x91" + b"\x1f\x61"
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x02\x91"
+        + jis_text("crocodile")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + section_prefix
+        + jis_text("2")
+        + jis_text("定義")
+        + b"\x1f\x0a"
+        + section_prefix
+        + b"\x1f\x04"
+        + jis_text("・")
+        + jis_fullwidth_ascii("a crocodile (of school children).")
+        + b"\x1f\x05"
+        + b"\x1f\x0a"
+        + section_prefix
+        + b"\x1f\x04"
+        + jis_text("・")
+        + jis_fullwidth_ascii("proceed in a crocodile.")
+        + b"\x1f\x05"
+        + b"\x1f\x0a"
+        + section_prefix
+        + jis_text("3")
+        + jis_text("次")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="007D"))
+
+    assert rendered.html.count('<div class="exsample">') == 1
+    assert '<span class="hankaku"><div class="exsample">' not in rendered.html
+    assert '<div class="exsample"><span class="hankaku">・acrocodile' in rendered.html
+    assert '<br><span class="hankaku">・proceedinacrocodile.</span></div>' in rendered.html
+    assert rendered.stats["hc007d_example_boxes"] == 1
+    assert rendered.stats["hc007d_example_linebreaks_inside_box"] == 1
+    assert rendered.stats["hc007d_example_box_closures"] == 1
+
+
+def test_hc007d_media_image_breaks_before_caption() -> None:
+    payload = bytes.fromhex("000000000000000000000000000001230045")
+
+    def resolve(_pointer: MediaPointer) -> str:
+        return "media/colscr/00000123_0045.bmp"
+
+    rendered = render_hc_body(
+        b"\x1f\x4d" + payload + jis_ascii_text("crocodile ") + jis_text("【挿絵】"),
+        HcRenderOptions(renderer_code="007D", media_image_resolver=resolve),
+    )
+
+    assert 'src="media/colscr/00000123_0045.bmp" alt=""><br><span class="hankaku">crocodile</span>【挿絵】' in rendered.html
+    assert rendered.stats["media_images"] == 1
+    assert rendered.stats["hc007d_media_trailing_breaks"] == 1
+
+
 def test_hc007d_profile_records_branch_subset_without_full_parity_claim() -> None:
     renderer = HcRendererClassification(
         path=Path("HC007D.dll"),
@@ -2394,6 +3796,36 @@ def test_hc008f_maps_jmidashi_margin_links_and_template_gaiji() -> None:
     assert rendered.stats["hc008f_img_gaiji_midashi_images"] == 1
     assert rendered.stats["hc008f_img_gaiji_images"] == 1
     assert rendered.stats["hc008f_nonprinting_controls"] == 1
+
+
+def test_hc008f_prefers_unicode_gaiji_mapping_over_bitmap_fallback() -> None:
+    body = (
+        b"\x1f\x41\x00\x00"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("m")
+        + b"\xa1\x3e"
+        + jis_fullwidth_ascii("ney")
+        + b"\x1f\x05"
+        + b"\x1f\x61"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="008F",
+            gaiji_map={"a13e": "ó"},
+            image_sources={
+                "dummy.gif": "Templates/dummy.GIF",
+                "a13e": "gaiji/GA16HALF/A13E_uni_record_order.bmp",
+            },
+        ),
+    )
+
+    assert "móney" in rendered.html
+    assert "GA16HALF" not in rendered.html
+    assert "img_gaiji_midashi" not in rendered.html
+    assert rendered.stats["gaiji_unicode"] == 1
+    assert rendered.stats.get("gaiji_image", 0) == 0
 
 
 def test_hc008f_profile_records_branch_subset_without_full_parity_claim() -> None:
@@ -2525,7 +3957,7 @@ def test_hc0094_maps_sections_color_blocks_template_gaiji_and_line_links() -> No
         HcRenderOptions(renderer_code="0094", image_sources={"b121": "Templates/B121.gif"}),
     )
 
-    assert '<div class="midashi">' in rendered.html
+    assert '<div class="lineinfo-1-1">' in rendered.html
     assert '<div class="contents_body">' in rendered.html
     assert '<div class="lineinfo">' in rendered.html
     assert '<div class="footer">' in rendered.html
@@ -2541,6 +3973,80 @@ def test_hc0094_maps_sections_color_blocks_template_gaiji_and_line_links() -> No
     assert rendered.stats["hc0094_section_footer"] == 1
     assert rendered.stats["hc0094_template_image_markers"] == 1
     assert rendered.stats["hc0094_color_div_markers"] == 1
+
+
+def test_hc0094_gakken_footer_hidden_nav_and_merged_answer_box() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + jis_text("見出し")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x12"
+        + b"\xb1\x48"
+        + jis_text("目次")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x12"
+        + b"\xb1\x48"
+        + jis_text("第３章")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x12"
+        + b"\xb1\x30"
+        + jis_text("敬語の解説へ")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x13"
+        + b"\xb1\x49"
+        + b"\xb1\x29"
+        + b"\x1f\x42"
+        + jis_text("隠")
+        + b"\x1f\x62\x00\x00\x00\x01\x00\x02"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + b"\xb1\x3e"
+        + b"\xb1\x2c"
+        + jis_text("誤り")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + b"\xb1\x3e"
+        + b"\xb1\x2d"
+        + jis_text("正解")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0094",
+            image_sources={
+                "class_arrow": "Templates/class_arrow.gif",
+                "b130": "Templates/B130.gif",
+                "b12c": "Templates/B12C.gif",
+                "b12d": "Templates/B12D.gif",
+            },
+        ),
+    )
+
+    assert '<div class="lineinfo-1-1">見出し<br></div>' in rendered.html
+    assert rendered.html.count('<div class="footer">') == 1
+    assert "目次<br>" not in rendered.html
+    assert "第３章<br>" not in rendered.html
+    assert "目次" in rendered.html
+    assert "第３章" in rendered.html
+    assert "敬語の解説へ" in rendered.html
+    assert "隠" not in rendered.html
+    assert 'data-gaiji-code="b149"' not in rendered.html
+    assert 'data-gaiji-code="b129"' not in rendered.html
+    assert 'class="lv-hc-link lineLink"' not in rendered.html
+    assert rendered.html.count('<div class="aka">') == 1
+    answer_box = rendered.html.split('<div class="aka">', 1)[1].split("</div>", 1)[0]
+    assert "誤り" in answer_box
+    assert "正解" in answer_box
+    assert 'src="Templates/B12C.gif"' in answer_box
+    assert 'src="Templates/B12D.gif"' in answer_box
+    assert rendered.stats["hc0094_suppressed_sections"] == 1
+    assert rendered.stats["hc0094_suppressed_section_markers"] == 2
+    assert rendered.stats["hc0094_suppressed_section_controls"] == 2
+    assert rendered.stats["hc0094_suppressed_section_text"] == 1
+    assert rendered.stats["hc0094_toc_linebreaks_suppressed"] >= 2
+    assert rendered.stats["hc0094_merged_color_box_sections"] == 1
+    assert rendered.stats["hc0094_merged_color_box_markers"] == 1
 
 
 def test_hc0094_maps_class_arrow_and_consumes_state_markers() -> None:
@@ -2635,8 +4141,8 @@ def test_hc0137_maps_iwanami_sections_and_line_links() -> None:
     assert '<div style="display:none">' in rendered.html
     assert "［" in rendered.html and "］" in rendered.html
     assert "（" in rendered.html and "）" in rendered.html
-    assert '<div style="margin-left: 10.000000em" class="honbunB">' in rendered.html
-    assert '<div style="margin-left: 12.000000em" class="honbun">' in rendered.html
+    assert '<div class="honbunB hc0137-indent">' in rendered.html
+    assert '<div class="honbun hc0137-body-main">' in rendered.html
     assert "〈" in rendered.html and "〉" in rendered.html
     assert '<div class="honbun">' in rendered.html
     assert 'class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji"' in rendered.html
@@ -2648,6 +4154,102 @@ def test_hc0137_maps_iwanami_sections_and_line_links() -> None:
     assert rendered.stats["hc0137_section_hidden"] == 1
     assert rendered.stats["hc0137_section_honbunB"] == 1
     assert rendered.stats["hc0137_section_honbun"] >= 2
+
+
+def test_hc0137_applies_iwanami_private_body_markers() -> None:
+    def private(text: str) -> bytes:
+        return b"\x1f\xe2\x00\x07" + jis_text(text) + b"\x1f\xe3"
+
+    target = b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+    body = (
+        b"\x1f\x09\x00\x04"
+        + jis_text("あたらしい")
+        + jis_text("◆新しい§アタラシイ")
+        + b"\x1f\x0a"
+        + private("＜語種＞和語＜／語種＞")
+        + b"\x1f\x0a"
+        + private("＜分野＞一般＜／分野＞")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x12"
+        + private("品詞：Ｅ")
+        + jis_text("形")
+        + private("品詞：Ｓ")
+        + jis_text("現れる。")
+        + private("対義：Ｅ")
+        + jis_text("古い")
+        + private("対義：Ｓ")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x20"
+        + jis_text("注記")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x20"
+        + b"\xb9\x22"
+        + jis_text("は現代的")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x17"
+        + b"\xb7\x61"
+        + private("関連：Ｅ")
+        + b"\x1f\x42"
+        + jis_text("真新しい")
+        + target
+        + private("関連：Ｓ")
+        + private("関連：Ｅ")
+        + b"\x1f\x42"
+        + private("ＲＵＢ：Ｅ")
+        + jis_text("瑞瑞")
+        + private("ＲＵＢ：Ｓみずみず")
+        + jis_text("しい")
+        + target
+        + private("関連：Ｓ")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0137",
+            image_sources={
+                "b761": "Templates/B761.png",
+                "b922": "Templates/B922.png",
+                "g2": "Templates/g2.png",
+                "b1": "Templates/b1.png",
+                "dummy": "Templates/dummy.gif",
+            },
+        ),
+    )
+
+    assert "◆新しい" not in rendered.html
+    assert "アタラシイ" not in rendered.html
+    assert 'src="Templates/g2.png"' in rendered.html
+    assert 'src="Templates/b1.png"' in rendered.html
+    assert '<span class="hc0137-pos">〘形〙</span>' in rendered.html
+    assert '<span class="hc0137-antonym">↔古い</span>' in rendered.html
+    assert rendered.html.count('src="Templates/B922.png"') == 1
+    assert '<span class="hc0137-note-marker">▽</span>注記' in rendered.html
+    assert '<span class="hc0137-note-marker">▽</span><img' in rendered.html
+    assert 'src="Templates/B761.png"' in rendered.html
+    assert 'src="Templates/B761.png" alt="b761" data-gaiji-code="b761"><br><span' in rendered.html
+    assert "真新しい</a></span><br><span" in rendered.html
+    assert "<ruby><rb>瑞瑞</rb><rp>（</rp><rt>みずみず</rt><rp>）</rp></ruby>しい" in rendered.html
+    assert rendered.stats["hc0137_suppressed_search_tail_markers"] == 1
+    assert rendered.stats["hc0137_note_markers"] == 2
+    assert rendered.stats["hc0137_private_directives_handled"] >= 10
+
+
+def test_iwanami_companion_templates_are_logical_templates(tmp_path: Path) -> None:
+    package = tmp_path / "_DCT_SAMPLE"
+    package.mkdir()
+    idx = package / "SAMPLE.IDX"
+    idx.write_bytes(b"")
+    templates = tmp_path / "_DCT_SAMPLE_Templates"
+    templates.mkdir()
+    image = templates / "B922.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    profile = load_image_resource_profile(idx)
+
+    assert profile.image_dirs == (templates,)
+    assert profile.resources["b922"].default == image
+    assert relative_image_source(image, idx) == "Templates/B922.png"
 
 
 def test_hc00a6_maps_sections_ruby_and_line_links() -> None:
@@ -2679,6 +4281,51 @@ def test_hc00a6_maps_sections_ruby_and_line_links() -> None:
     assert rendered.stats["hc00a6_section_blocks"] == 2
     assert rendered.stats["hc00a6_ruby_starts"] == 1
     assert rendered.stats["hc00a6_ruby_ends"] == 1
+
+
+def test_hc00a6_decodes_decimal_header_section_and_template_arrow() -> None:
+    body = b"\x1f\x09\x00\x20" + jis_text("体の仕組みとはたらき：目次")
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="00A6",
+            image_sources={"b12fh": "Templates/b12fH.gif"},
+        ),
+    )
+
+    assert '<div class="header"><img src="Templates/b12fH.gif" class="img_mark2">' in rendered.html
+    assert "体の仕組みとはたらき：目次" in rendered.html
+    assert "margin-left:32.000000em" not in rendered.html
+    assert rendered.stats["hc00a6_section_blocks"] == 1
+
+
+def test_hc00a6_image_caption_section_uses_css_class_not_numeric_indent() -> None:
+    payload = bytes.fromhex("000000000000000000000000000001230045")
+
+    def resolve(pointer: MediaPointer) -> str:
+        return "media/colscr/00000123_0045.bmp"
+
+    body = (
+        b"\x1f\x09\x00\x11"
+        + jis_text("■　咽頭・喉頭の正中断面")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x12"
+        + b"\x1f\x4d"
+        + payload
+        + jis_text("■　咽頭・喉頭の正中断面")
+        + b"\x1f\x6d"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00A6", media_image_resolver=resolve))
+
+    assert '<div class="image_caption">■　咽頭・喉頭の正中断面</div>' in rendered.html
+    assert rendered.html.count("咽頭・喉頭の正中断面") == 1
+    assert 'src="media/colscr/00000123_0045.bmp"' in rendered.html
+    assert "margin-left:11.000000em" not in rendered.html
+    assert '<div class="honbun" style="margin-left:12.000000em;"><img' in rendered.html
+    assert rendered.stats["hc00a6_section_blocks"] == 2
+    assert rendered.stats["hc00a6_suppressed_media_caption_chars"] == len("■　咽頭・喉頭の正中断面")
 
 
 def test_hc00a4_maps_sections_ruby_marker_images_and_line_links() -> None:
@@ -2713,7 +4360,7 @@ def test_hc00a4_maps_sections_ruby_marker_images_and_line_links() -> None:
         ),
     )
 
-    assert '<div class="midashi"><span class="hankakuMidashi">H</span></div>' in rendered.html
+    assert '<div class="midashi" style="background-color:#33bf6b;"><span class="hankakuMidashi">H</span></div>' in rendered.html
     assert '<div class="honbun" style="margin-left:1.000000em;">' in rendered.html
     assert '<ruby class="ruby7"><rb class="rb7">本</rb>' in rendered.html
     assert '<rt class="rt7">よ</rt>' in rendered.html
@@ -2732,6 +4379,45 @@ def test_hc00a4_maps_sections_ruby_marker_images_and_line_links() -> None:
     assert rendered.stats["hc00a4_b12f_markers"] == 1
     assert rendered.stats["hc00a4_private_inline_images"] == 1
     assert rendered.stats["hc00a4_private_html_includes"] == 1
+
+
+def test_hc00a4_heading_color_marker_and_internal_headings_are_renderer_state() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_text("おんぶのしかた")
+        + b"\x1f\x61"
+        + b"\xb1\x2c"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + b"\x1f\x41\x01\x60"
+        + jis_text("おんぶ：")
+        + b"\x1f\x04"
+        + jis_ascii_text("1")
+        + b"\x1f\x05"
+        + jis_text("カ月")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("本文")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00A4"))
+
+    assert '<div class="midashi" style="background-color:#33bf6b;">おんぶのしかた</div>' in rendered.html
+    assert "おんぶ：" not in rendered.html
+    assert "1カ月" not in rendered.html
+    assert "b12c" not in rendered.html.lower()
+    assert rendered.stats["hc00a4_midashi_color_markers"] == 1
+    assert rendered.stats["hc00a4_suppressed_gaiji_markers"] == 1
+    assert rendered.stats["hc00a4_suppressed_internal_headings"] == 1
+    assert rendered.stats["hc00a4_suppressed_internal_heading_chars"] == len("おんぶ：1カ月")
+    assert rendered.stats["hc00a4_suppressed_internal_heading_breaks"] == 1
+
+
+def test_hc00a4_private_inline_images_are_not_icon_scaled() -> None:
+    assert ":where(.lv-hc-render .img_inline)" not in HC_RENDER_BASE_CSS.split("max-height: 1.4em", 1)[0]
+    assert ":where(.lv-hc-render .img_inline),\n:where(.lv-hc-render .lv-hc-media.img_inline)" in HC_RENDER_BASE_CSS
 
 
 def test_hc00a4_repairs_omitted_tfoot_row_close_in_fixed_html_include() -> None:
@@ -2812,6 +4498,91 @@ def test_hkdksr_medical_renderers_map_sections_links_and_template_gaiji() -> Non
         assert rendered.stats["hc_hkdksr_medical_section_table_cell"] == 1
         assert rendered.stats["hc_hkdksr_medical_section_indent"] == 1
         assert rendered.stats["hc_hkdksr_medical_nonprinting_controls"] == 1
+
+
+def test_hkdksr_medical_heading_keeps_category_metadata_in_midashi() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + jis_text("薬剤")
+        + b"\x1f\x61"
+        + jis_text("［内服薬］")
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="014A"))
+
+    assert '<div class="midashi">薬剤［内服薬］</div>' in rendered.html
+    assert rendered.stats["hc_hkdksr_medical_deferred_midashi_ends"] == 1
+    assert rendered.stats["hc_hkdksr_medical_deferred_midashi_closures"] == 1
+
+
+def test_hkdksr_medical_renders_title_image_and_product_subtitle() -> None:
+    body = (
+        b"\x1f\x09\x00\x03"
+        + jis_text("【製剤情報】")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x04"
+        + jis_text("一般名：アテノロール")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x08"
+        + jis_text("【商品】")
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="014A"))
+
+    assert '<img src="Templates/midashi1.png" class="img_midashi">' in rendered.html
+    assert "【製剤情報】" not in rendered.html
+    assert '<div class="title3">一般名：アテノロール</div>' in rendered.html
+    assert '<div class="SubTitle_syouhin">商品</div>' in rendered.html
+    assert "【商品】" not in rendered.html
+    assert rendered.stats["hc_hkdksr_medical_seizaijouhou_titles"] == 1
+    assert rendered.stats["hc_hkdksr_medical_product_subtitles"] == 1
+
+
+def test_hkdksr_medical_groups_ranked_products_in_gradient_cards() -> None:
+    body = (
+        b"\x1f\x09\x00\x06"
+        + b"\xb1\x2a"
+        + jis_text("先発品")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x10"
+        + jis_text("十円")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x11"
+        + jis_text("写真")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x06"
+        + b"\xb1\x2b"
+        + jis_text("後発品")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x04"
+        + jis_text("一般名")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="014A",
+            image_sources={"b12a": "Templates/b12a.png", "b12b": "Templates/b12b.png"},
+        ),
+    )
+
+    assert rendered.html.count('class="hc-hkdksr-product-card"') == 2
+    assert (
+        '<div class="hc-hkdksr-product-card"><span class="med">'
+        '<img class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji" src="Templates/b12a.png"'
+    ) in rendered.html
+    assert '<div class="medprice">十円</div><div class="medimage">写真</div></div>' in rendered.html
+    assert (
+        '<div class="hc-hkdksr-product-card"><span class="med">'
+        '<img class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji" src="Templates/b12b.png"'
+    ) in rendered.html
+    assert '</div><div class="title3">一般名</div>' in rendered.html
+    assert 'url("Templates/back3.png")' in HC_RENDER_FINAL_CSS
+    assert rendered.stats["hc_hkdksr_product_cards"] == 2
+    assert rendered.stats["hc_hkdksr_product_card_closures"] == 2
 
 
 def test_hc_gen_year_maps_sections_icons_links_and_template_markers() -> None:
@@ -2912,12 +4683,22 @@ def test_hc00c4_maps_sections_links_and_template_gaiji() -> None:
         + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
     )
 
-    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00C4", image_sources={"b126": "Templates/B126.png"}))
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="00C4",
+            image_sources={
+                "b126": "Templates/B126.png",
+                "betsumei": "Templates/betsumei.png",
+                "arrow1": "Templates/arrow1.png",
+            },
+        ),
+    )
 
     assert '<div class="midashi"><span class="zenkakuMidashi">' in rendered.html
     assert '<div class="block"><div class="honbun_number">' in rendered.html
-    assert '<div class="honbun_icon"><img src="betsumei.png" class="icon">' in rendered.html
-    assert '<img src="arrow1.png" class="icon_s">' in rendered.html
+    assert '<div class="honbun_icon"><img src="Templates/betsumei.png" class="icon">' in rendered.html
+    assert '<img src="Templates/arrow1.png" class="icon_s">' in rendered.html
     assert '<font class="font_down">' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert 'href="lvaddr://00000002/0030"' in rendered.html
@@ -3196,6 +4977,82 @@ def test_hc0063_maps_heading_contents_sections_links_and_template_gaiji() -> Non
     assert rendered.stats["hc0063_nonprinting_controls"] == 1
 
 
+def test_hc0063_keeps_real_heading_state_open_until_newline() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x91"
+        + b"\x1f\x61"
+        + jis_text("だしん")
+        + b"\x1f\x10"
+        + jis_text("【打診】")
+        + b"\x1f\x11"
+        + bytes.fromhex("b667")
+        + jis_ascii_text("dashin")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("本文")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="0063", image_sources={"roman-alphabet": "Templates/roman-alphabet.gif"}),
+    )
+
+    assert '<div class="midashi"></div>' not in rendered.html
+    assert '<div class="midashi">' in rendered.html
+    heading = rendered.html.split('<div class="midashi">', 1)[1].split("</div>", 1)[0]
+    assert "だしん" in heading
+    assert "打" in heading
+    assert "診" in heading
+    assert "roman-alphabet.gif" in heading
+    assert "dashin" in heading
+    assert '<div class="contents_body">' in rendered.html
+    assert rendered.html.count("<div") == rendered.html.count("</div>")
+    assert rendered.stats["hc0063_heading_blocks"] == 1
+    assert rendered.stats["hc0063_contents_body_blocks"] == 1
+
+
+def test_hc0063_b65e_opens_exsample_across_bullet_continuations() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x91"
+        + b"\x1f\x61"
+        + jis_text("見出し")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + b"\x1f\x41\x02\x91"
+        + b"\x1f\x61"
+        + bytes.fromhex("b65e")
+        + jis_text("例一")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + b"\x1f\x41\x02\x91"
+        + b"\x1f\x61"
+        + b"\x1f\x04\x21\x26\x1f\x05"
+        + jis_text("例二")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + b"\x1f\x41\x02\x91"
+        + b"\x1f\x61"
+        + jis_text("次")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="0063", image_sources={"circle-triangle": "Templates/circle-triangle.gif"}),
+    )
+
+    assert 'src="Templates/circle-triangle.gif"' in rendered.html
+    assert rendered.html.count('<div class="exsample">') == 1
+    exsample = rendered.html.split('<div class="exsample">', 1)[1].split("</div>", 1)[0]
+    assert "例一" in exsample
+    assert "例二" in exsample
+    assert "次" not in exsample
+    assert rendered.html.count("<div") == rendered.html.count("</div>")
+    assert rendered.stats["hc0063_exsample_blocks"] == 1
+    assert rendered.stats["hc0063_exsample_blocks_closed"] == 1
+
+
 def test_hc0093_maps_lineinfo_sections_links_and_template_gaiji() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -3229,7 +5086,7 @@ def test_hc0093_maps_lineinfo_sections_links_and_template_gaiji() -> None:
     assert '<div class="lineinfo1"><span class="hankakuMidashi">H</span>' in rendered.html
     assert '<div class="contents_body">' in rendered.html
     assert '<div class="lineinfo2">' in rendered.html
-    assert '<div class="youreihan"><div class="lineinfo5">' in rendered.html
+    assert '<div class="youreihan contents"><div class="lineinfo5">' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert '<img src="Templates/dummy.GIF" class="img_dummy">' in rendered.html
     assert '<img class="lv-hc-gaiji img_mark" src="Templates/arrow.gif"' in rendered.html
@@ -3242,6 +5099,77 @@ def test_hc0093_maps_lineinfo_sections_links_and_template_gaiji() -> None:
     assert rendered.stats["hc0093_youreihan_sections"] == 1
     assert rendered.stats["hc0093_template_image_markers"] == 2
     assert rendered.stats["hc0093_noop_markers"] == 1
+
+
+def test_hc0093_gakken_toc_metadata_ruby_and_note_box() -> None:
+    private = lambda directive: b"\x1f\xe2\x56\x64" + jis_fullwidth_ascii(directive) + b"\x1f\xe3"
+    body = (
+        b"\x1f\x09\x00\x01"
+        + jis_text("いし【意志】")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + bytes.fromhex("b14c")
+        + jis_text("目次")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + bytes.fromhex("b14d")
+        + jis_text("５　西洋")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x10"
+        + jis_text("項５−１−３")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + bytes.fromhex("b148b149")
+        + jis_text("意味")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x04"
+        + bytes.fromhex("b14ab14b")
+        + jis_text("『")
+        + private("B:E")
+        + jis_text("哲")
+        + private("B:D")
+        + jis_text("（てつ")
+        + private("B:S")
+        + jis_text("）学』")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x05"
+        + jis_text("◆現在は")
+        + b"\x1f\x0a"
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0093",
+            image_sources={
+                "class_arrow": "Templates/class_arrow.gif",
+                "meaning": "Templates/meaning.gif",
+                "etymology": "Templates/etymology.gif",
+                "dummy": "Templates/dummy.GIF",
+            },
+        ),
+    )
+
+    assert "目次<br>" not in rendered.html
+    assert "項５−１−３" not in rendered.html
+    assert 'src="Templates/meaning.gif"' in rendered.html
+    assert 'alt="b149"' not in rendered.html
+    assert 'src="Templates/etymology.gif"' in rendered.html
+    assert 'alt="b14b"' not in rendered.html
+    assert '<ruby class="ruby7"><rb class="rb7">哲</rb><rp class="rp7">(</rp><rt class="rt7">てつ</rt>' in rendered.html
+    assert "哲（てつ）" not in rendered.html
+    assert '<div class="youreihan contents"><div class="lineinfo5">◆現在は' in rendered.html
+    assert "◆現在は<br></div></div>" not in rendered.html
+    assert "◆現在は</div></div>" in rendered.html
+    assert rendered.stats["hc0093_toc_linebreaks_suppressed"] == 2
+    assert rendered.stats["hc0093_suppressed_sections"] == 1
+    assert rendered.stats["hc0093_suppressed_section_text"] == 6
+    assert rendered.stats["hc0093_ruby_starts"] == 1
+    assert rendered.stats["hc0093_ruby_reading_starts"] == 1
+    assert rendered.stats["hc0093_ruby_ends"] == 1
+    assert rendered.stats["hc0093_ruby_parentheses_suppressed"] == 2
+    assert rendered.stats["hc0093_trailing_yourei_breaks_suppressed"] == 2
 
 
 def test_hc0095_maps_page_kind_lineinfo_sections_and_template_markers() -> None:
@@ -3277,7 +5205,7 @@ def test_hc0095_maps_page_kind_lineinfo_sections_and_template_markers() -> None:
     )
 
     assert '<div class="lineinfo3-1"><span class="hankakuMidashi">H</span>' in rendered.html
-    assert '<img class="lv-hc-gaiji img_gaiji_midashi" src="gaiji/GA16FULL/B13B.bmp"' in rendered.html
+    assert 'data-gaiji-code="b13b"' not in rendered.html
     assert '<div class="lineinfo3-12">' in rendered.html
     assert '<div class="contents_body">' in rendered.html
     assert '<div class="lineinfo3-3">' in rendered.html
@@ -3295,7 +5223,138 @@ def test_hc0095_maps_page_kind_lineinfo_sections_and_template_markers() -> None:
     assert rendered.stats["hc0095_template_image_markers"] == 2
 
 
+def test_hc0095_suppresses_page_kind_markers_merges_footer_and_styles_emphasis() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + jis_text("見出し")
+        + bytes.fromhex("b13c")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x12"
+        + bytes.fromhex("b12f")
+        + b"\x1f\x42"
+        + jis_text("目次")
+        + b"\x1f\x62\x00\x00\x00\x02\x00\x02"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x12"
+        + bytes.fromhex("b12f")
+        + b"\x1f\x42"
+        + jis_text("第３章")
+        + b"\x1f\x62\x00\x00\x03\x36\x05\x52"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + b"\x1f\xe0\x00\x00"
+        + jis_text("課長が、「")
+        + b"\x1f\x12"
+        + jis_text("おまえ")
+        + b"\x1f\x13"
+        + jis_text("」")
+        + b"\x1f\xe1"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0095",
+            image_sources={"b12f": "Templates/b12f.png", "b13c": "gaiji/GA16FULL/B13C.bmp"},
+        ),
+    )
+
+    assert 'data-gaiji-code="b13c"' not in rendered.html
+    assert rendered.html.count('<div class="lineinfo4-12">') == 1
+    assert "目次<br>" not in rendered.html
+    assert "第３章<br>" not in rendered.html
+    assert '<b class="hc0095-emphasis">課長が、「<span class="hc0095-underline">おまえ</span>」</b>' in rendered.html
+    assert rendered.stats["hc0095_page_kind_markers"] == 1
+    assert rendered.stats["hc0095_page_kind_markers_suppressed"] == 1
+    assert rendered.stats["hc0095_toc_linebreaks_suppressed"] == 2
+    assert rendered.stats["hc0095_repeated_footer_sections_suppressed"] == 1
+
+
+def test_hc0095_suppresses_internal_b122_marker_before_ga16_fallback() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + jis_text("見出し")
+        + bytes.fromhex("b13b")
+        + b"\x1f\x09\x00\x06"
+        + bytes.fromhex("b121b122b131")
+        + jis_text("注目")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0095",
+            image_sources={
+                "b121": "Templates/B121.png",
+                "b122": "gaiji/GA16FULL/B122.bmp",
+                "b131": "Templates/B131.png",
+                "dummy": "Templates/dummy.GIF",
+            },
+        ),
+    )
+
+    assert 'src="Templates/B121.png"' in rendered.html
+    assert 'src="Templates/B131.png"' in rendered.html
+    assert 'data-gaiji-code="b122"' not in rendered.html
+    assert "GA16FULL/B122.bmp" not in rendered.html
+    assert rendered.stats["hc0095_suppressed_markers"] == 1
+
+
+def test_hc0095_emphasis_is_plain_for_page_kind_three_and_navy_for_page_kind_four() -> None:
+    plain = render_hc_body(
+        b"\x1f\x09\x00\x01"
+        + bytes.fromhex("b13b")
+        + b"\x1f\x09\x00\x04"
+        + b"\x1f\xe0\x00\x00"
+        + jis_text("怒り心頭")
+        + b"\x1f\xe1",
+        HcRenderOptions(renderer_code="0095", image_sources={"b13b": "gaiji/GA16FULL/B13B.bmp"}),
+    )
+    navy = render_hc_body(
+        b"\x1f\x09\x00\x01"
+        + bytes.fromhex("b13c")
+        + b"\x1f\x09\x00\x02"
+        + b"\x1f\xe0\x00\x00"
+        + jis_text("課長")
+        + b"\x1f\xe1",
+        HcRenderOptions(renderer_code="0095", image_sources={"b13c": "gaiji/GA16FULL/B13C.bmp"}),
+    )
+
+    assert "<b>怒り心頭</b>" in plain.html
+    assert "hc0095-emphasis\">怒り心頭" not in plain.html
+    assert '<b class="hc0095-emphasis">課長</b>' in navy.html
+    assert plain.stats["hc0095_plain_emphasis_spans"] == 1
+    assert navy.stats["hc0095_navy_emphasis_spans"] == 1
+
+
+def test_hc0095_renders_rub_private_directives_as_ruby() -> None:
+    ruby_start = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:E") + b"\x1f\xe3"
+    ruby_end = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:S") + jis_text("しわざ") + b"\x1f\xe3"
+    body = (
+        b"\x1f\x09\x00\x01"
+        + bytes.fromhex("b13b")
+        + b"\x1f\x09\x00\x06"
+        + jis_text("彼らの")
+        + ruby_start
+        + jis_text("仕業")
+        + ruby_end
+        + jis_text("とわかる")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="0095", image_sources={"b13b": "gaiji/GA16FULL/B13B.bmp"}),
+    )
+
+    assert '<ruby class="ruby7"><rb class="rb7">仕業</rb>' in rendered.html
+    assert '<rt class="rt7">しわざ</rt>' in rendered.html
+    assert rendered.stats["hc0095_ruby_starts"] == 1
+    assert rendered.stats["hc0095_ruby_ends"] == 1
+
+
 def test_hc0096_maps_lineinfo_sections_links_template_gaiji_and_state_markers() -> None:
+    ruby_start = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:E") + b"\x1f\xe3\x00\x00"
+    ruby_end = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:S") + jis_text("ふじわら") + b"\x1f\xe3\x00\x00"
     body = (
         b"\x1f\x09\x00\x01"
         + b"\x1f\x04"
@@ -3310,6 +5369,9 @@ def test_hc0096_maps_lineinfo_sections_links_template_gaiji_and_state_markers() 
         + b"\x1f\x09\x00\x03"
         + jis_text("本文")
         + bytes.fromhex("214c252f214d")
+        + ruby_start
+        + jis_text("藤原")
+        + ruby_end
     )
 
     rendered = render_hc_body(
@@ -3331,6 +5393,7 @@ def test_hc0096_maps_lineinfo_sections_links_template_gaiji_and_state_markers() 
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert '<img class="lv-hc-gaiji img_mark2" src="Templates/B124.gif"' in rendered.html
     assert '<img class="lv-hc-gaiji img_mark4" src="Templates/B250.gif"' in rendered.html
+    assert '<ruby class="ruby7"><rb class="rb7">藤原</rb><rp class="rp7">(</rp><rt class="rt7">ふじわら</rt>' in rendered.html
     assert 'data-lv-section' not in rendered.html
     assert 'lv-hc-heading' not in rendered.html
     assert "B150" not in rendered.html
@@ -3340,6 +5403,8 @@ def test_hc0096_maps_lineinfo_sections_links_template_gaiji_and_state_markers() 
     assert rendered.stats["hc0096_template_image_markers"] == 1
     assert rendered.stats["hc0096_inline_mark_images"] == 1
     assert rendered.stats["hc0096_reflow_state_markers"] == 1
+    assert rendered.stats["hc0096_ruby_starts"] == 1
+    assert rendered.stats["hc0096_ruby_ends"] == 1
 
 
 def test_hc009f_maps_season_category_sections_and_template_gaiji() -> None:
@@ -3350,7 +5415,7 @@ def test_hc009f_maps_season_category_sections_and_template_gaiji() -> None:
         + b"\x1f\x09\x00\x06"
         + jis_text("春")
         + b"\x1f\x09\x00\x07"
-        + jis_text("時")
+        + jis_text("時候")
         + b"\x1f\x09\x00\x04"
         + bytes.fromhex("b121")
         + bytes.fromhex("b123")
@@ -3379,8 +5444,11 @@ def test_hc009f_maps_season_category_sections_and_template_gaiji() -> None:
     assert '<div class="midashi">見出し</div>' in rendered.html
     assert '<img src="Templates/Hsp.png" class="img_mark">' in rendered.html
     assert '<img src="Templates/Hsp1.png" class="img_mark">' in rendered.html
+    assert '<img src="Templates/Hsp.png" class="img_mark"><img src="Templates/Hsp1.png" class="img_mark">' in rendered.html
     assert "春" not in rendered.html
     assert "時" not in rendered.html
+    assert "候" not in rendered.html
+    assert 'style="background-color:#fad9ea;"></div>' not in rendered.html
     assert '<div class="honbun" style="margin-left:1em;">' in rendered.html
     assert '<img class="lv-hc-gaiji img_mark" src="Templates/b121H.gif"' in rendered.html
     assert "b123" not in rendered.html
@@ -3395,7 +5463,8 @@ def test_hc009f_maps_season_category_sections_and_template_gaiji() -> None:
     assert rendered.stats["hc009f_oriented_markers"] == 1
     assert rendered.stats["hc009f_suppressed_markers"] == 1
     assert rendered.stats["hc009f_template_image_markers"] == 1
-    assert rendered.stats["hc009f_section_label_pairs_suppressed"] == 2
+    assert rendered.stats["hc009f_section_label_pairs_suppressed"] == 3
+    assert rendered.stats["hc009f_label_linebreaks_suppressed"] == 1
 
 
 def test_hc009f_section_six_does_not_consume_heading_when_label_is_absent() -> None:
@@ -3406,6 +5475,110 @@ def test_hc009f_section_six_does_not_consume_heading_when_label_is_absent() -> N
     assert '<div class="midashi">見出し</div>' in rendered.html
     assert rendered.stats["hc009f_season_markers_without_label"] == 1
     assert "hc009f_unmapped_season_marker_1f41" not in rendered.named_behavior_gaps
+
+
+def test_hc009f_groups_midashi_aliases_and_haiku_separators_vertically() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_text("【春】")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_text("陽春")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_text("芳春")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x06"
+        + jis_text("春")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x07"
+        + jis_text("時候")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x04"
+        + jis_text("説明")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("一句")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("二句")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="009F",
+            vertical=True,
+            image_sources={
+                "vsp": "Templates/Vsp.png",
+                "vsp1": "Templates/Vsp1.png",
+            },
+        ),
+    )
+
+    assert '<div class="lv-hc-render lv-hc-vertical">' in rendered.html
+    assert rendered.html.count('<div class="midashi">') == 1
+    assert '<div class="midashi">【春】<span class="hc009f-midashi-alias">陽春</span><span class="hc009f-midashi-alias">芳春</span></div>' in rendered.html
+    assert '<img src="Templates/Vsp.png" class="img_mark"><img src="Templates/Vsp1.png" class="img_mark">' in rendered.html
+    assert "Templates/Hsp.png" not in rendered.html
+    assert rendered.html.count('class="hc009f-haiku-separator"') == 2
+    assert '<div class="honbun" style="margin-top:1em;">説明</div>' in rendered.html
+    assert '<div class="honbun" style="margin-top:0.5em;">一句</div>' in rendered.html
+    assert rendered.stats["hc009f_midashi_aliases"] == 2
+    assert rendered.stats["hc009f_haiku_separators"] == 2
+    assert rendered.stats["hc009f_label_linebreaks_suppressed"] == 3
+
+
+def test_hc_render_vertical_shell_uses_modern_writing_mode() -> None:
+    assert ":where(.lv-hc-render.lv-hc-vertical)" in HC_RENDER_FINAL_CSS
+    assert "writing-mode: vertical-rl;" in HC_RENDER_FINAL_CSS
+    assert "text-orientation: mixed;" in HC_RENDER_FINAL_CSS
+
+
+def test_hc009f_entry_slices_group_season_aliases_with_body(tmp_path: Path) -> None:
+    grouped = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_text("【春】")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_text("陽春")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x06"
+        + jis_text("春")
+        + b"\x1f\x09\x00\x07"
+        + jis_text("時候")
+        + b"\x1f\x09\x00\x04"
+        + jis_text("説明")
+        + b"\x1f\x09\x00\x03"
+        + jis_text("一句")
+    )
+    next_entry = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_text("夏")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x04"
+        + jis_text("次")
+    )
+    third_entry = b"\x1f\x09\x00\x01" + b"\x1f\x41\x01\x60" + jis_text("秋") + b"\x1f\x61"
+    path = tmp_path / "HONMON.DIC"
+    path.write_bytes(encode_sseddata_literal(grouped + next_entry + third_entry, start_block=0, kind=0))
+    reader = SsedRandomReader(path)
+
+    assert list(_hc_entry_slices_reader(reader, "009F"))[:2] == [
+        (0, len(grouped)),
+        (len(grouped), len(grouped) + len(next_entry)),
+    ]
 
 
 def test_hc0090_maps_lineinfo_sections_links_and_gaiji_classes() -> None:
@@ -3503,7 +5676,9 @@ def test_hc014f_maps_midashi_contents_links_decoration_and_gaiji_classes() -> No
         ),
     )
 
-    assert '<div class="midashi"><span class="hankaku">H</span>' in rendered.html
+    assert '<div class="midashi lv-hc-windows-blue-midashi"><span class="hankaku">H</span>' in rendered.html
+    assert ".lv-hc-render .lv-hc-windows-blue-midashi" in HC_RENDER_FINAL_CSS
+    assert "color: #3021f9;" in HC_RENDER_FINAL_CSS
     assert '</div><div class="contents">' in rendered.html
     assert '<img src="Templates/dummy.gif" class="img_dummy">' in rendered.html
     assert '<img class="lv-hc-gaiji img_gaiji_midashi" src="Templates/b555.png"' in rendered.html
@@ -3520,6 +5695,15 @@ def test_hc014f_maps_midashi_contents_links_decoration_and_gaiji_classes() -> No
     assert rendered.stats["hc014f_bold_italic_spans"] == 1
     assert rendered.stats["hc014f_img_gaiji_midashi_images"] == 1
     assert rendered.stats["hc014f_img_gaiji_images"] == 1
+
+
+def test_hc014f_package_reader_style_keeps_package_midashi_colour() -> None:
+    body = b"\x1f\x09\x00\x01\x1f\x41\x01\x60" + jis_text("見出し") + b"\x1f\x61"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="014F", reader_style=PACKAGE_READER_STYLE))
+
+    assert '<div class="midashi">見出し</div>' in rendered.html
+    assert "lv-hc-windows-blue-midashi" not in rendered.html
 
 
 def test_hc0135_maps_sinmei_sections_private_images_links_and_gaiji_classes() -> None:
@@ -3631,6 +5815,92 @@ def test_hc0135_maps_sinmei_state_sections_from_dll_branch_table() -> None:
     assert "<br>改行" in rendered.html
 
 
+def test_hc0135_renders_sinmei_private_state_markers_and_example_box() -> None:
+    def private_marker(text: str) -> bytes:
+        return b"\x1f\xe2\x00\x07" + jis_text(text) + b"\x1f\xe3"
+
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_text("えん")
+        + private_marker("上付き文字：Ｓオ")
+        + jis_text("【")
+        + private_marker("教育漢字開始")
+        + jis_text("延")
+        + private_marker("教育漢字終了")
+        + jis_text("】■えん§延長")
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x18"
+        + jis_text("−チヤウ")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x31"
+        + jis_text("（自他サ）")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x27"
+        + jis_text("（なに")
+        + b"\x1f\xe0\x00\x00"
+        + jis_text("ヲ")
+        + b"\x1f\xe1"
+        + jis_text("−する）")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x29"
+        + b"\x1f\x4a"
+        + bytes.fromhex("00010000000474510076000474522035")
+        + jis_text("→")
+        + private_marker("画像：ａｃｃｅｎｔ００")
+        + b"\x1f\x6a"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x30"
+        + jis_text("「")
+        + b"\x1f\x09\x00\x38"
+        + jis_text("例一")
+        + b"\x1f\x0a"
+        + jis_text("／")
+        + b"\x1f\x09\x00\x38"
+        + jis_text("例二")
+        + jis_text("」")
+        + b"\x1f\x09\x00\x11"
+        + private_marker("画像：ｍａｒｕ０１")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="0135",
+            image_sources={
+                "accent00": "Templates/accent00.png",
+                "exam": "Templates/exam.png",
+                "maru01": "Templates/maru01.png",
+                "sound": "Templates/sound.png",
+            },
+        ),
+    )
+
+    assert "■" not in rendered.html
+    assert "§" not in rendered.html
+    assert "えん§延長" not in rendered.html
+    assert '<span class="hc0135-sup-note">(オ)</span>' in rendered.html
+    assert '<i class="hc0135-kyouiku-kanji">延</i>' in rendered.html
+    assert '<span class="hc0135-history-kana">−チヤウ</span>' in rendered.html
+    assert '<span class="hc0135-part-of-speech">（自他サ）</span>' in rendered.html
+    assert '<div class="hc0135-construction-pattern">（なに<b class="hc0135-red-emphasis">ヲ</b>−する）</div>' in rendered.html
+    assert '<div class="hc0135-accent-line"><a class="lv-hc-audio"' in rendered.html
+    assert '<img src="Templates/sound.png" class="img_mark2"></a><img src="Templates/accent00.png" class="img_mark2"></div>' in rendered.html
+    assert '<div class="contents_yourei"><img src="Templates/exam.png" class="img_icon_Big"><br>' in rendered.html
+    assert "「" not in rendered.html
+    assert "」" not in rendered.html
+    assert "／" not in rendered.html
+    assert "例一<br>" in rendered.html
+    assert ">例二" in rendered.html
+    assert '<img src="Templates/maru01.png" class="img_icon">' in rendered.html
+    assert rendered.stats["hc0135_suppressed_search_tail_markers"] == 1
+    assert rendered.stats["hc0135_example_blocks"] == 1
+    assert rendered.stats["hc0135_example_icons"] == 1
+    assert rendered.stats["hc0135_audio_label_extras"] == 1
+    assert rendered.stats["hc0135_suppressed_example_punctuation"] == 3
+
+
 def test_hc0091_maps_midashi_contents_marker_images_links_and_gaiji_classes() -> None:
     body = (
         b"\x1f\x41\x00\x00"
@@ -3683,6 +5953,9 @@ def test_hc0091_maps_midashi_contents_marker_images_links_and_gaiji_classes() ->
 
 
 def test_hc0048_maps_margin_sections_and_symbol_triggered_midashi() -> None:
+    def resolve(pointer: MediaPointer) -> str:
+        return "media/colscr/example.bmp"
+
     body = (
         b"\x1f\x09\x00\x01"
         + bytes.fromhex("2223")
@@ -3700,14 +5973,22 @@ def test_hc0048_maps_margin_sections_and_symbol_triggered_midashi() -> None:
 
     rendered = render_hc_body(
         body,
-        HcRenderOptions(renderer_code="0048", image_sources={"sound": "Templates/sound.png"}),
+        HcRenderOptions(
+            renderer_code="0048",
+            image_sources={"sound": "Templates/sound.png"},
+            media_image_resolver=resolve,
+        ),
     )
 
-    assert '<div style="margin: 3px"></div><div class="midashi">■見出し</div><div class="honbun">' in rendered.html
+    assert (
+        '<div style="margin: 3px"></div><div class="midashi hc0048-midashi">■見出し</div><div class="honbun">'
+        in rendered.html
+    )
     assert "本文" in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert 'href="lvaddr://00000002/0048"' in rendered.html
-    assert '<div><span class="lv-hc-media"' in rendered.html
+    assert '<div><img class="lv-hc-media img_inline"' in rendered.html
+    assert 'src="media/colscr/example.bmp"' in rendered.html
     assert 'data-lv-resource="colscr:00000123:0456"' in rendered.html
     assert "lv-hc-section" not in rendered.html
     assert "lv-hc-heading" not in rendered.html
@@ -3720,6 +6001,8 @@ def test_hc0048_maps_margin_sections_and_symbol_triggered_midashi() -> None:
 
 
 def test_hc00ac_maps_honbun_sections_links_and_marker_suppression() -> None:
+    ruby_start = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:E") + b"\x1f\xe3"
+    ruby_end = b"\x1f\xe2\x00\x09" + jis_fullwidth_ascii("RUB:S") + jis_text("しぎ") + b"\x1f\xe3"
     body = (
         b"\x1f\x09\x00\x01"
         + b"\x1f\x41\x00\x00"
@@ -3731,6 +6014,14 @@ def test_hc00ac_maps_honbun_sections_links_and_marker_suppression() -> None:
         + b"\x1f\x42"
         + jis_ascii("L")
         + b"\x1f\x62\x00\x00\x00\x02\x00\x30"
+        + b"\x1f\x09\x00\x10"
+        + jis_text("［用例］")
+        + ruby_start
+        + jis_text("鷸")
+        + ruby_end
+        + b"\x1f\xe0\x00\x04"
+        + jis_text("漁夫の利")
+        + b"\x1f\xe1"
     )
 
     rendered = render_hc_body(
@@ -3738,17 +6029,23 @@ def test_hc00ac_maps_honbun_sections_links_and_marker_suppression() -> None:
         HcRenderOptions(renderer_code="00AC", image_sources={"b121": "Templates/B121.gif"}),
     )
 
-    assert '<div class="honbun" style="margin-left:1em;">' in rendered.html
+    assert '<div class="midashi">見出し</div>' in rendered.html
     assert '<div class="honbun" style="margin-left:7em;text-indent:-7em;">' in rendered.html
+    assert '<div class="honbun" style="margin-left:6em;text-indent:-6em;">' in rendered.html
     assert "見出し" in rendered.html
+    assert '<ruby class="ruby7"><rb class="rb7">鷸</rb><rp class="rp7">(</rp><rt class="rt7">しぎ</rt>' in rendered.html
+    assert '<span class="hc00ac-red-emphasis">漁夫の利</span>' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert 'href="lvaddr://00000002/0030"' in rendered.html
     assert "lv-hc-section" not in rendered.html
     assert "lv-hc-heading" not in rendered.html
     assert 'data-gaiji-code="b139"' not in rendered.html
-    assert rendered.stats["hc00ac_honbun_sections"] == 2
+    assert rendered.stats["hc00ac_honbun_sections"] == 3
+    assert rendered.stats["hc00ac_midashi_sections"] == 1
     assert rendered.stats["hc00ac_nonprinting_controls"] == 1
     assert rendered.stats["hc00ac_suppressed_markers"] == 1
+    assert rendered.stats["hc00ac_ruby_starts"] == 1
+    assert rendered.stats["hc00ac_ruby_ends"] == 1
 
 
 def test_hc013c_maps_sections_icons_links_and_state_markers() -> None:
@@ -3892,10 +6189,12 @@ def test_hc00a0_applies_detail_template_and_play_sound_directive() -> None:
                     "</tr></table>"
                 ),
             },
+            template_heading="行動別：テスト",
         ),
     )
 
-    assert '<div class="header"><img src="Templates/play.png">none1</div>' in rendered.html
+    assert '<div class="header"><img src="Templates/play.png">table-row1</div>' in rendered.html
+    assert rendered.stats["hc00a0_detail_rows"] == 1
     assert '<td class="english">HELLO</td>' in rendered.html
     assert '<td class="japanese">こんにちは</td>' in rendered.html
     assert 'src="Templates/sound.png"' in rendered.html
@@ -3906,9 +6205,106 @@ def test_hc00a0_applies_detail_template_and_play_sound_directive() -> None:
     assert "lv-hc-section" not in rendered.html
     assert rendered.plain == "HELLO\nこんにちは"
     assert rendered.audio[0]["target"]["path"] == "mp3/0001.mp3"
+
+
+def test_hc00a0_preserves_header_play_gif_when_play_png_shares_stem() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("PLAY")
+        + b"\x1f\x05"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("再生")
+        + b"\x1f\xe2\x00\x07"
+        + jis_text("＜ＰｌａｙＳｏｕｎｄ＞０００１．ｍｐ３＜／ＰｌａｙＳｏｕｎｄ＞")
+        + b"\x1f\xe3"
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="00A0",
+            image_sources={
+                "play": "Templates/play.png",
+                "play.gif": "Templates/play.gif",
+                "play.png": "Templates/play.png",
+                "sound": "Templates/sound.png",
+                "sound.png": "Templates/sound.png",
+            },
+            html_templates={
+                "Header": '<img id="cmdPlay" src="play.gif" title="すべてを再生" onclick="lvedPlayAll();">',
+                "Detail": (
+                    '<div class="detail"><img src="play.png">'
+                    '<img src="sound.png" onclick="lvedPlay(\'$$DETAIL_NO$$\',\'$$DETAIL_PLAY$$\');">'
+                    "$$ENGLISH$$$$JAPANESE$$</div>"
+                ),
+            },
+            template_heading="行動別：テスト",
+        ),
+    )
+
+    assert 'class="lv-hc-audio hc00a0-audio hc00a0-play-all"' in rendered.html
+    assert 'data-lv-audio-action="play-all"' in rendered.html
+    assert 'data-lv-original-onclick="lvedPlayAll();"' in rendered.html
+    assert re.search(r"<img\b[^>]*\sonclick=", rendered.html) is None
+    assert '<img id="cmdPlay" src="Templates/play.gif" title="すべてを再生">' in rendered.html
+    assert '<div class="detail"><img src="Templates/play.png">' in rendered.html
+    assert 'class="lv-hc-audio hc00a0-audio" href="mp3/0001.mp3"' in rendered.html
+
+
+def test_hc00a0_generated_script_supports_clickable_play_all() -> None:
+    assert 'data-lv-audio-action="play-all"' in HC_RENDER_BASE_SCRIPT
+    assert 'querySelectorAll("[data-lv-audio-src]")' in HC_RENDER_BASE_SCRIPT
+    assert "new Audio()" in HC_RENDER_BASE_SCRIPT
+
+
+def test_hc00a0_applies_one_header_to_multiple_template_detail_rows() -> None:
+    row1 = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("ONE")
+        + b"\x1f\x05"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("一")
+        + b"\x1f\xe2\x00\x07"
+        + jis_text("＜ＰｌａｙＳｏｕｎｄ＞０００１．ｍｐ３＜／ＰｌａｙＳｏｕｎｄ＞")
+        + b"\x1f\xe3"
+    )
+    row2 = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("TWO")
+        + b"\x1f\x05"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("二")
+        + b"\x1f\xe2\x00\x07"
+        + jis_text("＜ＰｌａｙＳｏｕｎｄ＞０００２．ｍｐ３＜／ＰｌａｙＳｏｕｎｄ＞")
+        + b"\x1f\xe3"
+    )
+
+    rendered = render_hc_body(
+        row1 + row2,
+        HcRenderOptions(
+            renderer_code="00A0",
+            html_templates={
+                "Header": '<header>$$DISPLAY_MIDASHI$$:<b>$$MIDASHI$$</b></header>',
+                "Detail": '<p data-no="$$DETAIL_NO$$">$$ENGLISH$$/$$JAPANESE$$/$$DETAIL_PLAY$$</p>',
+            },
+            template_heading="行動別：サービス(商用)：説明・返事",
+        ),
+    )
+
+    assert rendered.html.count("<header>") == 1
+    assert "行動別：サービス(商用)：説明・返事" in rendered.html
+    assert '<p data-no="0001">ONE/一/0001.mp3</p>' in rendered.html
+    assert '<p data-no="0002">TWO/二/0002.mp3</p>' in rendered.html
+    assert rendered.plain == "ONE\n一\nTWO\n二"
+    assert [row["target"]["path"] for row in rendered.audio] == ["mp3/0001.mp3", "mp3/0002.mp3"]
+    assert rendered.stats["hc00a0_detail_rows"] == 2
+    assert rendered.stats["hc00a0_audio_links"] == 2
     assert rendered.private_directives[0]["kind"] == "play_sound"
-    assert rendered.stats["hc00a0_detail_rows"] == 1
-    assert rendered.stats["hc00a0_play_sound_directives"] == 1
+    assert rendered.stats["hc00a0_play_sound_directives"] == 2
 
 
 def test_hc02c1_maps_sections_icons_and_moji_down_markers() -> None:
@@ -3929,8 +6325,8 @@ def test_hc02c1_maps_sections_icons_and_moji_down_markers() -> None:
     )
 
     assert '<div class="midashi"><span class="hankaku">H</span></div>' in rendered.html
-    assert '<img src="1.png" class="img_icon"/><br>' in rendered.html
-    assert '<img src="2.png" class="img_icon"/><br>' in rendered.html
+    assert '<img src="Templates/1.png" class="img_icon"/><br>' in rendered.html
+    assert '<img src="Templates/2.png" class="img_icon"/><br>' in rendered.html
     assert '<p class="moji-down">❶' in rendered.html
     assert '<p class="moji-down">❷' in rendered.html
     assert 'class="lv-hc-section"' not in rendered.html
@@ -3940,7 +6336,7 @@ def test_hc02c1_maps_sections_icons_and_moji_down_markers() -> None:
     assert rendered.stats["hc02c1_nonprinting_controls"] == 2
 
 
-def test_hc02c1_uses_line_links_and_template_image_gaiji() -> None:
+def test_hc02c1_uses_line_links_and_suppresses_unused_template_markers() -> None:
     body = (
         b"\x1f\x42"
         + jis_ascii("L")
@@ -3959,12 +6355,39 @@ def test_hc02c1_uses_line_links_and_template_image_gaiji() -> None:
 
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert 'href="lvaddr://00000002/0030"' in rendered.html
-    assert 'src="Templates/B14C.png"' in rendered.html
-    assert 'class="lv-hc-gaiji img_mark4"' in rendered.html
+    assert 'src="Templates/B14C.png"' not in rendered.html
+    assert 'data-gaiji-code="b14c"' not in rendered.html
     assert 'src="Templates/b135.png"' in rendered.html
     assert 'class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji"' in rendered.html
-    assert rendered.stats["hc02c1_template_image_markers"] == 1
+    assert rendered.stats["hc02c1_suppressed_gaiji_markers"] == 1
     assert rendered.stats["hc02c1_moji_down_markers"] == 1
+
+
+def test_hc02c1_private_ruby_and_bold_emphasis() -> None:
+    body = (
+        b"\x1f\xe2\x00\x01"
+        + jis_ascii_text("RUB:")
+        + jis_text("始")
+        + b"\x1f\xe3"
+        + jis_text("懐中")
+        + b"\x1f\xe2\x00\x01"
+        + jis_ascii_text("RUB:")
+        + jis_text("終かいちゅう")
+        + b"\x1f\xe3"
+        + b"\x1f\x12"
+        + jis_text("向けて")
+        + b"\x1f\x13"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="02C1"))
+
+    assert '<ruby class="ruby7"><rb class="rb7">懐中</rb>' in rendered.html
+    assert '<rt class="rt7">かいちゅう</rt>' in rendered.html
+    assert "<b>向けて</b>" in rendered.html
+    assert "<em>向けて</em>" not in rendered.html
+    assert rendered.stats["hc02c1_ruby_starts"] == 1
+    assert rendered.stats["hc02c1_ruby_ends"] == 1
+    assert rendered.stats["hc02c1_private_directives_handled"] == 2
 
 
 def test_hc02bf_maps_sections_hasei_icon_and_moji_down_markers() -> None:
@@ -4002,6 +6425,49 @@ def test_hc02bf_line_links_use_product_class() -> None:
 
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert 'href="lvaddr://00000002/0030"' in rendered.html
+
+
+def test_hc02bf_decoration_mode_one_is_contextual() -> None:
+    body = (
+        b"\x1f\x09\x00\x04"
+        + jis_text("［")
+        + b"\x1f\xe0\x00\x01"
+        + jis_ascii_text("cf. ")
+        + b"\x1f\xe1"
+        + jis_text("］")
+        + b"\x1f\x09\x00\x02"
+        + jis_text("（＋")
+        + b"\x1f\xe0\x00\x01"
+        + jis_ascii_text("ind")
+        + b"\x1f\xe1"
+        + jis_text("）")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="02BF"))
+
+    assert '<i><span class="hankaku">cf.</span></i>' in rendered.html
+    assert '<b><span class="hankaku">ind</span></b>' in rendered.html
+    assert rendered.stats["hc02bf_italic_decoration_spans"] == 1
+    assert rendered.stats["hc02bf_bold_decoration_spans"] == 1
+    assert rendered.stats["hc02bf_decoration_closures"] == 2
+
+
+def test_hc02bf_decoration_mode_four_is_small_author_tail() -> None:
+    body = (
+        b"\x1f\x09\x00\x09"
+        + jis_ascii_text("(C")
+        + b"\x1f\xe0\x00\x04"
+        + jis_ascii_text("IC")
+        + b"\x1f\xe1"
+        + jis_ascii_text(")")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="02BF"))
+
+    assert '<span class="hc02bf-smallcap"><span class="hankaku">IC</span></span>' in rendered.html
+    assert '<b><span class="hankaku">IC</span></b>' not in rendered.html
+    assert rendered.stats["hc02bf_smallcap_decoration_spans"] == 1
+    assert rendered.stats["hc02bf_decoration_closures"] == 1
 
 
 def test_hc02c5_wraps_headings_and_decoded_sections() -> None:
@@ -4096,7 +6562,7 @@ def test_hc0151_maps_heading_contents_sections_and_links() -> None:
 
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="0151"))
 
-    assert '<div class="midashi"><span class="hankaku">H</span></div><div class="contents">' in rendered.html
+    assert '<div class="midashi hc0151-midashi"><span class="hankaku">H</span></div><div class="contents">' in rendered.html
     assert '<div class="indent23"><span class="hankaku">B</span></div>' in rendered.html
     assert 'class="lv-hc-link Link"' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
@@ -4143,6 +6609,63 @@ def test_hc0151_table_sections_and_small_markers_are_balanced() -> None:
     assert rendered.stats["hc0151_section_blocks"] == 3
     assert rendered.stats["hc0151_table_cell_markers"] == 2
     assert rendered.stats["hc0151_small_markers"] == 2
+
+
+def test_hc0151_media_is_a_block_and_suppresses_renderer_padding() -> None:
+    payload = bytes.fromhex("000000000000000000000000000001230045")
+    seen: list[MediaPointer] = []
+
+    def resolve(pointer: MediaPointer) -> str:
+        seen.append(pointer)
+        return "media/colscr/00000123_0045.jpg"
+
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x17"
+        + jis_text("略．")
+        + b"\x1f\x4d"
+        + payload
+        + b"\x1f\x04"
+        + (b"\x21\x21" * 6)
+        + b"\x1f\x05"
+        + jis_text("本文"),
+        HcRenderOptions(renderer_code="0151", media_image_resolver=resolve),
+    )
+
+    assert '<br><div class="hc0151-media-block"><img class="lv-hc-media"' in rendered.html
+    assert 'src="media/colscr/00000123_0045.jpg"' in rendered.html
+    assert '<span class="hankaku">      </span>' not in rendered.html
+    assert "本文" in rendered.html
+    assert seen == [MediaPointer(payload=payload, block=123, offset=45)]
+    assert rendered.stats["hc0151_media_blocks"] == 1
+    assert rendered.stats["hc0151_suppressed_media_padding_chars"] == 6
+
+
+def test_hc0151_suppresses_unused_template_markers_and_preserves_black_midashi() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x41\x01\x60" + jis_text("見出し") + b"\x1f\x61" + b"\xb1\x4e" + jis_ascii_text("abc") + b"\xb1\x4f",
+        HcRenderOptions(
+            renderer_code="0151",
+            image_sources={"b14e": "Templates/B14E.png", "b14f": "Templates/B14F.png"},
+        ),
+    )
+
+    assert '<div class="midashi hc0151-midashi">見出し</div>' in rendered.html
+    assert "Templates/B14E.png" not in rendered.html
+    assert "Templates/B14F.png" not in rendered.html
+    assert 'data-gaiji-code="b14e"' not in rendered.html
+    assert 'data-gaiji-code="b14f"' not in rendered.html
+    assert '<span class="hankaku">abc</span>' in rendered.html
+    assert rendered.stats["hc0151_suppressed_internal_markers"] == 2
+
+
+def test_hc0151_adds_sentence_breaks_for_long_definition_lines() -> None:
+    rendered = render_hc_body(
+        b"\x1f\x09\x00\x17" + jis_text("あ" * 41 + "．") + jis_text("次"),
+        HcRenderOptions(renderer_code="0151"),
+    )
+
+    assert "あ．<br>次" in rendered.html
+    assert rendered.stats["hc0151_auto_sentence_breaks"] == 1
 
 
 def test_hc0142_maps_midashi_honbun_and_line_links() -> None:
@@ -4252,12 +6775,47 @@ def test_hc0065_wraps_midashi_and_contents_body() -> None:
     assert '<div class="midashi">' in rendered.html
     assert '<span class="lv-hc-halfwidth">A</span>' in rendered.html
     assert '<div class="contents_body">' in rendered.html
-    assert '<span class="lv-hc-halfwidth">C</span></div>' in rendered.html
+    assert '<span class="lv-hc-halfwidth">B</span>' in rendered.html
+    assert '<div class="hr_div2"></div><span class="lv-hc-halfwidth">C</span></div>' in rendered.html
     assert "lv-hc-section" not in rendered.html
     assert 'class="lv-hc-heading"' not in rendered.html
     assert rendered.stats["hc0065_midashi_blocks"] == 1
+    assert rendered.stats.get("hc0065_headword_prefixes", 0) == 0
     assert rendered.stats["hc0065_contents_body_blocks"] == 1
     assert rendered.stats["hc0065_state_sections"] == 2
+
+
+def test_hc0065_suppresses_italic_controls_for_headword_pronunciation_and_crossrefs() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\xe0\x11\x03"
+        + b"\x1f\x10"
+        + jis_ascii_text("oh")
+        + b"\x1f\x0e"
+        + jis_text("１")
+        + b"\x1f\x0f"
+        + b"\x1f\x11"
+        + b"\x1f\xe1"
+        + b"\x1f\x09\x00\x02"
+        + jis_ascii_text(" **")
+        + b"\x1f\x10"
+        + jis_ascii_text("/o")
+        + b"\x1f\x11"
+        + jis_ascii_text("u/")
+        + jis_text("⇔")
+        + b"\x1f\x10"
+        + jis_ascii_text("unofficially")
+        + b"\x1f\x11"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0065"))
+
+    assert "<i>" not in rendered.html
+    assert "</i>" not in rendered.html
+    assert '<div class="midashi"><b><span class="lv-hc-halfwidth">oh</span><sup>１</sup>' in rendered.html
+    assert '<span class="lv-hc-halfwidth">/o</span><span class="lv-hc-halfwidth">u/</span>' in rendered.html
+    assert '⇔<span class="lv-hc-halfwidth">unofficially</span>' in rendered.html
+    assert rendered.stats["hc0065_suppressed_italic_controls"] == 6
 
 
 def test_hc0067_wraps_midashi_contents_margin_sections_and_line_links() -> None:
@@ -4280,7 +6838,8 @@ def test_hc0067_wraps_midashi_contents_margin_sections_and_line_links() -> None:
 
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="0067"))
 
-    assert '<div class="midashi"><span class="hankaku">H</span></div><div class="contents_body">' in rendered.html
+    assert '<div class="midashi hc0067-plain-midashi"><span class="hankaku">H</span></div><div class="contents_body hc0067-contents-body">' in rendered.html
+    assert ".hc0067-plain-midashi" in HC_RENDER_FINAL_CSS
     assert '<div style="margin-left: 9px">' in rendered.html
     assert 'class="lv-hc-link lineLink2"' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
@@ -4299,6 +6858,10 @@ def test_hc0068_wraps_midashi_contents_margin_sections_links_and_gaiji() -> None
         + b"\x1f\x41\x00\x00"
         + jis_ascii("H")
         + b"\xb6\x55"
+        + b"\x1f\x0a"
+        + jis_text("［英")
+        + jis_ascii_text("cleavagetype")
+        + jis_text("］")
         + b"\x1f\x0a"
         + b"\x1f\x09\x00\x04"
         + jis_text("本文")
@@ -4320,8 +6883,10 @@ def test_hc0068_wraps_midashi_contents_margin_sections_links_and_gaiji() -> None
         ),
     )
 
-    assert '<div class="midashi"><span class="hankaku">H</span><img src="Templates/dummy.gif" class="img_dummy"><img class="lv-hc-gaiji img_gaiji_midashi"' in rendered.html
-    assert '</div><div class="contents_body">' in rendered.html
+    assert '<div class="midashi hc0068-plain-midashi"><span class="hankaku">H</span><img src="Templates/dummy.gif" class="img_dummy"><img class="lv-hc-gaiji img_gaiji_midashi"' in rendered.html
+    assert '</div><div class="contents_body hc0068-contents-body">' in rendered.html
+    assert '<span class="hc0068-source-line">［英<span class="hankaku">cleavagetype</span>］</span><br>' in rendered.html
+    assert ".hc0068-source-line" in HC_RENDER_FINAL_CSS
     assert '<div style="margin-left: 12px">' in rendered.html
     assert '<img src="Templates/dummy.gif" class="img_dummy"><img class="lv-hc-gaiji img_gaiji"' in rendered.html
     assert 'class="lv-hc-link lineLink2"' in rendered.html
@@ -4332,6 +6897,7 @@ def test_hc0068_wraps_midashi_contents_margin_sections_links_and_gaiji() -> None
     assert rendered.stats["hc0068_midashi_blocks"] == 1
     assert rendered.stats["hc0068_contents_body_blocks"] == 1
     assert rendered.stats["hc0068_margin_sections"] == 1
+    assert rendered.stats["hc0068_source_lines"] == 1
     assert rendered.stats["hc0068_img_gaiji_midashi_images"] == 1
     assert rendered.stats["hc0068_img_gaiji_images"] == 1
     assert rendered.stats["hc0068_nonprinting_controls"] == 1
@@ -4342,11 +6908,13 @@ def test_hc0020_maps_midashi_contents_definition_markers_links_and_gaiji() -> No
         b"\x1f\x09\x00\x01"
         + b"\x1f\x41\x00\x00"
         + jis_ascii("H")
+        + bytes.fromhex("222a")
         + bytes.fromhex("b12d")
         + b"\x1f\x61"
         + b"\x1f\x0a"
         + b"\x1f\x09\x00\x03"
         + jis_text("本文")
+        + bytes.fromhex("b12e")
         + bytes.fromhex("215a")
         + jis_text("注")
         + b"\x1f\x0a"
@@ -4389,8 +6957,11 @@ def test_hc0020_maps_midashi_contents_definition_markers_links_and_gaiji() -> No
     assert '<dl><dt><img src="Templates/diamond.png" class="img_diamond"></dt><dd>' in rendered.html
     assert '</dd><dt><img src="Templates/nakaguro.png" class="img_diamond"></dt><dd>' in rendered.html
     assert '<img src="Templates/confer.png" class="img_confer">' in rendered.html
+    assert rendered.html.count('<img src="Templates/confer.png" class="img_confer">') == 1
     assert '<img class="lv-hc-gaiji img_gaiji_midashi" src="Templates/b12d.png"' in rendered.html
     assert '<img class="lv-hc-gaiji img_gaiji" src="Templates/b12e.png"' in rendered.html
+    assert '<img src="Templates/confer.png" class="img_confer"><img class="lv-hc-gaiji img_gaiji_midashi" src="Templates/b12d.png"' not in rendered.html
+    assert '<img src="Templates/confer.png" class="img_confer"><img class="lv-hc-gaiji img_gaiji_midashi" src="Templates/b12e.png"' not in rendered.html
     assert 'class="lv-hc-link lineLink2"' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert "lv-hc-section" not in rendered.html
@@ -4404,6 +6975,8 @@ def test_hc0020_maps_midashi_contents_definition_markers_links_and_gaiji() -> No
     assert rendered.stats["hc0020_definition_lists"] == 1
     assert rendered.stats["hc0020_definition_terms"] == 1
     assert rendered.stats["hc0020_confer_markers"] == 1
+    assert rendered.stats["hc0020_midashi_confer_markers_suppressed"] == 1
+    assert rendered.stats["hc0020_confer_following_markers_suppressed"] == 1
     assert rendered.stats["hc0020_img_gaiji_midashi_images"] == 1
     assert rendered.stats["hc0020_img_gaiji_images"] == 1
     assert rendered.stats["hc0020_nonprinting_controls"] == 3
@@ -4517,6 +7090,55 @@ def test_hc0065_renders_grammar_label_and_template_image_markers() -> None:
     assert "lv-hc-gaiji-placeholder" not in rendered.html
     assert rendered.stats["hc0065_literal_markers"] == 5
     assert rendered.stats["hc0065_template_image_markers"] == 2
+
+
+def test_hc0065_part_of_speech_marker_uses_following_label_image() -> None:
+    rendered = render_hc_body(
+        b"\xa4\x3a" + jis_text("【間】") + b"\xa4\x3a" + jis_text("副】"),
+        HcRenderOptions(
+            renderer_code="0065",
+            image_sources={"interjective": "Templates/interjective.png", "adverb": "Templates/adverb.png"},
+        ),
+    )
+
+    assert 'src="Templates/interjective.png"' in rendered.html
+    assert 'src="Templates/adverb.png"' in rendered.html
+    assert "【間】" not in rendered.html
+    assert "副】" not in rendered.html
+    assert rendered.stats["hc0065_part_of_speech_images"] == 2
+
+
+def test_hc0065_example_marker_opens_exam_box_and_suppresses_delimiters() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + jis_ascii_text("oh")
+        + b"\x1f\x09\x00\x02"
+        + jis_ascii_text("XX")
+        + bytes((0x21, 0x42))
+        + jis_ascii_text("Oh")
+        + b"\x21\x21"
+        + jis_ascii_text("dear")
+        + bytes((0x21, 0x3F))
+        + jis_ascii_text("Oh")
+        + b"\x21\x21"
+        + jis_ascii_text("great")
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="0065", image_sources={"exam": "Templates/exam.png"}),
+    )
+
+    assert '<img src="Templates/exam.png" class="ex_img">' in rendered.html
+    assert '<div class="contents">' in rendered.html
+    assert "‖" not in rendered.html
+    assert "/Oh" not in rendered.html
+    assert "Oh\u3000dear" in rendered.plain
+    assert "Oh\u3000great" in rendered.plain
+    assert rendered.stats["hc0065_example_blocks"] == 1
+    assert rendered.stats["hc0065_suppressed_example_start_markers"] == 1
+    assert rendered.stats["hc0065_suppressed_example_continuation_markers"] == 1
 
 
 def test_hc0065_internal_links_use_product_class() -> None:
@@ -4649,10 +7271,532 @@ def test_hc0158_maps_archsic4_section_codes_to_renderer_classes() -> None:
     assert '<div class="honbun_normal">' in rendered.html
     assert '<div class="honbun_yourei">' in rendered.html
     assert '<div class="honbun_sound">' in rendered.html
-    assert '<div class="column_waka_haiku"><div>' in rendered.html
+    assert '<div class="column_waka_haiku">' in rendered.html
     assert rendered.stats["hc0158_section_blocks"] == 4
     assert rendered.stats["hc0158_section_state_1"] == 1
     assert rendered.stats["hc0158_section_state_24"] == 1
+
+
+def test_hc0158_keeps_panel_column_content_inside_container() -> None:
+    body = (
+        b"\x1f\x09\x00\x27"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x21"
+        + jis_text("語義パネル")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("語義本文")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x28"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0158"))
+
+    assert '<div class="column_gogi_panel"><div class="honbun_columntitle">語義パネル</div><div class="honbun_normal">語義本文</div></div>' in rendered.html
+    assert '<div class="column_gogi_panel"></div>' not in rendered.html
+    assert rendered.stats["hc0158_column_panels_closed"] == 1
+
+
+def test_hc0158_tableizes_ruigo_panel_rows_and_suppresses_title_waku() -> None:
+    body = (
+        b"\x1f\x09\x00\x33"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x21"
+        + b"\xb3\x79"
+        + jis_text("類語パネル")
+        + b"\xb3\x7a"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("あし‖本質的に悪い。")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x02"
+        + jis_text("よし‖本質的によい。")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x34"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0158"))
+
+    assert '<div class="honbun_columntitle">類語パネル</div>' in rendered.html
+    assert '<span class="waku">類語パネル</span>' not in rendered.html
+    assert '<table class="hc0158-panel-table"><tbody>' in rendered.html
+    assert '<td class="column_ruigo_panel_headercell">あし</td><td class="column_ruigo_panel_bodycell">本質的に悪い。</td>' in rendered.html
+    assert '<td class="column_ruigo_panel_headercell">よし</td><td class="column_ruigo_panel_bodycell">本質的によい。</td>' in rendered.html
+    assert rendered.stats["hc0158_ruigo_panel_rows"] == 2
+    assert rendered.stats["hc0158_ruigo_panel_delimiters"] == 2
+
+
+def test_hc0158_bolds_archsic4_grammar_labels() -> None:
+    body = b"\x1f\x09\x00\x13" + jis_text("［文法］本文") + b"\x1f\x0a"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0158"))
+
+    assert '<div class="honbun_bunpou2"><b class="hc0158-grammar-label">［文法］</b>本文</div>' in rendered.html
+    assert rendered.stats["hc0158_grammar_labels_bolded"] == 1
+
+
+def test_hc0158_renders_img_private_directive_from_media_source() -> None:
+    body = b"\x1f\xe2\x00\x0c" + jis_fullwidth_ascii("IMG:b0010.bmp") + b"\x1f\xe3\x00\x00"
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(renderer_code="0158", image_sources={"b0010": "HTMLs/b0010.bmp"}),
+    )
+
+    assert '<img class="lv-hc-media column_picture_img" src="HTMLs/b0010.bmp"' in rendered.html
+    assert rendered.stats["hc0158_private_directive_images"] == 1
+
+
+def test_prepare_hc_render_assets_extracts_vlpljbl_media_store(tmp_path: Path) -> None:
+    root = tmp_path / "ARCHSIC4"
+    root.mkdir()
+    idx = root / "ARCHSIC4.IDX"
+    idx.write_bytes(b"")
+    honmon = root / "HONMON.DIC"
+    honmon.write_bytes(b"")
+    con = sqlite3.connect(root / "vlpljblM")
+    con.execute("create table t_media(f_name text primary key, f_blob blob)")
+    con.execute("insert into t_media values(?, ?)", ("c0001", b"\xff\xd8\xff\xdbjpeg"))
+    con.execute("insert into t_media values(?, ?)", ("b0010", b"BMbmp"))
+    con.commit()
+    con.close()
+    source = DictionarySource("ARCHSIC4", idx, "ARCHSIC4", honmon, 1, {})
+    (tmp_path / "out").mkdir()
+
+    image_sources, _templates, _stylesheet, copied, _assets = _prepare_hc_render_assets(source, tmp_path / "out", None)
+
+    assert copied >= 2
+    assert image_sources["c0001"] == "HTMLs/c0001.jpg"
+    assert image_sources["b0010"] == "HTMLs/b0010.bmp"
+    assert (tmp_path / "out" / "HTMLs" / "c0001.jpg").read_bytes() == b"\xff\xd8\xff\xdbjpeg"
+    assert (tmp_path / "out" / "HTMLs" / "b0010.bmp").read_bytes() == b"BMbmp"
+
+
+def test_prepare_hc_render_assets_extracts_gai16_suffix_bitmap_gaiji(tmp_path: Path) -> None:
+    root = tmp_path / "ARCHSIC3"
+    root.mkdir()
+    idx = root / "ARCHSIC3.IDX"
+    idx.write_bytes(b"")
+    honmon = root / "HONMON.DIC"
+    honmon.write_bytes(b"")
+    header = bytearray(2048)
+    header[0] = 1
+    header[8] = 16
+    header[9] = 16
+    header[10:12] = bytes.fromhex("a121")
+    header[12:14] = (1).to_bytes(2, "big")
+    (root / "GAI16F00").write_bytes(bytes(header) + (b"\xff\x00" * 16))
+    source = DictionarySource("ARCHSIC3", idx, "ARCHSIC3", honmon, 1, {})
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    image_sources, _templates, _stylesheet, copied, _assets = _prepare_hc_render_assets(source, out_dir, None)
+    rendered = render_hc_body(b"\xa1\x21", HcRenderOptions(renderer_code="ARCHSIC3", image_sources=image_sources))
+
+    assert copied >= 1
+    assert image_sources["a121"] == "gaiji/GAI16F00/A121_jis_grid.bmp"
+    assert (out_dir / image_sources["a121"]).is_file()
+    assert 'src="gaiji/GAI16F00/A121_jis_grid.bmp"' in rendered.html
+    assert "lv-hc-gaiji-placeholder" not in rendered.html
+    assert rendered.stats["gaiji_image"] == 1
+
+
+def test_prepare_hc_render_assets_extracts_numbered_media_store(tmp_path: Path) -> None:
+    root = tmp_path / "KOJIEN7"
+    root.mkdir()
+    idx = root / "KOJIEN7.IDX"
+    idx.write_bytes(b"")
+    honmon = root / "HONMON.DIC"
+    honmon.write_bytes(b"")
+    con = sqlite3.connect(root / "vlpljblM")
+    con.execute("create table media(No integer primary key, f_name text, f_type integer, f_main blob)")
+    con.execute("insert into media values(?, ?, ?, ?)", (4186, "50029810", 1, b"\xff\xd8\xff\xe0jpeg"))
+    con.execute(
+        "insert into media values(?, ?, ?, ?)",
+        (4187, "P0072_04", 4, b'<?xml version="1.0" encoding="UTF-8"?><svg id="x"/>'),
+    )
+    con.execute("insert into media values(?, ?, ?, ?)", (4188, "011_3", 5, b"II*\x00\x08\x00\x00\x00"))
+    con.commit()
+    con.close()
+    source = DictionarySource("KOJIEN7", idx, "KOJIEN7", honmon, 1, {})
+    (tmp_path / "out").mkdir()
+
+    image_sources, _templates, _stylesheet, copied, _assets = _prepare_hc_render_assets(source, tmp_path / "out", None)
+
+    assert copied >= 1
+    assert image_sources["50029810"] == "HTMLs/50029810.jpg"
+    assert image_sources["50029810.jpg"] == "HTMLs/50029810.jpg"
+    assert (tmp_path / "out" / "HTMLs" / "50029810.jpg").read_bytes() == b"\xff\xd8\xff\xe0jpeg"
+    assert image_sources["p0072_04"] == "HTMLs/P0072_04.svg"
+    assert image_sources["011_3"] == "HTMLs/011_3.tif"
+    assert (tmp_path / "out" / "HTMLs" / "P0072_04.svg").read_text(encoding="utf-8").startswith("<?xml")
+    assert (tmp_path / "out" / "HTMLs" / "011_3.tif").read_bytes().startswith(b"II*\x00")
+
+
+def test_prepare_hc_render_assets_decodes_shift_jis_stylesheet(tmp_path: Path) -> None:
+    root = tmp_path / "JSSAURU2"
+    (root / "Templates").mkdir(parents=True)
+    idx = root / "JSSAURU2.IDX"
+    idx.write_bytes(b"")
+    honmon = root / "HONMON.DIC"
+    honmon.write_bytes(b"")
+    (root / "Templates" / "0000015C.css").write_bytes(
+        '@charset "Shift_JIS";\n.ico_shoubunrui:after{content:"小語群";}\n'
+        '.ico_sakuin:after{content:"索引";}\n'
+        '.wo_goi_del_bu:before{content:"・";}\n'
+        '.image_box:before{content:"画像をクリックして拡大";}\n'
+        '.author:before{content:"◆ ";}\n'.encode("cp932")
+    )
+    source = DictionarySource("JSSAURU2", idx, "JSSAURU2", honmon, 1, {})
+    renderer = HcRendererClassification(
+        path=root / "HC015C.dll",
+        code="015C",
+        expected_numeric_index="0000015C.IDX",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="pe"),
+        exinfo_html_dll="HC015C.dll",
+        exinfo_declares_this=True,
+        numeric_indexes=("0000015C.IDX",),
+        expected_numeric_index_present=True,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=(),
+        features={},
+    )
+    (tmp_path / "out").mkdir()
+
+    _image_sources, _templates, stylesheet, _copied, _assets = _prepare_hc_render_assets(source, tmp_path / "out", renderer)
+
+    assert stylesheet == "hc-renderer.css"
+    css = (tmp_path / "out" / "hc-renderer.css").read_text(encoding="utf-8")
+    assert '@charset "Shift_JIS"' not in css
+    assert "小語群" in css
+    assert "索引" in css
+    assert 'content:"・"' in css
+    assert "画像をクリックして拡大" in css
+    assert 'content:"◆ "' in css
+    assert "�" not in css
+
+
+def test_rewrite_exact_body_asset_refs_uses_case_insensitive_lookup(tmp_path: Path) -> None:
+    (tmp_path / "Templates").mkdir()
+    (tmp_path / "Templates" / "dummy.GIF").write_bytes(b"gif")
+    (tmp_path / "Templates" / "b152.svg").write_text("<svg/>", encoding="utf-8")
+
+    rewritten = _rewrite_exact_body_asset_refs(
+        '<img src="dummy.gif"><object data="dummy.gif"></object><object data="B152.svg" class="gaiji"></object>',
+        tmp_path,
+    )
+
+    assert rewritten == (
+        '<img src="Templates/dummy.GIF"><object data="Templates/dummy.GIF"></object>'
+        '<object data="Templates/b152.svg" class="gaiji"></object>'
+    )
+
+
+def test_hc_render_uses_exinfo_vertical_default(tmp_path: Path) -> None:
+    root = tmp_path / "DAIJIRN4"
+    root.mkdir()
+    idx = root / "DAIJIRN4.IDX"
+    idx.write_bytes(b"")
+    honmon = root / "HONMON.DIC"
+    honmon.write_bytes(b"")
+    (root / "EXINFO.INI").write_text("[GENERAL]\nVERTICAL=1\n", encoding="cp932")
+    source = DictionarySource("DAIJIRN4", idx, "DAIJIRN4", honmon, 1, {})
+
+    assert _source_prefers_vertical(source, argparse.Namespace(vertical=False)) is True
+    assert _source_prefers_vertical(source, argparse.Namespace(vertical=True)) is True
+
+
+def test_exact_rendererdb_entries_get_windows_headword_style(tmp_path: Path) -> None:
+    dict_out = tmp_path / "DICT"
+    dict_out.mkdir()
+    entries = dict_out / "rendererdb_entries.jsonl"
+    entries.write_text(
+        '{"dict_id":"DICT","data_id":5,"html":"<div class=\\"jr_midashi\\"><span class=\\"jr_hw_midashi\\">head</span></div><object data=\\"B152.svg\\" class=\\"gaiji\\"></object>","plain":"head"}\n',
+        encoding="utf-8",
+    )
+    (dict_out / "Templates").mkdir()
+    (dict_out / "Templates" / "b152.svg").write_text("<svg/>", encoding="utf-8")
+
+    html_path = _write_exact_hc_entries_html_from_rendererdb(
+        {"entries_path": str(entries)},
+        dict_out,
+        stylesheet=None,
+        vertical=False,
+        renderer_code="015B",
+    )
+
+    rendered = html_path.read_text(encoding="utf-8")
+    assert '<html class="h">' in rendered
+    assert '<body class="h">' in rendered
+    assert 'class="rendererdb-entry exact-rendererdb-entry hc015b lv-hc-windows-reader lv-hc-blue-headword"' in rendered
+    assert '<span class="jr_hw_midashi">head</span>' in rendered
+    assert 'data="Templates/b152.svg"' in rendered
+    assert ".rendererdb-entry.lv-hc-windows-reader.lv-hc-blue-headword .jr_midashi" in HC_RENDER_FINAL_CSS
+    assert ".rendererdb-entry object.gaiji" in HC_RENDER_FINAL_CSS
+    assert ".rendererdb-entry.hc015a" in HC_RENDER_FINAL_CSS
+    assert "Yu Mincho" in HC_RENDER_FINAL_CSS
+
+
+def test_hc0161_exact_rendererdb_figure_rl_svg_is_font_sized(tmp_path: Path) -> None:
+    dict_out = tmp_path / "YUPSYCHO"
+    dict_out.mkdir()
+    entries = dict_out / "rendererdb_entries.jsonl"
+    entries.write_text(
+        '{"dict_id":"YUPSYCHO","data_id":29,'
+        '"html":"<span>明るさ</span><img src=\\"P0005_06.svg\\" width=\\"117\\" height=\\"94\\" class=\\"figureRL\\">",'
+        '"plain":"明るさ"}\n',
+        encoding="utf-8",
+    )
+    (dict_out / "P0005_06.svg").write_text("<svg/>", encoding="utf-8")
+
+    html_path = _write_exact_hc_entries_html_from_rendererdb(
+        {"entries_path": str(entries)},
+        dict_out,
+        stylesheet="hc-renderer.css",
+        vertical=False,
+        renderer_code="0161",
+    )
+
+    rendered = html_path.read_text(encoding="utf-8")
+    assert 'class="rendererdb-entry exact-rendererdb-entry hc0161 lv-hc-windows-reader"' in rendered
+    assert 'src="P0005_06.svg"' in rendered
+    assert 'class="figureRL"' in rendered
+    assert ".rendererdb-entry.hc0161 img.figureRL" in HC_RENDER_FINAL_CSS
+    assert ".rendererdb-entry.hc0162 img.figureRL" in HC_RENDER_FINAL_CSS
+    assert "height: 1em !important;" in HC_RENDER_FINAL_CSS
+    assert "width: auto !important;" in HC_RENDER_FINAL_CSS
+
+
+def test_hc015d_exact_rendererdb_entries_force_vertical_shell_and_rewrite_media(tmp_path: Path) -> None:
+    dict_out = tmp_path / "SINJIGEN"
+    (dict_out / "HTMLs").mkdir(parents=True)
+    (dict_out / "HTMLs" / "T03983_KK010.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    entries = dict_out / "rendererdb_entries.jsonl"
+    entries.write_text(
+        '{"dict_id":"SINJIGEN","data_id":112380,'
+        '"html":"<div class=\\"midashi\\">新</div><div class=\\"honbun\\">'
+        '<div class=\\"kodaimoji_box\\"><img src=\\"T03983_KK010.png\\" class=\\"img_kodaimoji\\"></div>'
+        '<span class=\\"imi_top\\"></span></div>",'
+        '"plain":"新"}\n',
+        encoding="utf-8",
+    )
+
+    html_path = _write_exact_hc_entries_html_from_rendererdb(
+        {"entries_path": str(entries)},
+        dict_out,
+        stylesheet="hc-renderer.css",
+        vertical=False,
+        renderer_code="015D",
+    )
+
+    rendered = html_path.read_text(encoding="utf-8")
+    assert '<html class="v">' in rendered
+    assert '<body class="v">' in rendered
+    assert 'class="rendererdb-entry exact-rendererdb-entry hc015d lv-hc-windows-reader lv-hc-blue-headword"' in rendered
+    assert 'src="HTMLs/T03983_KK010.png"' in rendered
+
+
+def test_hc015d_exact_rendererdb_resolves_dictionary_font_pua(tmp_path: Path) -> None:
+    dict_out = tmp_path / "SINJIGEN"
+    dict_out.mkdir()
+    sqlite_path = dict_out / "vlpljblb.sqlite"
+    con = sqlite3.connect(sqlite_path)
+    try:
+        con.execute("CREATE TABLE t_kanji (f_DataId INTEGER, f_Title TEXT, f_UniCode TEXT)")
+        con.execute("INSERT INTO t_kanji VALUES (1, ?, '200A2')", ("\ue209",))
+        con.execute("INSERT INTO t_kanji VALUES (2, '薪', '85AA')")
+        con.execute("INSERT INTO t_kanji VALUES (2, ?, '―')", ("\ue5c9",))
+        con.commit()
+    finally:
+        con.close()
+    entries = dict_out / "rendererdb_entries.jsonl"
+    entries.write_text(
+        '{"dict_id":"SINJIGEN","data_id":112380,'
+        '"html":"<div class=\\"midashi\\">新</div><div class=\\"honbun\\">'
+        '<span class=\\"imi\\">\\ue0b0\\ue130\\ue029\\ue84b\\ue5c9\\ue209\\ue1ad</span>'
+        '<span class=\\"wari\\"><span class=\\"wari_mae\\">シ</span><br><span class=\\"wari_ato\\">ン</span></span>'
+        '</div>",'
+        '"plain":"新"}\n',
+        encoding="utf-8",
+    )
+
+    html_path = _write_exact_hc_entries_html_from_rendererdb(
+        {"entries_path": str(entries), "sqlite_path": str(sqlite_path)},
+        dict_out,
+        stylesheet="hc-renderer.css",
+        vertical=False,
+        renderer_code="015D",
+    )
+
+    rendered = html_path.read_text(encoding="utf-8")
+    assert "➊" in rendered
+    assert "㋐" in rendered
+    assert "亲" in rendered
+    assert "薪" in rendered
+    assert chr(0x200A2) in rendered
+    assert "㆑" in rendered
+    assert 'src="HANREI/image/967.png"' in rendered
+    assert 'class="hc015d-marker"' in rendered
+    assert "\ue0b0" not in rendered
+    assert "\ue130" not in rendered
+    assert "\ue029" not in rendered
+    assert "\ue84b" not in rendered
+    assert "\ue5c9" not in rendered
+    assert "\ue209" not in rendered
+    assert "\ue1ad" not in rendered
+    assert ".rendererdb-entry.hc015d .wari br" in HC_RENDER_FINAL_CSS
+    assert ".rendererdb-entry.hc015d .oyaji_data_main_jou" in HC_RENDER_FINAL_CSS
+
+
+def test_hc03e8_exact_rendererdb_plain_rows_get_midashi_honbun_layout(tmp_path: Path) -> None:
+    dict_out = tmp_path / "GENKANA5"
+    dict_out.mkdir()
+    entries = dict_out / "rendererdb_entries.jsonl"
+    entries.write_text(
+        '{"dict_id":"GENKANA5","id":4049,'
+        '"html":"エクストリーム出社【 Extreme― 】 エクストリームは，極限。",'
+        '"plain":"エクストリーム出社【 Extreme― 】 エクストリームは，極限。"}\n',
+        encoding="utf-8",
+    )
+
+    html_path = _write_exact_hc_entries_html_from_rendererdb(
+        {"entries_path": str(entries)},
+        dict_out,
+        stylesheet=None,
+        vertical=False,
+        renderer_code="03E8",
+    )
+
+    rendered = html_path.read_text(encoding="utf-8")
+    assert 'class="rendererdb-entry exact-rendererdb-entry hc03e8 lv-hc-windows-reader lv-hc-blue-headword"' in rendered
+    assert '<div class="midashi">エクストリーム出社【 Extreme― 】</div>' in rendered
+    assert '<div class="honbun" style="margin-left:2.000000em;">エクストリームは，極限。</div>' in rendered
+    assert ".rendererdb-entry.lv-hc-windows-reader.lv-hc-blue-headword .midashi" in HC_RENDER_FINAL_CSS
+    assert "font-size: 1.15em;" in HC_RENDER_FINAL_CSS
+
+
+def test_exact_rendererdb_headword_blue_style_is_renderer_scoped(tmp_path: Path) -> None:
+    dict_out = tmp_path / "DICT"
+    dict_out.mkdir()
+    entries = dict_out / "rendererdb_entries.jsonl"
+    entries.write_text(
+        '{"dict_id":"DICT","data_id":5,"html":"<div class=\\"midashi\\">head</div>","plain":"head"}\n',
+        encoding="utf-8",
+    )
+
+    blue_html = _write_exact_hc_entries_html_from_rendererdb(
+        {"entries_path": str(entries)},
+        dict_out,
+        stylesheet=None,
+        vertical=False,
+        renderer_code="015A",
+    ).read_text(encoding="utf-8")
+    black_html = _write_exact_hc_entries_html_from_rendererdb(
+        {"entries_path": str(entries)},
+        dict_out,
+        stylesheet=None,
+        vertical=False,
+        renderer_code="015E",
+    ).read_text(encoding="utf-8")
+
+    assert "lv-hc-blue-headword" in blue_html
+    assert "hc015e lv-hc-windows-reader" in black_html
+    assert "lv-hc-blue-headword" not in black_html
+    assert ".rendererdb-entry.hc015e .akusentnum" in HC_RENDER_FINAL_CSS
+    assert "text-combine-upright: all" in HC_RENDER_FINAL_CSS
+    assert "html.v .exact-rendererdb-entry + .exact-rendererdb-entry" in HC_RENDER_FINAL_CSS
+
+
+def test_hc015f_exact_rendererdb_japanese_caption_uses_royal_colours(tmp_path: Path) -> None:
+    dict_out = tmp_path / "PROYAL53"
+    dict_out.mkdir()
+    entries = dict_out / "rendererdb_entries.jsonl"
+    entries.write_text(
+        '{"dict_id":"PROYAL53","data_id":330815,'
+        '"html":"<div class=\\"caption\\"><span class=\\"large_gothic_font\\">'
+        '<font class=\\"color_font\\">はこぶ</font></span>【運ぶ】</div>",'
+        '"plain":"はこぶ【運ぶ】"}\n',
+        encoding="utf-8",
+    )
+
+    html_path = _write_exact_hc_entries_html_from_rendererdb(
+        {"entries_path": str(entries)},
+        dict_out,
+        stylesheet=None,
+        vertical=False,
+        renderer_code="015F",
+    )
+
+    rendered = html_path.read_text(encoding="utf-8")
+    assert 'class="rendererdb-entry exact-rendererdb-entry hc015f lv-hc-windows-reader"' in rendered
+    assert '<font class="color_font">はこぶ</font></span>【運ぶ】' in rendered
+    assert ".rendererdb-entry.hc015f .caption" in HC_RENDER_FINAL_CSS
+    assert "color: #113f08 !important;" in HC_RENDER_FINAL_CSS
+    assert ".rendererdb-entry.hc015f .caption .color_font" in HC_RENDER_FINAL_CSS
+    assert "color: #ba2636 !important;" in HC_RENDER_FINAL_CSS
+
+
+def test_hc0153_exact_rendererdb_section_labels_use_heading_css(tmp_path: Path) -> None:
+    dict_out = tmp_path / "HOUGAKU5"
+    dict_out.mkdir()
+    entries = dict_out / "rendererdb_entries.jsonl"
+    entries.write_text(
+        '{"dict_id":"HOUGAKU5","data_id":"K0j6WEa5",'
+        '"html":"<div class=\\"midashi\\">司法的統制</div><p><span class=\\"009QG\\">1 意義</span>本文'
+        '<br/><br/><span class=\\"009QG\\">2 特徴</span>本文</p>",'
+        '"plain":"司法的統制"}\n',
+        encoding="utf-8",
+    )
+
+    html_path = _write_exact_hc_entries_html_from_rendererdb(
+        {"entries_path": str(entries)},
+        dict_out,
+        stylesheet=None,
+        vertical=False,
+        renderer_code="0153",
+    )
+
+    rendered = html_path.read_text(encoding="utf-8")
+    assert 'class="rendererdb-entry exact-rendererdb-entry hc0153 lv-hc-windows-reader"' in rendered
+    assert '<span class="009QG">1 意義</span>' in rendered
+    assert '<span class="009QG">2 特徴</span>' in rendered
+    assert '.rendererdb-entry.hc0153 [class~="009QG"]' in HC_RENDER_FINAL_CSS
+    assert "display: block;" in HC_RENDER_FINAL_CSS
+
+
+def test_exact_rendererdb_vertical_shell_enables_package_vertical_css(tmp_path: Path) -> None:
+    dict_out = tmp_path / "DICT"
+    dict_out.mkdir()
+    entries = dict_out / "rendererdb_entries.jsonl"
+    entries.write_text(
+        "\n".join(
+            [
+                '{"dict_id":"DICT","data_id":1,"html":"<div>one</div>","plain":"one"}',
+                '{"dict_id":"DICT","data_id":2,"html":"<div>two</div>","plain":"two"}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    html_path = _write_exact_hc_entries_html_from_rendererdb(
+        {"entries_path": str(entries)},
+        dict_out,
+        stylesheet=None,
+        vertical=True,
+        renderer_code="015E",
+    )
+
+    rendered = html_path.read_text(encoding="utf-8")
+    assert '<html class="v">' in rendered
+    assert '<body class="v">' in rendered
+    assert rendered.count("exact-rendererdb-entry") == 2
 
 
 def test_hc0157_renders_dll_backed_inline_style_markers() -> None:
@@ -4950,13 +8094,86 @@ def test_hc0146_maps_recovered_example_and_translation_sections() -> None:
 
     rendered = render_hc_body(body, HcRenderOptions(renderer_code="0146"))
 
-    assert '<div class="column_frame exam_frame"><span class="exam_text">例</span></div>' in rendered.html
-    assert '<span class="exam_translate">訳</span>' in rendered.html
+    assert (
+        '<div class="column_frame exam_frame"><span class="exam_text">'
+        '<span class="small_font">¶</span>例</span><span class="exam_translate">訳</span></div>'
+    ) in rendered.html
     assert '<span class="idiom_text_color">成句</span>' in rendered.html
     assert "hc0146_unmapped_section_branch" not in rendered.named_behavior_gaps
     assert rendered.stats["hc0146_section_exam_text"] == 1
     assert rendered.stats["hc0146_section_exam_translate"] == 1
+    assert rendered.stats["hc0146_example_source_linebreaks_suppressed"] == 1
+    assert rendered.stats["hc0146_example_frame_closures"] == 1
     assert rendered.stats["hc0146_section_idiom_text_color"] == 1
+
+
+def test_hc0146_suppresses_raw_paragraph_marker_in_example_sources() -> None:
+    body = (
+        b"\x1f\x09\x02\x11"
+        + b"\xb1\x67"
+        + jis_text("氏名を問う")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x02\x23"
+        + jis_text("訳")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x02\x12"
+        + jis_text("賛否を問う")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x02\x20"
+        + jis_text("訳二")
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0146"))
+
+    assert rendered.html.count("¶") == 2
+    assert (
+        '<span class="small_font">¶</span>氏名を問う</span>'
+        '<span class="exam_translate">訳</span></div>'
+    ) in rendered.html
+    assert (
+        '<span class="small_font">¶</span>賛否を問う</span>'
+        '<span class="exam_translate">訳二</span></div>'
+    ) in rendered.html
+    assert rendered.stats["hc0146_example_raw_paragraph_markers_suppressed"] == 1
+
+
+def test_hc0146_keeps_point_column_body_inside_frame() -> None:
+    body = (
+        b"\x1f\x09\x00\x40"
+        + jis_text("ポイント")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x04\x31"
+        + jis_text("本文")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x50"
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0146"))
+
+    assert '<div class="column_frame cm_f_point">ポイント<br>本文<br></div>' in rendered.html
+    assert rendered.stats["hc0146_section_point_column"] == 1
+    assert rendered.stats["hc0146_column_frame_closures"] == 1
+
+
+def test_hc0146_decoration_mode_one_is_italic_not_bold() -> None:
+    body = (
+        b"\x1f\xe0\x00\x01"
+        + jis_ascii_text("et")
+        + b"\x1f\xe1\x00\x00"
+        + b"\x1f\xe0\x00\x00"
+        + jis_ascii_text("A")
+        + b"\x1f\xe1\x00\x00"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0146"))
+
+    assert '<i><span class="lv-hc-halfwidth">et</span></i>' in rendered.html
+    assert '<b><span class="lv-hc-halfwidth">A</span></b>' in rendered.html
+    assert '<b><span class="lv-hc-halfwidth">et</span></b>' not in rendered.html
+    assert rendered.stats["hc0146_italic_decoration_spans"] == 1
+    assert rendered.stats["hc0146_bold_decoration_spans"] == 1
 
 
 def test_hc0146_maps_synonym_column_title_and_frame_state() -> None:
@@ -5091,7 +8308,10 @@ def test_hc_render_assets_copy_images_and_normalise_product_css(tmp_path: Path) 
 
     image_sources, html_templates, stylesheet, copied, _ = _prepare_hc_render_assets(source, tmp_path / "out", renderer)
 
-    assert image_sources == {"b157": "Templates/b157_M.png"}
+    assert image_sources["b157"] == "Templates/b157_M.png"
+    assert image_sources["b157_m"] == "Templates/b157_M.png"
+    assert image_sources["b157_m.png"] == "Templates/b157_M.png"
+    assert "00000146.css" not in image_sources
     assert html_templates == {}
     assert stylesheet == "hc-renderer.css"
     assert (tmp_path / "out" / "Templates" / "b157_M.png").read_bytes() == b"PNGDATA"
@@ -5204,6 +8424,7 @@ def test_hc02c2_profile_records_section_icon_subset_without_claiming_parity() ->
     data = profile.as_dict()
 
     assert "HC02C2_section_icons_and_template_gaiji" in data["implemented_semantics"]
+    assert "HC02C2_private_ruby_directives" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "panel_lifecycle" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
@@ -5315,13 +8536,19 @@ def test_hc00aa_maps_hkbyoin_sections_links_and_close_state() -> None:
         + b"\x1f\x6d"
     )
 
-    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00AA"))
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="00AA",
+            image_sources={"nurse": "Templates/Nurse.png", "tejyun": "Templates/tejyun.png"},
+        ),
+    )
 
     assert '<div class="midashi">' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert "<table" in rendered.html
-    assert "Nurse.png" in rendered.html
-    assert "tejyun.png" in rendered.html
+    assert 'src="Templates/Nurse.png"' in rendered.html
+    assert 'src="Templates/tejyun.png"' in rendered.html
     assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
     assert rendered.stats["hc00aa_section_midashi"] == 1
     assert rendered.stats["hc00aa_section_boxed_table"] == 1
@@ -5329,6 +8556,29 @@ def test_hc00aa_maps_hkbyoin_sections_links_and_close_state() -> None:
     assert rendered.stats["hc00aa_section_tejyun"] == 1
     assert rendered.stats["hc00aa_nonprinting_controls"] == 1
     assert rendered.media[0]["target"]["resource_id"] == "colscr:00000123:0045"
+
+
+def test_hc00aa_entry_slices_use_section_headings_for_monolithic_honmon() -> None:
+    data = (
+        b"\x00\x00"
+        + b"\x1f\x09\x00\x01"
+        + jis_text("Root")
+        + b"\x1f\x09\x00\x66"
+        + jis_text("Menu")
+        + b"\x1f\x09\x01\x16"
+        + jis_text("Entry")
+        + b"\x1f\x09\x01\x14"
+        + jis_text("Body")
+        + b"\x1f\x09\x01\x16"
+        + jis_text("Next")
+    )
+
+    slices = _hc00aa_entry_slices(data)
+
+    assert len(slices) == 4
+    assert data[slices[1][0] : slices[1][0] + 4] == b"\x1f\x09\x00\x66"
+    assert data[slices[2][0] : slices[2][0] + 4] == b"\x1f\x09\x01\x16"
+    assert b"Body" not in data[slices[3][0] : slices[3][1]]
 
 
 def test_hc00aa_profile_records_hkbyoin_subset_without_claiming_parity() -> None:
@@ -5494,6 +8744,11 @@ def test_hc00c5_profile_records_gkkanyok_subset_without_claiming_parity() -> Non
 
 
 def test_hc00ad_maps_large_character_sections_and_state_close() -> None:
+    media_payload = bytes.fromhex("000000000000000000000000000001230045")
+
+    def resolve_media(_pointer: MediaPointer) -> str:
+        return "media/colscr/00000123_0045.bmp"
+
     body = (
         b"\x1f\x09\x00\x01"
         + b"\x1f\x41"
@@ -5503,6 +8758,28 @@ def test_hc00ad_maps_large_character_sections_and_state_close() -> None:
         + jis_text("大")
         + b"\x1f\x09\x00\x12"
         + jis_text("説明")
+        + b"\x1f\x09\x00\x17"
+        + jis_text("コード")
+        + b"\x1f\x09\x00\x40"
+        + jis_text("《常用音訓》")
+        + b"\x1f\x12"
+        + jis_text("リ")
+        + b"\x1f\x13"
+        + b"\x1f\x09\x00\x41"
+        + jis_text("《音読み》５ＢＤ８")
+        + b"\x1f\x09\x00\x44"
+        + jis_text("［意味］")
+        + b"\x1f\x12"
+        + b"\xb2\x71"
+        + jis_text("語")
+        + b"\xb2\x72"
+        + jis_text("姓")
+        + b"\x1f\x13"
+        + b"\x1f\x09\x00\x46"
+        + jis_text("［解字］")
+        + b"\x1f\x4d"
+        + media_payload
+        + jis_text("会意")
         + b"\x1f\x09\x00\x72"
         + jis_text("本文")
         + b"\x1f\x42"
@@ -5511,19 +8788,60 @@ def test_hc00ad_maps_large_character_sections_and_state_close() -> None:
         + b"\x1f\x6d"
     )
 
-    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00AD"))
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="00AD",
+            image_sources={
+                "dummy": "Templates/dummy.GIF",
+                "jyouyou": "Templates/jyouyou.png",
+                "imi": "Templates/imi.png",
+                "onyomi": "Templates/onyomi.png",
+                "kaiji": "Templates/kaiji.png",
+            },
+            gaiji_map={"b271": "❶", "b272": "❷"},
+            media_image_resolver=resolve_media,
+        ),
+    )
 
     assert '<div class="midashi">' in rendered.html
+    assert '<div class="hc00ad-kanji-summary"><div class="hc00ad-kanji-main">' in rendered.html
+    assert '<div class="hc00ad-kanji-meta">' in rendered.html
     assert "font-size:6em" in rendered.html
     assert "text-indent:-1.000000em" in rendered.html
     assert "<hr" in rendered.html
+    assert rendered.html.count("<hr") == 1
+    assert "Templates/jyouyou.png" in rendered.html
+    assert "Templates/onyomi.png" in rendered.html
+    assert "Templates/imi.png" in rendered.html
+    assert "Templates/kaiji.png" in rendered.html
+    assert "《常用音訓》" not in rendered.html
+    assert "《音読み》" not in rendered.html
+    assert "［意味］" not in rendered.html
+    assert "［解字］" not in rendered.html
+    assert "５ＢＤ８" not in rendered.html
+    assert "寘" in rendered.html
+    assert "<strong>リ</strong>" in rendered.html
+    assert "<strong>❶語<br>❷姓</strong>" in rendered.html
+    assert "<em>リ</em>" not in rendered.html
+    assert "<em>語</em>" not in rendered.html
+    assert '<div class="hc00ad-media-block"><img class="lv-hc-media"' in rendered.html
+    assert 'src="media/colscr/00000123_0045.bmp"' in rendered.html
+    assert "00000123_0045.bmp" in rendered.html
+    assert "00000123_0045.bmp" in rendered.html[: rendered.html.index("会意")]
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert "unknown_control_1f6d" not in rendered.named_behavior_gaps
     assert rendered.stats["hc00ad_midashi_blocks"] == 1
+    assert rendered.stats["hc00ad_kanji_summary_blocks"] == 1
     assert rendered.stats["hc00ad_section_large_character"] == 1
-    assert rendered.stats["hc00ad_section_paired_explanation"] == 1
+    assert rendered.stats["hc00ad_section_paired_explanation"] == 2
+    assert rendered.stats["hc00ad_section_label_images"] == 4
+    assert rendered.stats["hc00ad_suppressed_label_chars"] == len("《常用音訓》") + len("《音読み》") + len("［意味］") + len("［解字］")
     assert rendered.stats["hc00ad_section_hr_body"] == 1
     assert rendered.stats["hc00ad_nonprinting_controls"] == 1
+    assert rendered.stats["hc00ad_codepoint_literals_decoded"] == 1
+    assert rendered.stats["hc00ad_media_blocks"] == 1
+    assert rendered.stats["hc00ad_sense_number_linebreaks"] == 1
 
 
 def test_hc00ad_profile_records_kanjigen_subset_without_claiming_parity() -> None:
@@ -5550,6 +8868,7 @@ def test_hc00ad_profile_records_kanjigen_subset_without_claiming_parity() -> Non
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC00AD_large_character_section_layout" in data["implemented_semantics"]
+    assert "HC00AD_summary_label_images_and_bold_markers" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
@@ -5647,6 +8966,32 @@ def test_hc00ab_maps_gkyojijk_honbun_sections_and_midashi() -> None:
     assert rendered.stats["hc00ab_nonprinting_controls"] == 1
 
 
+def test_hc00ab_maps_yourei_ruby_and_red_emphasis() -> None:
+    ruby_start = b"\x1f\xe2\x00\x07" + jis_fullwidth_ascii("RUB:E") + b"\x1f\xe3"
+    ruby_end = b"\x1f\xe2\x00\x09" + jis_fullwidth_ascii("RUB:S") + jis_text("あ") + b"\x1f\xe3"
+    body = (
+        b"\x1f\x09\x00\x11"
+        + jis_text("［用例］天に")
+        + ruby_start
+        + jis_text("在")
+        + ruby_end
+        + jis_text("っては")
+        + b"\x1f\xe0\x00\x04"
+        + jis_text("比翼")
+        + b"\x1f\xe1"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="00AB"))
+
+    assert '<div class="honbun" style="margin-left:6.000000em;text-indent:-6.000000em;">' in rendered.html
+    assert "margin-left:17.000000em" not in rendered.html
+    assert '<ruby class="ruby7"><rb class="rb7">在</rb><rp class="rp7">(</rp><rt class="rt7">あ</rt>' in rendered.html
+    assert '<span class="hc00ab-red-emphasis">比翼</span>' in rendered.html
+    assert rendered.stats["hc00ab_section_hanging_honbun"] == 1
+    assert rendered.stats["hc00ab_ruby_starts"] == 1
+    assert rendered.stats["hc00ab_ruby_ends"] == 1
+
+
 def test_hc00ab_profile_records_gkyojijk_subset_without_claiming_parity() -> None:
     row = HcRendererClassification(
         path=Path("HC00AB.dll"),
@@ -5671,6 +9016,7 @@ def test_hc00ab_profile_records_gkyojijk_subset_without_claiming_parity() -> Non
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC00AB_honbun_section_layout" in data["implemented_semantics"]
+    assert "HC00AB_ruby_red_emphasis_and_yourei_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
@@ -6322,6 +9668,7 @@ def test_hc02c1_profile_records_panel_layout_subset_without_claiming_parity() ->
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC02C1_section_icons_and_template_gaiji" in data["implemented_semantics"]
+    assert "HC02C1_private_ruby_bold_and_unused_markers" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
@@ -6352,6 +9699,7 @@ def test_hc02bf_profile_records_panel_layout_subset_without_claiming_parity() ->
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC02BF_section_icon_and_moji_down_layout" in data["implemented_semantics"]
+    assert "HC02BF_decoration_modes" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
@@ -6678,9 +10026,10 @@ def test_hc0096_profile_records_subset_without_claiming_parity() -> None:
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0096_lineinfo_sections_and_template_gaiji" in data["implemented_semantics"]
+    assert "HC0096_private_ruby_directives" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "custom_gaiji_dib_hook" in data["named_gaps"]
-    assert "private_ruby_directive_hook" in data["named_gaps"]
+    assert "private_ruby_directive_hook" not in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
@@ -6860,6 +10209,7 @@ def test_hc00ac_profile_records_subset_without_claiming_parity() -> None:
 
     assert "HC00AC_honbun_margin_sections" in data["implemented_semantics"]
     assert "HC00AC_marker_suppression" in data["implemented_semantics"]
+    assert "HC00AC_ruby_red_emphasis_and_yourei_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "visual_parity_unverified" in data["named_gaps"]
 
@@ -7682,11 +11032,14 @@ def test_hc_render_exact_rendererdb_html_rewrites_internal_addr_and_image_links(
     dict_out = tmp_path / "DICT"
     (dict_out / "media").mkdir(parents=True)
     (dict_out / "media" / "0000006801.jpg").write_bytes(b"\xff\xd8\xff")
+    (dict_out / "rendererdb" / "DICT" / "media").mkdir(parents=True)
+    (dict_out / "rendererdb" / "DICT" / "media" / "50029810.jpg").write_bytes(b"\xff\xd8\xff")
     entries = dict_out / "rendererdb_entries.jsonl"
     entries.write_text(
         '{"dict_id":"DICT","data_id":5,'
         '"html":"<a href=\\"lved.addr00000109:0226\\">jump</a>'
-        '<a href=\\"lved.image:0000006801.jpg\\"><img src=\\"0000006801.jpg\\"></a>",'
+        '<a href=\\"lved.image:0000006801.jpg\\"><img src=\\"0000006801.jpg\\"></a>'
+        '<img class=\\"FIGc\\" src=\\"50029810.jpg\\">",'
         '"plain":"A"}\n',
         encoding="utf-8",
     )
@@ -7704,6 +11057,7 @@ def test_hc_render_exact_rendererdb_html_rewrites_internal_addr_and_image_links(
     assert 'data-lv-address-block="00000109"' in rendered
     assert 'data-lv-address-offset="0226"' in rendered
     assert 'href="media/0000006801.jpg"' in rendered
+    assert 'src="rendererdb/DICT/media/50029810.jpg"' in rendered
     assert 'data-lv-original-href="lved.image:0000006801.jpg"' in rendered
     assert re.search(r'(?<![\w-])href="lved\.', rendered) is None
 
@@ -7874,6 +11228,145 @@ def test_hc005c_renders_label_marker_images_and_image_links() -> None:
     assert rendered.stats["hc005c_image_links"] == 1
 
 
+def test_hc005c_examples_use_exam_box_and_suppress_structural_markers() -> None:
+    body = (
+        b"\x1f\x09\x00\x03"
+        + jis_text("¶")
+        + jis_text("手や顔を洗う")
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii(".")
+        + b"\x1f\x05"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("wash")
+        + b"\x1f\x05"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("/")
+        + jis_fullwidth_ascii("AB")
+        + b"\x1f\x05"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("‖")
+        + jis_text("この色")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="005C",
+            image_sources={
+                "dummy": "Templates/dummy.GIF",
+                "exam": "Templates/exam.gif",
+                "bunrei": "Templates/bunrei.gif",
+            },
+        ),
+    )
+
+    assert rendered.html.count('<div class="contents">') == 1
+    assert 'src="Templates/bunrei.gif" class="img_mark"><br><div class="contents">' in rendered.html
+    assert "exam.gif" not in rendered.html
+    assert '<div class="contents"><div class="hr_div2"></div>' not in rendered.html
+    assert '<div class="hr_div2"></div>' in rendered.html
+    assert "¶" not in rendered.html
+    assert "‖" not in rendered.html
+    assert '<span class="hankaku">/' not in rendered.html
+    assert "手や顔を洗う" in rendered.html
+    assert '手や顔を洗う<span class="hankaku">.</span><br><span class="hankaku">wash</span><br>' in rendered.html
+    assert '<span class="hankaku">AB</span>' in rendered.html
+    assert rendered.stats["hc005c_example_blocks"] == 1
+    assert rendered.stats["hc005c_example_bunrei_icons"] == 1
+    assert rendered.stats["hc005c_example_translation_linebreaks"] == 1
+    assert rendered.stats["hc005c_example_linebreaks_inside_box"] == 1
+    assert rendered.stats["hc005c_example_linebreaks_suppressed"] == 1
+    assert rendered.stats["hc005c_example_separators_in_box"] == 1
+
+
+def test_hc005c_colon_example_keeps_following_text_visible() -> None:
+    body = (
+        b"\x1f\x09\x00\x03"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii(":AB")
+        + b"\x1f\x05"
+        + jis_text("彼女の言葉")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + jis_text("通常本文")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="005C",
+            image_sources={"dummy": "Templates/dummy.GIF", "exam": "Templates/exam.gif"},
+        ),
+    )
+
+    assert '<div class="contents">' in rendered.html
+    assert 'src="Templates/exam.gif" class="img_mark"><br><div class="contents">' in rendered.html
+    assert '<div class="contents"><img src="Templates/dummy.GIF" class="img_dummy"><img src="Templates/exam.gif"' not in rendered.html
+    assert '<span class="hankaku">:AB' not in rendered.html
+    assert '<span class="hankaku">AB</span>' in rendered.html
+    assert "彼女の言葉" in rendered.html
+    assert '<div style="margin: 9px">通常本文</div>' in rendered.html
+    assert rendered.stats["hc005c_suppressed_example_marker_colon"] == 1
+
+
+def test_hc005c_skips_heading_gaiji_uses_numeric_separators_and_italic_examples() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + bytes.fromhex("a133")
+        + b"\x1f\xe0\x00\x00"
+        + jis_fullwidth_ascii("doc")
+        + b"\x1f\xe1"
+        + b"\x1f\x61"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + b"\x1f\xe0\x00\x00"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("1")
+        + b"\x1f\xe1"
+        + b"\x1f\x05"
+        + jis_text("語義")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii(":He was ")
+        + b"\x1f\xe0\x00\x01"
+        + jis_fullwidth_ascii("animated")
+        + b"\x1f\xe1"
+        + jis_fullwidth_ascii(" by her words.")
+        + b"\x1f\x05"
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x03"
+        + b"\x1f\xe0\x00\x00"
+        + b"\x1f\x04"
+        + jis_fullwidth_ascii("2")
+        + b"\x1f\xe1"
+        + b"\x1f\x05"
+        + jis_text("次義")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="005C",
+            image_sources={"dummy": "Templates/dummy.GIF", "exam": "Templates/exam.gif"},
+        ),
+    )
+
+    assert '<div class="eMidashi">' in rendered.html
+    assert '<div class="jMidashi">' not in rendered.html
+    assert rendered.html.count('<div class="hr_div2"></div>') == 2
+    assert '<img src="Templates/exam.gif" class="img_mark"><br><div class="contents">' in rendered.html
+    assert "<i>animated</i>" in rendered.html
+    assert "<b>animated</b>" not in rendered.html
+    assert rendered.stats["hc005c_definition_separators"] == 2
+    assert rendered.stats["hc005c_decoration_bold"] == 3
+    assert rendered.stats["hc005c_decoration_italic"] == 1
+
+
 def test_hc0092_maps_lineinfo_sections_and_hankaku_midashi() -> None:
     body = (
         b"\x1f\x09\x00\x01"
@@ -7902,6 +11395,59 @@ def test_hc0092_maps_lineinfo_sections_and_hankaku_midashi() -> None:
     assert rendered.stats["hc0092_hankakuMidashi_spans"] == 1
     assert rendered.stats["hc0092_hankaku_spans"] == 2
     assert rendered.stats["hc0092_nonprinting_controls"] == 1
+
+
+def test_hc0092_decoration_state_and_example_boxes() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x00\x00"
+        + b"\x1f\x10"
+        + b"\x1f\xe0\x11\x03"
+        + jis_ascii_text("license")
+        + b"\x1f\xe1"
+        + b"\x1f\x11"
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x02"
+        + b"\x1f\x10"
+        + jis_text("は")
+        + b"\x1f\x11"
+        + b"\x1f\x10"
+        + jis_text("《英》")
+        + b"\x1f\x11"
+        + b"\x1f\x10"
+        + b"\x1f\xe0\x11\x01"
+        + jis_ascii_text("licence")
+        + b"\x1f\xe1"
+        + b"\x1f\x11"
+        + b"\x1f\x09\x00\x02"
+        + b"\x1f\x04"
+        + jis_text("・")
+        + b"\x1f\x05"
+        + b"\x1f\x10"
+        + jis_ascii_text("a software ")
+        + b"\x1f\xe0\x11\x01"
+        + jis_ascii_text("license")
+        + b"\x1f\xe1"
+        + b"\x1f\x11"
+        + jis_text("例文")
+        + b"\x1f\x09\x00\x02"
+        + jis_text("・")
+        + jis_ascii_text("second")
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0092"))
+
+    assert '<b><span class="hankakuMidashi">license</span></b>' in rendered.html
+    assert '<i><span class="hankaku">licence</span></i>' in rendered.html
+    assert '<i>は</i>' not in rendered.html
+    assert '<i>《英》</i>' not in rendered.html
+    assert rendered.html.count('<div class="contents">') == 2
+    assert '<div class="contents"><span class="hankaku">・</span>' in rendered.html
+    assert '<span class="hankaku"><div class="contents">' not in rendered.html
+    assert '<i><b><span class="hankakuMidashi">license</span></b></i>' not in rendered.html
+    assert rendered.stats["hc0092_bold_spans"] == 1
+    assert rendered.stats["hc0092_italic_spans"] == 2
+    assert rendered.stats["hc0092_example_boxes"] == 2
 
 
 def test_hc0092_profile_records_kcompej_subset_without_claiming_parity() -> None:
@@ -8028,6 +11574,32 @@ def test_hc0132_maps_hankaku_and_line_links() -> None:
     assert '<span class="hankaku">ABC</span>' in rendered.html
     assert 'class="lv-hc-link lineLink"' in rendered.html
     assert "lv-hc-section" not in rendered.html
+
+
+def test_hc0132_suppresses_midashi_search_tail_metadata() -> None:
+    body = (
+        b"\x1f\x09\x00\x01"
+        + b"\x1f\x41\x01\x60"
+        + jis_ascii_text("confidence")
+        + jis_text("◆信頼§信用§信認")
+        + b"\x1f\x61"
+        + b"\x1f\x09\x00\x12"
+        + jis_text("⇒")
+        + b"\x1f\x42"
+        + jis_ascii_text("consumer confidence index")
+        + b"\x1f\x62\x00\x00\x00\x03\x00\x40"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="0132"))
+
+    assert '<div class="midashi"><span class="hankaku">confidence</span></div>' in rendered.html
+    assert "◆" not in rendered.html
+    assert "§" not in rendered.html
+    assert "信頼§信用" not in rendered.html
+    assert 'class="lv-hc-link lineLink"' in rendered.html
+    assert "consumerconfidenceindex" in rendered.html
+    assert rendered.stats["hc0132_suppressed_search_tail_markers"] == 1
+    assert rendered.stats["hc0132_suppressed_search_tail_text"] == 8
 
 
 def test_hc0132_profile_records_branch_subset_without_full_parity_claim() -> None:

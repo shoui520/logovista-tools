@@ -37,6 +37,7 @@ browser/app output normalization, not a claim of exact HC runtime parity.
 | `needs_marker_branch_decode` | The decompile shows gaiji constants, template branches, or renderer-specific comparisons that need branch-table recovery. |
 | `common_controls_plus_named_hooks` | Shared HC/SSED controls are handled, but product hooks such as SQL/search/custom DIB/headword modification remain named gaps. |
 | `common_controls_candidate_verify` | No obvious custom branch evidence yet; still needs representative entry comparison before it can be called common-only. |
+| `reference_render_parity_confirmed` | Package-level visual review has confirmed the generated reference renders. This locks the reviewed package output against accidental regressions, but it is not a blanket claim that every product-specific HC DLL hook is exhausted. |
 
 ## Current Counts
 
@@ -58,6 +59,22 @@ browser/app output normalization, not a claim of exact HC runtime parity.
 | read-aloud HTML/audio renderer | 1 |
 | rendererdb/exact-body-sidecar family | 7 |
 | shared raw-HONMON renderer | 58 |
+
+## Reference Render Parity Confirmed
+
+The following packages have package-level reference-render parity confirmed by
+visual review. Their generated v5/v2 outputs are treated as locked targets:
+future renderer changes must not alter these packages accidentally. If a change
+is intentionally made to one of these packages, it needs a new visual review and
+an explicit update to `logovista_tools.hc_parity`.
+
+| Review set | Confirmed dictionaries |
+|---|---|
+| v5 visual review | `ARCHSIC4`, `DAIJIRN4`, `Dconci87`, `EJJE200`, `GENKANA5`, `GKKANAN3`, `GKKEIGO`, `GKKOJIKT`, `GKTISIKI`, `HABGESPA`, `HKBYOIN4`, `HOUGAKU5`, `IBIO4`, `IBIO5`, `IPHYCHE5`, `JSSAURU2`, `KCOMPEJ2`, `KENROWA`, `KOJIEN7`, `KQBIZEJ`, `KQDENTAL`, `KQNEWJE5`, `MEIKYOU`, `MEIKYOU2`, `NANMED19`, `NANMED20`, `NGFINANC`, `PROYAL43`, `PROYAL53`, `SPEECH`, `YHOUGO4`, `YHOUGO5`, `YUECONO5` |
+| v2 visual review | `BMANNAR`, `TEGAMI`, `KQEJMED2`, `KQSYNONM`, `GKKANYOK`, `SAIYOREI` |
+
+The repository package ID for the visually reviewed medical package is
+`HKBYOIN4`; one review note used the spelling `GKBYOIN4`.
 
 Decoded branch subsets currently implemented:
 

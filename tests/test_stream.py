@@ -1,6 +1,7 @@
 import plistlib
 import json
 import sqlite3
+from io import StringIO
 from argparse import Namespace
 from pathlib import Path
 
@@ -89,6 +90,8 @@ from logovista_tools.rendererdb import (
     parse_decimal_int,
     safe_media_name,
     t_contents_columns,
+    write_rendererdb_html_header,
+    write_media_records,
     ziptomedia_reference_names,
     ziptomedia_source_path,
     extract_main_id_text_database,
@@ -1429,7 +1432,30 @@ def test_discover_android_body_database_and_media_schema(tmp_path) -> None:
     assert discover_android_body_databases(idx, "DICT")[0].path == body_db.resolve()
     assert media_type_counts(con) == {"4": 1}
     assert blob_extension(b'  <svg id="x"/>') == "svg"
+    assert blob_extension(b'<?xml version="1.0" encoding="UTF-8"?><svg id="x"/>') == "svg"
+    assert blob_extension(b"II*\x00\x08\x00\x00\x00") == "tif"
+    assert blob_extension(b"MM\x00*\x00\x00\x00\x08") == "tif"
+    assert safe_media_name(1, "035_１", "jpg", set()) == "035_１.jpg"
 
+    con.close()
+
+
+def test_rendererdb_media_writer_preserves_declared_image_names(tmp_path: Path) -> None:
+    con = sqlite3.connect(":memory:")
+    con.execute("create table t_media (f_name text primary key, f_type integer, f_main blob)")
+    con.execute("insert into t_media values (?, ?, ?)", ("035_１", 1, b"\xff\xd8\xff\xe0jpeg"))
+    con.execute(
+        "insert into t_media values (?, ?, ?)",
+        ("P0072_04", 4, b'<?xml version="1.0" encoding="UTF-8"?><svg id="x"/>'),
+    )
+    con.execute("insert into t_media values (?, ?, ?)", ("011_3", 5, b"II*\x00\x08\x00\x00\x00"))
+
+    summary = write_media_records(con, tmp_path)
+
+    assert summary["media_written"] == 3
+    assert (tmp_path / "035_１.jpg").read_bytes().startswith(b"\xff\xd8\xff")
+    assert (tmp_path / "P0072_04.svg").read_text(encoding="utf-8").startswith("<?xml")
+    assert (tmp_path / "011_3.tif").read_bytes().startswith(b"II*\x00")
     con.close()
 
 
@@ -1818,7 +1844,7 @@ def test_rendererdb_extracts_hc0155_main_id_text_rows(tmp_path: Path) -> None:
 
     assert main_id_text_columns(con)["C_text"] == "C_text"
     assert hc0155_class_label("U") == "未分類"
-    assert 'href="lved.addr2:32"' in hc0155_main_body_html(
+    body_html = hc0155_main_body_html(
         data_id=1,
         class_value="U",
         c_text="阿",
@@ -1827,6 +1853,8 @@ def test_rendererdb_extracts_hc0155_main_id_text_rows(tmp_path: Path) -> None:
         next_id=2,
         honmon_start_block=2,
     )
+    assert '<div class="midashi"><sub>[ 未分類]</sub> 阿</div>' in body_html
+    assert "page_movement_img" not in body_html
 
     summary = extract_main_id_text_database(source, {}, db_path, con, ids, out_dir, args)
 
@@ -1838,8 +1866,9 @@ def test_rendererdb_extracts_hc0155_main_id_text_rows(tmp_path: Path) -> None:
     assert '<sub>[ 未分類]</sub> 阿' in rows[0]
     assert '<div class=\\"contents\\">機械式走査装置</div>' in rows[1]
     html_out = (out_dir / "rendererdb_entries.html").read_text(encoding="utf-8")
-    assert "forward.gif" in html_out
-    assert "back.gif" in html_out
+    assert "forward.gif" not in html_out
+    assert "back.gif" not in html_out
+    assert "page_movement_img" not in html_out
     assert "機械式走査装置" in html_out
 
     con.close()
@@ -1950,6 +1979,17 @@ def test_parse_spindex_internal_pages_and_reversed_keys() -> None:
 def test_rendererdb_html_to_plain_preserves_line_breaks() -> None:
     assert html_to_plain("<div>あ<br />い<br>う</div>") == "あ\nい\nう"
     assert html_to_plain("<span>Abb&eacute;</span>") == "Abbé"
+
+
+def test_rendererdb_standalone_html_sizes_figure_rl_like_inline_text() -> None:
+    out = StringIO()
+
+    write_rendererdb_html_header(out, title="rendererdb")
+
+    html = out.getvalue()
+    assert ".rendererdb-entry img.figureRL" in html
+    assert "height:1em!important" in html
+    assert "width:auto!important" in html
 
 
 def test_parse_internal_index_page_uses_32bit_child() -> None:

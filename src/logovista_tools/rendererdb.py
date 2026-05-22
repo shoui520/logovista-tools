@@ -22,7 +22,7 @@ from .windows import RendererSidecar, discover_renderer_sidecars, load_exinfo_fo
 
 JIS_SPACE = b"\x21\x21"
 JIS_DIGIT_PREFIX = 0x23
-SAFE_NAME_RE = re.compile(r"[^0-9A-Za-z._-]+")
+SAFE_NAME_RE = re.compile(r"[^\w.-]+", re.UNICODE)
 ZIPTOMEDIA_RE = re.compile(r"lved\.ziptomedia:([^\"'>\s]+)")
 
 
@@ -160,12 +160,17 @@ def table_exists(con: sqlite3.Connection, table: str) -> bool:
 
 
 def blob_extension(blob: bytes) -> str:
+    stripped = blob.lstrip()
     if blob.startswith(b"RIFF") and blob[8:12] == b"WAVE":
         return "wav"
     if blob.startswith(b"ID3") or blob.startswith(b"\xff\xfb"):
         return "mp3"
-    if blob.lstrip().lower().startswith(b"<svg"):
+    if stripped.lower().startswith(b"<svg") or (
+        stripped.lower().startswith(b"<?xml") and b"<svg" in stripped[:512].lower()
+    ):
         return "svg"
+    if blob.startswith((b"II*\x00", b"MM\x00*")):
+        return "tif"
     if blob.startswith((b"GIF87a", b"GIF89a")):
         return "gif"
     if blob.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -340,6 +345,7 @@ def write_rendererdb_html_header(out: Any, *, title: str) -> None:
         "body{font-family:'Yu Mincho','Hiragino Mincho ProN','Meiryo',serif;line-height:1.7;margin:1.5rem;}\n"
         ".rendererdb-entry{border-bottom:1px solid #ddd;padding:0.75rem 0;}\n"
         ".rendererdb-entry img{max-height:1.6em;vertical-align:middle;}\n"
+        ".rendererdb-entry img.figureRL{width:auto!important;height:1em!important;max-height:1em!important;vertical-align:-0.12em!important;}\n"
         "</style></head><body>\n"
     )
 
@@ -582,9 +588,11 @@ def hc0155_main_body_html(
 ) -> str:
     """Build the body HTML emitted by HC0155 for ``main`` table rows.
 
-    The structure mirrors the decompiled body path: optional previous/next
-    navigation links, ``midashi`` heading with a class sublabel, and a
-    ``contents`` block containing the Japanese/Chinese counterpart text.
+    The structure mirrors the decompiled body path for the dictionary body:
+    ``midashi`` heading with a class sublabel and a ``contents`` block
+    containing the Japanese/Chinese counterpart text.  Standalone toolkit
+    output intentionally omits the previous/next image controls because those
+    are Windows reader chrome rather than dictionary body content.
     """
 
     parts = [
@@ -594,18 +602,6 @@ def hc0155_main_body_html(
         '<link rel="stylesheet" type="text/css" href="00000155.css">\n',
         '</head>\n<body class="main">\n',
     ]
-    if next_id is not None:
-        block, offset = dense_id_to_block_offset(next_id, honmon_start_block=honmon_start_block)
-        parts.append(
-            f'<a href="lved.addr{block}:{offset}" class="lineLink">'
-            '<img src="forward.gif" class="page_movement_img"></a>\n'
-        )
-    if previous_id is not None:
-        block, offset = dense_id_to_block_offset(previous_id, honmon_start_block=honmon_start_block)
-        parts.append(
-            f'<a href="lved.addr{block}:{offset}" class="lineLink">'
-            '<img src="back.gif" class="page_movement_img"></a>\n'
-        )
     label = hc0155_class_label(class_value)
     parts.append('<div class="midashi">')
     if label:

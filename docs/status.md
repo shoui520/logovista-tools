@@ -276,6 +276,12 @@ and non-SSED reader status are tracked separately in
   case is `HC013A.dll`, where section `1f09 0011` starts an example block and
   the renderer inserts the `exam` image once for that contiguous examples
   region.
+- Package-level reference-render parity is now confirmed and locked for the
+  reviewed v5/v2 set recorded in
+  [HC Renderer Parity Matrix](hc-renderer-parity.md#reference-render-parity-confirmed).
+  Those locks cover visual output for the reviewed packages; code-level notes
+  about remaining product hooks still track unexercised DLL behavior and should
+  not be read as a failure of the confirmed package renders.
 - `HC0065.dll` now has a focused raw-HONMON branch-subset proof for GENIUSEB:
   entry bodies open with a `midashi` block; `1f41` transitions into
   `contents_body`; internal links carry the recovered `lLink` class; A174 and

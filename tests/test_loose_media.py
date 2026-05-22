@@ -5,10 +5,13 @@ from pathlib import Path
 
 from logovista_tools.loose_media import (
     classify_loose_decoded_resource,
+    expand_britannica_inline_address_markers,
     iter_candidate_files,
+    normalize_britannica_whatday_table,
     parse_britannica_top_dat,
     parse_britannica_whatday_file,
     parse_lved_address,
+    render_britannica_html_fragment,
 )
 from logovista_tools.lvcrypto import logofont_cipher_key_iv, macos_logofont_cipher_key_iv
 
@@ -49,9 +52,52 @@ def test_parse_britannica_whatday_html_fragment(tmp_path: Path) -> None:
     assert decoded.month == 1
     assert decoded.day == 2
     assert decoded.kind == "body"
+    assert 'href="lvaddr://0000002a/0010"' in decoded.html
+    assert "lved.addr0000002a:0010" not in decoded.html
+    assert "<BODY" not in decoded.html
+    assert "</BODY>" not in decoded.html
     assert decoded.references[0].address is not None
     assert decoded.references[0].address.block == 0x2A
     assert decoded.references[0].address.offset == 0x10
+
+
+def test_britannica_inline_address_markers_render_as_links() -> None:
+    rendered = expand_britannica_inline_address_markers("＃＃Ｓ0001bea5:0724モーツァルトＥ＃＃死去")
+
+    assert 'href="lvaddr://0001bea5/0724"' in rendered
+    assert 'data-lv-address="lved.addr0001bea5:0724"' in rendered
+    assert "モーツァルト</a>死去" in rendered
+    assert "＃＃Ｓ" not in rendered
+    assert "Ｅ＃＃" not in rendered
+
+
+def test_render_britannica_html_fragment_expands_markers_and_lved_links() -> None:
+    rendered = render_britannica_html_fragment(
+        '<TD>＃＃Ｓ0001bea5:0724モーツァルトＥ＃＃と'
+        '<A href="lved.addr0000002a:0010">label</A></TD>'
+    )
+
+    assert 'href="lvaddr://0001bea5/0724"' in rendered
+    assert 'href="lvaddr://0000002a/0010"' in rendered
+    assert "＃＃Ｓ" not in rendered
+    assert "Ｅ＃＃" not in rendered
+
+
+def test_britannica_whatday_table_drops_viewer_spacer_column() -> None:
+    rendered = normalize_britannica_whatday_table(
+        '<TABLE><TR><TH colSpan=3>きょうの出来事</TH></TR>'
+        '<TR><TD style="BACKGROUND-COLOR: #cce6ff">1901年</TD>'
+        '<TD style="BACKGROUND-COLOR: #cce6ff">◎</TD>'
+        '<TD style="BACKGROUND-COLOR: #cce6ff">ディズニー</TD></TR>'
+        '<TR><TD colSpan="3">説明</TD></TR></TABLE>'
+    )
+
+    assert "◎" not in rendered
+    assert "1901年" in rendered
+    assert "ディズニー" in rendered
+    assert "colSpan=2" in rendered
+    assert 'colSpan="2"' in rendered
+    assert rendered.lower().count("<td") == 3
 
 
 def test_parse_britannica_top_dat_resolves_image_siblings(tmp_path: Path) -> None:

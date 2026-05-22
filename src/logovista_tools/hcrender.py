@@ -13,15 +13,16 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import sys
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable
 
 from .cli_ux import status
-from .colscr import MediaPointer, parse_media_pointer
+from .colscr import MediaPointer, find_colscr_path, parse_media_pointer, read_colscr_record
 from .controls import KNOWN_NONPRINTING_CONTROLS, control_arg_length
 from .entries import (
     DictionarySource,
@@ -39,9 +40,9 @@ from .gaiji import (
 from .hcprofiles import build_hc_behavior_profile
 from .parallel import parallel_map_ordered, worker_args
 from .pcmdata import PcmPointer, parse_pcm_pointer
-from .rendererdb import extract_rendererdb_dictionary
-from .resources import candidate_package_roots
-from .ssed import resolve_case_insensitive_path
+from .rendererdb import extract_rendererdb_dictionary, media_column_names, media_table_name
+from .resources import candidate_package_roots, companion_template_dirs
+from .ssed import find_case_insensitive, resolve_case_insensitive_path
 from .ssed import SsedRandomReader
 from .windows import (
     HcRendererClassification,
@@ -82,6 +83,7 @@ LINK_END_OPS = {0x62, 0x63, 0x64, 0x69}
 URL_START_OPS = {0x3B}
 URL_END_OPS = {0x5B}
 MEDIA_OPS = {0x3C, 0x4D}
+IMAGE_FILENAME_LABEL_SUFFIXES = (".bmp", ".gif", ".jpg", ".jpeg", ".png")
 AUDIO_START_OPS = {0x4A}
 AUDIO_END_OPS = {0x6A}
 PRIVATE_START_OPS = {0xE2}
@@ -89,6 +91,85 @@ PRIVATE_END_OPS = {0xE3}
 VERTICAL_HINT_OPS = {0x36, 0x37, 0x4B, 0x4C}
 PRIVATE_RENDERER_DIRECTIVE_OPS = {0x4E, 0x4F, 0xE4, 0xE6}
 COMMON_RENDERER_STATE_OPS = {0x6D}
+
+WINDOWS_READER_STYLE = "windows"
+PACKAGE_READER_STYLE = "package"
+EXACT_RENDERERDB_BLUE_HEADWORD_CODES = frozenset({"0159", "015A", "015B", "015D", "03E8"})
+EXACT_RENDERERDB_VERTICAL_CODES = frozenset({"015D"})
+
+HC015D_IMAGE_PUA_MARKERS = {
+    "\ue020": ("955.png", "慣"),
+    "\ue021": ("956.png", "唐宋"),
+    "\ue022": ("957.png", "呉"),
+    "\ue023": ("958.png", "漢"),
+    "\ue029": ("967.png", "同"),
+    "\ue02a": ("968.png", "類"),
+    "\ue02b": ("969.png", "対"),
+    "\ue02c": ("970.png", "国"),
+    "\ue02d": ("971.png", "転音"),
+    "\ue02e": ("972.png", "双声"),
+    "\ue02f": ("973.png", "畳韻"),
+    "\ue033": ("977.png", "仏"),
+    "\ue034": ("978.png", "哲"),
+    "\ue035": ("979.png", "地"),
+    "\ue036": ("980.png", "医"),
+    "\ue037": ("981.png", "語"),
+    "\ue038": ("982.png", "法"),
+    "\ue039": ("983.png", "数"),
+    "\ue03a": ("987.png", "天"),
+    "\ue03b": ("985.png", "気"),
+    "\ue03c": ("986.png", "理"),
+    "\ue03d": ("987.png", "生"),
+    "\ue03e": ("988.png", "工"),
+    "\ue03f": ("989.png", "芸"),
+    "\ue040": ("990.png", "経"),
+    "\ue042": ("992.png", "白話"),
+    "\ue043": ("993.png", "現代音"),
+}
+
+HC015D_CIRCLED_NUMBERS = (
+    "➊",
+    "➋",
+    "➌",
+    "➍",
+    "➎",
+    "➏",
+    "➐",
+    "➑",
+    "➒",
+    "➓",
+    "⓫",
+    "⓬",
+    "⓭",
+    "⓮",
+    "⓯",
+    "⓰",
+    "⓱",
+    "⓲",
+    "⓳",
+    "⓴",
+)
+
+HC015D_UNICODE_PUA_MARKERS = {
+    **{chr(0xE091 + index): marker for index, marker in enumerate(HC015D_CIRCLED_NUMBERS)},
+    **{chr(0xE0A1 + index): marker for index, marker in enumerate(HC015D_CIRCLED_NUMBERS)},
+    **{chr(0xE0B0 + index): marker for index, marker in enumerate(HC015D_CIRCLED_NUMBERS)},
+    **{chr(0xE0F0 + index): marker for index, marker in enumerate(HC015D_CIRCLED_NUMBERS)},
+    **{chr(0xE130 + index): chr(0x32D0 + index) for index in range(20)},
+}
+
+HC015D_KNOWN_PUA_EQUIVALENTS = {
+    # HC015D uses a dictionary original font for a small number of etymology
+    # glyphs that are not present in t_kanji. Keep these as explicit
+    # renderer-profile facts rather than letting private-use boxes leak.
+    "\ue84b": "亲",
+    # Kanbun return marks observed in HC015D example fragments.
+    "\ue1a1": "㆒",
+    "\ue1a2": "㆓",
+    "\ue1a3": "㆔",
+    "\ue1a4": "㆕",
+    "\ue1ad": "㆑",
+}
 
 HC_CSS_DEFAULTS = {
     "$font-family-Jpn$": '"Yu Mincho", "Hiragino Mincho ProN", "Meiryo", serif',
@@ -105,7 +186,7 @@ HC_CSS_DEFAULTS = {
     "$body-color$": "#111111",
     "$midashi-color$": "#111111",
     "$body-bgcolor$": "#ffffff",
-    "$ref-color$": "#0645ad",
+    "$ref-color$": "#5da24c",
     "$line-height$": "1.65",
     "$body_vertical_height$": "640",
     "$body_vertical_width$": "480",
@@ -118,13 +199,43 @@ HC_RENDER_BASE_CSS = """
 }
 :where(.lv-hc-render .lv-hc-heading) {
   display: block;
+  color: #3021f9;
+  font-weight: 700;
+  font-size: 1.15em;
 }
 :where(.lv-hc-render .lv-hc-section) {
   display: none;
 }
 :where(.lv-hc-render img) {
-  max-height: 1.4em;
+  max-width: 100%;
+  height: auto;
   vertical-align: middle;
+}
+:where(.lv-hc-render .lv-hc-gaiji),
+:where(.lv-hc-render .img_gaiji),
+:where(.lv-hc-render .img_gaiji_midashi),
+:where(.lv-hc-render .img_mark),
+:where(.lv-hc-render .img_mark2),
+:where(.lv-hc-render .img_mark4) {
+  max-height: 1.4em;
+  width: auto;
+}
+:where(.lv-hc-render .img_icon),
+:where(.lv-hc-render .icon),
+:where(.lv-hc-render .icon_s) {
+  height: 1em;
+  max-height: 1em;
+  width: auto;
+}
+:where(.lv-hc-render .img_icon_Small) {
+  height: 0.6em;
+  max-height: 0.6em;
+  width: auto;
+}
+:where(.lv-hc-render .img_icon_Big) {
+  height: 1.3em;
+  max-height: 1.3em;
+  width: auto;
 }
 :where(.lv-hc-render .lv-hc-gaiji-placeholder) {
   display: inline-block;
@@ -133,17 +244,41 @@ HC_RENDER_BASE_CSS = """
   border: 1px solid #999;
   vertical-align: -0.15em;
 }
+:where(.lv-hc-render .img_inline),
+:where(.lv-hc-render .lv-hc-media.img_inline) {
+  max-height: none;
+}
 :where(.lv-hc-render .lv-hc-link),
 :where(.lv-hc-render .lv-hc-audio) {
   text-decoration: none;
+  color: #5da24c;
 }
 :where(.lv-hc-render .midashi) {
   font-weight: 700;
   font-size: 1.15em;
   margin: 0.2em 0 0.35em;
+  color: #3021f9;
+}
+:where(.lv-hc-render .hc0048-midashi) {
+  color: #000;
+  background-color: #f7e0b0;
+  padding: 8px;
 }
 :where(.lv-hc-render .contents_body) {
   margin-top: 0.25em;
+}
+:where(.lv-hc-render .hc0135-accent-line) {
+  margin: 0.15em 0;
+}
+:where(.lv-hc-render .hc0135-construction-pattern),
+:where(.lv-hc-render .hc0135-red-emphasis) {
+  color: #c40000;
+}
+:where(.lv-hc-render .hc0135-part-of-speech),
+:where(.lv-hc-render .hc0135-history-kana),
+:where(.lv-hc-render .hc0135-small),
+:where(.lv-hc-render .hc0135-sup-note) {
+  font-size: 0.86em;
 }
 :where(.lv-hc-render .medblk),
 :where(.lv-hc-render .medblkcaution),
@@ -171,6 +306,457 @@ HC_RENDER_BASE_CSS = """
 }
 """.strip()
 
+HC_RENDER_FINAL_CSS = """
+:where(.lv-hc-render a[href]),
+:where(.lv-hc-render .lv-hc-link),
+:where(.lv-hc-render .lv-hc-audio),
+:where(.rendererdb-entry a[href]),
+:where(.rendererdb-entry .jr_ref),
+:where(.rendererdb-entry .ref),
+:where(.rendererdb-entry .cref) {
+  color: #5da24c !important;
+}
+:where(.lv-hc-render.hc02bc .hc02bc-midashi) {
+  display: block;
+  background-color: #d3f5fe !important;
+  color: #000000 !important;
+  font-weight: 700 !important;
+  font-size: 1.15em;
+  padding: 0.12em 0.35em;
+  margin: 0.2em 0 0.25em;
+}
+:where(.lv-hc-render.hc02bc .hc02bc-komidashi) {
+  color: #9a3154;
+  font-weight: 700;
+}
+:where(.lv-hc-render .hc012e-kanji-summary) {
+  display: grid;
+  grid-template-columns: max-content minmax(18em, 1fr);
+  gap: 0.35em 1.25em;
+  align-items: start;
+  margin: 0.25em 0 0.75em;
+}
+:where(.lv-hc-render .hc012e-kanji-main) {
+  grid-column: 1;
+}
+:where(.lv-hc-render .hc012e-kanji-meta) {
+  grid-column: 2;
+}
+:where(.lv-hc-render .hc009d-toc-line) {
+  margin: 0.15em 0 0.35em;
+}
+:where(.lv-hc-render .hc009d-box-label) {
+  display: inline-block;
+  background-color: #0f0b0b !important;
+  color: #ffffff !important;
+  border: 1px solid #000000;
+  padding: 0.08em 0.45em;
+  margin: 0 0.35em 0 0;
+  line-height: 1.35;
+}
+:where(.lv-hc-render .hc009d-gray-box-label) {
+  display: inline-block;
+  background-color: #cccccc !important;
+  color: #000000 !important;
+  border: 1px solid #000000;
+  padding: 0.08em 0.45em;
+  margin: 0 0.35em 0 0;
+  line-height: 1.35;
+}
+:where(.lv-hc-render .hc00ad-kanji-summary) {
+  display: grid;
+  grid-template-columns: max-content minmax(18em, 1fr);
+  gap: 0.35em 1.25em;
+  align-items: start;
+  margin: 0.25em 0 0.75em;
+}
+:where(.lv-hc-render .hc00ad-kanji-main) {
+  grid-column: 1;
+}
+:where(.lv-hc-render .hc00ad-kanji-meta) {
+  grid-column: 2;
+}
+:where(.lv-hc-render .hc00ad-media-block) {
+  display: block;
+  clear: both;
+  margin: 0.35em 0;
+}
+:where(.lv-hc-render .hc00ad-media-block .lv-hc-media) {
+  display: block;
+  max-height: none;
+}
+:where(.lv-hc-render .hc012e-hitsujun-animation) {
+  display: inline-block;
+  position: relative;
+  min-width: 3em;
+  min-height: 3em;
+  vertical-align: middle;
+}
+:where(.lv-hc-render .hc012e-hitsujun-animation .lv-hc-media) {
+  position: absolute;
+  inset: 0;
+  max-height: none;
+  width: auto;
+  height: 3em;
+}
+:where(.lv-hc-render .hc0131-sense-number) {
+  display: block;
+  font-weight: 700;
+  font-size: 1.12em;
+  margin: 0.2em 0 0.15em;
+}
+:where(.lv-hc-render .hc0137-body-main) {
+  margin-left: 0;
+}
+:where(.lv-hc-render .hc0137-indent),
+:where(.lv-hc-render .hc0137-indent-derived),
+:where(.lv-hc-render .hc0137-related-list),
+:where(.lv-hc-render .hc0137-note) {
+  margin-left: 0.8em !important;
+}
+:where(.lv-hc-render .hc0137-note-marker) {
+  display: inline-block;
+  margin-right: 0.1em;
+}
+:where(.lv-hc-render .hc0137-midashi-label) {
+  height: 1.15em;
+  max-height: 1.15em;
+  margin-left: 0.35em;
+  vertical-align: -0.15em;
+}
+:where(.lv-hc-render .hc02bf-smallcap) {
+  font-size: 0.78em;
+  font-variant-caps: small-caps;
+  font-weight: 400;
+}
+:where(.lv-hc-render .hc0067-plain-midashi),
+:where(.lv-hc-render .hc0068-plain-midashi) {
+  color: #3021f9 !important;
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  font-weight: 700 !important;
+  font-size: 1.15em !important;
+}
+:where(.lv-hc-render .hc0067-contents-body),
+:where(.lv-hc-render .hc0068-contents-body) {
+  margin-left: 0.75em;
+}
+:where(.lv-hc-render .hc0068-source-line) {
+  color: #3021f9;
+}
+:where(.lv-hc-render .hc013a-midashi) {
+  color: #3727f8 !important;
+}
+:where(.lv-hc-render .hc013a-midashi.midashi4) {
+  border-bottom-color: #5499fb !important;
+}
+:where(.lv-hc-render .hc0095-emphasis) {
+  color: #2d268f;
+  font-weight: 700;
+}
+:where(.lv-hc-render .hc00ab-red-emphasis) {
+  color: #c00000;
+  font-weight: 400;
+}
+:where(.lv-hc-render .hc00ac-red-emphasis) {
+  color: #c00000;
+  font-weight: 400;
+}
+:where(.lv-hc-render .red),
+:where(.lv-hc-render .midashi_word.red),
+:where(.lv-hc-render .jerank1) {
+  color: #ff0000 !important;
+}
+:where(.lv-hc-render .hc0095-underline) {
+  text-decoration: underline;
+  font-style: normal;
+}
+:where(.lv-hc-render.hc00a0 #cmdPlay),
+:where(.lv-hc-render.hc00a0 #cmdStop) {
+  width: 48px;
+  height: 48px;
+  max-width: none;
+  max-height: none;
+}
+:where(.lv-hc-render.hc00a0 img[name="ej"]),
+:where(.lv-hc-render.hc00a0 img[name="eng"]),
+:where(.lv-hc-render.hc00a0 img[name="jpn"]) {
+  width: 55px;
+  height: 25px;
+  max-width: none;
+  max-height: none;
+}
+:where(.lv-hc-render.hc00a0 img[name="al"]),
+:where(.lv-hc-render.hc00a0 img[name="ok"]),
+:where(.lv-hc-render.hc00a0 img[name="qu"]),
+:where(.lv-hc-render.hc00a0 img[name="ex"]) {
+  width: 50px;
+  height: 25px;
+  max-width: none;
+  max-height: none;
+}
+:where(.lv-hc-render.hc00a0 table.main img[src$="sound.png"]) {
+  width: 32px;
+  height: 32px;
+  max-width: none;
+  max-height: none;
+}
+:where(.lv-hc-render.hc00a0 table.main img[src$="eng.png"]),
+:where(.lv-hc-render.hc00a0 table.main img[src$="jpn.png"]) {
+  width: 32px;
+  height: 22px;
+  max-width: none;
+  max-height: none;
+}
+:where(.lv-hc-render.hc00a0 #check img) {
+  height: 20px;
+  width: auto;
+  max-width: none;
+  max-height: none;
+}
+.lv-hc-render .hc013d-product-card,
+.lv-hc-render .hc-hkdksr-product-card {
+  display: inline-block;
+  vertical-align: top;
+  width: 23em;
+  margin: 0.2em 1.1em 0.9em 0;
+}
+.lv-hc-render .hc013d-product-card .med,
+.lv-hc-render .hc-hkdksr-product-card .med {
+  display: block;
+  width: 250px;
+  max-width: 100%;
+  height: auto;
+  min-height: 20px;
+  box-sizing: border-box;
+  background-image: url("Templates/back3.png");
+  background-repeat: repeat-x;
+}
+.lv-hc-render .hc013d-product-card .medprice,
+.lv-hc-render .hc-hkdksr-product-card .medprice {
+  text-align: center;
+  margin: 0.15em 0;
+}
+.lv-hc-render .hc013d-product-card .medimage,
+.lv-hc-render .hc-hkdksr-product-card .medimage {
+  text-align: center;
+  font-size: 80%;
+}
+.lv-hc-render .hc013d-product-card .medimage .lv-hc-media,
+.lv-hc-render .hc-hkdksr-product-card .medimage .lv-hc-media {
+  display: block;
+  max-width: 155px;
+  max-height: 95px;
+  margin: 0.2em auto;
+}
+.lv-hc-render .lv-hc-windows-blue-midashi {
+  color: #3021f9;
+  font-weight: 700;
+}
+.lv-hc-render.hc0088 .midashi {
+  margin-bottom: 0 !important;
+  border-bottom-width: 0;
+}
+.lv-hc-render.hc0088 .midashi_yomi {
+  margin-top: 0 !important;
+}
+:where(.rendererdb-entry.lv-hc-windows-reader.lv-hc-blue-headword .midashi),
+:where(.rendererdb-entry.lv-hc-windows-reader.lv-hc-blue-headword .hw_midashi),
+:where(.rendererdb-entry.lv-hc-windows-reader.lv-hc-blue-headword .jr_midashi),
+:where(.rendererdb-entry.lv-hc-windows-reader.lv-hc-blue-headword .jr_hw_midashi) {
+  color: #3021f9 !important;
+  font-weight: 700;
+  font-size: 1.15em;
+}
+.rendererdb-entry.hc015f .caption {
+  color: #113f08 !important;
+}
+.rendererdb-entry.hc015f .caption .color_font {
+  color: #ba2636 !important;
+}
+:where(.rendererdb-entry.hc0153 [class~="008QG"]),
+:where(.rendererdb-entry.hc0153 [class~="009QG"]),
+:where(.rendererdb-entry.hc0153 [class~="SIZE8QG"]),
+:where(.rendererdb-entry.hc0153 [class~="SIZE9QG"]) {
+  font-weight: 700;
+  margin-right: 8px;
+}
+:where(.rendererdb-entry.hc0153 [class~="009QG"]),
+:where(.rendererdb-entry.hc0153 [class~="SIZE9QG"]) {
+  display: block;
+  margin-top: 0.65em;
+}
+:where(.rendererdb-entry object.gaiji),
+:where(.lv-hc-render object.gaiji) {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  max-width: none;
+  max-height: none;
+  vertical-align: -0.12em;
+}
+:where(.rendererdb-entry.hc0161 img.figureRL),
+:where(.rendererdb-entry.hc0162 img.figureRL) {
+  width: auto !important;
+  height: 1em !important;
+  max-width: none !important;
+  max-height: 1em !important;
+  vertical-align: -0.12em !important;
+}
+:where(.rendererdb-entry.hc015a),
+:where(.rendererdb-entry.hc015a .midashi) {
+  font-family: "Yu Mincho", "Hiragino Mincho ProN", "Meiryo", serif;
+}
+:where(.rendererdb-entry.hc015e .akusentnum),
+:where(.lv-hc-render.hc015e .akusentnum) {
+  -webkit-text-combine: horizontal;
+  -ms-text-combine-horizontal: all;
+  text-combine-upright: all;
+  text-orientation: upright;
+}
+:where(.rendererdb-entry.hc015d .midashi) {
+  color: #3021f9 !important;
+  font-weight: 700 !important;
+}
+:where(.rendererdb-entry.hc015d .oyaji_data_main_jou) {
+  padding: 0.22em 0.32em !important;
+  line-height: 1 !important;
+  vertical-align: top !important;
+}
+:where(.rendererdb-entry.hc015d .oyaji_data_no) {
+  display: block;
+  text-align: center;
+  line-height: 1;
+}
+:where(.rendererdb-entry.hc015d .oyaji_data_hyouki) {
+  display: block;
+  line-height: 1;
+}
+:where(.rendererdb-entry.hc015d .oyaji_data_sub) {
+  margin-top: 0 !important;
+  vertical-align: top !important;
+}
+:where(.rendererdb-entry.hc015d .wari) {
+  display: inline-flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  writing-mode: horizontal-tb;
+  -ms-writing-mode: lr-tb;
+  text-orientation: mixed;
+  line-height: 1;
+  vertical-align: middle;
+}
+:where(.rendererdb-entry.hc015d .wari br) {
+  display: none;
+}
+:where(.rendererdb-entry.hc015d .wari_mae),
+:where(.rendererdb-entry.hc015d .wari_ato) {
+  display: block;
+  line-height: 1;
+}
+:where(.rendererdb-entry.hc015d .hc015d-marker) {
+  display: inline-block;
+  width: auto;
+  height: 1.18em;
+  max-width: none;
+  max-height: 1.18em;
+  vertical-align: -0.12em;
+}
+:where(html.v .exact-rendererdb-entry + .exact-rendererdb-entry) {
+  border-right: 2px dotted #999999;
+  margin-right: 0.75em;
+  padding-right: 0.75em;
+}
+:where(.lv-hc-render.lv-hc-vertical) {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  max-height: 92vh;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+:where(html.h .exact-rendererdb-entry + .exact-rendererdb-entry) {
+  border-top: 2px dotted #999999;
+  margin-top: 0.75em;
+  padding-top: 0.75em;
+}
+:where(.lv-hc-render .hc0151-midashi) {
+  color: #111111;
+}
+:where(.lv-hc-render .hc0151-media-block) {
+  margin: 0.35em 0;
+}
+:where(.lv-hc-render .hc0158-panel-table) {
+  border-collapse: collapse;
+  margin: 0.35em 0;
+}
+:where(.lv-hc-render .hc0158-panel-table td) {
+  border: 1px solid #111111;
+  padding: 2px 5px;
+  vertical-align: top;
+}
+:where(.lv-hc-render .column_ruigo_panel_headercell) {
+  background-color: #f8bdbc !important;
+  white-space: nowrap;
+  font-weight: 700;
+}
+:where(.lv-hc-render .hc013f-katu) {
+  display: inline-block;
+  margin: 0.2em 0;
+}
+:where(.lv-hc-render .hc013f-katu summary) {
+  cursor: pointer;
+  list-style: none;
+}
+:where(.lv-hc-render .hc013f-katu summary::-webkit-details-marker) {
+  display: none;
+}
+:where(.lv-hc-render .hc013f-katu-table) {
+  border-collapse: collapse;
+  margin: 0.25em 0;
+}
+:where(.lv-hc-render .hc013f-katu-table td),
+:where(.lv-hc-render .hc013f-katu-table th) {
+  border: 1px solid #111111;
+  padding: 2px 5px;
+  vertical-align: top;
+}
+:where(.lv-hc-render .hc009f-midashi-alias) {
+  margin-left: 0.75em;
+}
+:where(.lv-hc-render .hc009f-haiku-separator) {
+  border-top: 1px dotted #777777;
+  margin: 0.45em 0;
+}
+:where(.lv-hc-render.lv-hc-vertical .hc009f-midashi-alias) {
+  margin-left: 0;
+  margin-top: 0.75em;
+}
+:where(.lv-hc-render.lv-hc-vertical .hc009f-haiku-separator) {
+  border-top: 0;
+  border-right: 1px dotted #777777;
+  margin: 0 0.45em;
+  min-height: 12em;
+}
+:where(.lv-hc-render .midashi .partwaku) {
+  display: table;
+  margin-top: 0.2em;
+}
+:where(.lv-hc-render .hc00c6-pronunciation),
+:where(.lv-hc-render .hc00c6-partwaku-line) {
+  display: block;
+  margin: 0.15em 0 0.2em 0.4em;
+}
+:where(.lv-hc-render .contents .exampleyakugo) {
+  display: block;
+  margin-top: 0.15em;
+}
+:where(.lv-hc-render .contents .lv-hc-example-translation-inline) {
+  margin-left: 0.45em;
+}
+""".strip()
+
 HC_RENDER_BASE_SCRIPT = """
 function showIndex(id) {
   var field = document.getElementById("field" + id.toString());
@@ -186,6 +772,67 @@ function showIndex(id) {
     field.style.display = "none";
     icon.src = icon.getAttribute("data-lv-off-src") || (icon.src.match(/_V/) ? "youreioff_V.png" : "youreioff.png");
   }
+}
+function lvInitStrokeOrderAnimations() {
+  document.querySelectorAll(".hc012e-hitsujun-animation").forEach(function(container) {
+    var frames = Array.prototype.slice.call(container.querySelectorAll("img.lv-hc-media"));
+    if (!frames.length) {
+      return;
+    }
+    var index = 0;
+    function showFrame() {
+      frames.forEach(function(frame, frameIndex) {
+        frame.style.display = frameIndex === index ? "inline-block" : "none";
+      });
+      index = (index + 1) % frames.length;
+    }
+    showFrame();
+    if (frames.length > 1) {
+      window.setInterval(showFrame, 450);
+    }
+  });
+}
+function lvInitAudioControls() {
+  document.querySelectorAll('[data-lv-audio-action="play-all"]').forEach(function(link) {
+    if (link.getAttribute("data-lv-audio-bound") === "1") {
+      return;
+    }
+    link.setAttribute("data-lv-audio-bound", "1");
+    link.addEventListener("click", function(event) {
+      event.preventDefault();
+      var root = link.closest(".lv-hc-render") || document;
+      var sources = Array.prototype.slice.call(root.querySelectorAll("[data-lv-audio-src]"))
+        .map(function(item) { return item.getAttribute("data-lv-audio-src"); })
+        .filter(function(src) { return !!src; });
+      if (!sources.length) {
+        return;
+      }
+      var player = window.__lvHcAudioPlayer || new Audio();
+      window.__lvHcAudioPlayer = player;
+      var index = 0;
+      function playNext() {
+        if (index >= sources.length) {
+          return;
+        }
+        player.src = sources[index++];
+        var promise = player.play();
+        if (promise && promise.catch) {
+          promise.catch(function() {});
+        }
+      }
+      player.onended = playNext;
+      playNext();
+    });
+  });
+}
+function lvInitGeneratedControls() {
+  lvInitStrokeOrderAnimations();
+  lvInitAudioControls();
+}
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", lvInitGeneratedControls);
+} else {
+  lvInitGeneratedControls();
 }
 """.strip()
 
@@ -253,6 +900,10 @@ class HcRenderOptions:
     vertical: bool = False
     include_debug_metadata: bool = False
     entry_start_offset: int = 0
+    media_image_resolver: Callable[[MediaPointer], str | None] | None = None
+    template_heading: str | None = None
+    template_subheading: str | None = None
+    reader_style: str = WINDOWS_READER_STYLE
 
 
 @dataclass(frozen=True)
@@ -331,6 +982,30 @@ HC_SECTION_IMAGE_RULES: dict[str, dict[str, _SectionImageRule]] = {
         )
     }
 }
+
+HC_LEGACY_RENDERER_STYLESHEET_RE = re.compile(r"^0000([0-9a-fA-F]{4})\.css$")
+
+HC0088_CATEGORY_IMAGES = {
+    "一般難読": "mm01",
+    "駅名": "mm02",
+    "河川": "mm03",
+    "季語季題": "mm04",
+    "近代文学": "mm05",
+    "外題": "mm06",
+    "古典文学": "mm07",
+    "寺院": "mm08",
+    "植物": "mm09",
+    "神社": "mm10",
+    "地名": "mm11",
+    "島嶼": "mm12",
+    "動物": "mm13",
+    "歴史民俗": "mm14",
+}
+
+HC0088_HEADING_RE = re.compile(
+    r"^(?P<title>.+?)\s+(?P<yomi>[ァ-ヶー・]+)(?:\((?P<roman>[^)]*)\))?(?:〔(?P<category>[^〕]+)〕)?$"
+)
+HC0088_FIELD_LABEL_RE = re.compile(r"［[^］]+］")
 
 HC0157_OPEN_MARKERS: dict[str, _RendererGaijiRule] = {
     # HC0157 uses selected gaiji-plane values as CSS/style delimiters.  A few
@@ -536,6 +1211,15 @@ HC0158_SECTION_CLASSES = {
 }
 HC0158_COLUMN_SECTION_VALUES = {23, 25, 27, 29, 31, 33, 35}
 HC0158_STATE_SECTION_VALUES = {1, 24, 26, 28, 30, 32, 34, 36}
+HC0158_COLUMN_END_VALUES = {
+    24: 23,
+    26: 25,
+    28: 27,
+    30: 29,
+    32: 31,
+    34: 33,
+    36: 35,
+}
 
 HC0146_OPEN_MARKERS: dict[str, _RendererGaijiRule] = {
     # HC0146 uses C++ template-string globals for these paired marker
@@ -649,6 +1333,9 @@ HC0146_FRAME_CLOSE_SECTION_VALUES = {
     760,
 }
 
+HC0146_EXAMPLE_SOURCE_SECTION_VALUES = frozenset({210, 211, 212, 213, 214})
+HC0146_EXAMPLE_TRANSLATION_SECTION_VALUES = frozenset({220, 221, 222, 223, 224, 225, 226})
+
 HC0146_SECTION_TEMPLATES: dict[int, tuple[str, str, str]] = {
     2: ('<span class="sub_caption">', "</span>", "sub_caption"),
     10: ('<span class="indent_minus">', "</span>", "indent_minus"),
@@ -691,22 +1378,6 @@ HC0146_SECTION_TEMPLATES: dict[int, tuple[str, str, str]] = {
     181: ('<span class="indent_minus">', "</span>", "indent_minus"),
     190: ('<span class="indent_minus">', "</span>", "indent_minus"),
     351: ('<span class="indent_minus">', "</span>", "indent_minus"),
-    210: ('<div class="column_frame exam_frame"><span class="exam_text">', "</span></div>", "exam_text"),
-    211: ('<div class="column_frame exam_frame"><span class="exam_text">', "</span></div>", "exam_text"),
-    212: ('<div class="column_frame exam_frame"><span class="exam_text">', "</span></div>", "exam_text"),
-    213: ('<div class="column_frame exam_frame"><span class="exam_text">', "</span></div>", "exam_text"),
-    214: (
-        '<div class="column_frame exam_frame"><span class="exam_text"><span class="small_font">¶</span>',
-        "</span></div>",
-        "exam_text_small_marker",
-    ),
-    220: ('<span class="exam_translate">', "</span>", "exam_translate"),
-    221: ('<span class="exam_translate">', "</span>", "exam_translate"),
-    222: ('<span class="exam_translate">', "</span>", "exam_translate"),
-    223: ('<span class="exam_translate">', "</span>", "exam_translate"),
-    224: ('<span class="exam_translate">', "</span>", "exam_translate"),
-    225: ('<span class="exam_translate">', "</span>", "exam_translate"),
-    226: ('<span class="exam_translate">', "</span>", "exam_translate"),
     250: ('<span class="idiom_text_color">', "</span>", "idiom_text_color"),
     251: ('<span class="idiom_text_color">', "</span>", "idiom_text_color"),
     252: ('<span class="idiom_text_color">', "</span>", "idiom_text_color"),
@@ -788,10 +1459,19 @@ HC00C6_IMAGE_MARKERS = frozenset(
         "b260",
     }
 )
+HC00C6_FORCED_IMAGE_MARKERS = frozenset(
+    {"a122"} | {key for key in HC00C6_IMAGE_MARKERS if key.startswith("b")}
+)
+HC00C6_HEADWORD_MACRO_MARKERS = {"a226"}
 
 HC00A6_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x6D}
 HC00A4_NONPRINTING_CONTROL_OPS = {0x02, 0x4C, 0x5C, 0x6D}
 HC00A4_SUPPRESSED_GAIJI_MARKERS = {"b12c", "b12d", "b12e", "b132", "b133"}
+HC00A4_HEADING_COLOR_MARKERS = {
+    "b12c": "#33bf6b",
+    "b12d": "#3f8aca",
+    "b12e": "#33bf6b",
+}
 HC00A9_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x6D}
 HC00AB_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x6D}
 HC00BB_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x6D}
@@ -800,6 +1480,9 @@ HC0076_TEMPLATE_IMAGE_MARKERS = {"2179", "217a"}
 HC0073_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x6D}
 HC0076_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
 HC007D_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x6D}
+HC007D_EXAMPLE_MARKER_JIS = "2126"
+HC007D_ITALIC_STYLE = 0x107D01
+HC007D_BOLD_STYLE = 0x107D03
 HC008F_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C}
 HC00C7_MARK4_GAIJI_MARKERS = frozenset(f"b{value:03x}" for value in range(0x121, 0x12D))
 HC00C7_MARK_GAIJI_MARKERS = frozenset(
@@ -809,7 +1492,7 @@ HC00C7_MARK_GAIJI_MARKERS = frozenset(
 HC00C7_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x61, 0x6D}
 
 HC013A_NONPRINTING_CONTROL_OPS = {0x6D}
-HC013A_SUPPRESSED_GAIJI_MARKERS = {"a225", "a226", "b26a", "b26b"}
+HC013A_SUPPRESSED_GAIJI_MARKERS = {"a225", "a226", "b261", "b262", "b265", "b26a", "b26b"}
 HC013A_CUSTOM_BITMAP_MARKERS = {"b263"}
 HC013A_HEADING_MARKER_CLASSES = {
     "b261": "midashi",
@@ -817,11 +1500,21 @@ HC013A_HEADING_MARKER_CLASSES = {
     "b263": "midashi3",
 }
 HC013A_EXAMPLE_SECTION_VALUES = {10, 11, 12}
+HC013A_SENSE_MARKERS = {"b121", "b122", "b123", "b124"}
+HC013A_DIRECT_IMAGE_MARKERS = {"b13e": ("b13e", "img_mark2", True)}
+HC013A_PHONETIC_ITALIC_GAIJI = {"a132", "a135", "a136", "a137", "a139", "a13a", "a13b", "a148", "a149"}
 
 HC013F_NONPRINTING_CONTROL_OPS = {0x6D}
+HC013F_SUPPRESSED_GAIJI_MARKERS = {"b15b", "b15c", "b15e", "b162", "b163"}
+HC013F_SUBSCRIPT_START_MARKER = "b232"
+HC013F_SUBSCRIPT_END_MARKER = "b233"
+HC013F_CIRCLED_SENSE_MARKERS = {f"b{0x121 + index:03x}": chr(0x2776 + index) for index in range(10)}
+HC013F_MEDIA_REFERENCE_SECTION_CODES = {"0011"}
 
 HC009B_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
 HC0092_NONPRINTING_CONTROL_OPS = {0x5C, 0x6D}
+HC0092_ITALIC_STYLE = 0x109201
+HC0092_BOLD_STYLE = 0x109203
 
 HC008C_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x61, 0x6D}
 
@@ -887,6 +1580,25 @@ def _hc00a4_section_parts(code: str) -> tuple[list[str], str | None, str | None]
     return [_hc00a4_honbun_div(1.0)], "</div>", "honbun_fallback"
 
 
+def _hc00a4_heading_color(data: bytes, control_offset: int) -> str | None:
+    """Return HC00A4's trailing B12C/B12D/B12E heading color selector.
+
+    The HC00A4 DLL emits a midashi div with an inline ``background-color`` and
+    chooses between its built-in ``#3f8aca``/``#33bf6b`` strings when one of
+    these state markers follows the 1f41...1f61 heading span.  The marker is
+    consumed as renderer state, not shown as a gaiji.
+    """
+
+    end = data.find(b"\x1f\x61", control_offset + 2)
+    if end < 0:
+        return None
+    marker_offset = end + 2 + control_arg_length(data, end)
+    if marker_offset + 2 > len(data):
+        return None
+    marker = data[marker_offset : marker_offset + 2].hex()
+    return HC00A4_HEADING_COLOR_MARKERS.get(marker)
+
+
 def _hc00a9_section_parts(code: str, *, vertical: bool) -> tuple[list[str], str | None, str | None, int | None]:
     value = _hc02c0_section_value(code)
     if value is None:
@@ -913,7 +1625,7 @@ def _hc00ab_section_parts(code: str) -> tuple[list[str], str | None, str | None]
         return [], None, None
     if value == 1:
         return [], None, "midashi_state"
-    if 4 <= value <= 11 or value == 20:
+    if 4 <= value <= 11 or value in {17, 20}:
         return ['<div class="honbun" style="margin-left:6.000000em;text-indent:-6.000000em;">'], "</div>", "hanging_honbun"
     if value == 12:
         return ['<div class="honbun" style="margin-left:3.000000em;">'], "</div>", "honbun_special"
@@ -925,11 +1637,13 @@ def _hc00ac_honbun_style(code: str) -> str:
         value = int(code, 16)
     except ValueError:
         value = 0
+    if value == 1:
+        return "__midashi__"
     if value == 4:
         return "margin-left:1em;"
     if value in {8, 9}:
         return "margin-left:7em;text-indent:-7em;"
-    if 5 <= value <= 10:
+    if 5 <= value <= 10 or value == 16:
         return "margin-left:6em;text-indent:-6em;"
     return f"margin-left:{value}em;"
 
@@ -943,7 +1657,11 @@ def _hc00aa_section_value(code: str) -> int | None:
         return None
 
 
-def _hc00aa_section_parts(code: str) -> tuple[list[str], str | None, str | None]:
+def _hc00aa_image_src(name: str, options: HcRenderOptions) -> str:
+    return _image_source_for_key(Path(name).stem, options) or name
+
+
+def _hc00aa_section_parts(code: str, options: HcRenderOptions) -> tuple[list[str], str | None, str | None]:
     value = _hc00aa_section_value(code)
     if value is None:
         return [], None, None
@@ -958,18 +1676,163 @@ def _hc00aa_section_parts(code: str) -> tuple[list[str], str | None, str | None]
             '<tr><td bgcolor="#FFFFFF">'
         ], "</td></tr></table></div>", "boxed_table"
     if value == 102:
-        return ['<table border="0"><tr><td><img src="Nurse.png"></td><td><div class="indent102">'], "</div></td></tr></table>", "nurse_box"
+        src = _hc00aa_image_src("Nurse.png", options)
+        return [f'<table border="0"><tr><td><img src="{_escape_attr(src)}"></td><td><div class="indent102">'], "</div></td></tr></table>", "nurse_box"
     box_class = HC00AA_BOX_SECTION_CLASSES.get(value)
     if box_class is not None:
         return [f'<div class="{box_class}">'], "</div>", box_class
     if value == 106:
         return ['<hr size="1">', '<div class="honbun" style="margin-left:1.000000em;">'], "</div>", "honbun_hr"
     if value == 114:
+        src = _hc00aa_image_src("tejyun.png", options)
         return [
             '<div class="honbun" style="margin-left:1.000000em;">',
-            '<img src="tejyun.png" height="24">',
+            f'<img src="{_escape_attr(src)}" height="24">',
         ], "</div>", "tejyun"
     return ['<div class="honbun" style="margin-left:1.000000em;">'], "</div>", "honbun"
+
+
+def _hc00aa_entry_slices(data: bytes) -> tuple[tuple[int, int], ...]:
+    """Return HC00AA section-addressed body slices.
+
+    HKBYOIN4 uses a monolithic HONMON stream with body pointers landing on
+    renderer section starts rather than on repeated 1f09 0001 entry markers.
+    The HC00AA renderer treats the known midashi section values as entry or
+    menu-section starts.
+    """
+
+    starts: list[int] = []
+    pos = 0
+    while True:
+        pos = data.find(b"\x1f\x09", pos)
+        if pos < 0:
+            break
+        value = _hc00aa_section_value(data[pos + 2 : pos + 4].hex())
+        if value in HC00AA_MIDASHI_SECTION_VALUES:
+            starts.append(pos)
+        pos += 2
+    if not starts:
+        return ()
+    slices: list[tuple[int, int]] = []
+    for index, start in enumerate(starts):
+        end = starts[index + 1] if index + 1 < len(starts) else len(data)
+        if end > start:
+            slices.append((start, end))
+    return tuple(slices)
+
+
+def _hc_entry_slices_reader(reader: SsedRandomReader, renderer_code: str | None) -> Iterable[tuple[int, int]]:
+    if (renderer_code or "").upper() == "00AA":
+        data = reader.read(0, reader.expanded_size)
+        slices = _hc00aa_entry_slices(data)
+        if slices:
+            return iter(slices)
+    if (renderer_code or "").upper() == "009F":
+        return _hc009f_entry_slices_reader(reader)
+    return iter_entry_slices_reader(reader)
+
+
+def _hc009f_slice_section_info(reader: SsedRandomReader, start: int, end: int) -> tuple[int | None, bool]:
+    data = reader.read(start, max(0, end - start))
+    pos = 2 if data.startswith(b"\x1f\x02") else 0
+    first_value: int | None = None
+    has_body = False
+    cursor = 0
+    while cursor + 4 <= len(data):
+        marker = data.find(b"\x1f\x09", cursor)
+        if marker < 0 or marker + 4 > len(data):
+            break
+        value = _hc02c0_section_value(data[marker + 2 : marker + 4].hex())
+        if first_value is None and marker == pos:
+            first_value = value
+        if value not in {None, 1, 6, 7}:
+            has_body = True
+        cursor = marker + 4
+    if data[pos : pos + 2] != b"\x1f\x09":
+        first_value = None
+    return first_value, has_body
+
+
+def _hc009f_entry_slices_reader(reader: SsedRandomReader) -> Iterable[tuple[int, int]]:
+    group_start: int | None = None
+    group_end: int | None = None
+    group_has_body = False
+    for start, end in iter_entry_slices_reader(reader):
+        section_value, slice_has_body = _hc009f_slice_section_info(reader, start, end)
+        if group_start is None:
+            group_start = start
+            group_end = end
+            group_has_body = slice_has_body
+            continue
+        if section_value == 1 and group_has_body:
+            yield group_start, group_end if group_end is not None else start
+            group_start = start
+            group_end = end
+            group_has_body = slice_has_body
+            continue
+        group_end = end
+        if slice_has_body:
+            group_has_body = True
+    if group_start is not None and group_end is not None:
+        yield group_start, group_end
+
+
+def _hc_entry_slice_containing_reader(
+    reader: SsedRandomReader,
+    renderer_code: str | None,
+    target_offset: int,
+) -> tuple[int, int] | None:
+    """Return the HC entry slice containing an expanded HONMON offset."""
+
+    if target_offset < 0:
+        return None
+    for start, end in _hc_entry_slices_reader(reader, renderer_code):
+        if start <= target_offset < end:
+            return start, end
+        if start > target_offset:
+            break
+    return None
+
+
+def _hc_target_slice_reader(
+    reader: SsedRandomReader,
+    renderer_code: str | None,
+    target_offset: int,
+) -> tuple[int, int] | None:
+    """Return the body range a renderer should receive for a search target.
+
+    STEDMAN6/HC02BC has native title targets that can point at child
+    fukumidashi rows inside a larger marker-delimited entry.  Rendering from the
+    pointer alone loses the enclosing section control state; rendering the
+    entire parent is correct but too broad for a child hit.  HC02BC's child
+    rows are introduced by section ``1f09 0002``, so child targets expand to the
+    nearest containing 0002 section up to the next sibling section.
+    """
+
+    containing = _hc_entry_slice_containing_reader(reader, renderer_code, target_offset)
+    if containing is None:
+        return None
+    start, end = containing
+    if (renderer_code or "").upper() != "02BC" or target_offset <= start:
+        return containing
+
+    data = reader.read(start, end - start)
+    relative_target = target_offset - start
+    marker = b"\x1f\x09\x00\x02"
+    subentry_start: int | None = None
+    pos = data.find(marker)
+    while pos != -1 and pos <= relative_target:
+        subentry_start = pos
+        pos = data.find(marker, pos + 1)
+    if subentry_start is None:
+        return containing
+
+    subentry_end = data.find(marker, subentry_start + 1)
+    if subentry_end == -1:
+        subentry_end = len(data)
+    if subentry_end <= subentry_start:
+        return containing
+    return start + subentry_start, start + subentry_end
 
 
 def _hc00a3_section_value(code: str) -> int | None:
@@ -1095,6 +1958,46 @@ def _hc00ad_section_value(code: str) -> int | None:
         return None
 
 
+HC00AD_SECTION_LABEL_IMAGES = {
+    "《常用音訓》": "jyouyou",
+    "《音読み》": "onyomi",
+    "《訓読み》": "kunyomi",
+    "［名付］": "nazuke",
+    "［意味］": "imi",
+    "［語法］": "gohou",
+    "［和訓］": "wakun",
+    "［解字］": "kaiji",
+    "［字形］": "jikei",
+    "［単語家族］": "tango_kazoku",
+    "［類義］": "ruigi",
+    "［異字同訓］": "ijidoukun",
+    "［参考］": "sankou",
+    "［難読］": "nandoku",
+}
+HC00AD_LABEL_SECTION_RANGE = range(40, 70)
+HC00AD_KANJI_SUMMARY_MAIN_SECTION_CODES = {"0011"}
+HC00AD_KANJI_SUMMARY_META_SECTION_CODES = {"0012", "0013", "0014", "0015", "0016", "0017"}
+
+
+def _hc00ad_label_image_html(label: str, options: HcRenderOptions) -> str:
+    key = HC00AD_SECTION_LABEL_IMAGES[label]
+    candidates = (f"v_{key}", key) if options.vertical else (key,)
+    src = None
+    for candidate in candidates:
+        src = _image_source_for_key(candidate, options)
+        if src is not None:
+            break
+    if src is None:
+        src = f"{candidates[0]}.png"
+    dummy = _image_source_for_key("dummy", options) or "dummy.gif"
+    prefix = '<hr size="1">' if label == "［意味］" else ""
+    return (
+        f"{prefix}"
+        f'<img class="img_dummy" src="{_escape_attr(dummy)}">'
+        f'<img src="{_escape_attr(src)}" class="img_mark">'
+    )
+
+
 def _hc00ad_section_parts(code: str) -> tuple[list[str], str | None, str | None]:
     value = _hc00ad_section_value(code)
     if value is None:
@@ -1111,22 +2014,26 @@ def _hc00ad_section_parts(code: str) -> tuple[list[str], str | None, str | None]
         ], "</div>", "paired_explanation"
     if 40 <= value <= 69:
         return [
-            '<hr size="1">',
             '<div class="honbun" style="margin-left:2.000000em;text-indent:-1.000000em;">',
         ], "</div>", "hr_explanation"
     if 70 <= value <= 79:
         return [
-            '<hr size="1">',
             '<div class="honbun" style="margin-left:1.000000em;">',
         ], "</div>", "hr_body"
     return [f'<div class="honbun" style="margin-left:{float(value):.6f}em;">'], "</div>", "honbun"
 
 
-def _hc00a6_section_parts(code: str, *, vertical: bool) -> tuple[list[str], str | None]:
+def _hc00a6_section_value(code: str) -> int:
     try:
-        value = int(code, 16)
+        if code.isdigit():
+            return int(code, 10)
+        return int(code, 16)
     except ValueError:
-        value = 0
+        return 0
+
+
+def _hc00a6_section_parts(code: str, options: HcRenderOptions) -> tuple[list[str], str | None]:
+    value = _hc00a6_section_value(code)
     if value == 1:
         return ['<div class="midashi">'], "</div>"
     if value == 2:
@@ -1140,10 +2047,11 @@ def _hc00a6_section_parts(code: str, *, vertical: bool) -> tuple[list[str], str 
     if value == 10:
         return ['<div class="chosha">'], "</div>"
     if value == 11:
-        return [f'<div class="image_caption" style="margin-left:{value:.6f}em;">'], "</div>"
+        return ['<div class="image_caption">'], "</div>"
     if value == 20:
-        suffix = "V" if vertical else "H"
-        return ['<div class="header">', f'<img src="b12f{suffix}.gif" class="img_mark2">'], "</div>"
+        suffix = "V" if options.vertical else "H"
+        src = _image_source_for_key(f"b12f{suffix}", options) or _image_source_for_key("b12f", options) or f"b12f{suffix}.gif"
+        return ['<div class="header">', f'<img src="{_escape_attr(src)}" class="img_mark2">'], "</div>"
     return [_hc00a6_honbun_div(value)], "</div>"
 
 
@@ -1263,6 +2171,56 @@ def _hc008c_section_parts(code: str) -> tuple[list[str], str | None, str | None]
 def _private_directive_text(text: str) -> str:
     cleaned = "".join(ch for ch in text if ord(ch) >= 0x20)
     return normalize_fullwidth_ascii(cleaned).replace("：", ":").replace("⦿", ":")
+
+
+def _hc0137_metadata_image_key(text: str) -> str | None:
+    normalized = text.strip().replace("＜", "<").replace("＞", ">").replace("／", "/")
+    match = re.fullmatch(r"<(?P<tag>語種|分野)>(?P<value>.*?)</(?P=tag)>", normalized)
+    if match is None:
+        return None
+    value = match.group("value").strip()
+    if match.group("tag") == "語種":
+        return HC0137_WORD_KIND_IMAGES.get(value)
+    return HC0137_FIELD_IMAGES.get(value)
+
+
+def _hc0137_metadata_image_html(key: str, options: HcRenderOptions) -> str:
+    src = _image_source_for_key(key, options) or _image_source_for_key(f"{key}.png", options) or f"{key}.png"
+    return (
+        '<img class="hc0137-midashi-label img_gaiji_midashi" '
+        f'src="{_escape_attr(src)}" alt="{_escape_attr(key)}">'
+    )
+
+
+def _hc0137_marker_image_html(key: str, options: HcRenderOptions, css_class: str = "img_gaiji") -> str:
+    src = _image_source_for_key(key, options) or _image_source_for_key(f"{key}.png", options) or f"{key}.png"
+    dummy_src = _dummy_image_source(options)
+    dummy = f'<img class="img_dummy" src="{_escape_attr(dummy_src)}">' if dummy_src else ""
+    return f'{dummy}<img class="lv-hc-gaiji {_escape_attr(css_class)}" src="{_escape_attr(src)}" alt="{_escape_attr(key)}" data-gaiji-code="{_escape_attr(key)}">'
+
+
+def _hc013a_marker_image_html(key: str, options: HcRenderOptions, css_class: str = "img_mark2") -> str:
+    src = _image_source_for_key(key, options) or _image_source_for_key(f"{key}.png", options) or f"{key}.png"
+    return f'<img class="lv-hc-gaiji {_escape_attr(css_class)}" src="{_escape_attr(src)}" alt="{_escape_attr(key)}" data-gaiji-code="{_escape_attr(key)}">'
+
+
+def _hc0141_cross_reference_arrow_html(options: HcRenderOptions) -> str:
+    src = _image_source_for_key("b939", options) or _image_source_for_key("b939.png", options)
+    if src is None:
+        return "▶"
+    return (
+        f'<img class="lv-hc-gaiji lv-hc-gaiji-image img_gaiji" '
+        f'src="{_escape_attr(src)}" alt="▶" data-gaiji-code="b939">'
+    )
+
+
+def _hc013a_heading_class(data: bytes, marker_offset: int, marker_key: str | None) -> str:
+    base = HC013A_HEADING_MARKER_CLASSES.get(marker_key or "", "midashi")
+    if marker_key == "b261":
+        after_marker = marker_offset + 2
+        if after_marker + 1 < len(data) and data[after_marker : after_marker + 2] != b"\x1f\x04":
+            base = "midashi4"
+    return f"{base} hc013a-midashi"
 
 
 def _hc00a4_private_resource_name(text: str, prefix: str) -> str | None:
@@ -1484,6 +2442,8 @@ HC012E_HONBUN_SECTION_CODES = {
     "0044",
     "0046",
 }
+HC012E_SUPPRESSED_SECTION_CODES = {"0020"}
+HC012E_KANJI_SUMMARY_META_SECTION_CODES = {"0014", "0021", "0022", "0023", "0024"}
 HC012E_INDENTED_SECTION_CODES = frozenset(f"{value:04x}" for value in range(0x32, 0x39))
 HC012E_OPEN_MARKERS: dict[str, _RendererGaijiRule] = {
     "b238": _RendererGaijiRule('<span style="color:#000000;">', "b242"),
@@ -1565,6 +2525,9 @@ HC0131_SECTION_CLASSES = {
     "0012": "content_IND18",
 }
 HC0131_SECTION_HR_CODES = {"0004", "0006", "000e"}
+HC0131_EXAMPLE_SECTION_CODES = {"0016", "0017"}
+HC0131_POS_ITALIC_SECTION_CODES = {"0003", "0007"}
+HC0131_STATE_SECTION_CODES = {"0030"}
 HC0131_NONPRINTING_CONTROL_OPS = {0x4C, 0x6D}
 
 HC02C2_ICON_SECTION_IMAGES = {
@@ -1582,6 +2545,59 @@ HC0147_TEMPLATE_IMAGE_MARKERS = frozenset(["a12e", *[f"b{value:03x}" for value i
 HC0147_PADDING_MARKERS = {f"b{value:03x}": value - 0x160 for value in range(0x160, 0x165)}
 HC0147_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
 HC0137_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
+HC0137_WORD_KIND_IMAGES = {
+    "漢字母": "g1",
+    "和語": "g2",
+    "外来語": "g3",
+    "漢語": "g4",
+    "湯桶重箱": "g5",
+}
+HC0137_FIELD_IMAGES = {
+    "一般": "b1",
+    "哲論": "b2",
+    "心理": "b3",
+    "宗教": "b4",
+    "法政": "b5",
+    "経済": "b6",
+    "取引": "b7",
+    "教育": "b8",
+    "社会": "b9",
+    "美術": "b10",
+    "音楽": "b11",
+    "文学": "b12",
+    "芸能": "b13",
+    "言語": "b14",
+    "歴史": "b15",
+    "軍事": "b16",
+    "民俗": "b17",
+    "ス娯": "b18",
+    "建築": "b19",
+    "服飾": "b20",
+    "工芸": "b21",
+    "料理": "b22",
+    "数学": "b23",
+    "物理": "b24",
+    "化学": "b25",
+    "天文": "b26",
+    "気象": "b27",
+    "地物": "b28",
+    "地質": "b29",
+    "生物": "b30",
+    "獣": "b31",
+    "鳥": "b32",
+    "虫": "b33",
+    "魚": "b34",
+    "貝等": "b35",
+    "植物": "b36",
+    "医薬": "b37",
+    "工学": "b38",
+    "農林": "b39",
+    "俗語": "b40",
+    "雑": "b41",
+    "交通": "b42",
+    "情報": "b43",
+    "福祉": "b44",
+}
 HC02C1_ICON_SECTION_IMAGES = {
     "0003": "1.png",
     "0004": "2.png",
@@ -1590,23 +2606,7 @@ HC02C1_ICON_SECTION_IMAGES = {
 }
 HC02C1_NOOP_SECTION_CODES = {"270f", "9999"}
 HC02C1_MOJI_DOWN_MARKERS = frozenset(f"b{value:03x}" for value in range(0x121, 0x139))
-HC02C1_TEMPLATE_IMAGE_MARKERS = {
-    "b13e",
-    "b13f",
-    "b140",
-    "b141",
-    "b142",
-    "b143",
-    "b144",
-    "b145",
-    "b146",
-    "b147",
-    "b148",
-    "b14a",
-    "b14b",
-    "b14c",
-    "b14d",
-}
+HC02C1_SUPPRESSED_GAIJI_MARKERS = frozenset(f"b{value:03x}" for value in range(0x13E, 0x14E))
 HC02C1_NONPRINTING_CONTROL_OPS = {0x02, 0x41, 0x4C, 0x61}
 HC02BF_ICON_SECTION_IMAGES = {
     "0005": "hasei.png",
@@ -1649,8 +2649,9 @@ HC0093_DIRECT_IMAGE_MARKERS = {
     "b14d": ("class_arrow", "img_mark2"),
     "b14e": ("class_arrow", "img_mark2"),
 }
-HC0093_NOOP_MARKERS = {"b151", "b152", "b153", "b154", "b155"}
+HC0093_NOOP_MARKERS = {"b149", "b14b", "b151", "b152", "b153", "b154", "b155"}
 HC0093_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
+HC0093_SUPPRESSED_SECTION_VALUES = {16}
 HC0095_PAGE_KIND_MARKERS = {
     "b138": 0,
     "b139": 1,
@@ -1673,6 +2674,7 @@ HC0095_TEMPLATE_MARKERS = frozenset(
         "b12f",
     }
 )
+HC0095_SUPPRESSED_MARKERS = frozenset({"b122"})
 HC0095_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x61, 0x6D}
 HC009F_SEASON_MARKERS = {
     "3d55": ("sp", "#fad9ea"),
@@ -1758,6 +2760,8 @@ HC0135_PRIVATE_IMAGE_DIRECTIVES = {
     "1654-kl": ("1654-kl", "img_icon"),
     "genngotaisyou": ("genngotaisyou", "img_icon"),
 }
+HC0135_EXAMPLE_SECTION_VALUES = {0x30, 0x38, 0x29}
+HC0135_EXAMPLE_SUPPRESSED_JIS = {"2156", "2157", "213f"}
 HC014F_NONPRINTING_CONTROL_OPS = {0x02, 0x5C, 0x6D}
 HC013C_NONPRINTING_CONTROL_OPS = {0x02, 0x4C, 0x6D}
 HC013C_ICON_DIRECTIVES = {
@@ -1814,6 +2818,12 @@ HC00C4_WAKU_INLINE_IMAGES = {
 
 HC005C_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x6D}
 HC005C_CUSTOM_GAIJI_EXCLUDED = {"b132", "b133", "b139", "b13b", "b143", "b573", "b576", "b578", "b57a"}
+HC005C_EXAMPLE_MARKER_JIS = {
+    "2279": "paragraph",
+    "2142": "separator",
+    "213f": "continuation",
+    "2127": "colon",
+}
 HC005C_MARK_IMAGE_LABELS = {
     ("386c", "4b21"): "gohou.gif",
     ("386c", "3741"): "gokei.gif",
@@ -1841,6 +2851,23 @@ HC0065_TEMPLATE_IMAGE_MARKERS = {
     "a251": "img_gaiji",
     "a253": "img_gaiji",
 }
+HC0065_PART_OF_SPEECH_MARKERS = {"a43a"}
+HC0065_PART_OF_SPEECH_LABEL_IMAGES = {
+    "間": "interjective",
+    "副": "adverb",
+    "名": "noun",
+    "動": "verb",
+    "形": "adjective",
+    "冠": "article",
+    "前": "preposition",
+    "代": "pronoun",
+    "接": "conjunctive",
+    "略": "abbreviation",
+    "自": "vi",
+    "他": "vt",
+}
+HC0065_EXAMPLE_START_JIS = "2142"  # fullwidth ‖
+HC0065_EXAMPLE_CONTINUATION_JIS = "213f"  # fullwidth slash, only structural inside examples
 HC0065_NONPRINTING_CONTROL_OPS = {0x4C, 0x61, 0x6D}
 HC0068_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x6D}
 HC0069_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x6D}
@@ -1850,6 +2877,7 @@ HC0094_CLASS_ARROW_MARKER = "b148"
 HC0094_STATE_MARKERS = frozenset(f"b{value:03x}" for value in range(0x150, 0x15A))
 HC0094_SUPPRESSED_MARKERS = {"b139", "b140", "b13d"}
 HC0094_NONPRINTING_CONTROL_OPS = {0x41, 0x4C, 0x5C, 0x6D}
+HC0094_SUPPRESSED_SECTION_VALUES = {13}
 HC0067_NONPRINTING_CONTROL_OPS = {0x6D}
 HC0020_NONPRINTING_CONTROL_OPS = {0x4C, 0x5C, 0x61, 0x6D}
 HC0020_SUPPRESSED_JIS_MARKERS = {"224d"}
@@ -1897,6 +2925,7 @@ HC009D_HTML_MARKERS = {
     "b125": '<input type="checkbox" name="chk" value="chk">',
 }
 HC009D_BREAK_MARKERS = {"b130", "b131", "b138", "b139", "b13a", "b13b", "b13c", "b13d"}
+HC009D_TOC_SECTION_VALUES = {12, 13, 14}
 HC009D_NOOP_MARKERS = {
     "b12d",
     "b12e",
@@ -1939,7 +2968,7 @@ HC0145_LITERAL_MARKERS = {
     "b936": "&nbsp;",
 }
 HC0145_OPEN_MARKERS = {
-    "b924": _RendererGaijiRule("<b><i>", "b925", "</i></b>"),
+    "b924": _RendererGaijiRule("<i>", "b925", "</i>"),
 }
 HC0145_CLOSE_MARKERS = frozenset(rule.close_code for rule in HC0145_OPEN_MARKERS.values() if rule.close_code)
 HC0145_NOOP_MARKERS = {
@@ -1962,6 +2991,10 @@ HC0144_LITERAL_MARKERS = HC0145_LITERAL_MARKERS
 HC0144_OPEN_MARKERS = HC0145_OPEN_MARKERS
 HC0144_CLOSE_MARKERS = HC0145_CLOSE_MARKERS
 HC0144_NOOP_MARKERS = HC0145_NOOP_MARKERS | {"b921"}
+HC0144_UNICODE_GAIJI_OVERRIDES = {
+    "a242": "ɔ́",
+    "a246": "ɑ́",
+}
 HC03E8_LITERAL_MARKERS = {**HC0145_LITERAL_MARKERS, "b936": "]&nbsp;"}
 HC03E8_OPEN_MARKERS = HC0145_OPEN_MARKERS
 HC03E8_CLOSE_MARKERS = HC0145_CLOSE_MARKERS
@@ -2081,6 +3114,8 @@ HC0151_TABLE_CLOSE_SECTION = "0087"
 HC0151_SMALL_OPEN_MARKER = "b156"
 HC0151_SMALL_CLOSE_MARKER = "b157"
 HC0151_TABLE_CELL_MARKER = "b159"
+HC0151_INTERNAL_MARKERS = {"b14e", "b14f"}
+HC0151_AUTO_SENTENCE_BREAK_MIN_CHARS = 40
 HC0142_NOOP_SECTION_CODES = {"270f", "9999"}
 HC0142_PLAIN_TEXT_MARKERS = {"b157", "b16a", "b16b", "b16c", "b16d", "b16e", "b16f", "b170"}
 HC0142_NOOP_MARKERS = {"b13e"}
@@ -2104,11 +3139,16 @@ HC013D_TITLE_TRIGGER_SEQUENCES = {
     ("3272", "4062"),
 }
 HC013D_SUBTITLE_IMAGE_SEQUENCES = {
-    ("403d", "3a5e"): ("seizaijouhou", "SubTitle", "midashi1"),
+    ("403d", "3a5e", "3e70", "4a73"): ("seizaijouhou", "SubTitle", "midashi1"),
     ("3335", "4d57"): ("gaiyou", "SubTitle_gaiyou", "midashi2"),
     ("452c", "317e"): ("gaiyou", "SubTitle_gaiyou", "midashi4"),
-    ("3b48", "4d51"): ("shiyoujounocyuui", "SubTitle_caution", "midashi3"),
-    ("436d", "3055"): ("shiyoujounocyuui", "SubTitle_caution", "midashi5"),
+    ("3b48", "4d51", "3e65", "244e", "436d", "3055"): ("shiyoujounocyuui", "SubTitle_caution", "midashi3"),
+    ("436d", "3055", "4d51"): ("shiyoujounocyuui", "SubTitle_caution", "midashi5"),
+}
+HC013D_TITLE_LABEL_SEQUENCES = {
+    ("4a2c", "4e60"): ("title", "分類"),
+    ("3d68", "4a7d", "4c5c", "452a"): ("title", "処方目的"),
+    ("3272", "4062"): ("title", "解説"),
 }
 HC013D_SHOW_TITLE_SEQUENCES = {
     ("2433", "244e", "3e4f", "2447"): ("gTitle1", 0x12),
@@ -2117,6 +3157,12 @@ HC013D_SHOW_TITLE_SEQUENCES = {
     ("3a5e", "3741", "242b", "2469"): ("nTitle2", 0x16),
     ("3330", "4d51", "4c74", "2447"): ("nTitle1", 0x1e),
     ("3441", "4a7d", "4c74", "2447"): ("nTitle3", 0x1a),
+}
+HC013D_TITLE2_LABELS = {
+    "基本的注意",
+    "重大な副作用",
+    "その他の副作用",
+    "併用してはいけない薬",
 }
 
 
@@ -2131,6 +3177,221 @@ def _escape_text(value: str) -> str:
 def _append_text(parts: list[str], text: str) -> None:
     if text:
         parts.append(_escape_text(text))
+
+
+FULLWIDTH_HTML_CHARREF_RE = re.compile(r"＆＃(?:[ｘx]([０-９0-9Ａ-ＦA-Fａ-ｆa-f]+)|([０-９0-9]+))；")
+HC00AD_CODEPOINT_LITERAL_RE = re.compile(r"(?<![０-９0-9Ａ-ＦA-Fａ-ｆa-f])([０-９Ａ-Ｆａ-ｆ]{4,5})(?![０-９0-9Ａ-ＦA-Fａ-ｆa-f])")
+HC013F_FULLWIDTH_TABLE_RE = re.compile(r"＜ｔａｂｌｅ\b.*?＜／ｔａｂｌｅ＞", re.DOTALL)
+
+
+def _normalize_fullwidth_latin_digits(text: str) -> str:
+    """Normalize fullwidth Latin/digit runs without changing Japanese brackets."""
+
+    chars: list[str] = []
+    for ch in text:
+        code = ord(ch)
+        if 0xFF10 <= code <= 0xFF19 or 0xFF21 <= code <= 0xFF3A or 0xFF41 <= code <= 0xFF5A:
+            chars.append(chr(code - 0xFEE0))
+        elif ch == "－":
+            chars.append("-")
+        elif ch == "＿":
+            chars.append("_")
+        else:
+            chars.append(ch)
+    return "".join(chars)
+
+
+def _decode_fullwidth_html_charrefs(text: str) -> str:
+    """Decode literal fullwidth ``＆＃ｘ....；`` references emitted by some renderers."""
+
+    def replace(match: re.Match[str]) -> str:
+        hex_digits, dec_digits = match.groups()
+        try:
+            if hex_digits is not None:
+                value = int(_normalize_fullwidth_latin_digits(hex_digits), 16)
+            else:
+                value = int(_normalize_fullwidth_latin_digits(dec_digits or ""), 10)
+            if 0 <= value <= 0x10FFFF:
+                return chr(value)
+        except ValueError:
+            return match.group(0)
+        return match.group(0)
+
+    return FULLWIDTH_HTML_CHARREF_RE.sub(replace, text)
+
+
+def _hc00ad_codepoint_is_display_character(value: int) -> bool:
+    return (
+        0x3400 <= value <= 0x9FFF
+        or 0xF900 <= value <= 0xFAFF
+        or 0x20000 <= value <= 0x2EBEF
+        or 0x30000 <= value <= 0x323AF
+    )
+
+
+def _hc00ad_decode_codepoint_literal_text(text: str, stats: Counter[str]) -> str:
+    def replace(match: re.Match[str]) -> str:
+        prefix = text[max(0, match.start() - 8) : match.start()]
+        if prefix.endswith(("ユニコード:", "ユニコード：", "Unicode:", "unicode:", "U+")):
+            return match.group(0)
+        try:
+            value = int(_normalize_fullwidth_latin_digits(match.group(1)), 16)
+        except ValueError:
+            return match.group(0)
+        if not _hc00ad_codepoint_is_display_character(value):
+            return match.group(0)
+        stats["hc00ad_codepoint_literals_decoded"] += 1
+        return chr(value)
+
+    return HC00AD_CODEPOINT_LITERAL_RE.sub(replace, text)
+
+
+def _hc00ad_decode_codepoint_literals_html(fragment: str, stats: Counter[str]) -> str:
+    parts: list[str] = []
+    text_parts: list[str] = []
+    in_tag = False
+    for ch in fragment:
+        if ch == "<":
+            if text_parts:
+                parts.append(_hc00ad_decode_codepoint_literal_text("".join(text_parts), stats))
+                text_parts = []
+            in_tag = True
+            parts.append(ch)
+            continue
+        if ch == ">":
+            in_tag = False
+            parts.append(ch)
+            continue
+        if in_tag:
+            parts.append(ch)
+        else:
+            text_parts.append(ch)
+    if text_parts:
+        parts.append(_hc00ad_decode_codepoint_literal_text("".join(text_parts), stats))
+    return "".join(parts)
+
+
+def _hc013f_normalize_fullwidth_table_html(text: str) -> str:
+    parts: list[str] = []
+    in_fullwidth_tag = False
+    for ch in text:
+        if ch == "＜":
+            parts.append("<")
+            in_fullwidth_tag = True
+            continue
+        if ch == "＞":
+            parts.append(">")
+            in_fullwidth_tag = False
+            continue
+        if not in_fullwidth_tag:
+            parts.append(ch)
+            continue
+        if ch == "／":
+            parts.append("/")
+        elif ch == "＝":
+            parts.append("=")
+        elif ch in {"”", "“"}:
+            parts.append('"')
+        elif ch in {"’", "‘"}:
+            parts.append("'")
+        elif ch == "　":
+            parts.append(" ")
+        elif ch in {"−", "－"}:
+            parts.append("-")
+        elif ch == "：":
+            parts.append(":")
+        else:
+            parts.append(normalize_fullwidth_ascii(ch))
+    return "".join(parts)
+
+
+class _HC013FTableSanitizer(HTMLParser):
+    """Allow only the conjugation-table fragment emitted by HC013F."""
+
+    ALLOWED_TAGS = {"table", "tbody", "tr", "td", "th", "br", "b", "strong"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        lower = tag.lower()
+        if lower not in self.ALLOWED_TAGS:
+            return
+        if lower == "br":
+            self.parts.append("<br>")
+            return
+        attr_parts: list[str] = []
+        if lower == "table":
+            attr_parts.append('class="hc013f-katu-table"')
+            for key, value in attrs:
+                key_lower = key.lower()
+                if value is None:
+                    continue
+                if key_lower == "border" and value.isdigit():
+                    attr_parts.append(f'border="{_escape_attr(value)}"')
+                elif key_lower == "style":
+                    style = value.replace(" ", "").lower()
+                    if style in {"writing-mode:tb-rl", "writing-mode:vertical-rl"}:
+                        attr_parts.append(f'style="{_escape_attr(value)}"')
+        attrs_html = (" " + " ".join(attr_parts)) if attr_parts else ""
+        self.parts.append(f"<{lower}{attrs_html}>")
+
+    def handle_endtag(self, tag: str) -> None:
+        lower = tag.lower()
+        if lower in self.ALLOWED_TAGS and lower != "br":
+            self.parts.append(f"</{lower}>")
+
+    def handle_data(self, data: str) -> None:
+        _append_text(self.parts, data)
+
+    def handle_entityref(self, name: str) -> None:
+        self.parts.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        self.parts.append(f"&#{name};")
+
+    def html(self) -> str:
+        return "".join(self.parts)
+
+
+def _sanitize_hc013f_table_fragment(fragment: str) -> str | None:
+    normalized = _hc013f_normalize_fullwidth_table_html(fragment)
+    if "<table" not in normalized.lower() or "</table>" not in normalized.lower():
+        return None
+    sanitizer = _HC013FTableSanitizer()
+    try:
+        sanitizer.feed(normalized)
+        sanitizer.close()
+    except Exception:
+        return None
+    table = re.sub(r"</tr>\s*<br>\s*<tr", "</tr><tr", sanitizer.html())
+    if "<table" not in table or "</table>" not in table:
+        return None
+    return table
+
+
+def _rewrite_hc013f_fullwidth_tables(body: str, options: HcRenderOptions, stats: Counter[str]) -> str:
+    """Turn HC013F's fullwidth escaped conjugation table into a clickable table."""
+
+    def replace(match: re.Match[str]) -> str:
+        table = _sanitize_hc013f_table_fragment(match.group(0))
+        if table is None:
+            return match.group(0)
+        image_src = _image_source_for_key("katu", options) or "katu.png"
+        stats["hc013f_katu_tables"] += 1
+        return (
+            '<details class="hc013f-katu">'
+            f'<summary><img src="{_escape_attr(image_src)}" class="img_hinshi" alt="活用表"></summary>'
+            f'<div class="katu">{table}</div>'
+            "</details>"
+        )
+
+    return HC013F_FULLWIDTH_TABLE_RE.sub(replace, body)
+
+
+def _normalize_hc_visible_text(text: str) -> str:
+    return _decode_fullwidth_html_charrefs(text)
 
 
 def _plain_from_html(value: str) -> str:
@@ -2226,23 +3487,53 @@ def _audio_original_href(target: dict[str, Any] | None) -> str:
     return f"lved.sond:{target['resource_id']}"
 
 
-def _media_placeholder_html(control: str, target: dict[str, Any] | None) -> str:
+def _media_placeholder_html(
+    control: str,
+    target: dict[str, Any] | None,
+    image_src: str | None = None,
+    *,
+    extra_class: str | None = None,
+) -> str:
     kind = "colscr" if target else "media"
+    tag = "img" if image_src else "span"
+    class_name = "lv-hc-media" if not extra_class else f"lv-hc-media {extra_class}"
     attrs = [
-        'class="lv-hc-media"',
+        f'class="{_escape_attr(class_name)}"',
         f'data-lv-control="{control}"',
         f'data-lv-media-kind="{kind}"',
-        f'data-lv-media-status="{_escape_attr("resolved_address" if target else "unresolved_payload")}"',
+        f'data-lv-media-status="{_escape_attr("resolved_image" if image_src else "resolved_address" if target else "unresolved_payload")}"',
     ]
     if target:
         attrs.append(f'data-lv-resource="{_escape_attr(target["resource_id"])}"')
         attrs.append(f'data-lv-block="{target["block"]}"')
         attrs.append(f'data-lv-offset="{target["offset"]}"')
-    return f"<span {' '.join(attrs)}></span>"
+    if image_src:
+        attrs.append(f'src="{_escape_attr(image_src)}"')
+        attrs.append('alt=""')
+        return f"<{tag} {' '.join(attrs)}>"
+    return f"<{tag} {' '.join(attrs)}></{tag}>"
+
+
+def _media_image_src(pointer: MediaPointer | None, options: HcRenderOptions) -> str | None:
+    if pointer is None or options.media_image_resolver is None:
+        return None
+    return options.media_image_resolver(pointer)
 
 
 def _renderer_code(options: HcRenderOptions) -> str:
     return (options.renderer_code or "").upper()
+
+
+def _windows_blue_midashi_class(options: HcRenderOptions) -> str:
+    """Return the Windows reader skin marker for plain headword blocks.
+
+    The on-disk HC/CSS resources are shared by Windows and Mac packages, but
+    observed Windows readers apply a blue headword skin to many otherwise plain
+    ``midashi`` blocks. Keep that platform style out of the decoded HC control
+    semantics and opt it onto elements that are known to be plain headings.
+    """
+
+    return " lv-hc-windows-blue-midashi" if options.reader_style == WINDOWS_READER_STYLE else ""
 
 
 def _is_hc_gen_year_renderer(options: HcRenderOptions) -> bool:
@@ -2462,6 +3753,16 @@ def _link_css_class_for_context(options: HcRenderOptions, ctx: _Context | None, 
 
 
 def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | None:
+    if _renderer_code(options) == "ARCHSIC3" and op == 0x10:
+        return ("span", ' class="archsic3-hinshi"')
+    if _renderer_code(options) == "02BC" and op == 0x12:
+        return ("b", "")
+    if _renderer_code(options) == "02BC" and op == 0xE0:
+        return ("i", "")
+    if _renderer_code(options) == "0095" and op == 0x12:
+        return ("span", ' class="hc0095-underline"')
+    if _renderer_code(options) == "0095" and op == 0xE0:
+        return ("b", "")
     if _is_hc005c_renderer(options) and op in {0x04, 0x41}:
         return None
     if _renderer_code(options) == "0091" and op in {0x04, 0x41}:
@@ -2470,12 +3771,16 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return None
     if _renderer_code(options) == "00AB" and op in {0x04, 0x41}:
         return None
+    if _renderer_code(options) == "00AB" and op == 0xE0:
+        return ("span", ' class="hc00ab-red-emphasis"')
     if _renderer_code(options) == "0090" and op in {0x04, 0x41}:
         return None
     if _renderer_code(options) == "0135" and op == 0x04:
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "0135" and op in {0x06, 0x41}:
         return None
+    if _renderer_code(options) == "0135" and op == 0xE0:
+        return ("b", ' class="hc0135-red-emphasis"')
     if _renderer_code(options) == "014F" and op == 0x04:
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "014F" and op == 0x41:
@@ -2508,6 +3813,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "00AD" and op == 0x41:
         return None
+    if _renderer_code(options) == "00AD" and op == 0x12:
+        return ("strong", "")
     if _is_hc_hkdksr_medical_renderer(options) and op == 0x04:
         return ("span", ' class="hankaku"')
     if _is_hc_hkdksr_medical_renderer(options) and op == 0x41:
@@ -2558,6 +3865,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "00AC" and op == 0x41:
         return None
+    if _renderer_code(options) == "00AC" and op == 0xE0:
+        return ("span", ' class="hc00ac-red-emphasis"')
     if _renderer_code(options) == "0157" and op == 0x12:
         return None
     if _renderer_code(options) == "0158" and op == 0x12:
@@ -2574,6 +3883,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "02C1" and op == 0x04:
         return ("span", ' class="hankaku"')
+    if _renderer_code(options) == "02C1" and op == 0x12:
+        return ("b", "")
     if _renderer_code(options) == "02BF" and op == 0x04:
         return ("span", ' class="hankaku"')
     if _renderer_code(options) in {"00B3", "0136", "013C", "02C0", "02CA"} and op == 0x04:
@@ -2582,6 +3893,8 @@ def _style_start_spec(op: int, options: HcRenderOptions) -> tuple[str, str] | No
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "012F" and op == 0x06:
         return ("span", ' class="sizedown"')
+    if _renderer_code(options) == "012E" and op == 0x12:
+        return ("b", "")
     if _renderer_code(options) == "0131" and op == 0x04:
         return ("span", ' class="hankaku"')
     if _renderer_code(options) == "0132" and op == 0x04:
@@ -2703,6 +4016,26 @@ def _decode_jis_text_bytes(data: bytes) -> str:
     return "".join(parts)
 
 
+def _media_filename_label_at(data: bytes, offset: int, *, max_pairs: int = 96) -> str:
+    parts: list[str] = []
+    index = offset
+    while index + 1 < len(data) and len(parts) < max_pairs:
+        if data[index] == 0x1F:
+            break
+        if not (0x21 <= data[index] <= 0x7E and 0x21 <= data[index + 1] <= 0x7E):
+            break
+        text = decode_jis_pair(data[index : index + 2])
+        if not text:
+            break
+        parts.append(text)
+        candidate = "".join(parts)
+        normalized = normalize_fullwidth_ascii(candidate).strip().casefold()
+        if normalized.endswith(IMAGE_FILENAME_LABEL_SUFFIXES):
+            return candidate
+        index += 2
+    return ""
+
+
 def _jis_key_at(data: bytes, offset: int) -> str | None:
     if offset + 1 >= len(data):
         return None
@@ -2774,11 +4107,132 @@ def _hc0158_section_parts(code: str) -> tuple[list[str], str | None, str | None]
     css_class = HC0158_SECTION_CLASSES.get(value)
     if css_class is not None:
         if value in HC0158_COLUMN_SECTION_VALUES:
-            return [f'<div class="{css_class}"><div>'], "</div></div>", css_class
+            return [f'<div class="{css_class}">'], None, css_class
         return [f'<div class="{css_class}">'], "</div>", css_class
     if value in HC0158_STATE_SECTION_VALUES:
         return [], None, f"state_{value}"
     return [], None, None
+
+
+def _hc0158_private_image_html(text: str, options: HcRenderOptions) -> str | None:
+    name = _hc00a4_private_resource_name(text, "IMG")
+    if name is None:
+        return None
+    path = Path(name)
+    src = (
+        options.image_sources.get(path.stem.casefold())
+        or options.image_sources.get(path.name.casefold())
+        or options.image_sources.get(f"HTMLs/{path.name}".casefold())
+        or options.image_sources.get(f"htmls/{path.name}".casefold())
+    )
+    if src is None:
+        return None
+    return (
+        f'<img class="lv-hc-media column_picture_img" '
+        f'src="{_escape_attr(src)}" alt="{_escape_attr(path.stem)}" '
+        f'data-lv-private-image="{_escape_attr(path.name)}">'
+    )
+
+
+def _hc0158_finalize_html(body: str, stats: Counter[str]) -> str:
+    body, grammar_labels = re.subn(
+        r'(<div class="honbun_bunpou[12][^"]*">)［文法］',
+        r'\1<b class="hc0158-grammar-label">［文法］</b>',
+        body,
+    )
+    if grammar_labels:
+        stats["hc0158_grammar_labels_bolded"] += grammar_labels
+    body, panel_titles = re.subn(
+        r'(<div class="honbun_columntitle">)<span class="waku">([^<]+)</span>(</div>)',
+        r"\1\2\3",
+        body,
+    )
+    if panel_titles:
+        stats["hc0158_panel_title_waku_suppressed"] += panel_titles
+    return body
+
+
+def _hc0093_finalize_html(body: str, stats: Counter[str]) -> str:
+    def trim_yourei(match: re.Match[str]) -> str:
+        prefix = match.group("prefix")
+        breaks = match.group("breaks")
+        stats["hc0093_trailing_yourei_breaks_suppressed"] += breaks.count("<br>")
+        return prefix
+
+    return re.sub(
+        r'(?P<prefix><div class="youreihan contents"><div class="lineinfo5">.*?)(?P<breaks>(?:<br>)+)(?=</div></div>)',
+        trim_yourei,
+        body,
+        flags=re.DOTALL,
+    )
+
+
+def _hc00c6_finalize_html(body: str, stats: Counter[str]) -> str:
+    def split_midashi(match: re.Match[str]) -> str:
+        content = match.group("content")
+        part_start = content.find('<span class="partwaku">')
+        heading_end = content.find("</b>")
+        if part_start < 0 or heading_end < 0:
+            return match.group(0)
+        heading_end += len("</b>")
+        heading_html = content[:heading_end]
+        pronunciation_html = content[heading_end:part_start]
+        partwaku_html = content[part_start:]
+        if not pronunciation_html.strip():
+            return match.group(0)
+        stats["hc00c6_midashi_pronunciation_rows"] += 1
+        return (
+            f'<div class="midashi">{heading_html}</div>'
+            f'<div class="hc00c6-pronunciation">{pronunciation_html}</div>'
+            f'<div class="hc00c6-partwaku-line">{partwaku_html}</div>'
+        )
+
+    body = re.sub(
+        r'<div class="midashi">(?P<content>.*?)</div>',
+        split_midashi,
+        body,
+        flags=re.DOTALL,
+    )
+    body, example_pairs = re.subn(
+        r'<div class="contents">(.*?)</div><br><div class="exampleyakugo">(.*?)</div>',
+        r'<div class="contents">\1<br><span class="exampleyakugo">\2</span></div>',
+        body,
+        flags=re.DOTALL,
+    )
+    if example_pairs:
+        stats["hc00c6_example_translation_pairs_joined"] += example_pairs
+    body, stripped_list_dots = re.subn(r"■・", "■", body)
+    if stripped_list_dots:
+        stats["hc00c6_redundant_list_dots_suppressed"] += stripped_list_dots
+    return body
+
+
+def _hc014x_finalize_html(body: str, stats: Counter[str], renderer_code: str) -> str:
+    body, example_pairs = re.subn(
+        r'(<div class="contents" style="text-indent:0em;">)(.*?)(</div>)&nbsp;'
+        r'<div class="contents" style="text-indent:0em;">(.*?)</div>',
+        r'\1\2 <span class="lv-hc-example-translation-inline">\4</span></div>',
+        body,
+        flags=re.DOTALL,
+    )
+    if example_pairs:
+        stats[f"hc{renderer_code.lower()}_example_translation_pairs_joined"] += example_pairs
+
+    def italicize_short_grammar_label(match: re.Match[str]) -> str:
+        label_html = match.group("label_html")
+        label_text = re.sub(r"<[^>]+>", "", label_html)
+        label_text = html.unescape(label_text).strip()
+        if not re.fullmatch(r"[A-Za-z][A-Za-z.]{0,10}", label_text):
+            return match.group(0)
+        stats[f"hc{renderer_code.lower()}_grammar_labels_italicized"] += 1
+        return f"{match.group('open')}<i>{label_html}</i>{match.group('close')}"
+
+    body = re.sub(
+        r"(?P<open>[［\[〈])<b>(?P<label_html>(?:<span class=\"lv-hc-halfwidth\">)?[A-Za-z][A-Za-z.]{0,10}(?:</span>)?)</b>(?P<close>[］\]〉])",
+        italicize_short_grammar_label,
+        body,
+    )
+    return body
 
 
 def _pop_context(contexts: list[_Context], kind: str) -> _Context | None:
@@ -3077,6 +4531,8 @@ def _sound_image_src(image_sources: dict[str, str]) -> str | None:
 
 
 def _image_source_for_key(key: str, options: HcRenderOptions) -> str | None:
+    if _is_viewer_navigation_image_ref(key):
+        return None
     lower = key.lower()
     if options.vertical:
         return options.image_sources.get(f"{lower}_v") or options.image_sources.get(lower)
@@ -3085,6 +4541,24 @@ def _image_source_for_key(key: str, options: HcRenderOptions) -> str | None:
 
 def _image_or_named_template(key: str, options: HcRenderOptions) -> str:
     return _image_source_for_key(key, options) or f"{key.upper()}.png"
+
+
+def _hc0065_part_of_speech_label_at(data: bytes, offset: int) -> str:
+    label: list[str] = []
+    while offset + 1 < len(data) and len(label) < 6:
+        if data[offset] == 0x1F:
+            break
+        if not (0x21 <= data[offset] <= 0x7E and 0x21 <= data[offset + 1] <= 0x7E):
+            break
+        text = decode_jis_pair(data[offset : offset + 2])
+        if not text:
+            break
+        label.append(text)
+        offset += 2
+        if text == "】":
+            break
+    value = "".join(label)
+    return value if value.endswith("】") else ""
 
 
 def _hc013a_custom_dib_html(key: str, options: HcRenderOptions, *, in_heading: bool) -> tuple[str, bool]:
@@ -3242,11 +4716,14 @@ def _append_renderer_image_gaiji(
     image_src: str,
     css_class: str,
     stats: Counter[str],
+    *,
+    alt_text: str | None = None,
 ) -> None:
     stats["gaiji_image"] += 1
+    alt = key if alt_text is None else alt_text
     parts.append(
         f'<img class="lv-hc-gaiji {_escape_attr(css_class)}" '
-        f'src="{_escape_attr(image_src)}" alt="{_escape_attr(key)}" '
+        f'src="{_escape_attr(image_src)}" alt="{_escape_attr(alt)}" '
         f'data-gaiji-code="{_escape_attr(key)}">'
     )
 
@@ -3335,6 +4812,13 @@ def _append_hc008f_gaiji_value(
     *,
     in_heading: bool,
 ) -> None:
+    mapped = options.gaiji_map.get(key)
+    if mapped:
+        stats["gaiji_unicode"] += 1
+        _append_text(parts, mapped)
+        if text_parts is not None:
+            text_parts.append(mapped)
+        return
     image_src = _image_source_for_key(key, options)
     if image_src is not None:
         dummy_src = _dummy_image_source(options)
@@ -3344,13 +4828,6 @@ def _append_hc008f_gaiji_value(
         css_class = "img_gaiji_midashi" if in_heading else "img_gaiji"
         _append_renderer_image_gaiji(parts, key, image_src, css_class, stats)
         stats[f"hc008f_{css_class}_images"] += 1
-        return
-    mapped = options.gaiji_map.get(key)
-    if mapped:
-        stats["gaiji_unicode"] += 1
-        _append_text(parts, mapped)
-        if text_parts is not None:
-            text_parts.append(mapped)
         return
     stats["gaiji_placeholder"] += 1
     parts.append(
@@ -3775,18 +5252,20 @@ def _hc02bc_section_value(code: str) -> int | None:
         return None
 
 
-def _hc02bc_section_parts(code: str, image_sources: dict[str, str]) -> list[str]:
+def _hc02bc_section_parts(code: str, image_sources: dict[str, str], *, first_section: bool = False) -> list[str]:
     value = _hc02bc_section_value(code)
     if value is None or value in HC02BC_NOOP_SECTION_VALUES:
         return []
     if value == 1:
-        return ['<div class="midashi">']
+        return ['<div class="midashi hc02bc-midashi">']
     if value == 2:
+        if first_section:
+            return ['<div class="midashi hc02bc-midashi">']
         parts: list[str] = []
         src = image_sources.get("fukumidashi") or image_sources.get("fukumidashi.png")
         if src:
             parts.append(f'<img src="{_escape_attr(src)}" class="img_mark2">')
-        parts.append('<div class="komidashi"  style="margin-left:1.000000em;">')
+        parts.append('<div class="komidashi hc02bc-komidashi"  style="margin-left:1.000000em;">')
         return parts
     digit = value % 10
     if digit in {1, 6}:
@@ -3820,6 +5299,15 @@ def _hc005c_heading_class(data: bytes, offset: int) -> str:
             pos += 2 + arg_len
             continue
         break
+    while pos + 1 < len(data) and 0xA1 <= data[pos] <= 0xFE:
+        pos += 2
+        while pos + 1 < len(data) and data[pos] == 0x1F:
+            op = data[pos + 1]
+            arg_len = control_arg_length(data, pos)
+            if op in {0x04, 0x0E, 0x10, 0x12, 0xE0}:
+                pos += 2 + arg_len
+                continue
+            break
     if pos + 1 < len(data):
         if data[pos] == 0x23:
             return "eMidashi"
@@ -3838,6 +5326,69 @@ def _hc005c_section_parts(code: str, data: bytes, offset: int) -> tuple[list[str
     except ValueError:
         return [], None, None
     return [f'<div style="margin: {value * 3}px">'], "</div>", "margin"
+
+
+def _hc005c_example_marker_at(data: bytes, offset: int) -> str | None:
+    key = _jis_key_at(data, offset)
+    if key is None:
+        return None
+    return HC005C_EXAMPLE_MARKER_JIS.get(key)
+
+
+def _hc005c_example_marker_after_section(data: bytes, offset: int) -> str | None:
+    marker = _hc005c_example_marker_at(data, offset)
+    if marker is not None:
+        return marker
+    if data[offset : offset + 2] == b"\x1f\x04":
+        return _hc005c_example_marker_at(data, offset + 2)
+    return None
+
+
+def _hc005c_numeric_definition_after_section(data: bytes, offset: int) -> bool:
+    pos = offset
+    while pos + 1 < len(data):
+        if data[pos] == 0x1F:
+            op = data[pos + 1]
+            arg_len = control_arg_length(data, pos)
+            if op in {0x04, 0x05, 0xE0, 0xE1}:
+                pos += 2 + arg_len
+                continue
+            return False
+        if 0x21 <= data[pos] <= 0x7E and 0x21 <= data[pos + 1] <= 0x7E:
+            value = normalize_fullwidth_ascii(decode_jis_pair(data[pos : pos + 2]))
+            return value in "123456789"
+        return False
+    return False
+
+
+def _hc007d_example_marker_after_section(data: bytes, offset: int) -> bool:
+    pos = offset
+    while pos + 1 < len(data):
+        if data[pos] == 0x1F:
+            op = data[pos + 1]
+            arg_len = control_arg_length(data, pos)
+            if op in {0x04, 0x05, 0x09, 0x10, 0x11, 0x41, 0x61, 0xE0, 0xE1}:
+                pos += 2 + arg_len
+                continue
+        break
+    return _jis_key_at(data, pos) == HC007D_EXAMPLE_MARKER_JIS
+
+
+def _hc005c_halfwidth_span_is_punctuation(data: bytes, offset: int) -> bool:
+    chars: list[str] = []
+    pos = offset
+    while pos + 1 < len(data):
+        if data[pos] == 0x1F:
+            if data[pos + 1] == 0x05:
+                break
+            return False
+        if 0x21 <= data[pos] <= 0x7E and 0x21 <= data[pos + 1] <= 0x7E:
+            chars.append(normalize_fullwidth_ascii(decode_jis_pair(data[pos : pos + 2])))
+            pos += 2
+            continue
+        return False
+    text = "".join(chars).strip()
+    return bool(text) and all(ch in ".,;:!?|()[]{}<>/\"' " for ch in text)
 
 
 def _hc012e_honbun_div(*, indented: bool = False) -> str:
@@ -3898,12 +5449,14 @@ def _hc012e_section_parts(code: str, options: HcRenderOptions) -> list[str]:
         src = options.image_sources.get("hitsujun_v" if options.vertical else "hitsujun") or options.image_sources.get("hitsujun")
         if src:
             parts.append(f'<img src="{_escape_attr(src)}" class="img_gaiji">')
+            parts.append("<br>")
+        parts.append('<span class="hc012e-hitsujun-animation" data-lv-role="stroke-order">')
         return parts
     if code == "000c":
         return ['<div class="bushu">']
     if code == "001e":
         return ['<div class="kaku_midashi" style="margin-left:0.000000em;">']
-    if code in HC012E_INDENTED_SECTION_CODES:
+    if code == "0025" or code in HC012E_INDENTED_SECTION_CODES:
         return [_hc012e_honbun_div(indented=True)]
     if code in HC012E_HONBUN_SECTION_CODES:
         return [_hc012e_honbun_div()]
@@ -3919,6 +5472,8 @@ def _hc012e_section_parts(code: str, options: HcRenderOptions) -> list[str]:
 
 
 def _hc012e_section_close_for_parts(parts: list[str]) -> str | None:
+    if any("hc012e-hitsujun-animation" in part for part in parts):
+        return "</span></div>"
     if any(part.startswith("<table") for part in parts):
         return "</div></td></tr></table>"
     if any(part.startswith("<div") for part in parts):
@@ -3990,6 +5545,33 @@ def _hc0131_section_parts(code: str, data: bytes, offset: int, options: HcRender
     return parts, "</div>"
 
 
+_HC0131_FIRST_SUBSENSE_RE = re.compile(
+    r'(<div class="content_IND4"><HR style="border-style: dotted;">)'
+    r'<b><span class="hankaku">([0-9]+)</span></b>'
+    r'<span class="hankaku"> </span>'
+    r'(<b><span class="hankaku">[a-z]</span></b>)'
+)
+
+
+def _hc0131_finalize_html(body: str, stats: Counter[str]) -> str:
+    """Apply HC0131 layout repair for first sub-sense rows.
+
+    KQEBHOU stores the first sub-sense in the same ``0004`` section as the
+    parent sense number, while later sub-senses are separate ``0005`` sections.
+    HC0131 renders the parent number as its own line and continues the first
+    sub-sense with the same indentation as subsequent ``0005`` lines.
+    """
+
+    def replace_first_subsense(match: re.Match[str]) -> str:
+        stats["hc0131_first_subsense_splits"] += 1
+        return (
+            f'{match.group(1)}<span class="hc0131-sense-number">{match.group(2)}</span>'
+            f'</div><div class="content_IND5">{match.group(3)}'
+        )
+
+    return _HC0131_FIRST_SUBSENSE_RE.sub(replace_first_subsense, body)
+
+
 def _hc0135_section_value(code: str) -> int | None:
     try:
         return int(code, 16)
@@ -4014,6 +5596,14 @@ def _hc0135_section_parts(
         return ['<div class="content_IND2">'], "</div>", "content_IND2"
     if value == 0x1E:
         return ['<p class="contents_yourei">'], "</p>", "contents_yourei"
+    if value == 0x18:
+        return ['<span class="hc0135-history-kana">'], "</span>", "history_kana"
+    if value == 0x27:
+        return ['<div class="hc0135-construction-pattern">'], "</div>", "construction_pattern"
+    if value == 0x29:
+        return ['<div class="hc0135-accent-line">'], "</div>", "accent_line"
+    if value == 0x31:
+        return ['<span class="hc0135-part-of-speech">'], "</span>", "part_of_speech"
     if value == 0x17:
         if previous_pair == b"\x1f\x05":
             return ["<br>"], None, "conditional_break"
@@ -4042,6 +5632,55 @@ def _hc0135_private_directive_image(text: str, options: HcRenderOptions) -> str 
         return None
     image_key, css_class = image
     return _hc0135_image_tag(image_key, css_class, options)
+
+
+def _hc0135_image_directive_html(directive: str, options: HcRenderOptions) -> str | None:
+    prefix = "画像:"
+    if not directive.startswith(prefix):
+        return None
+    image_key = directive[len(prefix) :].strip()
+    if not image_key:
+        return None
+    css_class = "img_mark2" if image_key.lower().startswith("accent") else "img_icon"
+    src = _image_source_for_key(image_key, options) or _image_source_for_key(f"{image_key}.png", options)
+    if src is None:
+        return None
+    return f'<img src="{_escape_attr(src)}" class="{_escape_attr(css_class)}">'
+
+
+def _hc0135_private_directive_html(text: str, options: HcRenderOptions) -> tuple[str | None, str]:
+    directive = _private_directive_text(text).strip()
+    if directive.startswith("<") and directive.endswith(">"):
+        directive = directive[1:-1].strip()
+    lower = directive.lower()
+    image = HC0135_PRIVATE_IMAGE_DIRECTIVES.get(lower)
+    if image is not None:
+        image_key, css_class = image
+        return _hc0135_image_tag(image_key, css_class, options), "rendered_named_image"
+    image_html = _hc0135_image_directive_html(directive, options)
+    if image_html is not None:
+        return image_html, "rendered_image_directive"
+    if directive.startswith("上付き文字:"):
+        marker = directive.split(":", 1)[1].strip()
+        if marker.startswith("S"):
+            marker = marker[1:]
+        if marker:
+            return f'<span class="hc0135-sup-note">({_escape_text(marker)})</span>', "rendered_sup_note"
+    if directive == "教育漢字開始":
+        return '<i class="hc0135-kyouiku-kanji">', "rendered_kyouiku_kanji_start"
+    if directive == "教育漢字終了":
+        return "</i>", "rendered_kyouiku_kanji_end"
+    if directive == "歴史仮名開始":
+        return '<span class="hc0135-history-kana">', "rendered_history_kana_start"
+    if directive == "歴史仮名終了":
+        return "</span>", "rendered_history_kana_end"
+    if directive == "歴史仮名区切":
+        return "", "rendered_history_kana_separator"
+    if directive == "フォント小開始":
+        return '<span class="hc0135-small">', "rendered_small_start"
+    if directive == "フォント小終了":
+        return "</span>", "rendered_small_end"
+    return None, "suppressed"
 
 
 def _hc012d_honbun_starts_with_marker(data: bytes, control_offset: int) -> bool:
@@ -4149,9 +5788,12 @@ def _hc009d_section_parts(
     value = _hc009d_section_value(code)
     if value is None:
         return [], None, None, None
-    if value in {13, 14}:
-        src = _image_source_for_key("b124", options) or "b124.gif"
-        return [f'<img src="{_escape_attr(src)}" class="img_gaiji">'], None, value, None
+    if value in HC009D_TOC_SECTION_VALUES:
+        parts: list[str] = []
+        if value in {13, 14}:
+            src = _image_source_for_key("b124", options) or "b124.gif"
+            parts.append(f'<img src="{_escape_attr(src)}" class="img_gaiji">')
+        return parts, None, value, None
     parts: list[str] = []
     wrapper_stack: tuple[str, str] | None = None
     next_key = _two_byte_key_at(data, control_offset + 4)
@@ -4336,15 +5978,45 @@ def _hc013d_jis_sequence_html(data: bytes, offset: int, options: HcRenderOptions
     next2 = _jis_key_at(data, offset + 4)
     if key == "215a" and next1 == "3d69" and next2 == "215b":
         return _image_tag_for_key("syohatsu", options, "img_gaiji"), 6
-    if key == "215a" and next1 is not None and next2 is not None:
-        subtitle = HC013D_SUBTITLE_IMAGE_SEQUENCES.get((next1, next2))
+    if key == "215a":
+        following_keys: list[str] = []
+        scan = offset + 2
+        while scan + 1 < len(data):
+            item = _jis_key_at(data, scan)
+            if item is None:
+                break
+            if item == "215b":
+                break
+            following_keys.append(item)
+            scan += 2
+        closing = _jis_key_at(data, scan) == "215b"
+        label_bytes = data[offset + 2 : scan]
+        label_text = _decode_jis_text_bytes(label_bytes)
+        consumed = (scan + 2 - offset) if closing else 0
+        subtitle = HC013D_SUBTITLE_IMAGE_SEQUENCES.get(tuple(following_keys))
         if subtitle is not None:
-            return _hc013d_subtitle_html(*subtitle, options), 6
-        if (next1, next2) == ("3e26", "494a"):
-            return '<span class="SubTitle_syouhin"></span>', 6
-        if (next1, next2) in HC013D_TITLE_TRIGGER_SEQUENCES:
-            return '<div class="clearLeft"></div><span class="title"></span>', 6
+            return _hc013d_subtitle_html(*subtitle, options), consumed
+        if tuple(following_keys) == ("3e26", "494a"):
+            return '<div class="SubTitle_syouhin">商品</div>', consumed
+        title = HC013D_TITLE_LABEL_SEQUENCES.get(tuple(following_keys))
+        if title is not None:
+            css_class, fallback_label = title
+            return f'<div class="clearLeft"></div><span class="{css_class}">{_escape_text(label_text or fallback_label)}</span>', consumed
     if key == "2223":
+        label_keys: list[str] = []
+        scan = offset + 2
+        while scan + 1 < len(data):
+            item = _jis_key_at(data, scan)
+            if item is None:
+                break
+            if item == "2223":
+                break
+            label_keys.append(item)
+            scan += 2
+        if _jis_key_at(data, scan) == "2223":
+            label_text = _decode_jis_text_bytes(data[offset + 2 : scan])
+            if label_text in HC013D_TITLE2_LABELS:
+                return f'<span class="title2">{_escape_text(label_text)}</span>', scan + 2 - offset
         seq = tuple(_jis_key_at(data, offset + 2 + step * 2) or "" for step in range(4))
         show_title = HC013D_SHOW_TITLE_SEQUENCES.get(seq)
         if show_title is not None:
@@ -4392,18 +6064,27 @@ def _hc02c1_honbun_div() -> str:
     return '<div class="honbun" style="margin-left:0.000000em;">'
 
 
-def _hc02c1_icon_section_parts(code: str) -> list[str]:
+def _hc02c1_icon_section_parts(code: str, options: HcRenderOptions) -> list[str]:
     image_name = HC02C1_ICON_SECTION_IMAGES.get(code)
     if image_name is None:
         return []
+    src = (
+        _image_source_for_key(image_name.removesuffix(".png"), options)
+        or _image_source_for_key(image_name, options)
+        or f"Templates/{image_name}"
+    )
     return [
         _hc02c1_honbun_div(),
-        f'<img src="{image_name}" class="img_icon"/><br>',
+        f'<img src="{_escape_attr(src)}" class="img_icon"/><br>',
         "</div>",
     ]
 
 
-def _hc02c1_section_parts(code: str, previous_code: str | None) -> tuple[list[str], str | None]:
+def _hc02c1_section_parts(
+    code: str,
+    previous_code: str | None,
+    options: HcRenderOptions,
+) -> tuple[list[str], str | None]:
     if code in HC02C1_NOOP_SECTION_CODES:
         return [], None
     if code == "0001":
@@ -4411,7 +6092,7 @@ def _hc02c1_section_parts(code: str, previous_code: str | None) -> tuple[list[st
 
     parts: list[str] = []
     if code in HC02C1_ICON_SECTION_IMAGES and code != previous_code:
-        parts.extend(_hc02c1_icon_section_parts(code))
+        parts.extend(_hc02c1_icon_section_parts(code, options))
     parts.append(_hc02c1_honbun_div())
     return parts, "</div>"
 
@@ -4511,21 +6192,39 @@ def _hc009f_category_from_jis(code: str) -> str | None:
     return HC009F_CATEGORY_MARKERS.get(code)
 
 
-def _hc009f_honbun_section_parts(code: str) -> tuple[list[str], str | None, str | None]:
+def _hc009f_next_control(data: bytes, pos: int) -> tuple[int, int] | None:
+    if pos + 1 >= len(data) or data[pos] != 0x1F:
+        return None
+    return data[pos + 1], pos
+
+
+def _hc009f_next_midashi_after_close(data: bytes, pos: int) -> bool:
+    if data[pos : pos + 2] == b"\x1f\x0a":
+        pos += 2
+    if data[pos : pos + 4] == b"\x1f\x09\x00\x01":
+        pos += 4
+    next_control = _hc009f_next_control(data, pos)
+    return next_control is not None and next_control[0] == 0x41
+
+
+def _hc009f_honbun_section_parts(
+    code: str, *, vertical: bool
+) -> tuple[list[str], str | None, str | None]:
     value = _hc02c0_section_value(code)
     if value is None:
         return [], None, None
+    margin_prop = "margin-top" if vertical else "margin-left"
     if value == 1:
         return [], None, "midashi_state"
     if value == 20:
-        return ['<div class="honbun" style="margin-left:1em;text-align:right;">'], "</div>", "right_honbun"
+        return [f'<div class="honbun" style="{margin_prop}:1em;text-align:right;">'], "</div>", "right_honbun"
     if value == 4:
-        return ['<div class="honbun" style="margin-left:1em;">'], "</div>", "description"
+        return [f'<div class="honbun" style="{margin_prop}:1em;">'], "</div>", "description"
     if value == 3:
-        return ['<div class="honbun" style="margin-left:0.5em;">'], "</div>", "example"
+        return [f'<div class="honbun" style="{margin_prop}:0.5em;">'], "</div>", "example"
     if value in {6, 7}:
         return [], None, "season_or_category_marker"
-    return [f'<div class="honbun" style="margin-left:{value}em;">'], "</div>", f"honbun_{value}"
+    return [f'<div class="honbun" style="{margin_prop}:{value}em;">'], "</div>", f"honbun_{value}"
 
 
 def _hc02c0_honbun_div(value: int, *, vertical: bool) -> str:
@@ -4579,6 +6278,7 @@ def _hc00c4_section_parts(
     code: str,
     *,
     next_key: str | None,
+    options: HcRenderOptions,
 ) -> tuple[list[str], str | None, str | None]:
     if code == "0001":
         return ['<div class="midashi"><span class="zenkakuMidashi">'], None, "midashi"
@@ -4588,13 +6288,15 @@ def _hc00c4_section_parts(
         return ['<div class="honbun">'], "</div>", "honbun"
     image_name = HC00C4_SECTION_ICON_IMAGES.get(code)
     if image_name is not None:
+        image_src = _image_source_for_key(Path(image_name).stem, options) or image_name
         return [
             '<div class="honbun_icon">',
-            f'<img src="{_escape_attr(image_name)}" class="icon">',
+            f'<img src="{_escape_attr(image_src)}" class="icon">',
         ], "</div>", "honbun_icon"
     image_name = HC00C4_INLINE_SECTION_IMAGES.get(code)
     if image_name is not None:
-        return [f'<img src="{_escape_attr(image_name)}" class="icon_s">'], None, "inline_icon"
+        image_src = _image_source_for_key(Path(image_name).stem, options) or image_name
+        return [f'<img src="{_escape_attr(image_src)}" class="icon_s">'], None, "inline_icon"
     if code == "000f":
         return ['<font class="font_down">'], None, "font_down"
     if code == "0010":
@@ -4604,24 +6306,29 @@ def _hc00c4_section_parts(
     return [], None, None
 
 
-def _hc02c2_icon_section_parts(code: str) -> list[str]:
+def _hc02c2_icon_section_parts(code: str, options: HcRenderOptions) -> list[str]:
     image_name = HC02C2_ICON_SECTION_IMAGES.get(code)
     if image_name is None:
         return []
+    src = (
+        _image_source_for_key(image_name.removesuffix(".png"), options)
+        or _image_source_for_key(image_name, options)
+        or f"Templates/{image_name}"
+    )
     return [
         _hc02c2_honbun_div(),
-        f'<img src="{image_name}" class="img_icon"/><br>',
+        f'<img src="{_escape_attr(src)}" class="img_icon"/><br>',
         "</div>",
     ]
 
 
-def _hc02c2_section_parts(code: str, previous_code: str | None) -> tuple[list[str], bool]:
+def _hc02c2_section_parts(code: str, previous_code: str | None, options: HcRenderOptions) -> tuple[list[str], bool]:
     if code == "0001":
         return ['<div class="midashi">'], False
 
     parts: list[str] = []
     if code in HC02C2_ICON_SECTION_IMAGES and code != previous_code:
-        parts.extend(_hc02c2_icon_section_parts(code))
+        parts.extend(_hc02c2_icon_section_parts(code, options))
     parts.append(_hc02c2_honbun_div())
     moji_down = code == "0007"
     if moji_down:
@@ -4721,7 +6428,7 @@ def _hc0094_section_parts(code: str) -> tuple[list[str], str | None, str | None]
     if value is None:
         return [], None, None
     if value == 1:
-        return ['<div class="midashi">'], "</div>", "midashi"
+        return ['<div class="lineinfo-1-1">'], "</div>", "midashi"
     if value == 9:
         return ['<div class="lineinfo">'], "</div>", "lineinfo"
     if value == 12:
@@ -4756,15 +6463,23 @@ def _hc0137_section_parts(code: str) -> tuple[list[str], str | None, str | None,
         return ["［"], "］", "bracket_square", "］"
     if value == 9:
         return ["（"], "）", "bracket_round", "）"
-    if value in {10, 18}:
-        return [f'<div style="margin-left: {value:f}em" class="honbunB">'], "</div>", "honbunB", "</div>"
+    if value == 18:
+        return ['<div class="honbunB hc0137-indent-derived">'], "</div>", "honbunB", "</div>"
+    if value == 10:
+        return ['<div class="honbunB hc0137-indent">'], "</div>", "honbunB", "</div>"
+    if value == 12:
+        return ['<div class="honbun hc0137-body-main">'], "</div>", "honbun", "</div>"
+    if value == 17:
+        return ['<div class="honbun hc0137-related-list">'], "</div>", "honbun", "</div>"
+    if value == 20:
+        return ['<div class="honbun hc0137-note">'], "</div>", "honbun_note", "</div>"
     if 11 <= value <= 20:
-        return [f'<div style="margin-left: {value:f}em" class="honbun">'], "</div>", "honbun", "</div>"
+        return ['<div class="honbun hc0137-indent">'], "</div>", "honbun", "</div>"
     if value == 21:
         return ["〈"], "〉", "bracket_angle", "〉"
     if value == 30:
         return ['<div class="honbun">'], "</div>", "honbun", None
-    return [f'<div class="honbun" style="margin-left:{value:f}em;">'], "</div>", "honbun_fallback", "</div>"
+    return ['<div class="honbun hc0137-indent">'], "</div>", "honbun_fallback", "</div>"
 
 
 def _safe_relative_path(value: str) -> Path | None:
@@ -4778,6 +6493,13 @@ def _resolve_package_relative(source: DictionarySource, value: str) -> Path | No
     relative = _safe_relative_path(value)
     if relative is None:
         return None
+    if relative.parts and relative.parts[0].casefold() == "templates":
+        suffix = Path(*relative.parts[1:])
+        for root in candidate_package_roots(source.idx):
+            for template_dir in companion_template_dirs(root):
+                found = resolve_case_insensitive_path(template_dir, suffix)
+                if found is not None and found.is_file():
+                    return found
     for root in candidate_package_roots(source.idx):
         found = resolve_case_insensitive_path(root, relative)
         if found is not None and found.is_file():
@@ -4789,6 +6511,12 @@ def _resolve_package_relative_dir(source: DictionarySource, value: str) -> Path 
     relative = _safe_relative_path(value)
     if relative is None:
         return None
+    if len(relative.parts) == 1 and relative.parts[0].casefold() == "templates":
+        for root in candidate_package_roots(source.idx):
+            for template_dir in companion_template_dirs(root):
+                found = find_case_insensitive(template_dir.parent, template_dir.name)
+                if found is not None and found.is_dir():
+                    return found
     for root in candidate_package_roots(source.idx):
         found = resolve_case_insensitive_path(root, relative)
         if found is not None and found.is_dir():
@@ -4822,6 +6550,8 @@ def _copy_package_directory_assets(source: DictionarySource, dirname: str, out_d
     copied = 0
     for path in sorted((item for item in directory.rglob("*") if item.is_file()), key=lambda item: item.relative_to(directory).as_posix().casefold()):
         rel = Path(dirname) / path.relative_to(directory)
+        if _is_viewer_navigation_image_ref(rel.as_posix()):
+            continue
         target_path = out_dir / rel
         target_path.parent.mkdir(parents=True, exist_ok=True)
         source_stat = path.stat()
@@ -4836,20 +6566,88 @@ def _copy_package_directory_assets(source: DictionarySource, dirname: str, out_d
     return copied
 
 
-def _renderer_css_name(renderer: HcRendererClassification | None) -> str | None:
-    if renderer is None or renderer.code is None:
+def _add_package_directory_image_sources(
+    source: DictionarySource,
+    dirname: str,
+    output_sources: dict[str, str],
+) -> None:
+    directory = _resolve_package_relative_dir(source, dirname)
+    if directory is None:
+        return
+    image_suffixes = {".bmp", ".gif", ".jpeg", ".jpg", ".png", ".svg", ".tif", ".tiff", ".webp"}
+    files = (item for item in directory.rglob("*") if item.is_file())
+    for path in sorted(files, key=lambda item: item.relative_to(directory).as_posix().casefold()):
+        if path.suffix.casefold() not in image_suffixes:
+            continue
+        rel = (Path(dirname) / path.relative_to(directory)).as_posix()
+        if _is_viewer_navigation_image_ref(rel):
+            continue
+        output_sources.setdefault(path.stem.casefold(), rel)
+        output_sources.setdefault(path.name.casefold(), rel)
+        output_sources.setdefault(rel.casefold(), rel)
+
+
+def _renderer_css_name_for_code(code: str | None) -> str | None:
+    if code is None:
         return None
     try:
-        value = int(renderer.code, 16)
+        value = int(code, 16)
     except ValueError:
         return None
     return f"Templates/{value:08X}.css"
 
 
+def _renderer_css_name(renderer: HcRendererClassification | None) -> str | None:
+    return _renderer_css_name_for_code(renderer.code if renderer is not None else None)
+
+
+def _legacy_renderer_code_for_source(source: DictionarySource) -> str | None:
+    """Infer non-DLL HTML renderer profiles from package-local renderer assets."""
+
+    templates = _resolve_package_relative_dir(source, "Templates")
+    if templates is None:
+        return None
+    codes: set[str] = set()
+    for child in sorted(templates.iterdir(), key=lambda item: item.name.casefold()):
+        if not child.is_file():
+            continue
+        match = HC_LEGACY_RENDERER_STYLESHEET_RE.match(child.name)
+        if match:
+            codes.add(match.group(1).upper())
+    if "0088" in codes:
+        return "0088"
+    if len(codes) == 1:
+        return next(iter(codes))
+    return None
+
+
 def _normalise_hc_css(css: str) -> str:
+    css = re.sub(r'(?is)@charset\s+["\'][^"\']+["\']\s*;', "", css)
     for placeholder, replacement in HC_CSS_DEFAULTS.items():
         css = css.replace(placeholder, replacement)
+    # HC0137's shipped stylesheet has ``#00000`` in the horizontal midashi
+    # rule; the Windows renderer behaves as black text, so normalize the typo
+    # when generating standalone browser output.
+    css = css.replace("#00000;", "#000000;")
+    # Some Windows HC stylesheets use IE-era shorthand such as
+    # ``color:FF0000``. Modern standalone browser output needs valid CSS.
+    css = re.sub(r"(?i)(\bcolor\s*:\s*)([0-9a-f]{6})(\s*[;}])", r"\1#\2\3", css)
     return css
+
+
+def _read_hc_text(path: Path) -> str:
+    data = path.read_bytes()
+    prefix = data[:256].decode("ascii", errors="ignore")
+    match = re.search(r'@charset\s+["\']([^"\']+)["\']', prefix, flags=re.IGNORECASE)
+    declared = (match.group(1).strip().lower() if match else "").replace("_", "-")
+    if declared in {"shift-jis", "shift_jis", "sjis", "cp932", "windows-31j"}:
+        return data.decode("cp932", errors="replace")
+    if declared in {"utf-8", "utf8"}:
+        return data.decode("utf-8", errors="replace")
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("cp932", errors="replace")
 
 
 def _html_body_inner(text: str) -> str:
@@ -4863,6 +6661,66 @@ HC0190_TEMPLATE_ASSET_ATTR_RE = re.compile(
     r"(?P<prefix>\b(?:src|href)\s*=\s*)(?P<quote>[\"'])(?P<value>[^\"']+)(?P=quote)",
     re.IGNORECASE,
 )
+HTML_IMG_SRC_RE = re.compile(r"\bsrc\s*=\s*([\"'])(?P<src>[^\"']+)\1", re.IGNORECASE)
+HTML_IMG_TAG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+HTML_ANCHOR_SINGLE_IMG_RE = re.compile(
+    r"<a\b[^>]*>\s*(?P<img><img\b[^>]*>)\s*</a>",
+    re.IGNORECASE | re.DOTALL,
+)
+VIEWER_NAVIGATION_IMAGE_NAMES = frozenset(
+    {
+        "backh.gif",
+        "forwardh.gif",
+        "backv.gif",
+        "forwardv.gif",
+    }
+)
+VIEWER_NAVIGATION_IMAGE_STEMS = frozenset(Path(name).stem for name in VIEWER_NAVIGATION_IMAGE_NAMES)
+
+
+def _is_viewer_navigation_image_ref(value: str) -> bool:
+    """Return true for Windows-reader previous/next chrome images.
+
+    These images are package assets, but they are viewer UI controls rather
+    than dictionary body content.  They appear in some Windows renderer output
+    and are absent from otherwise byte-identical Mac rendering, so standalone
+    HC output suppresses them globally.
+    """
+
+    path_part = html.unescape(value).strip().replace("\\", "/")
+    path_part = path_part.split("#", 1)[0].split("?", 1)[0]
+    name = Path(path_part).name.casefold()
+    return name in VIEWER_NAVIGATION_IMAGE_NAMES or Path(name).stem in VIEWER_NAVIGATION_IMAGE_STEMS
+
+
+def _img_tag_is_viewer_navigation(tag: str) -> bool:
+    match = HTML_IMG_SRC_RE.search(tag)
+    return match is not None and _is_viewer_navigation_image_ref(match.group("src"))
+
+
+def _strip_viewer_navigation_images(fragment: str) -> tuple[str, int]:
+    """Remove Windows-reader previous/next image controls from HTML fragments."""
+
+    removed = 0
+
+    def replace_anchor(match: re.Match[str]) -> str:
+        nonlocal removed
+        if _img_tag_is_viewer_navigation(match.group("img")):
+            removed += 1
+            return ""
+        return match.group(0)
+
+    fragment = HTML_ANCHOR_SINGLE_IMG_RE.sub(replace_anchor, fragment)
+
+    def replace_img(match: re.Match[str]) -> str:
+        nonlocal removed
+        tag = match.group(0)
+        if _img_tag_is_viewer_navigation(tag):
+            removed += 1
+            return ""
+        return tag
+
+    return HTML_IMG_TAG_RE.sub(replace_img, fragment), removed
 
 
 def _is_external_or_special_asset_ref(value: str) -> bool:
@@ -4979,6 +6837,115 @@ def _add_hc00a4_image_sources(source: DictionarySource, dict_out: Path, output_s
     return copied
 
 
+def _quote_sqlite_identifier(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _image_extension_from_blob(blob: bytes, fallback_name: str, media_type: str | None = None) -> str:
+    fallback_suffix = Path(fallback_name).suffix.lower()
+    if fallback_suffix:
+        return fallback_suffix
+    stripped = blob.lstrip()
+    media = (media_type or "").strip().lower()
+    if media in {"jpg", "jpeg", "image/jpeg"}:
+        return ".jpg"
+    if media in {"png", "image/png"}:
+        return ".png"
+    if media in {"gif", "image/gif"}:
+        return ".gif"
+    if media in {"bmp", "dib", "image/bmp"}:
+        return ".bmp"
+    if media in {"svg", "image/svg+xml"}:
+        return ".svg"
+    if media in {"tif", "tiff", "image/tiff"}:
+        return ".tif"
+    if stripped.lower().startswith(b"<svg") or (
+        stripped.lower().startswith(b"<?xml") and b"<svg" in stripped[:512].lower()
+    ):
+        return ".svg"
+    if blob.startswith((b"II*\x00", b"MM\x00*")):
+        return ".tif"
+    if blob.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if blob.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if blob.startswith(b"GIF87a") or blob.startswith(b"GIF89a"):
+        return ".gif"
+    if blob.startswith(b"BM"):
+        return ".bmp"
+    return ".bin"
+
+
+def _add_sqlite_media_store_sources(source: DictionarySource, dict_out: Path, output_sources: dict[str, str]) -> int:
+    """Materialize SQLite media-store blobs used by HTML renderer sidecars.
+
+    ARCHSIC4/HC0158 stores HTML sidecar images in ``vlpljblM.t_media`` by
+    image stem (for example ``c0001``).  The sidecar HTML references
+    ``c0001.jpg`` while HONMON private directives reference names like
+    ``IMG:b0010.bmp``; both should resolve through the same copied asset map.
+    """
+
+    exinfo = load_exinfo_for_idx(source.idx)
+    copied = 0
+    candidates = [row.path for row in discover_sqlite_sidecars(source.idx, exinfo)]
+    for child in sorted(source.idx.parent.iterdir(), key=lambda item: item.name.casefold()):
+        lower = child.name.casefold()
+        if child.is_file() and lower.startswith("vlpljbl") and lower != "vlpljbl.bin":
+            candidates.append(child)
+    seen: set[Path] = set()
+    for sidecar in candidates:
+        if sidecar in seen:
+            continue
+        seen.add(sidecar)
+        try:
+            con = sqlite3.connect(f"file:{sidecar.as_posix()}?mode=ro", uri=True)
+        except sqlite3.DatabaseError:
+            continue
+        try:
+            table = media_table_name(con)
+            columns = media_column_names(con)
+            if table is None or columns is None:
+                continue
+            _id_col, name_col, type_col, blob_col = columns
+            selected = [
+                f"{_quote_sqlite_identifier(name_col)} AS media_name",
+                f"{_quote_sqlite_identifier(blob_col)} AS media_blob",
+            ]
+            if type_col is not None:
+                selected.append(f"{_quote_sqlite_identifier(type_col)} AS media_type")
+            query = f"SELECT {', '.join(selected)} FROM {_quote_sqlite_identifier(table)} ORDER BY media_name"
+            for result in con.execute(query):
+                name = str(result[0] or "").strip().replace("\\", "/")
+                blob = result[1]
+                media_type = str(result[2] or "") if type_col is not None and len(result) > 2 else None
+                if not name or not isinstance(blob, bytes):
+                    continue
+                relative = _safe_relative_path(Path(name).name)
+                if relative is None:
+                    continue
+                extension = _image_extension_from_blob(blob, relative.name, media_type)
+                output_name = relative.name if relative.suffix else f"{relative.name}{extension}"
+                output_rel = Path("HTMLs") / output_name
+                target = dict_out / output_rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if not target.exists() or target.read_bytes() != blob:
+                    target.write_bytes(blob)
+                    copied += 1
+                rel_text = output_rel.as_posix()
+                stem_key = Path(output_name).stem.casefold()
+                name_key = output_name.casefold()
+                output_sources.setdefault(stem_key, rel_text)
+                output_sources.setdefault(name_key, rel_text)
+                output_sources.setdefault(f"HTMLs/{name_key}".casefold(), rel_text)
+                output_sources.setdefault(f"htmls/{name_key}".casefold(), rel_text)
+                output_sources.setdefault(Path(name).stem.casefold(), rel_text)
+        except sqlite3.DatabaseError:
+            continue
+        finally:
+            con.close()
+    return copied
+
+
 def _prepare_hc0190_readaloud_assets(source: DictionarySource, dict_out: Path) -> tuple[dict[str, str], int]:
     copied = 0
     assets: dict[str, str] = {}
@@ -5015,43 +6982,84 @@ def _prepare_hc_render_assets(
     output_sources: dict[str, str] = {}
     renderer_assets: dict[str, str] = {}
     for key, value in sorted((source.image_sources or {}).items()):
+        if _is_viewer_navigation_image_ref(key) or _is_viewer_navigation_image_ref(value):
+            continue
         output_sources[key] = value
         if _copy_package_asset(source, value, dict_out):
             copied += 1
     copied += _copy_package_directory_assets(source, "Templates", dict_out)
+    _add_package_directory_image_sources(source, "Templates", output_sources)
     copied += _add_hc_bitmap_gaiji_sources(source, dict_out, output_sources)
 
-    stylesheet_rel = _renderer_css_name(renderer)
+    renderer_code = (renderer.code if renderer is not None else _legacy_renderer_code_for_source(source))
+    renderer_code_upper = (renderer_code or "").upper()
+    if renderer_code_upper == "015D":
+        copied += _copy_package_directory_assets(source, "HANREI/image", dict_out)
+        _add_package_directory_image_sources(source, "HANREI/image", output_sources)
+    stylesheet_rel = _renderer_css_name_for_code(renderer_code_upper)
     stylesheet_output = None
     css_parts = [HC_RENDER_BASE_CSS]
     if stylesheet_rel is not None:
         stylesheet_source = _resolve_package_relative(source, stylesheet_rel)
         if stylesheet_source is not None:
-            css_parts.append(_normalise_hc_css(stylesheet_source.read_text(encoding="utf-8", errors="replace")))
+            css_parts.append(_normalise_hc_css(_read_hc_text(stylesheet_source)))
+    css_parts.append(HC_RENDER_FINAL_CSS)
     if css_parts:
         stylesheet_output = "hc-renderer.css"
         (dict_out / stylesheet_output).write_text("\n\n".join(css_parts) + "\n", encoding="utf-8")
         copied += 1
     html_templates: dict[str, str] = {}
-    if renderer is not None and renderer.code.upper() == "0190":
+    if renderer_code_upper == "0190":
         html_templates = _load_hc0190_templates(source)
         hc0190_assets, hc0190_copied = _prepare_hc0190_readaloud_assets(source, dict_out)
         renderer_assets.update(hc0190_assets)
         copied += hc0190_copied
-    if renderer is not None and renderer.code.upper() == "00A0":
+    if renderer_code_upper == "00A0":
         html_templates = _load_hc00a0_templates(source)
         copied += _copy_package_directory_assets(source, "mp3", dict_out)
-    if renderer is not None and renderer.code.upper() == "009C":
+    if renderer_code_upper == "009C":
         copied += _add_hc009c_image_sources(source, dict_out, output_sources)
-    if renderer is not None and renderer.code.upper() == "00A4":
+    if renderer_code_upper == "00A4":
         html_templates = _load_hc00a4_templates(source)
         copied += _add_hc00a4_image_sources(source, dict_out, output_sources)
+    copied += _add_sqlite_media_store_sources(source, dict_out, output_sources)
     return output_sources, html_templates, stylesheet_output, copied, renderer_assets
+
+
+def _make_colscr_image_resolver(source: DictionarySource, dict_out: Path) -> Callable[[MediaPointer], str | None] | None:
+    colscr_path = find_colscr_path(source.idx)
+    if colscr_path is None:
+        return None
+    reader = SsedRandomReader(colscr_path)
+    media_dir = dict_out / "media" / "colscr"
+    media_dir.mkdir(parents=True, exist_ok=True)
+    cache: dict[tuple[int, int], str | None] = {}
+
+    def resolve(pointer: MediaPointer) -> str | None:
+        key = (pointer.block, pointer.offset)
+        if key in cache:
+            return cache[key]
+        parsed = read_colscr_record(reader, pointer)
+        if parsed is None:
+            cache[key] = None
+            return None
+        record, image = parsed
+        filename = f"{pointer.block:08d}_{pointer.offset:04d}.{record.extension}"
+        out_path = media_dir / filename
+        if not out_path.exists() or out_path.read_bytes() != image:
+            out_path.write_bytes(image)
+        rel = _relative_browser_path(out_path, dict_out)
+        cache[key] = rel
+        return rel
+
+    return resolve
 
 
 def _write_hc_html_header(html_out: Any, *, stylesheet: str | None, vertical: bool) -> None:
     body_class = "v" if vertical else "h"
-    html_out.write("<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n")
+    html_out.write(
+        f'<!doctype html>\n<html class="{body_class}">\n<head>\n<meta charset="utf-8">\n'
+    )
     if stylesheet:
         html_out.write(f'<link rel="stylesheet" href="{_escape_attr(stylesheet)}">\n')
     html_out.write(f"<script>\n{HC_RENDER_BASE_SCRIPT}\n</script>\n")
@@ -5060,6 +7068,27 @@ def _write_hc_html_header(html_out: Any, *, stylesheet: str | None, vertical: bo
 
 def _write_hc_html_footer(html_out: Any) -> None:
     html_out.write("</body>\n</html>\n")
+
+
+def _source_prefers_vertical(source: DictionarySource, args: argparse.Namespace) -> bool:
+    if bool(getattr(args, "vertical", False)):
+        return True
+    exinfo = load_exinfo_for_idx(source.idx)
+    value = (exinfo.general.get("VERTICAL", "") if exinfo is not None else "").strip().casefold()
+    return value in {"1", "true", "yes", "y", "vertical"}
+
+
+def _effective_renderer_code_for_source(
+    source: DictionarySource,
+    renderer: HcRendererClassification | None,
+) -> str | None:
+    """Return the active renderer profile, including legacy non-DLL profiles."""
+
+    if renderer is not None:
+        return renderer.code
+    if source.dict_id.upper() == "ARCHSIC3":
+        return "ARCHSIC3"
+    return _legacy_renderer_code_for_source(source)
 
 
 def _relative_browser_path(path: Path, base: Path) -> str:
@@ -5267,9 +7296,7 @@ def _rewrite_exact_body_asset_refs(
 ) -> str:
     """Rewrite bare renderer-sidecar asset names to copied package assets."""
 
-    def replace_src(match: re.Match[str]) -> str:
-        quote = match.group(1)
-        src = html.unescape(match.group(2))
+    def mapped_bare_asset(src: str) -> str | None:
         lower = src.lower()
         if (
             ":" in src
@@ -5278,14 +7305,39 @@ def _rewrite_exact_body_asset_refs(
             or "/" in src
             or lower.startswith(("data:", "javascript:", "mailto:"))
         ):
-            return match.group(0)
+            return None
         if (dict_out / src).is_file():
-            return match.group(0)
-        for dirname in ("Templates", "HANREI/img", "HTMLs", "images", "img"):
+            return src
+        for dirname in (
+            "Templates",
+            "HANREI/img",
+            "HANREI/image",
+            "HTMLs",
+            "images",
+            "img",
+            "media",
+            f"rendererdb/{dict_out.name}/media",
+            "rendererdb/media",
+        ):
             candidate = dict_out / dirname / src
             if candidate.is_file():
-                return f"src={quote}{_escape_attr(str(Path(dirname) / src))}{quote}"
-        return match.group(0)
+                return str(Path(dirname) / src)
+            case_match = find_case_insensitive(dict_out / dirname, src)
+            if case_match is not None and case_match.is_file():
+                return _relative_browser_path(case_match, dict_out)
+        return None
+
+    def replace_src(match: re.Match[str]) -> str:
+        quote = match.group(1)
+        src = html.unescape(match.group(2))
+        mapped = mapped_bare_asset(src)
+        return match.group(0) if mapped is None or mapped == src else f"src={quote}{_escape_attr(mapped)}{quote}"
+
+    def replace_object_data(match: re.Match[str]) -> str:
+        quote = match.group(1)
+        src = html.unescape(match.group(2))
+        mapped = mapped_bare_asset(src)
+        return match.group(0) if mapped is None or mapped == src else f"data={quote}{_escape_attr(mapped)}{quote}"
 
     def replace_ziptomedia_href(match: re.Match[str]) -> str:
         prefix = match.group(1)
@@ -5363,6 +7415,7 @@ def _rewrite_exact_body_asset_refs(
 
     rewritten = _normalize_exact_body_fragment_html(fragment)
     rewritten = re.sub(r'src=(["\'])([^"\']+)\1', replace_src, rewritten)
+    rewritten = re.sub(r'\bdata=(["\'])([^"\']+)\1', replace_object_data, rewritten)
     rewritten = re.sub(
         r'(\bhref\s*=\s*)(["\'])lved\.ziptomedia:([^"\']+)(["\'])',
         replace_ziptomedia_href,
@@ -5388,7 +7441,132 @@ def _rewrite_exact_body_asset_refs(
         rewritten,
         flags=re.IGNORECASE,
     )
+    rewritten, _removed = _strip_viewer_navigation_images(rewritten)
     return rewritten
+
+
+def _hc015d_marker_image_html(filename: str, alt: str) -> str:
+    return (
+        f'<img src="HANREI/image/{_escape_attr(filename)}" '
+        f'class="hc015d-marker" alt="{_escape_attr(alt)}">'
+    )
+
+
+def _unicode_from_hex_code(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text or text == "―":
+        return None
+    try:
+        codepoint = int(text, 16)
+    except ValueError:
+        return None
+    if codepoint <= 0 or codepoint > 0x10FFFF or 0xD800 <= codepoint <= 0xDFFF:
+        return None
+    return chr(codepoint)
+
+
+def _is_private_use_text(value: str) -> bool:
+    return any(0xE000 <= ord(char) <= 0xF8FF for char in value)
+
+
+def _load_hc015d_kanji_pua_map(rendererdb_summary: dict[str, Any] | None) -> dict[str, str]:
+    """Recover HC015D dictionary-font PUA fallbacks from t_kanji.
+
+    SINJIGEN's rendererdb carries a t_kanji table where many private-use
+    display titles either have an explicit Unicode codepoint or share a data id
+    with the corresponding Unicode title.  The HC DLL uses a dictionary font;
+    standalone HTML cannot assume that font is installed, so the renderer
+    profile substitutes the public Unicode character when the table proves it.
+    """
+
+    if not rendererdb_summary:
+        return {}
+    sqlite_path_value = rendererdb_summary.get("sqlite_path")
+    if not sqlite_path_value:
+        return {}
+    sqlite_path = Path(str(sqlite_path_value))
+    if not sqlite_path.is_file():
+        return {}
+    replacements: dict[str, str] = {}
+    by_data_id: dict[str, str] = {}
+    pending: list[tuple[str, str]] = []
+    try:
+        con = sqlite3.connect(f"file:{sqlite_path.as_posix()}?mode=ro", uri=True)
+    except sqlite3.DatabaseError:
+        return {}
+    try:
+        try:
+            rows = con.execute("SELECT f_DataId, f_Title, f_UniCode FROM t_kanji")
+        except sqlite3.DatabaseError:
+            return {}
+        for raw_data_id, raw_title, raw_unicode in rows:
+            data_id = str(raw_data_id or "").strip()
+            title = str(raw_title or "")
+            if not title:
+                continue
+            unicode_char = _unicode_from_hex_code(raw_unicode)
+            if len(title) == 1 and _is_private_use_text(title):
+                if unicode_char is not None:
+                    replacements.setdefault(title, unicode_char)
+                elif data_id:
+                    pending.append((title, data_id))
+                continue
+            if data_id and len(title) == 1 and not _is_private_use_text(title):
+                by_data_id.setdefault(data_id, title)
+            if data_id and unicode_char is not None:
+                by_data_id.setdefault(data_id, unicode_char)
+    finally:
+        con.close()
+    for title, data_id in pending:
+        replacement = by_data_id.get(data_id)
+        if replacement is not None:
+            replacements.setdefault(title, replacement)
+    return replacements
+
+
+def _apply_hc015d_exact_rendererdb_profile(
+    fragment: str,
+    *,
+    rendererdb_summary: dict[str, Any] | None,
+) -> str:
+    replacements: dict[str, str] = {}
+    replacements.update(_load_hc015d_kanji_pua_map(rendererdb_summary))
+    replacements.update(HC015D_KNOWN_PUA_EQUIVALENTS)
+    replacements.update(HC015D_UNICODE_PUA_MARKERS)
+    for marker, (filename, alt) in HC015D_IMAGE_PUA_MARKERS.items():
+        replacements[marker] = _hc015d_marker_image_html(filename, alt)
+    for marker, replacement in sorted(replacements.items(), key=lambda item: item[0]):
+        fragment = fragment.replace(marker, replacement)
+    return fragment
+
+
+def _apply_exact_rendererdb_renderer_profile(
+    fragment: str,
+    *,
+    renderer_code: str | None,
+    rendererdb_summary: dict[str, Any] | None = None,
+) -> str:
+    """Apply renderer-specific layout recovered for exact rendererdb bodies."""
+
+    code = (renderer_code or "").upper()
+    if code == "015D":
+        return _apply_hc015d_exact_rendererdb_profile(fragment, rendererdb_summary=rendererdb_summary)
+    if code != "03E8":
+        return fragment
+    if re.search(r"<\s*(?:a|br|div|dl|img|object|ol|p|ruby|span|table|ul)\b", fragment, flags=re.IGNORECASE):
+        return fragment
+    text = fragment.strip()
+    match = re.match(r"^(.+?】)\s+(.+)$", text, flags=re.DOTALL)
+    if match is None:
+        return fragment
+    midashi = match.group(1).strip()
+    honbun = match.group(2).strip()
+    if not midashi or not honbun:
+        return fragment
+    return (
+        f'<div class="midashi">{midashi}</div>'
+        f'<div class="honbun" style="margin-left:2.000000em;">{honbun}</div>'
+    )
 
 
 def _write_exact_hc_entries_html_from_rendererdb(
@@ -5397,6 +7575,8 @@ def _write_exact_hc_entries_html_from_rendererdb(
     *,
     stylesheet: str | None,
     vertical: bool,
+    renderer_code: str | None = None,
+    reader_style: str = WINDOWS_READER_STYLE,
 ) -> Path | None:
     entries_path_value = rendererdb_summary.get("entries_path")
     if not entries_path_value:
@@ -5421,8 +7601,10 @@ def _write_exact_hc_entries_html_from_rendererdb(
             data_id_targets.setdefault(key, raw_data_id)
     ziptomedia_hrefs = _ziptomedia_href_map(rendererdb_summary, dict_out)
     html_path = dict_out / "hc_entries.html"
+    renderer_code_upper = (renderer_code or "").upper()
+    effective_vertical = vertical or renderer_code_upper in EXACT_RENDERERDB_VERTICAL_CODES
     with html_path.open("w", encoding="utf-8") as html_out:
-        _write_hc_html_header(html_out, stylesheet=stylesheet, vertical=vertical)
+        _write_hc_html_header(html_out, stylesheet=stylesheet, vertical=effective_vertical)
         for record in records:
             raw_data_id = str(record.get("data_id") or "").strip()
             label = html.escape(str(record.get("data_id") or record.get("entry_index") or ""))
@@ -5434,9 +7616,21 @@ def _write_exact_hc_entries_html_from_rendererdb(
                     ziptomedia_hrefs=ziptomedia_hrefs,
                     data_id_targets=data_id_targets,
                 )
+                body_html = _apply_exact_rendererdb_renderer_profile(
+                    body_html,
+                    renderer_code=renderer_code,
+                    rendererdb_summary=rendererdb_summary,
+                )
             else:
                 body_html = f"<pre>{html.escape(str(record.get('plain') or ''))}</pre>"
-            entry_attrs = 'class="rendererdb-entry exact-rendererdb-entry"'
+            entry_classes = ["rendererdb-entry", "exact-rendererdb-entry"]
+            if renderer_code:
+                entry_classes.append(f"hc{renderer_code_upper.lower()}")
+            if reader_style == WINDOWS_READER_STYLE:
+                entry_classes.append("lv-hc-windows-reader")
+                if renderer_code_upper in EXACT_RENDERERDB_BLUE_HEADWORD_CODES:
+                    entry_classes.append("lv-hc-blue-headword")
+            entry_attrs = f'class="{" ".join(entry_classes)}"'
             if raw_data_id:
                 safe_data_id = _safe_href_token(raw_data_id)
                 entry_attrs += f' id="lv-dataid-{safe_data_id}" data-lv-dataid="{_escape_attr(raw_data_id)}"'
@@ -5455,16 +7649,35 @@ def _replace_template_values(template: str, replacements: dict[str, str]) -> str
 
 
 def _hc00a0_rewrite_asset_sources(fragment: str, options: HcRenderOptions) -> str:
+    def resolve_image_source(src: str) -> str | None:
+        path = Path(src)
+        return options.image_sources.get(path.name.casefold()) or options.image_sources.get(path.stem.casefold())
+
     def replace(match: re.Match[str]) -> str:
         quote = match.group(1)
         src = html.unescape(match.group(2))
         if "/" in src or "\\" in src or ":" in src:
             return match.group(0)
-        key = Path(src).stem.lower()
-        mapped = options.image_sources.get(key)
+        mapped = resolve_image_source(src)
         if mapped is None:
             return match.group(0)
         return f'src={quote}{_escape_attr(mapped)}{quote}'
+
+    def replace_play_all_control(match: re.Match[str]) -> str:
+        tag = match.group(0)
+        tag_without_onclick = re.sub(
+            r'\s+onclick=(["\'])lvedPlayAll\(\s*\);?\1',
+            "",
+            tag,
+            flags=re.IGNORECASE,
+        )
+        return (
+            '<a class="lv-hc-audio hc00a0-audio hc00a0-play-all" '
+            'href="#lv-audio-hc00a0-all" '
+            'data-lv-audio-action="play-all" '
+            'data-lv-original-onclick="lvedPlayAll();">'
+            f"{tag_without_onclick}</a>"
+        )
 
     def replace_audio_control(match: re.Match[str]) -> str:
         tag = match.group(0)
@@ -5487,6 +7700,12 @@ def _hc00a0_rewrite_asset_sources(fragment: str, options: HcRenderOptions) -> st
         )
 
     rewritten = re.sub(r'src=(["\'])([^"\']+)\1', replace, fragment)
+    rewritten = re.sub(
+        r'<img\b[^>]*\s+onclick=(["\'])lvedPlayAll\(\s*\);?\1[^>]*>',
+        replace_play_all_control,
+        rewritten,
+        flags=re.IGNORECASE,
+    )
     return re.sub(
         r'<img\b[^>]*\s+onclick=(["\'])lvedPlay\(\s*["\'](?P<detail>[^"\']+)["\']\s*,\s*["\'](?P<file>[^"\']+)["\']\s*\);?\1[^>]*>',
         replace_audio_control,
@@ -5603,6 +7822,7 @@ def _render_hc00a0_body(data: bytes, options: HcRenderOptions) -> HcRenderResult
 
     sections: dict[str, list[str]] = {}
     section_text: dict[str, list[str]] = {}
+    details: list[dict[str, str | None]] = []
     current_section: str | None = None
     style_stack: list[int] = []
     halfwidth_depth = 0
@@ -5610,6 +7830,45 @@ def _render_hc00a0_body(data: bytes, options: HcRenderOptions) -> HcRenderResult
     gaps: set[str] = set()
     private_directives: list[dict[str, Any]] = []
     play_sound: str | None = None
+
+    def has_current_detail() -> bool:
+        return play_sound is not None or any(parts for parts in sections.values())
+
+    def flush_detail() -> None:
+        nonlocal sections, section_text, play_sound, current_section, style_stack, halfwidth_depth
+        english_html = "".join(sections.get("0001", []))
+        japanese_html = "".join(sections.get("0002", []))
+        english_text = "".join(section_text.get("0001", []))
+        japanese_text = "".join(section_text.get("0002", []))
+        if not any((english_html, japanese_html, english_text, japanese_text, play_sound)):
+            sections = {}
+            section_text = {}
+            current_section = None
+            style_stack = []
+            halfwidth_depth = 0
+            play_sound = None
+            return
+        detail_no = Path(play_sound or "0000.mp3").stem
+        if not re.fullmatch(r"\d{4}", detail_no):
+            detail_no = "0000"
+        if play_sound is None:
+            gaps.add("hc00a0_missing_play_sound_directive")
+        details.append(
+            {
+                "english_html": english_html,
+                "japanese_html": japanese_html,
+                "english_text": english_text,
+                "japanese_text": japanese_text,
+                "play_sound": play_sound,
+                "detail_no": detail_no,
+            }
+        )
+        sections = {}
+        section_text = {}
+        current_section = None
+        style_stack = []
+        halfwidth_depth = 0
+        play_sound = None
 
     def parts_for(code: str | None) -> list[str]:
         return sections.setdefault(code or "0000", [])
@@ -5638,7 +7897,10 @@ def _render_hc00a0_body(data: bytes, options: HcRenderOptions) -> HcRenderResult
                 gaps.add(f"truncated_control_1f{op:02x}")
                 break
             if op == 0x09:
-                current_section = payload.hex() if payload else "0000"
+                next_section = payload.hex() if payload else "0000"
+                if next_section == "0001" and has_current_detail():
+                    flush_detail()
+                current_section = next_section
                 parts_for(current_section)
                 text_for(current_section)
                 stats["section_markers"] += 1
@@ -5749,20 +8011,13 @@ def _render_hc00a0_body(data: bytes, options: HcRenderOptions) -> HcRenderResult
         stats["unknown_bytes"] += 1
         i += 1
 
-    english_html = "".join(sections.get("0001", []))
-    japanese_html = "".join(sections.get("0002", []))
-    english_text = "".join(section_text.get("0001", []))
-    japanese_text = "".join(section_text.get("0002", []))
-    detail_no = Path(play_sound or "0000.mp3").stem
-    if not re.fullmatch(r"\d{4}", detail_no):
-        detail_no = "0000"
-    if play_sound is None:
-        gaps.add("hc00a0_missing_play_sound_directive")
-
-    replacements = {
-        "$$DISPLAY_MIDASHI$$": "none",
-        "$$MIDASHI$$": "",
-        "$$SUBMIDASHI$$": "",
+    flush_detail()
+    heading = options.template_heading or ""
+    subheading = options.template_subheading or ""
+    header_replacements = {
+        "$$DISPLAY_MIDASHI$$": "table-row" if heading or subheading else "none",
+        "$$MIDASHI$$": _escape_text(heading),
+        "$$SUBMIDASHI$$": _escape_text(subheading),
         "$$MODE_EJ$$": "1",
         "$$MODE_E$$": "2",
         "$$MODE_J$$": "2",
@@ -5770,43 +8025,230 @@ def _render_hc00a0_body(data: bytes, options: HcRenderOptions) -> HcRenderResult
         "$$MODE_OK$$": "2",
         "$$MODE_QU$$": "2",
         "$$MODE_EX$$": "2",
+    }
+    detail_template = options.html_templates.get("Detail", HC00A0_DETAIL_FALLBACK)
+    detail_html_parts: list[str] = []
+    plain_lines: list[str] = []
+    audio_rows: list[dict[str, Any]] = []
+    for detail in details:
+        play = str(detail.get("play_sound") or "")
+        detail_no = str(detail.get("detail_no") or "0000")
+        replacements = {
+            **header_replacements,
+            "$$DISPLAY_DETAIL$$": "inline",
+            "$$DISPLAY_ENGLISH$$": "inline",
+            "$$DISPLAY_JAPANESE$$": "inline",
+            "$$DETAIL_PLAY$$": play,
+            "$$DETAIL_PLAYNUM$$": "0",
+            "$$DETAIL_EX$$": "2",
+            "$$DETAIL_OK$$": "2",
+            "$$JAPANESE$$": str(detail.get("japanese_html") or ""),
+            "$$ENGLISH$$": str(detail.get("english_html") or ""),
+            "$$LINE_NO$$": detail_no,
+            "$$DETAIL_NO$$": detail_no,
+        }
+        detail_html_parts.append(_replace_template_values(detail_template, replacements))
+        english_text = str(detail.get("english_text") or "")
+        japanese_text = str(detail.get("japanese_text") or "")
+        plain_lines.extend(part for part in (english_text, japanese_text) if part)
+        if play:
+            stats["hc00a0_audio_links"] += 1
+            audio_rows.append(
+                {
+                    "target": {
+                        "component": "mp3",
+                        "resource_id": f"file:mp3/{play}",
+                        "path": f"mp3/{play}",
+                    },
+                    "status": "file_reference",
+                }
+            )
+    replacements = {
+        **header_replacements,
         "$$DISPLAY_DETAIL$$": "inline",
         "$$DISPLAY_ENGLISH$$": "inline",
         "$$DISPLAY_JAPANESE$$": "inline",
-        "$$DETAIL_PLAY$$": play_sound or "",
+        "$$DETAIL_PLAY$$": "",
         "$$DETAIL_PLAYNUM$$": "0",
         "$$DETAIL_EX$$": "2",
         "$$DETAIL_OK$$": "2",
-        "$$JAPANESE$$": japanese_html,
-        "$$ENGLISH$$": english_html,
-        "$$LINE_NO$$": detail_no,
-        "$$DETAIL_NO$$": detail_no,
+        "$$JAPANESE$$": "",
+        "$$ENGLISH$$": "",
+        "$$LINE_NO$$": "0000",
+        "$$DETAIL_NO$$": "0000",
     }
     header = _replace_template_values(options.html_templates.get("Header", HC00A0_HEADER_FALLBACK), replacements)
-    detail = _replace_template_values(options.html_templates.get("Detail", HC00A0_DETAIL_FALLBACK), replacements)
-    html_body = _hc00a0_rewrite_asset_sources(header + "\n" + detail, options)
-    stats["hc00a0_detail_rows"] += 1
-    if play_sound:
-        stats["hc00a0_audio_links"] += 1
-    plain = "\n".join(part for part in (english_text, japanese_text) if part)
+    html_body = _decode_fullwidth_html_charrefs(_hc00a0_rewrite_asset_sources(header + "\n" + "\n".join(detail_html_parts), options))
+    stats["hc00a0_detail_rows"] += len(details)
+    plain = "\n".join(plain_lines)
     return HcRenderResult(
         html=f'<div class="lv-hc-render hc00a0">{html_body}</div>',
         plain=plain,
         stats=dict(stats),
-        audio=(
-            {
-                "target": {
-                    "component": "mp3",
-                    "resource_id": f"file:mp3/{play_sound}",
-                    "path": f"mp3/{play_sound}",
-                },
-                "status": "file_reference",
-            },
-        )
-        if play_sound
-        else (),
+        audio=tuple(audio_rows),
         private_directives=tuple(private_directives),
         named_behavior_gaps=tuple(sorted(gaps)),
+    )
+
+
+def _hc0088_sections_text(data: bytes, stats: Counter[str]) -> dict[str, str]:
+    sections: dict[str, list[str]] = {"0000": []}
+    current_section = "0000"
+    halfwidth_depth = 0
+    italic_depth = 0
+    i = 0
+    while i < len(data):
+        byte = data[i]
+        if byte == 0:
+            i += 1
+            continue
+        if byte == 0x0A:
+            sections.setdefault(current_section, []).append("\n")
+            stats["line_breaks"] += 1
+            i += 1
+            continue
+        if byte == 0x1F and i + 1 < len(data):
+            op = data[i + 1]
+            arg_len = control_arg_length(data, i)
+            payload = data[i + 2 : i + 2 + arg_len]
+            stats["controls"] += 1
+            if len(payload) < arg_len:
+                stats["truncated_controls"] += 1
+                break
+            if op == 0x09:
+                current_section = payload.hex() if payload else "0000"
+                sections.setdefault(current_section, [])
+                stats["section_markers"] += 1
+                stats["hc0088_sections_captured"] += 1
+            elif op == 0x04:
+                halfwidth_depth += 1
+                stats["hc0088_halfwidth_spans"] += 1
+            elif op == 0x05:
+                halfwidth_depth = max(0, halfwidth_depth - 1)
+            elif op == 0x10:
+                italic_depth += 1
+                stats["hc0088_italic_spans"] += 1
+            elif op == 0x11:
+                italic_depth = max(0, italic_depth - 1)
+            elif op == 0x0A:
+                sections.setdefault(current_section, []).append("\n")
+                stats["line_breaks"] += 1
+            elif op in {0x41, 0x61, 0xE0, 0xE1}:
+                stats["hc0088_style_state_controls"] += 1
+            else:
+                stats["hc0088_ignored_controls"] += 1
+            i += 2 + arg_len
+            continue
+        if i + 1 < len(data) and 0x21 <= byte <= 0x7E and 0x21 <= data[i + 1] <= 0x7E:
+            text = decode_jis_pair(data[i : i + 2])
+            if text:
+                if halfwidth_depth or italic_depth:
+                    text = normalize_fullwidth_ascii(text)
+                sections.setdefault(current_section, []).append(text)
+                stats["jis_pairs"] += 1
+            i += 2
+            continue
+        stats["unknown_bytes"] += 1
+        i += 1
+    return {key: "".join(value).strip() for key, value in sections.items() if "".join(value).strip()}
+
+
+def _hc0088_heading_html(heading: str, options: HcRenderOptions, stats: Counter[str]) -> tuple[str, list[str]]:
+    normalized = normalize_fullwidth_ascii(re.sub(r"[ \t\u3000]+", " ", heading.replace("\n", " "))).strip()
+    match = HC0088_HEADING_RE.match(normalized)
+    title = normalized
+    yomi = ""
+    roman = ""
+    category = ""
+    if match is not None:
+        title = match.group("title").strip()
+        yomi = (match.group("yomi") or "").strip()
+        roman = (match.group("roman") or "").strip()
+        category = (match.group("category") or "").strip()
+    else:
+        category_match = re.search(r"〔([^〕]+)〕\s*$", normalized)
+        if category_match is not None:
+            category = category_match.group(1).strip()
+            title = normalized[: category_match.start()].strip()
+
+    image_key = HC0088_CATEGORY_IMAGES.get(category)
+    image_html = ""
+    if image_key is not None:
+        image_src = _image_source_for_key(image_key, options) or _image_source_for_key(f"{image_key}.png", options)
+        if image_src is not None:
+            image_html = (
+                f'<img src="{_escape_attr(image_src)}" class="img_mark" '
+                f'alt="{_escape_attr(category)}"> '
+            )
+            stats["hc0088_category_images"] += 1
+        else:
+            stats["hc0088_missing_category_images"] += 1
+    if category:
+        stats["hc0088_category_labels_suppressed"] += 1
+
+    html_parts = [f'<div class="midashi">{image_html}{_escape_text(title)}</div>']
+    plain_parts = [title]
+    if yomi or roman:
+        yomi_html = _escape_text(yomi)
+        yomi_plain = yomi
+        if roman:
+            yomi_html += f'(<i>{_escape_text(roman)}</i>)'
+            yomi_plain += f"({roman})"
+        html_parts.append(f'<div class="midashi_yomi">{yomi_html}</div>')
+        plain_parts.append(yomi_plain)
+        stats["hc0088_midashi_yomi_blocks"] += 1
+    stats["hc0088_midashi_blocks"] += 1
+    return "".join(html_parts), plain_parts
+
+
+def _hc0088_body_fields(text: str) -> list[str]:
+    normalized = re.sub(r"[ \t\u3000]+", " ", text.replace("\n", " ")).strip()
+    if not normalized:
+        return []
+    matches = list(HC0088_FIELD_LABEL_RE.finditer(normalized))
+    if not matches:
+        return [normalized]
+    fields: list[str] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(normalized)
+        field = normalized[match.start() : end].strip()
+        if field:
+            fields.append(field)
+    return fields
+
+
+def _render_hc0088_body(data: bytes, options: HcRenderOptions) -> HcRenderResult:
+    """Render NGYK-style legacy HTML packages driven by ``00000088.css``.
+
+    These packages do not ship an HC DLL.  The renderer behavior is encoded by
+    ``HTML=1``, the package-local stylesheet, MM category badges, and the raw
+    section/body fields.
+    """
+
+    stats: Counter[str] = Counter()
+    sections = _hc0088_sections_text(data, stats)
+    root_parts: list[str] = []
+    plain_parts: list[str] = []
+
+    heading = sections.get("0001") or sections.get("0000") or ""
+    if heading:
+        heading_html, heading_plain = _hc0088_heading_html(heading, options, stats)
+        root_parts.append(heading_html)
+        plain_parts.extend(heading_plain)
+
+    body_fields = _hc0088_body_fields(sections.get("0002", ""))
+    if body_fields:
+        root_parts.append('<div class="contents_body">')
+        for field in body_fields:
+            root_parts.append(f'<div class="hc0088-field">{_escape_text(field)}</div>')
+            plain_parts.append(field)
+        root_parts.append("</div>")
+        stats["hc0088_body_fields"] += len(body_fields)
+
+    return HcRenderResult(
+        html=f'<div class="lv-hc-render hc0088">{"".join(root_parts)}</div>',
+        plain="\n".join(part for part in plain_parts if part).strip(),
+        stats=dict(stats),
     )
 
 
@@ -5814,6 +8256,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     """Render one expanded HONMON body slice with common HC semantics."""
 
     options = options or HcRenderOptions()
+    if _renderer_code(options) == "0088":
+        return _render_hc0088_body(data, options)
     if _renderer_code(options) == "00A0":
         return _render_hc00a0_body(data, options)
     section_rules = _renderer_section_rules(options)
@@ -5828,12 +8272,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc00c6_marker_stack: list[tuple[str, str]] = []
     hc009d_marker_stack: list[tuple[str, str]] = []
     hc0141_marker_stack: list[tuple[str, str]] = []
+    hc0141_decoration_stack: list[str] = []
     hc0144_marker_stack: list[tuple[str, str]] = []
     hc0145_marker_stack: list[tuple[str, str]] = []
     hc03e8_marker_stack: list[tuple[str, str]] = []
     hc02be_marker_stack: list[tuple[str, str]] = []
+    hc02be_decoration_stack: list[str] = []
+    hc02bf_decoration_stack: list[str] = []
     hc02bc_marker_stack: list[tuple[str, str]] = []
     hc012e_marker_stack: list[tuple[str, str]] = []
+    hc0146_decoration_stack: list[str] = []
     stats: Counter[str] = Counter()
     links: list[dict[str, Any]] = []
     media: list[dict[str, Any]] = []
@@ -5844,23 +8292,40 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc00c6_section_open = False
     hc00c6_example_block_active = False
     hc00c6_supab_pending = False
+    hc00c6_current_section_code: str | None = None
+    hc00c6_heading_capture_active = False
+    hc00c6_headword_parts: list[str] = []
     hc0094_section_close: str | None = None
     hc0094_color_div_close: str | None = None
+    hc0094_color_div_class: str | None = None
+    hc0094_current_section: int | None = None
+    hc0094_toc_line_active = False
+    hc0094_merge_color_box_marker = False
     hc0093_section_close: str | None = None
     hc0093_current_section: int | None = 0
     hc0093_contents_body_open = False
+    hc0093_toc_line_active = False
+    hc0093_ruby_open = False
+    hc0093_ruby_reading_open = False
+    hc0093_suppress_next_ruby_open_paren = False
+    hc0093_suppress_next_ruby_close_paren = False
     hc0095_page_kind = _hc0095_page_kind(data) if _renderer_code(options) == "0095" else 0
     hc0095_section_close: str | None = None
     hc0095_current_section: int | None = 0
     hc0095_contents_body_open = False
+    hc0095_footer_line_active = False
+    hc0095_ruby_open = False
     hc009f_section_close: str | None = None
     hc009f_current_section: int | None = None
     hc009f_midashi_open = False
+    hc009f_midashi_alias_open = False
     hc009f_season: str | None = None
-    hc009f_skip_next_jis = False
+    hc009f_suppress_jis_pairs = 0
+    hc009f_suppress_next_linebreak = False
     hc0096_section_close: str | None = None
     hc0096_current_section: int | None = 0
     hc0096_contents_body_open = False
+    hc0096_ruby_open = False
     hc0091_midashi_open = False
     hc0091_contents_open = False
     hc0090_section_close: str | None = None
@@ -5872,6 +8337,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0135_midashi_open = False
     hc0135_contents_body_open = False
     hc0135_honbun_user_open = False
+    hc0135_suppress_heading_tail = False
+    hc0135_example_open = False
     hc014f_current_section: int | None = None
     hc014f_midashi_open = False
     hc014f_contents_open = False
@@ -5879,6 +8346,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc009d_section_close: str | None = None
     hc009d_current_section_value: int | None = None
     hc009d_table_header_open = False
+    hc009d_toc_line_open = False
+    hc009d_box_label_open = False
+    hc009d_ruby_open = False
     hc009b_section_close: str | None = None
     hc009c_section_close: str | None = None
     hc009c_marker_stack: list[str] = []
@@ -5890,8 +8360,13 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0151_table_open = False
     hc0151_contents_open = False
     hc0151_small_depth = 0
+    hc0151_suppress_spaces_after_media = False
+    hc0151_chars_since_break = 0
+    hc013f_current_section: str | None = None
+    hc013f_suppress_media_alt_until_link = False
     hc0146_section_close: str | None = None
     hc0146_column_frame_close: str | None = None
+    hc0146_example_frame_state: str | None = None
     hc0157_section_close: str | None = None
     hc0157_group_close: str | None = None
     hc0157_group_open_part_count: int | None = None
@@ -5899,12 +8374,18 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc0142_current_section: str | None = None
     hc0142_marker_stack: list[tuple[str, str]] = []
     hc02bc_section_open = False
+    hc02bc_seen_section = False
+    hc02bc_suppress_media_label_remaining = 0
+    media_filename_label_suppression_remaining = ""
     hc02be_section_open = False
     hc02be_section_close: str | None = None
     hc013d_clickmenu_close: str | None = None
     hc013d_clickmenu_field_close: str | None = None
     hc013d_gray_table_open = False
     hc013d_pc_table_open = False
+    hc013d_product_card_open = False
+    hc013d_current_section_value: int | None = None
+    hc013d_midashi_deferred_close = False
     hc0190_sections: dict[int, str] = {}
     hc0190_template_key: str | None = None
     hc00b6_section_close: str | None = None
@@ -5914,19 +8395,46 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc012d_yindex_field_open = False
     hc013d_section_close: str | None = None
     hc0141_section_close: str | None = None
+    hc0141_current_section_value: int | None = None
+    hc0141_example_open = False
+    hc0141_example_line_started = False
+    hc0141_pending_italic_before_halfwidth = False
+    hc0141_double_pipe_crossref_pending = False
     hc0144_section_close: str | None = None
     hc0145_section_close: str | None = None
+    hc0145_example_open = False
+    hc0145_example_line_started = False
     hc0158_section_close: str | None = None
+    hc0158_active_column_value: int | None = None
+    hc0158_active_column_class: str | None = None
+    hc0158_current_section_value: int | None = None
+    hc0158_ruigo_table_open = False
+    hc0158_ruigo_row_open = False
+    hc0158_ruigo_second_cell = False
     hc_hkdksr_medical_section_close: str | None = None
+    hc_hkdksr_medical_current_section_value: int | None = None
+    hc_hkdksr_medical_midashi_deferred_close = False
+    hc_hkdksr_medical_title_label_pending = False
+    hc_hkdksr_medical_title_label_buffer = ""
+    hc_hkdksr_medical_title_image_emitted = False
+    hc_hkdksr_medical_product_label_pending = False
+    hc_hkdksr_medical_product_label_buffer = ""
+    hc_hkdksr_medical_product_title_emitted = False
     hc_hkdksr_medical_table_open = False
+    hc_hkdksr_product_card_open = False
     hc008c_section_close: str | None = None
     hc008c_heading_phase = _renderer_code(options) == "008C"
     hc008c_contents_body_open = False
     hc03e8_section_close: str | None = None
     hc00a6_section_close: str | None = None
+    hc00a6_current_section_value: int | None = None
+    hc00a6_suppress_media_caption = False
     hc00a6_ruby_readings: list[str] = []
     hc00a4_section_close: str | None = None
+    hc00a4_current_section_value: int | None = None
     hc00a4_midashi_open = False
+    hc00a4_suppress_heading = False
+    hc00a4_suppress_next_heading_break = False
     hc00a4_ruby_open = False
     hc00a9_section_close: str | None = None
     hc00a9_current_section: int | None = None
@@ -5935,18 +8443,29 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc00ab_section_close: str | None = None
     hc00ab_current_section: int | None = None
     hc00ab_midashi_open = False
+    hc00ab_ruby_open = False
     hc00bb_section_close: str | None = None
     hc00bb_current_section: int | None = None
     hc00bb_midashi_open = False
     hc012f_section_close: str | None = None
     hc012f_current_section: str | None = None
+    hc012f_related_links_open = False
     hc0131_section_close: str | None = None
+    hc0131_current_section: str | None = None
+    hc0131_contents_open = False
+    hc0131_suppress_next_break = False
+    hc0131_decoration_stack: list[str] = []
     hc012e_section_close: str | None = None
     hc012e_current_section: str | None = None
+    hc012e_kanji_summary_open = False
+    hc012e_kanji_main_open = False
+    hc012e_kanji_meta_open = False
+    hc012e_pending_hitsujun_label = ""
     hc02c1_section_close: str | None = None
     hc02c1_current_section: str | None = None
     hc02c1_moji_down_open = False
     hc02c1_section_just_opened = False
+    hc02c1_ruby_open = False
     hc02bf_section_close: str | None = None
     hc02bf_current_section: str | None = None
     hc02bf_moji_down_open = False
@@ -5961,17 +8480,31 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc02c2_section_open = False
     hc02c2_moji_down_open = False
     hc02c2_current_section: str | None = None
+    hc02c2_ruby_open = False
     hc02c8_section_close: str | None = None
     hc02c8_current_value: int | None = None
     hc0147_section_close: str | None = None
     hc0147_bunken_open = False
     hc0137_section_close: str | None = None
     hc0137_line_close: str | None = None
+    hc0137_current_section_state: str | None = None
+    hc0137_suppress_heading_tail = False
+    hc0137_related_items_seen = 0
+    hc0137_ruby_open = False
+    hc0132_midashi_open = False
+    hc0132_suppress_heading_tail = False
     hc0065_midashi_open = False
     hc0065_body_open = False
+    hc0065_current_section: str | None = None
+    hc0065_heading_text_parts: list[str] = []
+    hc0065_pending_headword_prefix: str | None = None
+    hc0065_body_started = False
+    hc0065_example_open = False
+    hc0065_suppress_label_remaining = ""
     hc0063_section_close: str | None = None
     hc0063_heading_phase = _renderer_code(options) == "0063"
     hc0063_contents_body_open = False
+    hc0063_exsample_open = False
     hc0048_section_close: str | None = None
     hc0048_midashi_open = False
     hc0048_honbun_open = False
@@ -5991,6 +8524,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc007d_contents_body_open = False
     hc007d_heading_phase = _renderer_code(options) == "007D"
     hc007d_pending_contents_transition = False
+    hc007d_example_open = False
     hc008f_section_close: str | None = None
     hc008f_jmidashi_open = False
     hc008f_emidashi_japanese_open = False
@@ -6000,6 +8534,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc00c7_current_section: int | None = None
     hc00c7_contents_body_open = False
     hc00ac_section_close: str | None = None
+    hc00ac_midashi_open = False
+    hc00ac_ruby_open = False
     hc00aa_section_close: str | None = None
     hc00a3_section_close: str | None = None
     hc00a3_previous_section: int | None = None
@@ -6009,18 +8545,27 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc00c5_midashi_open = False
     hc00c5_honbun_user_open = False
     hc00ad_section_close: str | None = None
+    hc00ad_current_section: str | None = None
     hc00ad_midashi_open = False
+    hc00ad_kanji_summary_open = False
+    hc00ad_kanji_main_open = False
+    hc00ad_kanji_meta_open = False
+    hc00ad_pending_label_candidates: dict[str, str] = {}
+    hc00ad_pending_label_buffer = ""
     hc0020_section_close: str | None = None
     hc0020_midashi_open = False
     hc0020_contents_open = False
     hc0020_div_215a_open = False
     hc0020_definition_open = False
+    hc0020_confer_marker_pending = False
     hc0067_section_close: str | None = None
     hc0067_midashi_open = False
     hc0067_contents_open = False
     hc0068_section_close: str | None = None
     hc0068_midashi_open = False
     hc0068_contents_open = False
+    hc0068_source_line_pending = False
+    hc0068_source_line_open = False
     hc0069_section_close: str | None = None
     hc0069_midashi_open = False
     hc0069_contents_open = False
@@ -6028,17 +8573,322 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc008b_midashi_open = False
     hc008b_contents_open = False
     hc005c_section_close: str | None = None
+    hc005c_pending_section_parts: list[str] | None = None
+    hc005c_pending_section_close: str | None = None
+    hc005c_pending_section_state: str | None = None
+    hc005c_example_open = False
+    hc005c_example_group_active = False
+    hc005c_expected_example_marker: str | None = None
     hc005c_heading_open = False
     hc005c_heading_class: str | None = None
     hc005c_emidashi_japanese_open = False
+    hc005c_entry_side: str | None = None
+    hc005c_decoration_stack: list[str] = []
+    hc005c_japanese_example_needs_translation_break = False
     hc0092_lineinfo_open = False
     hc0092_current_section: int | None = None
     hc0092_contents_open = False
+    hc0092_line_started = False
+    hc0092_example_box_open = False
     hc0132_honbun_open = False
     hc0132_section_close: str | None = None
     hc013a_honbun2_open = False
+    hc013a_honbun2_div_open = False
     hc013a_section_close: str | None = None
     hc013a_contents_open = False
+    hc013a_decoration_stack: list[str] = []
+
+    def hc0158_close_ruigo_row(parts: list[str]) -> None:
+        nonlocal hc0158_ruigo_row_open, hc0158_ruigo_second_cell
+        if not hc0158_ruigo_row_open:
+            return
+        if hc0158_ruigo_second_cell:
+            parts.append("</td></tr>")
+        else:
+            parts.append('</td><td class="column_ruigo_panel_bodycell"></td></tr>')
+        hc0158_ruigo_row_open = False
+        hc0158_ruigo_second_cell = False
+        stats["hc0158_ruigo_panel_rows_closed"] += 1
+
+    def hc0158_close_ruigo_table(parts: list[str]) -> None:
+        nonlocal hc0158_ruigo_table_open
+        hc0158_close_ruigo_row(parts)
+        if hc0158_ruigo_table_open:
+            parts.append("</tbody></table>")
+            hc0158_ruigo_table_open = False
+            stats["hc0158_ruigo_panel_tables_closed"] += 1
+
+    def hc0158_close_active_column(parts: list[str]) -> None:
+        nonlocal hc0158_active_column_value, hc0158_active_column_class
+        if hc0158_active_column_class == "column_ruigo_panel":
+            hc0158_close_ruigo_table(parts)
+        if hc0158_active_column_class is not None:
+            parts.append("</div>")
+            stats["hc0158_column_panels_closed"] += 1
+        hc0158_active_column_value = None
+        hc0158_active_column_class = None
+
+    def hc0158_open_ruigo_row(parts: list[str]) -> None:
+        nonlocal hc0158_ruigo_table_open, hc0158_ruigo_row_open, hc0158_ruigo_second_cell
+        if not hc0158_ruigo_table_open:
+            parts.append('<table class="hc0158-panel-table"><tbody>')
+            hc0158_ruigo_table_open = True
+            stats["hc0158_ruigo_panel_tables"] += 1
+        hc0158_close_ruigo_row(parts)
+        parts.append('<tr><td class="column_ruigo_panel_headercell">')
+        hc0158_ruigo_row_open = True
+        hc0158_ruigo_second_cell = False
+        stats["hc0158_ruigo_panel_rows"] += 1
+
+    def hc0146_close_example_frame(parts: list[str]) -> None:
+        nonlocal hc0146_example_frame_state
+        if hc0146_example_frame_state == "source":
+            parts.append("</span></div>")
+            stats["hc0146_example_frame_closures"] += 1
+        elif hc0146_example_frame_state == "translation":
+            parts.append("</span></div>")
+            stats["hc0146_example_frame_closures"] += 1
+        hc0146_example_frame_state = None
+
+    def hc0146_open_example_source(parts: list[str], section_value: int) -> None:
+        nonlocal hc0146_example_frame_state
+        if hc0146_example_frame_state is not None:
+            hc0146_close_example_frame(parts)
+        parts.append('<div class="column_frame exam_frame"><span class="exam_text"><span class="small_font">¶</span>')
+        hc0146_example_frame_state = "source"
+        stats["hc0146_template_sections"] += 1
+        stats["hc0146_honbun_sections"] += 1
+        label = "exam_text_small_marker" if section_value == 214 else "exam_text"
+        stats[f"hc0146_section_{label}"] += 1
+
+    def hc0146_open_example_translation(parts: list[str], section_value: int) -> None:
+        nonlocal hc0146_example_frame_state
+        if hc0146_example_frame_state == "source":
+            parts.append("</span>")
+        elif hc0146_example_frame_state == "translation":
+            hc0146_close_example_frame(parts)
+        else:
+            parts.append('<div class="column_frame exam_frame">')
+        parts.append('<span class="exam_translate">')
+        hc0146_example_frame_state = "translation"
+        stats["hc0146_template_sections"] += 1
+        stats["hc0146_honbun_sections"] += 1
+        stats["hc0146_section_exam_translate"] += 1
+
+    def hc007d_close_example(parts: list[str]) -> None:
+        nonlocal hc007d_example_open
+        if hc007d_example_open:
+            parts.append("</div>")
+            hc007d_example_open = False
+            stats["hc007d_example_box_closures"] += 1
+
+    def hc005c_close_pending_section() -> None:
+        nonlocal hc005c_pending_section_parts, hc005c_pending_section_close, hc005c_pending_section_state
+        hc005c_pending_section_parts = None
+        hc005c_pending_section_close = None
+        hc005c_pending_section_state = None
+
+    def hc005c_flush_pending_section(parts: list[str]) -> None:
+        nonlocal hc005c_section_close, hc005c_example_group_active
+        if hc005c_pending_section_parts is None:
+            return
+        parts.extend(hc005c_pending_section_parts)
+        hc005c_section_close = hc005c_pending_section_close
+        if hc005c_pending_section_parts:
+            stats["hc005c_section_blocks"] += 1
+        if hc005c_pending_section_state:
+            stats[f"hc005c_section_{hc005c_pending_section_state}"] += 1
+        hc005c_example_group_active = False
+        hc005c_close_pending_section()
+
+    def hc005c_close_active_section(parts: list[str]) -> None:
+        nonlocal hc005c_section_close, hc005c_example_open, hc005c_japanese_example_needs_translation_break
+        hc005c_close_pending_section()
+        if hc005c_example_open:
+            parts.append("</div>")
+            hc005c_example_open = False
+            hc005c_japanese_example_needs_translation_break = False
+            stats["hc005c_example_blocks_closed"] += 1
+        if hc005c_section_close is not None:
+            parts.append(hc005c_section_close)
+            hc005c_section_close = None
+
+    def hc005c_open_example(parts: list[str], marker: str) -> None:
+        nonlocal hc005c_example_open, hc005c_example_group_active
+        nonlocal hc005c_japanese_example_needs_translation_break, hc005c_section_close
+        hc005c_close_pending_section()
+        hc005c_example_group_active = True
+        if hc005c_section_close is not None:
+            parts.append(hc005c_section_close)
+            hc005c_section_close = None
+        if marker == "separator":
+            if hc005c_example_open:
+                parts.append('<div class="hr_div2"></div>')
+                hc005c_japanese_example_needs_translation_break = hc005c_entry_side != "english"
+                stats["hc005c_example_separators_in_box"] += 1
+                return
+            parts.append('<div class="hr_div2"></div>')
+            stats["hc005c_example_separators"] += 1
+        if not hc005c_example_open:
+            image_name = "exam.gif" if marker == "colon" or hc005c_entry_side == "english" else "bunrei.gif"
+            _append_hc005c_image(parts, image_name, "img_mark", options)
+            parts.append("<br>")
+            if image_name == "exam.gif":
+                stats["hc005c_example_exam_icons"] += 1
+            else:
+                stats["hc005c_example_bunrei_icons"] += 1
+            parts.append('<div class="contents">')
+            hc005c_example_open = True
+            hc005c_japanese_example_needs_translation_break = hc005c_entry_side != "english"
+            stats["hc005c_example_blocks"] += 1
+
+    def hc0065_close_midashi(parts: list[str]) -> None:
+        nonlocal hc0065_midashi_open, hc0065_pending_headword_prefix
+        if not hc0065_midashi_open:
+            return
+        parts.append("</div>")
+        hc0065_midashi_open = False
+        heading = "".join(hc0065_heading_text_parts).strip()
+        if heading and hc0065_pending_headword_prefix is None:
+            hc0065_pending_headword_prefix = heading
+        stats["hc0065_midashi_closures"] += 1
+
+    def hc0065_open_body(parts: list[str]) -> None:
+        nonlocal hc0065_body_open
+        if hc0065_body_open:
+            return
+        parts.append('<div class="contents_body">')
+        hc0065_body_open = True
+        stats["hc0065_contents_body_blocks"] += 1
+
+    def hc0065_emit_pending_headword(parts: list[str]) -> None:
+        nonlocal hc0065_pending_headword_prefix, hc0065_body_started
+        if hc0065_pending_headword_prefix:
+            _append_text(parts, hc0065_pending_headword_prefix)
+            stats["hc0065_headword_prefixes"] += 1
+            hc0065_pending_headword_prefix = None
+        hc0065_body_started = True
+
+    def hc0065_close_example(parts: list[str]) -> None:
+        nonlocal hc0065_example_open
+        if hc0065_example_open:
+            parts.append("</div>")
+            hc0065_example_open = False
+            stats["hc0065_example_blocks_closed"] += 1
+
+    def hc0065_open_example(parts: list[str]) -> None:
+        nonlocal hc0065_example_open, hc0065_body_started
+        hc0065_close_midashi(parts)
+        hc0065_open_body(parts)
+        if not hc0065_example_open:
+            parts.append("<br>")
+            exam_src = _image_source_for_key("exam", options) or _image_source_for_key("exam.png", options)
+            if exam_src is not None:
+                parts.append(f'<img src="{_escape_attr(exam_src)}" class="ex_img">')
+                stats["hc0065_example_exam_icons"] += 1
+            parts.append('<div class="contents">')
+            hc0065_example_open = True
+            stats["hc0065_example_blocks"] += 1
+        else:
+            parts.append("<br>")
+        hc0065_body_started = True
+        stats["line_breaks"] += 1
+
+    def hc0068_close_source_line(parts: list[str]) -> None:
+        nonlocal hc0068_source_line_open
+        if hc0068_source_line_open:
+            parts.append("</span>")
+            hc0068_source_line_open = False
+
+    def hc0092_close_example_box(parts: list[str]) -> None:
+        nonlocal hc0092_example_box_open
+        if hc0092_example_box_open:
+            parts.append("</div>")
+            hc0092_example_box_open = False
+            stats["hc0092_example_box_closures"] += 1
+
+    def hc0065_next_is_rule(offset: int) -> bool:
+        return data[offset : offset + 6] == b"\x1f\x09\x00\x02\x1f\x41"
+
+    def hc_hkdksr_close_deferred_midashi(parts: list[str]) -> bool:
+        nonlocal halfwidth_depth, hc_hkdksr_medical_midashi_deferred_close
+        if not hc_hkdksr_medical_midashi_deferred_close:
+            return False
+        if 0x41 in style_stack:
+            while style_stack:
+                popped = style_stack.pop()
+                close_tag = _style_close_tag(popped, options)
+                if close_tag:
+                    parts.append(f"</{close_tag}>")
+                elif _renderer_halfwidth_span_needs_explicit_close(popped, options):
+                    parts.append("</span>")
+                if popped == 0x04:
+                    halfwidth_depth = max(0, halfwidth_depth - 1)
+                if popped == 0x41:
+                    break
+        hc_hkdksr_medical_midashi_deferred_close = False
+        stats["hc_hkdksr_medical_deferred_midashi_closures"] += 1
+        return True
+
+    def hc013d_close_deferred_midashi(parts: list[str]) -> bool:
+        nonlocal halfwidth_depth, hc013d_midashi_deferred_close
+        if not hc013d_midashi_deferred_close:
+            return False
+        if 0x41 in style_stack:
+            while style_stack:
+                popped = style_stack.pop()
+                close_tag = _style_close_tag(popped, options)
+                if close_tag:
+                    parts.append(f"</{close_tag}>")
+                elif _renderer_halfwidth_span_needs_explicit_close(popped, options):
+                    parts.append("</span>")
+                if popped == 0x04:
+                    halfwidth_depth = max(0, halfwidth_depth - 1)
+                if popped == 0x41:
+                    break
+        hc013d_midashi_deferred_close = False
+        stats["hc013d_deferred_midashi_closures"] += 1
+        return True
+
+    def hc_hkdksr_flush_pending_product_label(parts: list[str]) -> None:
+        nonlocal hc_hkdksr_medical_product_label_pending, hc_hkdksr_medical_product_label_buffer
+        if hc_hkdksr_medical_product_label_pending and hc_hkdksr_medical_product_label_buffer:
+            _append_text(parts, hc_hkdksr_medical_product_label_buffer)
+        hc_hkdksr_medical_product_label_pending = False
+        hc_hkdksr_medical_product_label_buffer = ""
+
+    def hc_hkdksr_flush_pending_title_label(parts: list[str]) -> None:
+        nonlocal hc_hkdksr_medical_title_label_pending, hc_hkdksr_medical_title_label_buffer
+        if hc_hkdksr_medical_title_label_pending and hc_hkdksr_medical_title_label_buffer:
+            _append_text(parts, hc_hkdksr_medical_title_label_buffer)
+        hc_hkdksr_medical_title_label_pending = False
+        hc_hkdksr_medical_title_label_buffer = ""
+
+    def hc_hkdksr_emit_seizaijouhou_title(parts: list[str]) -> None:
+        nonlocal hc_hkdksr_medical_section_close, hc_hkdksr_medical_title_image_emitted
+        title_html = '<div class="SubTitle"><img src="Templates/midashi1.png" class="img_midashi"></div>'
+        if parts and parts[-1] == '<div style="font-size:1.0em; margin-top:13px;">':
+            parts[-1] = title_html
+        else:
+            if hc_hkdksr_medical_section_close is not None:
+                parts.append(hc_hkdksr_medical_section_close)
+            parts.append(title_html)
+        hc_hkdksr_medical_section_close = None
+        hc_hkdksr_medical_title_image_emitted = True
+        stats["hc_hkdksr_medical_seizaijouhou_titles"] += 1
+
+    def hc_hkdksr_emit_product_title(parts: list[str]) -> None:
+        nonlocal hc_hkdksr_medical_section_close, hc_hkdksr_medical_product_title_emitted
+        if parts and parts[-1] == '<div class="medblk">':
+            parts[-1] = '<div class="SubTitle_syouhin">商品</div>'
+        else:
+            if hc_hkdksr_medical_section_close is not None:
+                parts.append(hc_hkdksr_medical_section_close)
+            parts.append('<div class="SubTitle_syouhin">商品</div>')
+        hc_hkdksr_medical_section_close = None
+        hc_hkdksr_medical_product_title_emitted = True
+        stats["hc_hkdksr_medical_product_subtitles"] += 1
+
     i = 0
     while i < len(data):
         byte = data[i]
@@ -6075,12 +8925,21 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if (
+                _renderer_code(options) == "012E"
+                and hc012e_current_section in HC012E_SUPPRESSED_SECTION_CODES
+                and op != 0x09
+            ):
+                stats["hc012e_suppressed_section_controls"] += 1
+                i += 2 + arg_len
+                continue
+
             if op == 0x09:
                 stats["section_markers"] += 1
                 if payload:
                     code = payload.hex()
                     if _renderer_code(options) == "013A" and hc013a_honbun2_open:
-                        _current_parts(root_parts, contexts).append("</strong></div>")
+                        _current_parts(root_parts, contexts).append("</strong>")
                         hc013a_honbun2_open = False
                         stats["hc013a_honbun2_closures"] += 1
                     if _renderer_code(options) == "0190":
@@ -6110,6 +8969,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             hc013a_section_close = None
                             stats["hc013a_section_closures"] += 1
                         if value == 1:
+                            if hc013a_honbun2_div_open:
+                                root.append("</div>")
+                                hc013a_honbun2_div_open = False
+                                stats["hc013a_honbun2_div_closures"] += 1
                             stats["hc013a_midashi_state_sections"] += 1
                             i += 2 + arg_len
                             continue
@@ -6143,7 +9006,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                                     ),
                                     options.image_sources,
                                 )
-                                root.append("<br>")
+                                if root and root[-1].endswith("<br>"):
+                                    stats["hc013a_duplicate_example_lead_breaks_suppressed"] += 1
+                                else:
+                                    root.append("<br>")
                                 if image_src is None:
                                     gaps.add("missing_section_image_exam")
                                 else:
@@ -6215,6 +9081,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats["hc007d_heading_section_state"] += 1
                             i += 2 + arg_len
                             continue
+                        if _hc007d_example_marker_after_section(data, i + 2 + arg_len):
+                            stats["hc007d_example_margin_sections_suppressed"] += 1
+                            i += 2 + arg_len
+                            continue
                         if hc007d_section_open:
                             root.append("</div>")
                             hc007d_section_open = False
@@ -6257,6 +9127,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             i += 2 + arg_len
                             continue
                         root.append(f'<a name="section-{stats["section_markers"]}"></a>')
+                        hc0092_close_example_box(root)
                         if hc0092_lineinfo_open:
                             root.append("</div>")
                             hc0092_lineinfo_open = False
@@ -6266,6 +9137,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         root.append(f'<div class="lineinfo{value}">')
                         hc0092_lineinfo_open = True
                         hc0092_current_section = value
+                        hc0092_line_started = False
                         stats["hc0092_lineinfo_sections"] += 1
                         stats[f"hc0092_lineinfo_{value}"] += 1
                         i += 2 + arg_len
@@ -6278,6 +9150,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             i += 2 + arg_len
                             continue
                         root.append(f'<a name="section-{stats["section_markers"]}"></a>')
+                        if value != 2:
+                            hc0093_toc_line_active = False
                         if (
                             hc0093_current_section
                             and not (value == hc0093_current_section == 2)
@@ -6295,8 +9169,14 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                                 hc0093_contents_body_open = True
                                 stats["hc0093_contents_body_blocks"] += 1
                             if value == 5:
-                                root.append('<div class="youreihan">')
+                                root.append('<div class="youreihan contents">')
                                 stats["hc0093_youreihan_sections"] += 1
+                        if value in HC0093_SUPPRESSED_SECTION_VALUES:
+                            hc0093_current_section = value
+                            hc0093_section_close = None
+                            stats["hc0093_suppressed_sections"] += 1
+                            i += 2 + arg_len
+                            continue
                         if value == hc0093_current_section == 2:
                             stats["hc0093_repeated_lineinfo2_suppressed"] += 1
                             i += 2 + arg_len
@@ -6315,6 +9195,12 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats["hc0095_unmapped_sections"] += 1
                             i += 2 + arg_len
                             continue
+                        if value == hc0095_current_section == 12 and hc0095_footer_line_active:
+                            stats["hc0095_repeated_footer_sections_suppressed"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if value != 12:
+                            hc0095_footer_line_active = False
                         root.append(f'<a name="section-{stats["section_markers"]}"></a>')
                         if (
                             hc0095_current_section
@@ -6363,11 +9249,14 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                                 if marker is not None:
                                     root.append(marker)
                                     stats["hc009f_season_markers"] += 1
-                                root.append(f'<div class="midashi" style="background-color:{season_color};">')
-                                hc009f_section_close = "</div>"
+                                    hc009f_section_close = None
+                                    hc009f_suppress_next_linebreak = True
+                                else:
+                                    root.append(f'<div class="midashi" style="background-color:{season_color};">')
+                                    hc009f_section_close = "</div>"
                                 stats["hc009f_season_midashi_blocks"] += 1
                                 stats[f"hc009f_season_{hc009f_season}"] += 1
-                                hc009f_skip_next_jis = True
+                                hc009f_suppress_jis_pairs = max(hc009f_suppress_jis_pairs, 1)
                             elif next_word.startswith("1f"):
                                 stats["hc009f_season_markers_without_label"] += 1
                             else:
@@ -6388,10 +9277,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                                     root.append(marker)
                                     stats["hc009f_category_markers"] += 1
                                 stats[f"hc009f_category_{category}"] += 1
-                                hc009f_skip_next_jis = True
+                                hc009f_suppress_jis_pairs = max(hc009f_suppress_jis_pairs, 2)
                             elif category is not None:
                                 stats["hc009f_category_markers_without_season"] += 1
-                                hc009f_skip_next_jis = True
+                                hc009f_suppress_jis_pairs = max(hc009f_suppress_jis_pairs, 2)
                             elif next_word.startswith("1f"):
                                 stats["hc009f_category_markers_without_label"] += 1
                             else:
@@ -6400,7 +9289,12 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             hc009f_current_section = value
                             i += 2 + arg_len
                             continue
-                        section_parts, next_close, state = _hc009f_honbun_section_parts(code)
+                        section_parts, next_close, state = _hc009f_honbun_section_parts(
+                            code, vertical=options.vertical
+                        )
+                        if state == "example":
+                            root.append('<div class="hc009f-haiku-separator"></div>')
+                            stats["hc009f_haiku_separators"] += 1
                         root.extend(section_parts)
                         hc009f_section_close = next_close
                         hc009f_current_section = value
@@ -6489,6 +9383,14 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             continue
                         root.append(f'<a name="section-{stats["section_markers"]}"></a>')
                         stats["hc0135_address_anchors"] += 1
+                        if hc0135_example_open and value not in HC0135_EXAMPLE_SECTION_VALUES:
+                            if hc0135_section_close is not None:
+                                root.append(hc0135_section_close)
+                                hc0135_section_close = None
+                                stats["hc0135_section_closures"] += 1
+                            root.append("</div>")
+                            hc0135_example_open = False
+                            stats["hc0135_example_blocks_closed"] += 1
                         if value == 1:
                             if hc0135_section_close is not None:
                                 root.append(hc0135_section_close)
@@ -6501,8 +9403,28 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             if not hc0135_midashi_open:
                                 root.append('<div class="midashi">')
                                 hc0135_midashi_open = True
+                                hc0135_suppress_heading_tail = False
                                 stats["headings"] += 1
                                 stats["hc0135_midashi_blocks"] += 1
+                            hc0135_current_section = value
+                            stats[f"hc0135_section_{value}"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if value == 0x30:
+                            if hc0135_section_close is not None:
+                                root.append(hc0135_section_close)
+                                hc0135_section_close = None
+                                stats["hc0135_section_closures"] += 1
+                            if not hc0135_example_open:
+                                exam_src = _image_source_for_key("exam", options) or _image_source_for_key("exam.png", options)
+                                root.append('<div class="contents_yourei">')
+                                if exam_src is not None:
+                                    root.append(f'<img src="{_escape_attr(exam_src)}" class="img_icon_Big"><br>')
+                                    stats["hc0135_example_icons"] += 1
+                                else:
+                                    gaps.add("missing_hc0135_template_image_exam")
+                                hc0135_example_open = True
+                                stats["hc0135_example_blocks"] += 1
                             hc0135_current_section = value
                             stats[f"hc0135_section_{value}"] += 1
                             i += 2 + arg_len
@@ -6510,6 +9432,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         if hc0135_midashi_open:
                             root.append("</div>")
                             hc0135_midashi_open = False
+                            hc0135_suppress_heading_tail = False
                             stats["hc0135_midashi_closures"] += 1
                             if not hc0135_contents_body_open:
                                 root.append('<div class="contents_body">')
@@ -6558,10 +9481,12 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             root.append("</div>")
                             hc00a4_midashi_open = False
                             stats["hc00a4_midashi_closures"] += 1
+                        hc00a4_suppress_heading = False
                         if hc00a4_section_close is not None:
                             root.append(hc00a4_section_close)
                             hc00a4_section_close = None
                             stats["hc00a4_section_closures"] += 1
+                        hc00a4_current_section_value = _hc00a4_section_value(code)
                         root.append(f'<a name="section-{stats["section_markers"]}"></a>')
                         section_parts, hc00a4_section_close, state = _hc00a4_section_parts(code)
                         root.extend(section_parts)
@@ -6751,24 +9676,54 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         i += 2 + arg_len
                         continue
                     if _is_hc005c_renderer(options):
-                        if hc005c_section_close is not None:
-                            root.append(hc005c_section_close)
-                            hc005c_section_close = None
+                        marker_after_section = _hc005c_example_marker_after_section(data, i + 2 + arg_len)
+                        keep_example_open = (
+                            hc005c_example_open
+                            and marker_after_section is not None
+                            and (marker_after_section != "continuation" or hc005c_example_group_active)
+                        )
+                        if not keep_example_open and (hc005c_example_open or hc005c_section_close is not None):
+                            hc005c_close_active_section(root)
+                        if not keep_example_open and _hc005c_numeric_definition_after_section(data, i + 2 + arg_len):
+                            root.append('<div class="hr_div2"></div>')
+                            stats["hc005c_definition_separators"] += 1
                         section_parts, hc005c_section_close, state = _hc005c_section_parts(code, data, i + 2 + arg_len)
-                        root.extend(section_parts)
-                        if section_parts:
-                            stats["hc005c_section_blocks"] += 1
-                        if state:
-                            stats[f"hc005c_section_{state}"] += 1
+                        hc005c_pending_section_parts = section_parts
+                        hc005c_pending_section_close = hc005c_section_close
+                        hc005c_pending_section_state = state
+                        hc005c_section_close = None
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "0094":
+                        value = _hc0094_section_value(code)
+                        next_key = data[i + 2 + arg_len : i + 4 + arg_len].hex()
+                        if (
+                            value == hc0094_current_section == 3
+                            and hc0094_color_div_class == "aka"
+                            and next_key == "b13e"
+                        ):
+                            hc0094_merge_color_box_marker = True
+                            stats["hc0094_merged_color_box_sections"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if value == hc0094_current_section == 12 and hc0094_toc_line_active:
+                            stats["hc0094_repeated_footer_sections_suppressed"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if value != 12:
+                            hc0094_toc_line_active = False
                         if hc0094_color_div_close is not None:
                             root.append(hc0094_color_div_close)
                             hc0094_color_div_close = None
+                            hc0094_color_div_class = None
                         if hc0094_section_close is not None:
                             root.append(hc0094_section_close)
                             hc0094_section_close = None
+                        hc0094_current_section = value
+                        if value in HC0094_SUPPRESSED_SECTION_VALUES:
+                            stats["hc0094_suppressed_sections"] += 1
+                            i += 2 + arg_len
+                            continue
                         section_parts, hc0094_section_close, state = _hc0094_section_parts(code)
                         root.extend(section_parts)
                         if section_parts:
@@ -6858,6 +9813,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     if _renderer_code(options) == "0068":
                         next_is_heading = data[i + 2 + arg_len : i + 4 + arg_len] == b"\x1f\x41"
                         if not next_is_heading:
+                            hc0068_close_source_line(root)
                             if hc0068_section_close is not None:
                                 root.append(hc0068_section_close)
                                 hc0068_section_close = None
@@ -6906,7 +9862,12 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             root.append(hc00ac_section_close)
                             hc00ac_section_close = None
                         style = _hc00ac_honbun_style(code)
-                        root.append(f'<div class="honbun" style="{_escape_attr(style)}">')
+                        if style == "__midashi__":
+                            root.append('<div class="midashi">')
+                            hc00ac_midashi_open = True
+                            stats["hc00ac_midashi_sections"] += 1
+                        else:
+                            root.append(f'<div class="honbun" style="{_escape_attr(style)}">')
                         hc00ac_section_close = "</div>"
                         stats["hc00ac_honbun_sections"] += 1
                         i += 2 + arg_len
@@ -6915,7 +9876,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         if hc00aa_section_close is not None:
                             root.append(hc00aa_section_close)
                             hc00aa_section_close = None
-                        section_parts, hc00aa_section_close, state = _hc00aa_section_parts(code)
+                        section_parts, hc00aa_section_close, state = _hc00aa_section_parts(code, options)
                         root.extend(section_parts)
                         if section_parts:
                             stats["hc00aa_section_blocks"] += 1
@@ -6966,8 +9927,48 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         if hc00ad_section_close is not None:
                             root.append(hc00ad_section_close)
                             hc00ad_section_close = None
+                        if code in HC00AD_KANJI_SUMMARY_MAIN_SECTION_CODES:
+                            if hc00ad_kanji_meta_open:
+                                root.append("</div>")
+                                hc00ad_kanji_meta_open = False
+                            if hc00ad_kanji_main_open:
+                                root.append("</div>")
+                                hc00ad_kanji_main_open = False
+                            if hc00ad_kanji_summary_open:
+                                root.append("</div>")
+                            root.append('<div class="hc00ad-kanji-summary"><div class="hc00ad-kanji-main">')
+                            hc00ad_kanji_summary_open = True
+                            hc00ad_kanji_main_open = True
+                            stats["hc00ad_kanji_summary_blocks"] += 1
+                        elif (
+                            code in HC00AD_KANJI_SUMMARY_META_SECTION_CODES
+                            and hc00ad_kanji_summary_open
+                            and not hc00ad_kanji_meta_open
+                        ):
+                            if hc00ad_kanji_main_open:
+                                root.append("</div>")
+                                hc00ad_kanji_main_open = False
+                            root.append('<div class="hc00ad-kanji-meta">')
+                            hc00ad_kanji_meta_open = True
+                        elif hc00ad_kanji_summary_open and code not in HC00AD_KANJI_SUMMARY_META_SECTION_CODES:
+                            if hc00ad_kanji_main_open:
+                                root.append("</div>")
+                                hc00ad_kanji_main_open = False
+                            if hc00ad_kanji_meta_open:
+                                root.append("</div>")
+                                hc00ad_kanji_meta_open = False
+                            root.append("</div>")
+                            hc00ad_kanji_summary_open = False
                         section_parts, hc00ad_section_close, state = _hc00ad_section_parts(code)
                         root.extend(section_parts)
+                        hc00ad_current_section = code
+                        value = _hc00ad_section_value(code)
+                        if value in HC00AD_LABEL_SECTION_RANGE:
+                            hc00ad_pending_label_candidates = dict(HC00AD_SECTION_LABEL_IMAGES)
+                            hc00ad_pending_label_buffer = ""
+                        else:
+                            hc00ad_pending_label_candidates = {}
+                            hc00ad_pending_label_buffer = ""
                         if section_parts:
                             stats["hc00ad_section_blocks"] += 1
                         if state:
@@ -6979,6 +9980,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             root.append(hc0146_section_close)
                             hc0146_section_close = None
                         section_value = _hc0146_section_value(code)
+                        if section_value in HC0146_EXAMPLE_SOURCE_SECTION_VALUES:
+                            hc0146_open_example_source(root, section_value)
+                            i += 2 + arg_len
+                            continue
+                        if section_value in HC0146_EXAMPLE_TRANSLATION_SECTION_VALUES:
+                            hc0146_open_example_translation(root, section_value)
+                            i += 2 + arg_len
+                            continue
+                        if hc0146_example_frame_state is not None:
+                            hc0146_close_example_frame(root)
                         if section_value == 70:
                             section_end = _find_control_offset(data, i + 2 + arg_len, 0x0A)
                             if section_end is not None:
@@ -7020,6 +10031,18 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                                 i = section_end
                             else:
                                 i += 2 + arg_len
+                            continue
+                        if section_value == 40:
+                            if hc0146_column_frame_close is not None:
+                                root.append(hc0146_column_frame_close)
+                                hc0146_column_frame_close = None
+                                stats["hc0146_column_frame_closures"] += 1
+                            root.append('<div class="column_frame cm_f_point">')
+                            hc0146_column_frame_close = "</div>"
+                            stats["hc0146_template_sections"] += 1
+                            stats["hc0146_section_point_column"] += 1
+                            stats["hc0146_honbun_sections"] += 1
+                            i += 2 + arg_len
                             continue
                         if (
                             section_value in HC0146_FRAME_CLOSE_SECTION_VALUES
@@ -7101,6 +10124,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             root.append(hc0151_section_close)
                             hc0151_section_close = None
                         hc0151_current_section = code
+                        hc0151_chars_since_break = 0
+                        hc0151_suppress_spaces_after_media = False
                         section_parts, hc0151_section_close, hc0151_table_open = _hc0151_section_parts(
                             code, table_open=hc0151_table_open
                         )
@@ -7118,19 +10143,31 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "009D":
+                        next_section_value = _hc009d_section_value(code)
+                        if hc009d_toc_line_open and next_section_value not in HC009D_TOC_SECTION_VALUES:
+                            root.append("</div>")
+                            hc009d_toc_line_open = False
+                            stats["hc009d_toc_line_closures"] += 1
                         if hc009d_section_close is not None:
                             root.append(hc009d_section_close)
                             hc009d_section_close = None
                         if hc009d_current_section_value == 1 and _hc009d_section_value(code) != 1:
                             root.append('<div class="contents_body">')
                             hc009d_marker_stack.append(("__contents_body__", "</div>"))
+                        if next_section_value in HC009D_TOC_SECTION_VALUES:
+                            if not hc009d_toc_line_open:
+                                root.append('<div class="lineinfo12 hc009d-toc-line">')
+                                hc009d_toc_line_open = True
+                                stats["hc009d_toc_lines"] += 1
+                            elif root and not root[-1].endswith(" "):
+                                root.append(" ")
                         section_parts, section_close, section_value, wrapper_stack = _hc009d_section_parts(code, data, i, options)
                         root.extend(section_parts)
                         hc009d_section_close = section_close
                         hc009d_current_section_value = section_value
                         if wrapper_stack is not None and (not hc009d_marker_stack or hc009d_marker_stack[-1] != wrapper_stack):
                             hc009d_marker_stack.append(wrapper_stack)
-                        if section_parts:
+                        if section_parts or section_value in HC009D_TOC_SECTION_VALUES:
                             stats["hc009d_section_blocks"] += 1
                         else:
                             stats["hc009d_unmapped_sections"] += 1
@@ -7148,6 +10185,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             halfwidth_depth = 0
                             root.append("</div>")
                             hc00c6_section_open = False
+                        hc00c6_current_section_code = code
+                        hc00c6_heading_capture_active = False
                         if code not in {"0007", "0008"}:
                             hc00c6_example_block_active = False
                         if code == "0007" and not hc00c6_example_block_active:
@@ -7176,7 +10215,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         if hc00a6_section_close is not None:
                             root.append(hc00a6_section_close)
                             hc00a6_section_close = None
-                        section_parts, hc00a6_section_close = _hc00a6_section_parts(code, vertical=options.vertical)
+                        hc00a6_current_section_value = _hc00a6_section_value(code)
+                        hc00a6_suppress_media_caption = False
+                        section_parts, hc00a6_section_close = _hc00a6_section_parts(code, options)
                         root.extend(section_parts)
                         if section_parts:
                             stats["hc00a6_section_blocks"] += 1
@@ -7200,13 +10241,37 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         i += 2 + arg_len
                         continue
                     if _is_hc_hkdksr_medical_renderer(options):
+                        hc_hkdksr_close_deferred_midashi(root)
+                        hc_hkdksr_flush_pending_title_label(root)
+                        hc_hkdksr_flush_pending_product_label(root)
                         if hc_hkdksr_medical_section_close is not None:
                             root.append(hc_hkdksr_medical_section_close)
                             hc_hkdksr_medical_section_close = None
+                        hc_hkdksr_medical_current_section_value = _hc_hkdksr_medical_section_value(code)
+                        hc_hkdksr_medical_title_label_pending = hc_hkdksr_medical_current_section_value == 3
+                        hc_hkdksr_medical_title_label_buffer = ""
+                        hc_hkdksr_medical_title_image_emitted = False
+                        hc_hkdksr_medical_product_label_pending = hc_hkdksr_medical_current_section_value == 8
+                        hc_hkdksr_medical_product_label_buffer = ""
+                        hc_hkdksr_medical_product_title_emitted = False
                         section_parts, section_close, state = _hc_hkdksr_medical_section_parts(code)
+                        if (
+                            hc_hkdksr_product_card_open
+                            and hc_hkdksr_medical_current_section_value not in {6, 10, 11}
+                        ):
+                            root.append("</div>")
+                            hc_hkdksr_product_card_open = False
+                            stats["hc_hkdksr_product_card_closures"] += 1
                         if state not in {"table_cell"} and hc_hkdksr_medical_table_open:
                             root.append("</td></tr></table>")
                             hc_hkdksr_medical_table_open = False
+                        if hc_hkdksr_medical_current_section_value == 6:
+                            if hc_hkdksr_product_card_open:
+                                root.append("</div>")
+                                stats["hc_hkdksr_product_card_closures"] += 1
+                            root.append('<div class="hc-hkdksr-product-card">')
+                            hc_hkdksr_product_card_open = True
+                            stats["hc_hkdksr_product_cards"] += 1
                         root.extend(section_parts)
                         if state == "table_open":
                             hc_hkdksr_medical_table_open = True
@@ -7237,10 +10302,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "02BC":
+                        hc02bc_suppress_media_label_remaining = 0
                         if hc02bc_section_open:
                             root.append("</div>")
                             hc02bc_section_open = False
-                        section_parts = _hc02bc_section_parts(code, options.image_sources)
+                        section_parts = _hc02bc_section_parts(
+                            code,
+                            options.image_sources,
+                            first_section=not hc02bc_seen_section,
+                        )
+                        hc02bc_seen_section = True
                         root.extend(section_parts)
                         if section_parts and section_parts[-1].startswith("<div"):
                             hc02bc_section_open = True
@@ -7309,6 +10380,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         continue
                     if _renderer_code(options) == "013D":
                         section_value = _hc013d_bcd_value(code)
+                        if hc013d_product_card_open and section_value not in {6, 10, 11}:
+                            root.append("</div>")
+                            hc013d_product_card_open = False
+                            stats["hc013d_product_card_closures"] += 1
                         if hc013d_pc_table_open and section_value not in {42, 43}:
                             root.append("</td></tr></table><br>")
                             hc013d_pc_table_open = False
@@ -7401,8 +10476,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             i += 2 + arg_len
                             continue
                         section_parts, section_close = _hc013d_section_parts(code)
+                        if section_value == 6:
+                            if hc013d_product_card_open:
+                                root.append("</div>")
+                                stats["hc013d_product_card_closures"] += 1
+                            root.append('<div class="hc013d-product-card">')
+                            hc013d_product_card_open = True
+                            stats["hc013d_product_cards"] += 1
                         root.extend(section_parts)
                         hc013d_section_close = section_close
+                        hc013d_current_section_value = section_value
                         if section_parts:
                             stats["hc013d_section_blocks"] += 1
                         elif code == "0001":
@@ -7432,21 +10515,76 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         if hc0158_section_close is not None:
                             root.append(hc0158_section_close)
                             hc0158_section_close = None
+                        value = _hc0158_section_value(code)
+                        hc0158_current_section_value = value
+                        if value in HC0158_COLUMN_SECTION_VALUES:
+                            hc0158_close_active_column(root)
+                            css_class = HC0158_SECTION_CLASSES.get(value)
+                            if css_class is not None:
+                                root.append(f'<div class="{css_class}">')
+                                hc0158_active_column_value = value
+                                hc0158_active_column_class = css_class
+                                stats["hc0158_section_blocks"] += 1
+                            else:
+                                stats["hc0158_unmapped_sections"] += 1
+                                gaps.add(f"hc0158_unmapped_section_{code}")
+                            i += 2 + arg_len
+                            continue
+                        if value in HC0158_COLUMN_END_VALUES:
+                            if HC0158_COLUMN_END_VALUES[value] == hc0158_active_column_value:
+                                hc0158_close_active_column(root)
+                            else:
+                                stats["hc0158_unmatched_column_end_sections"] += 1
+                            stats[f"hc0158_section_state_{value}"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if hc0158_active_column_class == "column_ruigo_panel" and value != 2:
+                            hc0158_close_ruigo_table(root)
+                        if hc0158_active_column_class == "column_ruigo_panel" and value == 2:
+                            hc0158_open_ruigo_row(root)
+                            stats["hc0158_section_blocks"] += 1
+                            i += 2 + arg_len
+                            continue
                         section_parts, hc0158_section_close, state = _hc0158_section_parts(code)
                         root.extend(section_parts)
                         if section_parts:
                             stats["hc0158_section_blocks"] += 1
                         if state:
                             stats[f"hc0158_section_{state}"] += 1
+                        elif section_parts:
+                            pass
                         else:
                             stats["hc0158_unmapped_sections"] += 1
                             gaps.add(f"hc0158_unmapped_section_{code}")
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "0145":
+                        value = _hc0145_section_value(code)
+                        digit = value % 10 if value is not None else None
                         if hc0145_section_close is not None:
                             root.append(hc0145_section_close)
                             hc0145_section_close = None
+                        if digit in {8, 9}:
+                            if not hc0145_example_open:
+                                root.append('<div class="contents" style="text-indent:0em;">')
+                                hc0145_example_open = True
+                                hc0145_example_line_started = False
+                                stats["hc0145_example_blocks"] += 1
+                            elif digit == 8 and hc0145_example_line_started:
+                                root.append("<br>")
+                                stats["hc0145_example_pair_breaks"] += 1
+                            if digit == 9 and hc0145_example_line_started:
+                                root.append(" ")
+                                stats["hc0145_example_pair_joins"] += 1
+                            hc0145_example_line_started = True
+                            stats["hc0145_section_blocks"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if hc0145_example_open:
+                            root.append("</div>")
+                            hc0145_example_open = False
+                            hc0145_example_line_started = False
+                            stats["hc0145_example_block_closures"] += 1
                         section_parts = _hc0145_section_parts(code)
                         root.extend(section_parts)
                         hc0145_section_close = _hc0145_section_close_for_parts(section_parts)
@@ -7476,12 +10614,37 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "0141":
+                        value = _hc0145_section_value(code)
+                        digit = value % 10 if value is not None else None
                         if hc0141_section_close is not None:
                             root.append(hc0141_section_close)
                             hc0141_section_close = None
+                        if digit in {8, 9}:
+                            if not hc0141_example_open:
+                                root.append('<div class="contents" style="text-indent:0em;">')
+                                hc0141_example_open = True
+                                hc0141_example_line_started = False
+                                stats["hc0141_example_blocks"] += 1
+                            elif digit == 8 and hc0141_example_line_started:
+                                root.append("<br>")
+                                stats["hc0141_example_pair_breaks"] += 1
+                            if digit == 9 and hc0141_example_line_started:
+                                root.append(" ")
+                                stats["hc0141_example_pair_joins"] += 1
+                            hc0141_current_section_value = value
+                            hc0141_example_line_started = True
+                            stats["hc0141_section_blocks"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if hc0141_example_open:
+                            root.append("</div>")
+                            hc0141_example_open = False
+                            hc0141_example_line_started = False
+                            stats["hc0141_example_block_closures"] += 1
                         section_parts = _hc0141_section_parts(code)
                         root.extend(section_parts)
                         hc0141_section_close = _hc0141_section_close_for_parts(section_parts)
+                        hc0141_current_section_value = value
                         if section_parts:
                             stats["hc0141_section_blocks"] += 1
                         elif _hc0145_section_is_known_state(code):
@@ -7496,15 +10659,66 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             if hc012e_section_close is not None:
                                 root.append(hc012e_section_close)
                                 hc012e_section_close = None
+                                if hc012e_current_section == "0007" and hc012e_kanji_main_open:
+                                    root.append("</div>")
+                                    hc012e_kanji_main_open = False
                                 stats["hc012e_explicit_section_closures"] += 1
                             else:
                                 stats["hc012e_unmatched_section_closures"] += 1
+                            if hc012e_kanji_meta_open:
+                                root.append("</div>")
+                                hc012e_kanji_meta_open = False
+                            if hc012e_kanji_summary_open:
+                                root.append("</div>")
+                                hc012e_kanji_summary_open = False
                             hc012e_current_section = code
+                            i += 2 + arg_len
+                            continue
+                        if (
+                            hc012e_current_section == "0053"
+                            and hc012e_section_close is not None
+                            and code in {"0066", "0067"}
+                        ):
+                            stats["hc012e_column_inner_sections"] += 1
                             i += 2 + arg_len
                             continue
                         if hc012e_section_close is not None:
                             root.append(hc012e_section_close)
                             hc012e_section_close = None
+                            if hc012e_current_section == "0007" and hc012e_kanji_main_open:
+                                root.append("</div>")
+                                hc012e_kanji_main_open = False
+                        if (
+                            hc012e_kanji_summary_open
+                            and code not in HC012E_SUPPRESSED_SECTION_CODES
+                            and code not in HC012E_KANJI_SUMMARY_META_SECTION_CODES
+                            and code != "0007"
+                        ):
+                            if hc012e_kanji_meta_open:
+                                root.append("</div>")
+                                hc012e_kanji_meta_open = False
+                            root.append("</div>")
+                            hc012e_kanji_summary_open = False
+                        if code == "0007":
+                            if hc012e_kanji_meta_open:
+                                root.append("</div>")
+                                hc012e_kanji_meta_open = False
+                            if hc012e_kanji_summary_open:
+                                root.append("</div>")
+                                hc012e_kanji_summary_open = False
+                            root.append('<div class="hc012e-kanji-summary"><div class="hc012e-kanji-main">')
+                            hc012e_kanji_summary_open = True
+                            hc012e_kanji_main_open = True
+                        elif (
+                            code in HC012E_KANJI_SUMMARY_META_SECTION_CODES
+                            and hc012e_kanji_summary_open
+                            and not hc012e_kanji_meta_open
+                        ):
+                            if hc012e_kanji_main_open:
+                                root.append("</div>")
+                                hc012e_kanji_main_open = False
+                            root.append('<div class="hc012e-kanji-meta">')
+                            hc012e_kanji_meta_open = True
                         hc012e_current_section = code
                         section_parts = _hc012e_section_parts(code, options)
                         root.extend(section_parts)
@@ -7513,9 +10727,34 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats["hc012e_section_blocks"] += 1
                             if "hitsujun start" in "".join(section_parts):
                                 stats["hc012e_hitsujun_sections"] += 1
+                                hc012e_pending_hitsujun_label = "筆順"
+                        if code in HC012E_SUPPRESSED_SECTION_CODES:
+                            stats["hc012e_suppressed_sections"] += 1
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "012F":
+                        if code == "0002" and hc012f_related_links_open and hc012f_current_section == "0005":
+                            hc012f_current_section = code
+                            stats["hc012f_related_link_separators"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if code == "0005":
+                            if hc012f_section_close is not None:
+                                root.append(hc012f_section_close)
+                                hc012f_section_close = None
+                            if not hc012f_related_links_open:
+                                root.append('<div class="honbun hc012f-related-links">')
+                                hc012f_related_links_open = True
+                                stats["hc012f_section_blocks"] += 1
+                            root.append(_hc012f_image_tag("link_2_V.png" if options.vertical else "link_2.png", "img_gaiji", options))
+                            hc012f_current_section = code
+                            stats["hc012f_link_icon_sections"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if hc012f_related_links_open:
+                            root.append("</div>")
+                            hc012f_related_links_open = False
+                            stats["hc012f_related_link_groups"] += 1
                         if hc012f_section_close is not None:
                             root.append(hc012f_section_close)
                             hc012f_section_close = None
@@ -7533,9 +10772,28 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "0131":
+                        if code in HC0131_EXAMPLE_SECTION_CODES:
+                            if hc0131_section_close is not None:
+                                root.append(hc0131_section_close)
+                                hc0131_section_close = None
+                            if not hc0131_contents_open:
+                                root.append('<div class="contents">')
+                                hc0131_contents_open = True
+                                stats["hc0131_example_blocks"] += 1
+                            hc0131_current_section = code
+                            stats["hc0131_example_sections"] += 1
+                            i += 2 + arg_len
+                            continue
+                        if hc0131_contents_open:
+                            root.append("</div>")
+                            hc0131_contents_open = False
+                            stats["hc0131_example_block_closures"] += 1
                         if hc0131_section_close is not None:
                             root.append(hc0131_section_close)
                             hc0131_section_close = None
+                        hc0131_current_section = code
+                        if code in HC0131_STATE_SECTION_CODES:
+                            hc0131_suppress_next_break = True
                         section_parts, hc0131_section_close = _hc0131_section_parts(code, data, i, options)
                         root.extend(section_parts)
                         if section_parts:
@@ -7579,7 +10837,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             root.append(hc02c1_section_close)
                             hc02c1_section_close = None
                         icon_emitted = code in HC02C1_ICON_SECTION_IMAGES and code != hc02c1_current_section
-                        section_parts, hc02c1_section_close = _hc02c1_section_parts(code, hc02c1_current_section)
+                        section_parts, hc02c1_section_close = _hc02c1_section_parts(
+                            code,
+                            hc02c1_current_section,
+                            options,
+                        )
                         root.extend(section_parts)
                         hc02c1_current_section = code
                         hc02c1_section_just_opened = bool(section_parts)
@@ -7694,7 +10956,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         next_key = None
                         if next_pos + 1 < len(data) and 0xA1 <= data[next_pos] <= 0xFE:
                             next_key = f"{data[next_pos]:02x}{data[next_pos + 1]:02x}"
-                        section_parts, hc00c4_section_close, state = _hc00c4_section_parts(code, next_key=next_key)
+                        section_parts, hc00c4_section_close, state = _hc00c4_section_parts(
+                            code,
+                            next_key=next_key,
+                            options=options,
+                        )
                         if code == "000f":
                             hc00c4_font_down_open = True
                         elif code == "0010":
@@ -7738,7 +11004,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             root.append("</div>")
                             hc02c2_section_open = False
                         icon_emitted = code in HC02C2_ICON_SECTION_IMAGES and code != hc02c2_current_section
-                        section_parts, moji_down_open = _hc02c2_section_parts(code, hc02c2_current_section)
+                        section_parts, moji_down_open = _hc02c2_section_parts(code, hc02c2_current_section, options)
                         root.extend(section_parts)
                         hc02c2_current_section = code
                         hc02c2_section_open = bool(section_parts)
@@ -7774,8 +11040,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             root.append(hc0137_section_close)
                             hc0137_section_close = None
                             hc0137_line_close = None
+                            hc0137_current_section_state = None
+                            hc0137_suppress_heading_tail = False
                         section_parts, hc0137_section_close, state, hc0137_line_close = _hc0137_section_parts(code)
                         root.extend(section_parts)
+                        hc0137_current_section_state = state
+                        if code == "0017":
+                            hc0137_related_items_seen = 0
+                        if code == "0020":
+                            root.append('<span class="hc0137-note-marker">▽</span>')
+                            stats["hc0137_note_markers"] += 1
                         if section_parts:
                             stats["hc0137_section_blocks"] += 1
                         if state:
@@ -7783,10 +11057,20 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "0065" and code in {"0001", "0002"}:
-                        if code == "0001" and not hc0065_midashi_open and not hc0065_body_open:
-                            root.append('<div class="midashi">')
-                            hc0065_midashi_open = True
-                            stats["hc0065_midashi_blocks"] += 1
+                        parts = _current_parts(root_parts, contexts)
+                        hc0065_current_section = code
+                        if code == "0001":
+                            hc0065_close_example(parts)
+                            if hc0065_body_open:
+                                parts.append('<div class="hr_div2"></div>')
+                                stats["hc0065_entry_section_separators"] += 1
+                            if not hc0065_midashi_open and not hc0065_body_open:
+                                parts.append('<div class="midashi">')
+                                hc0065_midashi_open = True
+                                stats["hc0065_midashi_blocks"] += 1
+                        elif code == "0002":
+                            hc0065_close_midashi(parts)
+                            hc0065_open_body(parts)
                         stats["hc0065_state_sections"] += 1
                         i += 2 + arg_len
                         continue
@@ -7794,6 +11078,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         stats["hc_britannica_state_sections"] += 1
                         i += 2 + arg_len
                         continue
+                    if _renderer_code(options) == "013F":
+                        hc013f_current_section = code
+                        hc013f_suppress_media_alt_until_link = False
                     if active_section_image_rules and all(
                         code not in section_rules[active].group_codes for active in active_section_image_rules
                     ):
@@ -7814,11 +11101,100 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 continue
 
             if op == 0x0A:
+                if _renderer_code(options) == "013F":
+                    hc013f_suppress_media_alt_until_link = False
+                if _renderer_code(options) == "02BC":
+                    hc02bc_suppress_media_label_remaining = 0
+                    stats["hc02bc_section_delimiters_suppressed"] += 1
+                    i += 2 + arg_len
+                    continue
+                if _renderer_code(options) == "00A4" and hc00a4_suppress_next_heading_break:
+                    hc00a4_suppress_next_heading_break = False
+                    stats["hc00a4_suppressed_internal_heading_breaks"] += 1
+                    i += 2 + arg_len
+                    continue
+                if (
+                    _renderer_code(options) == "013A"
+                    and hc013a_honbun2_div_open
+                    and data[i + 2 + arg_len : i + 6 + arg_len] == b"\x1f\x09\x00\x02"
+                ):
+                    stats["hc013a_honbun2_linebreaks_suppressed"] += 1
+                    i += 2 + arg_len
+                    continue
+                if _renderer_code(options) == "0065":
+                    parts = _current_parts(root_parts, contexts)
+                    if hc0065_example_open:
+                        hc0065_close_example(parts)
+                    elif hc0065_midashi_open:
+                        hc0065_close_midashi(parts)
+                        hc0065_open_body(parts)
+                    elif hc0065_next_is_rule(i + 2 + arg_len):
+                        stats["hc0065_rule_linebreaks_suppressed"] += 1
+                    else:
+                        parts.append("<br>")
+                        stats["line_breaks"] += 1
+                    i += 2 + arg_len
+                    continue
                 if _is_hc005c_renderer(options):
                     parts = _current_parts(root_parts, contexts)
-                    if hc005c_section_close is not None:
-                        parts.append(hc005c_section_close)
-                        hc005c_section_close = None
+                    next_offset = i + 2 + arg_len
+                    marker_after_linebreak = (
+                        _hc005c_example_marker_after_section(data, next_offset + 4)
+                        if data[next_offset : next_offset + 2] == b"\x1f\x09"
+                        else None
+                    )
+                    if (
+                        hc005c_example_open
+                        and marker_after_linebreak is not None
+                    ):
+                        if marker_after_linebreak == "separator":
+                            stats["hc005c_example_linebreaks_suppressed"] += 1
+                        else:
+                            parts.append("<br>")
+                            hc005c_japanese_example_needs_translation_break = hc005c_entry_side != "english"
+                            stats["hc005c_example_linebreaks_inside_box"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if (
+                        hc005c_example_open
+                        or hc005c_section_close is not None
+                        or hc005c_pending_section_parts is not None
+                    ):
+                        hc005c_close_active_section(parts)
+                    else:
+                        parts.append("<br>")
+                        stats["line_breaks"] += 1
+                    i += 2 + arg_len
+                    continue
+                if _renderer_code(options) == "0094":
+                    parts = _current_parts(root_parts, contexts)
+                    if hc0094_current_section in HC0094_SUPPRESSED_SECTION_VALUES:
+                        stats["hc0094_suppressed_section_linebreaks"] += 1
+                    elif hc0094_current_section == 12 and hc0094_toc_line_active:
+                        parts.append(" ")
+                        stats["hc0094_toc_linebreaks_suppressed"] += 1
+                    else:
+                        parts.append("<br>")
+                        stats["line_breaks"] += 1
+                    i += 2 + arg_len
+                    continue
+                if _renderer_code(options) == "0095":
+                    parts = _current_parts(root_parts, contexts)
+                    if hc0095_current_section == 12 and hc0095_footer_line_active:
+                        parts.append(" ")
+                        stats["hc0095_toc_linebreaks_suppressed"] += 1
+                    else:
+                        parts.append("<br>")
+                        stats["line_breaks"] += 1
+                    i += 2 + arg_len
+                    continue
+                if _renderer_code(options) == "0093":
+                    parts = _current_parts(root_parts, contexts)
+                    if hc0093_current_section in HC0093_SUPPRESSED_SECTION_VALUES:
+                        stats["hc0093_suppressed_section_linebreaks"] += 1
+                    elif hc0093_current_section == 2 and hc0093_toc_line_active:
+                        parts.append(" ")
+                        stats["hc0093_toc_linebreaks_suppressed"] += 1
                     else:
                         parts.append("<br>")
                         stats["line_breaks"] += 1
@@ -7826,7 +11202,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     continue
                 if _renderer_code(options) == "009F":
                     parts = _current_parts(root_parts, contexts)
-                    if hc009f_section_close is not None:
+                    if hc009f_suppress_next_linebreak:
+                        hc009f_suppress_next_linebreak = False
+                        stats["hc009f_label_linebreaks_suppressed"] += 1
+                    elif hc009f_section_close is not None:
                         parts.append(hc009f_section_close)
                         hc009f_section_close = None
                         stats["hc009f_section_line_closures"] += 1
@@ -7848,7 +11227,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     continue
                 if _renderer_code(options) == "0146":
                     parts = _current_parts(root_parts, contexts)
-                    if hc0146_section_close is not None:
+                    if hc0146_example_frame_state == "source":
+                        stats["hc0146_example_source_linebreaks_suppressed"] += 1
+                    elif hc0146_example_frame_state == "translation":
+                        hc0146_close_example_frame(parts)
+                    elif hc0146_section_close is not None:
                         parts.append(hc0146_section_close)
                         hc0146_section_close = None
                         stats["hc0146_section_closures"] += 1
@@ -7986,6 +11369,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats["hc007d_contents_body_blocks"] += 1
                         i += 2 + arg_len
                         continue
+                    if hc007d_example_open:
+                        if _hc007d_example_marker_after_section(data, i + 2 + arg_len):
+                            parts.append("<br>")
+                            stats["line_breaks"] += 1
+                            stats["hc007d_example_linebreaks_inside_box"] += 1
+                        else:
+                            hc007d_close_example(parts)
+                        i += 2 + arg_len
+                        continue
                     if hc007d_section_open:
                         parts.append("</div>")
                         hc007d_section_open = False
@@ -8047,7 +11439,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         parts.append("</div>")
                         hc0067_midashi_open = False
                         if not hc0067_contents_open:
-                            parts.append('<div class="contents_body">')
+                            parts.append('<div class="contents_body hc0067-contents-body">')
                             hc0067_contents_open = True
                             stats["hc0067_contents_body_blocks"] += 1
                         i += 2 + arg_len
@@ -8062,11 +11454,13 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         parts.append("</div>")
                         hc0068_midashi_open = False
                         if not hc0068_contents_open:
-                            parts.append('<div class="contents_body">')
+                            parts.append('<div class="contents_body hc0068-contents-body">')
                             hc0068_contents_open = True
+                            hc0068_source_line_pending = True
                             stats["hc0068_contents_body_blocks"] += 1
                         i += 2 + arg_len
                         continue
+                    hc0068_close_source_line(parts)
                     parts.append("<br>")
                     stats["line_breaks"] += 1
                     i += 2 + arg_len
@@ -8158,6 +11552,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     elif hc0151_current_section in HC0151_NOOP_SECTION_CODES:
                         i += 2 + arg_len
                         continue
+                    hc0151_chars_since_break = 0
+                    hc0151_suppress_spaces_after_media = False
                     i += 2 + arg_len
                     continue
                 if _renderer_code(options) == "0142":
@@ -8180,6 +11576,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     i += 2 + arg_len
                     continue
                 if _renderer_code(options) == "0137":
+                    if hc0137_current_section_state == "midashi":
+                        stats["hc0137_midashi_metadata_linebreaks_suppressed"] += 1
+                        i += 2 + arg_len
+                        continue
                     if hc0137_line_close is not None:
                         _current_parts(root_parts, contexts).append(hc0137_line_close)
                         hc0137_section_close = None
@@ -8196,6 +11596,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         stats["hc009d_table_body_starts"] += 1
                     _current_parts(root_parts, contexts).append(hc009d_section_close)
                     hc009d_section_close = None
+                    i += 2 + arg_len
+                    continue
+                if (
+                    _renderer_code(options) == "009D"
+                    and hc009d_toc_line_open
+                    and hc009d_current_section_value in HC009D_TOC_SECTION_VALUES
+                ):
+                    _current_parts(root_parts, contexts).append(" ")
+                    stats["hc009d_toc_linebreaks_suppressed"] += 1
                     i += 2 + arg_len
                     continue
                 if _renderer_code(options) == "009B" and hc009b_section_close is not None:
@@ -8240,9 +11649,22 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if _renderer_code(options) == "00A6" and hc00a6_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc00a6_section_close)
                     hc00a6_section_close = None
+                    hc00a6_current_section_value = None
+                    hc00a6_suppress_media_caption = False
                     i += 2 + arg_len
                     continue
                 if _is_hc_hkdksr_medical_renderer(options):
+                    if hc_hkdksr_close_deferred_midashi(_current_parts(root_parts, contexts)):
+                        i += 2 + arg_len
+                        continue
+                    hc_hkdksr_flush_pending_title_label(_current_parts(root_parts, contexts))
+                    hc_hkdksr_flush_pending_product_label(_current_parts(root_parts, contexts))
+                    if hc_hkdksr_medical_current_section_value == 3 and hc_hkdksr_medical_title_image_emitted:
+                        i += 2 + arg_len
+                        continue
+                    if hc_hkdksr_medical_current_section_value == 8 and hc_hkdksr_medical_product_title_emitted:
+                        i += 2 + arg_len
+                        continue
                     if hc_hkdksr_medical_section_close is not None:
                         _current_parts(root_parts, contexts).append(hc_hkdksr_medical_section_close)
                         hc_hkdksr_medical_section_close = None
@@ -8276,14 +11698,31 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if _renderer_code(options) == "013D" and hc013d_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc013d_section_close)
                     hc013d_section_close = None
+                    if hc013d_current_section_value in {6, 10, 11}:
+                        stats["hc013d_product_linebreaks_suppressed"] += 1
+                        i += 2 + arg_len
+                        continue
+                if _renderer_code(options) == "013D" and hc013d_midashi_deferred_close:
+                    hc013d_close_deferred_midashi(_current_parts(root_parts, contexts))
                 if _renderer_code(options) == "0144" and hc0144_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc0144_section_close)
                     hc0144_section_close = None
                     i += 2 + arg_len
                     continue
+                if _renderer_code(options) == "0158" and hc0158_ruigo_row_open:
+                    hc0158_close_ruigo_row(_current_parts(root_parts, contexts))
+                    hc0158_current_section_value = None
+                    i += 2 + arg_len
+                    continue
+                if _renderer_code(options) == "0158" and hc0158_current_section_value in HC0158_COLUMN_SECTION_VALUES:
+                    stats["hc0158_column_start_linebreaks_suppressed"] += 1
+                    hc0158_current_section_value = None
+                    i += 2 + arg_len
+                    continue
                 if _renderer_code(options) == "0158" and hc0158_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc0158_section_close)
                     hc0158_section_close = None
+                    hc0158_current_section_value = None
                     i += 2 + arg_len
                     continue
                 if _renderer_code(options) == "0145" and hc0145_section_close is not None:
@@ -8291,20 +11730,59 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     hc0145_section_close = None
                     i += 2 + arg_len
                     continue
+                if _renderer_code(options) == "0145" and hc0145_example_open:
+                    stats["hc0145_example_linebreaks_suppressed"] += 1
+                    i += 2 + arg_len
+                    continue
                 if _renderer_code(options) == "03E8" and hc03e8_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc03e8_section_close)
                     hc03e8_section_close = None
                     i += 2 + arg_len
                     continue
+                if _renderer_code(options) == "0141" and hc0141_example_open:
+                    stats["hc0141_example_linebreaks_suppressed"] += 1
+                    i += 2 + arg_len
+                    continue
+                if (
+                    _renderer_code(options) == "0141"
+                    and data[i + 2 + arg_len : i + 4 + arg_len] == b"\x1f\x05"
+                    and 0x04 in style_stack
+                ):
+                    while style_stack:
+                        popped = style_stack.pop()
+                        if popped == 0x04:
+                            _current_parts(root_parts, contexts).append("</span>")
+                            halfwidth_depth = max(0, halfwidth_depth - 1)
+                            stats["hc0141_halfwidth_closed_before_linebreak"] += 1
+                            break
+                        close_tag = _style_close_tag(popped, options)
+                        if close_tag:
+                            _current_parts(root_parts, contexts).append(f"</{close_tag}>")
                 if _renderer_code(options) == "0141" and hc0141_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc0141_section_close)
                     hc0141_section_close = None
                     i += 2 + arg_len
                     continue
                 if _renderer_code(options) == "012E" and hc012e_section_close is not None:
+                    if hc012e_current_section == "0053":
+                        _current_parts(root_parts, contexts).append("<br>")
+                        stats["hc012e_column_linebreaks"] += 1
+                        i += 2 + arg_len
+                        continue
                     _current_parts(root_parts, contexts).append(hc012e_section_close)
                     hc012e_section_close = None
+                    if hc012e_current_section == "0007" and hc012e_kanji_main_open:
+                        _current_parts(root_parts, contexts).append("</div>")
+                        hc012e_kanji_main_open = False
+                        stats["hc012e_oyaji_summary_linebreaks_suppressed"] += 1
+                    stats["hc012e_section_linebreak_closures"] += 1
+                    i += 2 + arg_len
+                    continue
                 if _renderer_code(options) == "012F":
+                    if hc012f_related_links_open:
+                        _current_parts(root_parts, contexts).append("</div>")
+                        hc012f_related_links_open = False
+                        stats["hc012f_related_link_groups"] += 1
                     if hc012f_section_close is not None:
                         _current_parts(root_parts, contexts).append(hc012f_section_close)
                         hc012f_section_close = None
@@ -8314,6 +11792,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     if hc0131_section_close is not None:
                         _current_parts(root_parts, contexts).append(hc0131_section_close)
                         hc0131_section_close = None
+                    elif hc0131_suppress_next_break:
+                        hc0131_suppress_next_break = False
+                        stats["hc0131_state_line_breaks_suppressed"] += 1
                     else:
                         _current_parts(root_parts, contexts).append("<br>")
                         stats["line_breaks"] += 1
@@ -8397,6 +11878,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             stats["hc0063_contents_body_blocks"] += 1
                         hc0063_heading_phase = False
                     else:
+                        if hc0063_exsample_open and data[i + 14 : i + 16] != b"\x21\x26":
+                            parts.append("</div>")
+                            hc0063_exsample_open = False
+                            stats["hc0063_exsample_blocks_closed"] += 1
                         parts.append("<br>")
                         stats["line_breaks"] += 1
                     i += 2 + arg_len
@@ -8605,6 +12090,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 continue
 
             if _renderer_code(options) == "02BC" and op in HC02BC_NONPRINTING_CONTROL_OPS:
+                if op == 0x6D:
+                    hc02bc_suppress_media_label_remaining = 0
                 stats["hc02bc_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
@@ -8708,9 +12195,21 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "009F" and op == 0x61:
                 if hc009f_midashi_open:
-                    _current_parts(root_parts, contexts).append("</div>")
-                    hc009f_midashi_open = False
-                    stats["hc009f_midashi_closures"] += 1
+                    parts = _current_parts(root_parts, contexts)
+                    if _hc009f_next_midashi_after_close(data, i + 2 + arg_len):
+                        if hc009f_midashi_alias_open:
+                            parts.append("</span>")
+                        parts.append('<span class="hc009f-midashi-alias">')
+                        hc009f_midashi_alias_open = True
+                        hc009f_suppress_next_linebreak = True
+                        stats["hc009f_midashi_aliases"] += 1
+                    else:
+                        if hc009f_midashi_alias_open:
+                            parts.append("</span>")
+                            hc009f_midashi_alias_open = False
+                        parts.append("</div>")
+                        hc009f_midashi_open = False
+                        stats["hc009f_midashi_closures"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -8724,7 +12223,13 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
-            if _renderer_code(options) == "00C6" and op in HC00C6_NONPRINTING_CONTROL_OPS:
+            if _renderer_code(options) == "00C6" and op == 0x41:
+                hc00c6_heading_capture_active = hc00c6_current_section_code == "0001"
+                stats["hc00c6_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+            if _renderer_code(options) == "00C6" and op == 0x61:
+                hc00c6_heading_capture_active = False
                 stats["hc00c6_nonprinting_controls"] += 1
                 i += 2 + arg_len
                 continue
@@ -8774,14 +12279,19 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 continue
 
             if _renderer_code(options) == "0065" and op == 0x41:
-                if hc0065_midashi_open:
-                    _current_parts(root_parts, contexts).append("</div>")
-                    hc0065_midashi_open = False
-                if not hc0065_body_open:
-                    _current_parts(root_parts, contexts).append('<div class="contents_body">')
-                    hc0065_body_open = True
-                    stats["hc0065_contents_body_blocks"] += 1
+                parts = _current_parts(root_parts, contexts)
+                hc0065_close_midashi(parts)
+                hc0065_open_body(parts)
+                if hc0065_body_started:
+                    hc0065_close_example(parts)
+                    parts.append('<div class="hr_div2"></div>')
+                    stats["hc0065_rule_separators"] += 1
                 stats["hc0065_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0065" and op in {0x10, 0x11}:
+                stats["hc0065_suppressed_italic_controls"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -8807,7 +12317,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "0067" and op == 0x41:
                 if not hc0067_midashi_open and not hc0067_contents_open:
-                    _current_parts(root_parts, contexts).append('<div class="midashi">')
+                    _current_parts(root_parts, contexts).append('<div class="midashi hc0067-plain-midashi">')
                     hc0067_midashi_open = True
                     stats["headings"] += 1
                     stats["hc0067_midashi_blocks"] += 1
@@ -8822,7 +12332,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _renderer_code(options) == "0068" and op == 0x41:
                 if not hc0068_midashi_open and not hc0068_contents_open:
-                    _current_parts(root_parts, contexts).append('<div class="midashi">')
+                    _current_parts(root_parts, contexts).append('<div class="midashi hc0068-plain-midashi">')
                     hc0068_midashi_open = True
                     stats["headings"] += 1
                     stats["hc0068_midashi_blocks"] += 1
@@ -8893,6 +12403,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if hc0135_midashi_open:
                     parts.append("</div>")
                     hc0135_midashi_open = False
+                    hc0135_suppress_heading_tail = False
                     stats["hc0135_midashi_closures"] += 1
                 if not hc0135_honbun_user_open:
                     if hc0135_contents_body_open:
@@ -8935,7 +12446,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if _renderer_code(options) == "014F" and op == 0x41:
                 parts = _current_parts(root_parts, contexts)
                 if not hc014f_midashi_open and not hc014f_contents_open:
-                    parts.append('<div class="midashi">')
+                    parts.append(f'<div class="midashi{_windows_blue_midashi_class(options)}">')
                     hc014f_midashi_open = True
                     stats["headings"] += 1
                     stats["hc014f_midashi_blocks"] += 1
@@ -9000,10 +12511,14 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
             if _is_hc005c_renderer(options) and op == 0x41:
                 parts = _current_parts(root_parts, contexts)
-                if hc005c_section_close is not None:
-                    parts.append(hc005c_section_close)
-                    hc005c_section_close = None
+                if (
+                    hc005c_example_open
+                    or hc005c_section_close is not None
+                    or hc005c_pending_section_parts is not None
+                ):
+                    hc005c_close_active_section(parts)
                 hc005c_heading_class = _hc005c_heading_class(data, i + 2 + arg_len)
+                hc005c_entry_side = "english" if hc005c_heading_class == "eMidashi" else "japanese"
                 parts.append(f'<div class="{_escape_attr(hc005c_heading_class)}">')
                 hc005c_heading_open = True
                 stats["headings"] += 1
@@ -9025,8 +12540,31 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 continue
 
             if _is_hc005c_renderer(options) and op == 0x04:
+                marker = _hc005c_example_marker_at(data, i + 2 + arg_len)
+                if (
+                    marker is not None
+                    and hc005c_pending_section_parts is not None
+                    and (marker != "continuation" or hc005c_example_group_active)
+                ):
+                    hc005c_open_example(_current_parts(root_parts, contexts), marker)
+                    hc005c_expected_example_marker = marker
+                elif hc005c_pending_section_parts is not None:
+                    hc005c_flush_pending_section(_current_parts(root_parts, contexts))
                 css = "hankakuMidashi" if hc005c_heading_open else "hankaku"
-                _current_parts(root_parts, contexts).append(f'<span class="{css}">')
+                parts = _current_parts(root_parts, contexts)
+                if (
+                    marker is None
+                    and hc005c_example_open
+                    and hc005c_entry_side != "english"
+                    and hc005c_japanese_example_needs_translation_break
+                    and not _hc005c_halfwidth_span_is_punctuation(data, i + 2 + arg_len)
+                    and parts
+                    and parts[-1] not in {"<br>", '<div class="contents">', '<div class="hr_div2"></div>'}
+                ):
+                    parts.append("<br>")
+                    hc005c_japanese_example_needs_translation_break = False
+                    stats["hc005c_example_translation_linebreaks"] += 1
+                parts.append(f'<span class="{css}">')
                 style_stack.append(op)
                 halfwidth_depth += 1
                 i += 2 + arg_len
@@ -9077,17 +12615,36 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if _renderer_code(options) == "00A4" and hc00a4_suppress_heading:
+                if op == 0x61:
+                    hc00a4_suppress_heading = False
+                    hc00a4_suppress_next_heading_break = True
+                    stats["hc00a4_suppressed_internal_heading_closures"] += 1
+                else:
+                    stats["hc00a4_suppressed_internal_heading_controls"] += 1
+                i += 2 + arg_len
+                continue
+
             if _renderer_code(options) == "00A4" and op == 0x41:
+                if hc00a4_current_section_value != 1:
+                    hc00a4_suppress_heading = True
+                    stats["hc00a4_suppressed_internal_headings"] += 1
+                    i += 2 + arg_len
+                    continue
                 parts = _current_parts(root_parts, contexts)
                 if hc00a4_section_close is not None:
                     parts.append(hc00a4_section_close)
                     hc00a4_section_close = None
                     stats["hc00a4_section_closures"] += 1
                 if not hc00a4_midashi_open:
-                    parts.append('<div class="midashi">')
+                    color = _hc00a4_heading_color(data, i)
+                    style = f' style="background-color:{color};"' if color else ""
+                    parts.append(f'<div class="midashi"{style}>')
                     hc00a4_midashi_open = True
                     stats["headings"] += 1
                     stats["hc00a4_midashi_blocks"] += 1
+                    if color:
+                        stats["hc00a4_midashi_color_markers"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -9311,6 +12868,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 continue
 
             if _renderer_code(options) == "0092" and op == 0x04:
+                if (
+                    hc0092_current_section == 2
+                    and not hc0092_line_started
+                    and not hc0092_example_box_open
+                    and _decode_next_jis_text(data, i + 2 + arg_len) == "・"
+                ):
+                    _current_parts(root_parts, contexts).append('<div class="contents">')
+                    hc0092_example_box_open = True
+                    stats["hc0092_example_boxes"] += 1
                 css_class = "hankakuMidashi" if hc0092_current_section == 1 else "hankaku"
                 _current_parts(root_parts, contexts).append(f'<span class="{css_class}">')
                 style_stack.append(op)
@@ -9330,6 +12896,53 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             break
                         if close_tag:
                             _current_parts(root_parts, contexts).append(f"</{close_tag}>")
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0092" and op in {0x10, 0x11}:
+                stats["hc0092_state_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0092" and op == 0xE0:
+                parts = _current_parts(root_parts, contexts)
+                style_context = contexts[-1] if contexts else None
+                active_style_stack = style_context.style_stack if style_context is not None else style_stack
+                if payload == b"\x11\x01":
+                    parts.append("<i>")
+                    active_style_stack.append(HC0092_ITALIC_STYLE)
+                    stats["hc0092_italic_spans"] += 1
+                elif payload == b"\x11\x03":
+                    parts.append("<b>")
+                    active_style_stack.append(HC0092_BOLD_STYLE)
+                    stats["hc0092_bold_spans"] += 1
+                else:
+                    stats["hc0092_decoration_state_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0092" and op == 0xE1:
+                style_context = (
+                    contexts[-1]
+                    if contexts and any(value in contexts[-1].style_stack for value in {HC0092_ITALIC_STYLE, HC0092_BOLD_STYLE})
+                    else None
+                )
+                active_style_stack = style_context.style_stack if style_context is not None else style_stack
+                parts = _current_parts(root_parts, contexts)
+                while active_style_stack:
+                    popped = active_style_stack.pop()
+                    if popped == HC0092_ITALIC_STYLE:
+                        parts.append("</i>")
+                        break
+                    if popped == HC0092_BOLD_STYLE:
+                        parts.append("</b>")
+                        break
+                    close_tag = _style_close_tag(popped, options)
+                    if close_tag:
+                        parts.append(f"</{close_tag}>")
+                    elif popped == 0x04:
+                        parts.append("</span>")
+                        halfwidth_depth = max(0, halfwidth_depth - 1)
                 i += 2 + arg_len
                 continue
 
@@ -9530,6 +13143,53 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if _renderer_code(options) == "007D" and op in {0x10, 0x11}:
+                stats["hc007d_state_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "007D" and op == 0xE0:
+                parts = _current_parts(root_parts, contexts)
+                style_context = contexts[-1] if contexts else None
+                active_style_stack = style_context.style_stack if style_context is not None else style_stack
+                if payload == b"\x11\x01":
+                    parts.append("<i>")
+                    active_style_stack.append(HC007D_ITALIC_STYLE)
+                    stats["hc007d_italic_spans"] += 1
+                elif payload == b"\x11\x03":
+                    parts.append("<b>")
+                    active_style_stack.append(HC007D_BOLD_STYLE)
+                    stats["hc007d_bold_spans"] += 1
+                else:
+                    stats["hc007d_decoration_state_controls"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "007D" and op == 0xE1:
+                style_context = (
+                    contexts[-1]
+                    if contexts and any(value in contexts[-1].style_stack for value in {HC007D_ITALIC_STYLE, HC007D_BOLD_STYLE})
+                    else None
+                )
+                active_style_stack = style_context.style_stack if style_context is not None else style_stack
+                parts = _current_parts(root_parts, contexts)
+                while active_style_stack:
+                    popped = active_style_stack.pop()
+                    if popped == HC007D_ITALIC_STYLE:
+                        parts.append("</i>")
+                        break
+                    if popped == HC007D_BOLD_STYLE:
+                        parts.append("</b>")
+                        break
+                    close_tag = _style_close_tag(popped, options)
+                    if close_tag:
+                        parts.append(f"</{close_tag}>")
+                    elif popped == 0x04:
+                        parts.append("</span>")
+                        halfwidth_depth = max(0, halfwidth_depth - 1)
+                i += 2 + arg_len
+                continue
+
             if _renderer_code(options) == "007D" and op in HC007D_NONPRINTING_CONTROL_OPS:
                 stats["hc007d_nonprinting_controls"] += 1
                 i += 2 + arg_len
@@ -9648,6 +13308,17 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if _renderer_code(options) == "00AC" and op == 0x61:
+                if hc00ac_midashi_open and hc00ac_section_close is not None:
+                    _current_parts(root_parts, contexts).append(hc00ac_section_close)
+                    hc00ac_section_close = None
+                    hc00ac_midashi_open = False
+                    stats["hc00ac_midashi_closures"] += 1
+                else:
+                    stats["hc00ac_nonprinting_controls"] += 1
+                i += 2 + arg_len
+                continue
+
             if _renderer_code(options) == "00AA" and op in HC00AA_NONPRINTING_CONTROL_OPS:
                 stats["hc00aa_nonprinting_controls"] += 1
                 i += 2 + arg_len
@@ -9723,7 +13394,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if _renderer_code(options) == "0063" and op == 0x41:
                 if hc0063_heading_phase:
                     _current_parts(root_parts, contexts).append('<div class="midashi">')
-                    style_stack.append(op)
+                    hc0063_section_close = "</div>"
                     stats["headings"] += 1
                     stats["hc0063_heading_blocks"] += 1
                 else:
@@ -9790,7 +13461,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 continue
 
             if _renderer_code(options) == "0151" and op == 0x41:
-                _current_parts(root_parts, contexts).append('<div class="midashi">')
+                _current_parts(root_parts, contexts).append('<div class="midashi hc0151-midashi">')
                 style_stack.append(op)
                 stats["headings"] += 1
                 stats["hc0151_heading_blocks"] += 1
@@ -9862,6 +13533,17 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if _renderer_code(options) == "0095" and op == 0xE0:
+                attrs = ' class="hc0095-emphasis"' if hc0095_page_kind == 4 else ""
+                _current_parts(root_parts, contexts).append(f"<b{attrs}>")
+                style_stack.append(op)
+                if attrs:
+                    stats["hc0095_navy_emphasis_spans"] += 1
+                else:
+                    stats["hc0095_plain_emphasis_spans"] += 1
+                i += 2 + arg_len
+                continue
+
             if _renderer_code(options) == "0096" and op == 0x04:
                 css_class = "hankakuMidashi" if hc0096_current_section == 1 else "hankaku"
                 _current_parts(root_parts, contexts).append(f'<span class="{css_class}">')
@@ -9924,6 +13606,41 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if _renderer_code(options) == "0146" and op == 0xE0:
+                mode = int.from_bytes(payload[-2:], "big") if len(payload) >= 2 else 0
+                if mode == 1:
+                    _current_parts(root_parts, contexts).append("<i>")
+                    hc0146_decoration_stack.append("</i>")
+                    stats["hc0146_italic_decoration_spans"] += 1
+                else:
+                    _current_parts(root_parts, contexts).append("<b>")
+                    hc0146_decoration_stack.append("</b>")
+                    stats["hc0146_bold_decoration_spans"] += 1
+                style_stack.append(op)
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0146" and op == 0xE1:
+                if 0xE0 in style_stack:
+                    while style_stack:
+                        popped = style_stack.pop()
+                        if popped == 0xE0:
+                            close_html = hc0146_decoration_stack.pop() if hc0146_decoration_stack else "</b>"
+                            _current_parts(root_parts, contexts).append(close_html)
+                            stats["hc0146_decoration_closures"] += 1
+                            break
+                        if popped == 0x04:
+                            _current_parts(root_parts, contexts).append("</span>")
+                            halfwidth_depth = max(0, halfwidth_depth - 1)
+                            continue
+                        close_tag = _style_close_tag(popped, options)
+                        if close_tag:
+                            _current_parts(root_parts, contexts).append(f"</{close_tag}>")
+                else:
+                    stats["hc0146_unmatched_decoration_end"] += 1
+                i += 2 + arg_len
+                continue
+
             if (
                 _renderer_code(options) == "0158"
                 and op == 0x61
@@ -9933,14 +13650,136 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 _current_parts(root_parts, contexts).append(hc0158_marker_stack.pop()[1])
                 stats["hc0158_section_end_style_markers"] += 1
 
+            if _renderer_code(options) == "0131" and op == 0xE0:
+                mode = int.from_bytes(payload[-2:], "big") if len(payload) >= 2 else 0
+                tag = "i" if mode == 1 and hc0131_current_section in HC0131_POS_ITALIC_SECTION_CODES else "b"
+                _current_parts(root_parts, contexts).append(f"<{tag}>")
+                hc0131_decoration_stack.append(tag)
+                stats[f"hc0131_{'italic' if tag == 'i' else 'bold'}_decoration_spans"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0131" and op == 0xE1 and hc0131_decoration_stack:
+                tag = hc0131_decoration_stack.pop()
+                _current_parts(root_parts, contexts).append(f"</{tag}>")
+                stats["hc0131_decoration_closures"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "02BE" and op == 0xE0:
+                mode = int.from_bytes(payload[-2:], "big") if len(payload) >= 2 else 0
+                tag = "i" if mode == 1 else "b"
+                _current_parts(root_parts, contexts).append(f"<{tag}>")
+                hc02be_decoration_stack.append(tag)
+                stats[f"hc02be_{'italic' if tag == 'i' else 'bold'}_decoration_spans"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "02BE" and op == 0xE1:
+                if hc02be_decoration_stack:
+                    tag = hc02be_decoration_stack.pop()
+                    _current_parts(root_parts, contexts).append(f"</{tag}>")
+                    stats["hc02be_decoration_closures"] += 1
+                else:
+                    stats["hc02be_unmatched_decoration_end"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "02BF" and op == 0xE0:
+                mode = int.from_bytes(payload[-2:], "big") if len(payload) >= 2 else 0
+                if mode == 1 and hc02bf_current_section == "0004":
+                    open_html, close_html = "<i>", "</i>"
+                    stats["hc02bf_italic_decoration_spans"] += 1
+                elif mode == 4:
+                    open_html, close_html = '<span class="hc02bf-smallcap">', "</span>"
+                    stats["hc02bf_smallcap_decoration_spans"] += 1
+                else:
+                    open_html, close_html = "<b>", "</b>"
+                    stats["hc02bf_bold_decoration_spans"] += 1
+                _current_parts(root_parts, contexts).append(open_html)
+                hc02bf_decoration_stack.append(close_html)
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "02BF" and op == 0xE1:
+                if hc02bf_decoration_stack:
+                    _current_parts(root_parts, contexts).append(hc02bf_decoration_stack.pop())
+                    stats["hc02bf_decoration_closures"] += 1
+                else:
+                    stats["hc02bf_unmatched_decoration_end"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0141" and op == 0xE0:
+                mode = int.from_bytes(payload[-2:], "big") if len(payload) >= 2 else 0
+                if mode == 1:
+                    if data[i + 2 + arg_len : i + 4 + arg_len] == b"\x1f\x04":
+                        hc0141_pending_italic_before_halfwidth = True
+                    else:
+                        _current_parts(root_parts, contexts).append("<i>")
+                        hc0141_decoration_stack.append("</i>")
+                    stats["hc0141_italic_decoration_spans"] += 1
+                else:
+                    _current_parts(root_parts, contexts).append("<b>")
+                    hc0141_decoration_stack.append("</b>")
+                    stats["hc0141_bold_decoration_spans"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0141" and op == 0xE1:
+                if hc0141_decoration_stack:
+                    _current_parts(root_parts, contexts).append(hc0141_decoration_stack.pop())
+                    stats["hc0141_decoration_closures"] += 1
+                else:
+                    stats["hc0141_unmatched_decoration_end"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0141" and op == 0x04 and hc0141_pending_italic_before_halfwidth:
+                _current_parts(root_parts, contexts).append('<span class="lv-hc-halfwidth"><i>')
+                style_stack.append(op)
+                halfwidth_depth += 1
+                hc0141_decoration_stack.append("</i>")
+                hc0141_pending_italic_before_halfwidth = False
+                stats["hc0141_halfwidth_italic_spans"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "013A" and op == 0xE0:
+                mode = int.from_bytes(payload[-2:], "big") if len(payload) >= 2 else 0
+                if mode == 1:
+                    _current_parts(root_parts, contexts).append("<i>")
+                    hc013a_decoration_stack.append("</i>")
+                    stats["hc013a_italic_spans"] += 1
+                elif mode == 4:
+                    _current_parts(root_parts, contexts).append('<span class="gothic"><b><i>')
+                    hc013a_decoration_stack.append("</i></b></span>")
+                    stats["hc013a_gothic_bold_italic_spans"] += 1
+                else:
+                    _current_parts(root_parts, contexts).append("<b>")
+                    hc013a_decoration_stack.append("</b>")
+                    stats["hc013a_bold_spans"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "013A" and op == 0xE1:
+                if hc013a_decoration_stack:
+                    _current_parts(root_parts, contexts).append(hc013a_decoration_stack.pop())
+                    stats["hc013a_decoration_closures"] += 1
+                else:
+                    stats["hc013a_unmatched_decoration_end"] += 1
+                i += 2 + arg_len
+                continue
+
             if _renderer_code(options) == "013A" and op == 0x41:
-                marker_key = _two_byte_key_at(data, i + 2 + arg_len)
-                css_class = HC013A_HEADING_MARKER_CLASSES.get(marker_key or "", "midashi")
+                marker_offset = i + 2 + arg_len
+                marker_key = _two_byte_key_at(data, marker_offset)
+                css_class = _hc013a_heading_class(data, marker_offset, marker_key)
                 _current_parts(root_parts, contexts).append(f'<div class="{css_class}">')
                 style_stack.append(op)
                 stats["headings"] += 1
                 stats["hc013a_heading_blocks"] += 1
-                stats[f"hc013a_{css_class}_blocks"] += 1
+                stats[f"hc013a_{css_class.split()[0]}_blocks"] += 1
                 if marker_key not in HC013A_HEADING_MARKER_CLASSES:
                     stats["hc013a_default_midashi_blocks"] += 1
                 i += 2 + arg_len
@@ -9963,12 +13802,25 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if _is_hc005c_renderer(options) and op == 0xE0:
+                if hc005c_pending_section_parts is not None:
+                    hc005c_flush_pending_section(_current_parts(root_parts, contexts))
+                close_html = "</i>" if payload == b"\x00\x01" else "</b>"
+                _current_parts(root_parts, contexts).append("<i>" if close_html == "</i>" else "<b>")
+                style_stack.append(op)
+                hc005c_decoration_stack.append(close_html)
+                stats["hc005c_decoration_italic" if close_html == "</i>" else "hc005c_decoration_bold"] += 1
+                i += 2 + arg_len
+                continue
+
             style_spec = _style_start_spec(op, options)
             if style_spec is not None:
                 if _renderer_code(options) == "012D" and hc012d_pending_honbun_user:
                     _current_parts(root_parts, contexts).append('<div class="honbun_user">')
                     hc012d_section_close = "</div>"
                     hc012d_pending_honbun_user = False
+                if _is_hc005c_renderer(options) and hc005c_pending_section_parts is not None:
+                    hc005c_flush_pending_section(_current_parts(root_parts, contexts))
                 tag, attrs = style_spec
                 _current_parts(root_parts, contexts).append(f"<{tag}{attrs}>")
                 style_context = contexts[-1] if contexts else None
@@ -9983,10 +13835,23 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         halfwidth_depth += 1
                 if op == 0x41:
                     stats["headings"] += 1
+                    if _renderer_code(options) == "0132":
+                        hc0132_midashi_open = True
+                        hc0132_suppress_heading_tail = False
                 i += 2 + arg_len
                 continue
 
             if op in STYLE_END_OPS:
+                if _is_hc_hkdksr_medical_renderer(options) and op == 0x61 and 0x41 in style_stack:
+                    hc_hkdksr_medical_midashi_deferred_close = True
+                    stats["hc_hkdksr_medical_deferred_midashi_ends"] += 1
+                    i += 2 + arg_len
+                    continue
+                if _renderer_code(options) == "013D" and op == 0x61 and 0x41 in style_stack:
+                    hc013d_midashi_deferred_close = True
+                    stats["hc013d_deferred_midashi_ends"] += 1
+                    i += 2 + arg_len
+                    continue
                 start_op = STYLE_END_OPS[op]
                 close_tag = _style_close_tag(start_op, options)
                 style_context = contexts[-1] if contexts and start_op in contexts[-1].style_stack else None
@@ -10000,6 +13865,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         popped = active_style_stack.pop()
                         if _is_hc005c_renderer(options) and popped == 0x04:
                             _current_parts(root_parts, contexts).append("</span>")
+                        elif _is_hc005c_renderer(options) and popped == 0xE0:
+                            _current_parts(root_parts, contexts).append(
+                                hc005c_decoration_stack.pop() if hc005c_decoration_stack else "</b>"
+                            )
                         else:
                             popped_tag = _style_close_tag(popped, options)
                             if popped_tag:
@@ -10021,6 +13890,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     hc012d_pending_honbun_user = True
                 if _renderer_code(options) == "013A" and op == 0x61 and closed_requested_style:
                     stats["hc013a_midashi_closures"] += 1
+                if _renderer_code(options) == "0132" and op == 0x61 and closed_requested_style:
+                    hc0132_midashi_open = False
+                    hc0132_suppress_heading_tail = False
+                    stats["hc0132_midashi_closures"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -10071,7 +13944,19 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if _renderer_code(options) == "0094" and hc0094_current_section in HC0094_SUPPRESSED_SECTION_VALUES:
+                stats["hc0094_suppressed_section_controls"] += 1
+                i += 2 + arg_len
+                continue
+
             if op in LINK_START_OPS:
+                if _renderer_code(options) == "013F" and hc013f_suppress_media_alt_until_link:
+                    hc013f_suppress_media_alt_until_link = False
+                    stats["hc013f_media_alt_labels_suppressed"] += 1
+                if _renderer_code(options) == "0141" and hc0141_double_pipe_crossref_pending:
+                    _current_parts(root_parts, contexts).append(_hc0141_cross_reference_arrow_html(options))
+                    hc0141_double_pipe_crossref_pending = False
+                    stats["hc0141_cross_reference_arrows"] += 1
                 if _renderer_code(options) == "008C" and 0x04 in style_stack:
                     while style_stack:
                         popped = style_stack.pop()
@@ -10196,6 +14081,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if ctx is not None:
                     _close_context_styles(ctx, options)
                 label = "".join(ctx.parts) if ctx else ""
+                label_extra = ""
                 if not label:
                     label = "audio"
                 sound_src = _sound_image_src(options.image_sources)
@@ -10206,6 +14092,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     audio_class = "lv-hc-audio lLink"
                     image_class = "im"
                 if sound_src:
+                    if _renderer_code(options) == "0135" and label:
+                        label_extra = label.replace("→", "").strip()
                     label = f'<img src="{_escape_attr(sound_src)}" class="{_escape_attr(image_class)}">'
                     stats["audio_images"] += 1
                 attrs = [
@@ -10218,12 +14106,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     attrs.append(f'data-lv-resource="{_escape_attr(target["resource_id"])}"')
                 parent = ctx.parent if ctx else _current_parts(root_parts, contexts)
                 parent.append(f"<a {' '.join(attrs)}>{label}</a>")
+                if label_extra:
+                    parent.append(label_extra)
+                    stats["hc0135_audio_label_extras"] += 1
                 i += 2 + arg_len
                 continue
 
             if _renderer_code(options) == "0048" and op == 0x4D:
                 pointer = parse_media_pointer(payload) if len(payload) == 18 else None
                 target = _media_target(pointer)
+                image_src = _media_image_src(pointer, options)
                 control = f"1f{op:02x}"
                 media.append(
                     {
@@ -10234,9 +14126,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 )
                 if hc0048_media_div_open:
                     _current_parts(root_parts, contexts).append("</div>")
-                _current_parts(root_parts, contexts).append(f"<div>{_media_placeholder_html(control, target)}")
+                _current_parts(root_parts, contexts).append(
+                    f"<div>{_media_placeholder_html(control, target, image_src, extra_class='img_inline')}"
+                )
                 hc0048_media_div_open = True
-                stats["media_placeholders"] += 1
+                stats["media_images" if image_src else "media_placeholders"] += 1
                 stats["hc0048_media_divs"] += 1
                 i += 2 + arg_len
                 continue
@@ -10244,6 +14138,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if _renderer_code(options) == "00A4" and op in MEDIA_OPS:
                 pointer = parse_media_pointer(payload) if len(payload) == 18 else None
                 target = _media_target(pointer)
+                image_src = _media_image_src(pointer, options)
                 control = f"1f{op:02x}"
                 media.append(
                     {
@@ -10252,11 +14147,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         "status": "resolved_address" if target else "unresolved_payload",
                     }
                 )
-                html = _media_placeholder_html(control, target).replace(
+                html = _media_placeholder_html(control, target, image_src).replace(
                     'class="lv-hc-media"', 'class="lv-hc-media img_inline"', 1
                 )
                 _current_parts(root_parts, contexts).append(html + "<br>")
-                stats["media_placeholders"] += 1
+                stats["media_images" if image_src else "media_placeholders"] += 1
                 stats["hc00a4_inline_media_placeholders"] += 1
                 i += 2 + arg_len
                 continue
@@ -10264,6 +14159,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if _renderer_code(options) == "00A9" and op in MEDIA_OPS:
                 pointer = parse_media_pointer(payload) if len(payload) == 18 else None
                 target = _media_target(pointer)
+                image_src = _media_image_src(pointer, options)
                 control = f"1f{op:02x}"
                 media.append(
                     {
@@ -10272,18 +14168,61 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         "status": "resolved_address" if target else "unresolved_payload",
                     }
                 )
-                html = _media_placeholder_html(control, target).replace(
+                html = _media_placeholder_html(control, target, image_src).replace(
                     'class="lv-hc-media"', 'class="lv-hc-media img_inline"', 1
                 )
                 _current_parts(root_parts, contexts).append(html + "<br>")
-                stats["media_placeholders"] += 1
+                stats["media_images" if image_src else "media_placeholders"] += 1
                 stats["hc00a9_inline_media_placeholders"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "0151" and op in MEDIA_OPS:
+                pointer = parse_media_pointer(payload) if len(payload) == 18 else None
+                target = _media_target(pointer)
+                image_src = _media_image_src(pointer, options)
+                control = f"1f{op:02x}"
+                media.append(
+                    {
+                        "control": control,
+                        "target": target,
+                        "status": "resolved_address" if target else "unresolved_payload",
+                    }
+                )
+                html = _media_placeholder_html(control, target, image_src)
+                _current_parts(root_parts, contexts).append(f'<br><div class="hc0151-media-block">{html}</div>')
+                hc0151_suppress_spaces_after_media = True
+                hc0151_chars_since_break = 0
+                stats["media_images" if image_src else "media_placeholders"] += 1
+                stats["hc0151_media_blocks"] += 1
+                i += 2 + arg_len
+                continue
+
+            if _renderer_code(options) == "00AD" and op in MEDIA_OPS:
+                pointer = parse_media_pointer(payload) if len(payload) == 18 else None
+                target = _media_target(pointer)
+                image_src = _media_image_src(pointer, options)
+                control = f"1f{op:02x}"
+                media.append(
+                    {
+                        "control": control,
+                        "target": target,
+                        "status": "resolved_address" if target else "unresolved_payload",
+                    }
+                )
+                html = _media_placeholder_html(control, target, image_src)
+                _current_parts(root_parts, contexts).append(f'<div class="hc00ad-media-block">{html}</div>')
+                if image_src:
+                    media_filename_label_suppression_remaining = _media_filename_label_at(data, i + 2 + arg_len)
+                stats["media_images" if image_src else "media_placeholders"] += 1
+                stats["hc00ad_media_blocks"] += 1
                 i += 2 + arg_len
                 continue
 
             if op in MEDIA_OPS:
                 pointer = parse_media_pointer(payload) if len(payload) == 18 else None
                 target = _media_target(pointer)
+                image_src = _media_image_src(pointer, options)
                 control = f"1f{op:02x}"
                 media.append(
                     {
@@ -10292,8 +14231,27 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         "status": "resolved_address" if target else "unresolved_payload",
                     }
                 )
-                _current_parts(root_parts, contexts).append(_media_placeholder_html(control, target))
-                stats["media_placeholders"] += 1
+                media_html = _media_placeholder_html(control, target, image_src)
+                if _renderer_code(options) == "007D":
+                    _current_parts(root_parts, contexts).append(media_html + "<br>")
+                    stats["hc007d_media_trailing_breaks"] += 1
+                elif (
+                    _renderer_code(options) == "013F"
+                    and hc013f_current_section in HC013F_MEDIA_REFERENCE_SECTION_CODES
+                    and image_src
+                ):
+                    _current_parts(root_parts, contexts).append(media_html + "<br>")
+                    hc013f_suppress_media_alt_until_link = True
+                    stats["hc013f_media_reference_breaks"] += 1
+                else:
+                    _current_parts(root_parts, contexts).append(media_html)
+                if _renderer_code(options) == "02BC":
+                    hc02bc_suppress_media_label_remaining = 8
+                if image_src:
+                    media_filename_label_suppression_remaining = _media_filename_label_at(data, i + 2 + arg_len)
+                    if _renderer_code(options) == "00A6" and hc00a6_current_section_value == 12:
+                        hc00a6_suppress_media_caption = True
+                stats["media_images" if image_src else "media_placeholders"] += 1
                 i += 2 + arg_len
                 continue
 
@@ -10381,6 +14339,36 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     i = (end + 2) if end != -1 else (i + 2 + arg_len)
                     continue
 
+            if _renderer_code(options) == "013A" and op in PRIVATE_START_OPS:
+                end = data.find(b"\x1f\xe3", i + 2 + arg_len)
+                if end == -1:
+                    stats["private_directives"] += 1
+                    gaps.add("unterminated_private_directive")
+                    break
+                directive_bytes = data[i + 2 + arg_len : end]
+                directive_text = _private_directive_text(_decode_jis_text_bytes(directive_bytes)).strip()
+                status = "suppressed"
+                if directive_text == "SQL:" and b"\xb1\x48" in directive_bytes:
+                    _current_parts(root_parts, contexts).append(_hc013a_marker_image_html("b148", options, "img_mark2"))
+                    status = "sql_marker_b148"
+                    stats["hc013a_private_marker_images"] += 1
+                private_directives.append(
+                    {
+                        "start_control": "1fe2",
+                        "end_control": "1fe3",
+                        "kind": "hc013a_private_directive",
+                        "text_length": len(directive_text),
+                        "status": status,
+                    }
+                )
+                if status == "suppressed":
+                    stats["hc013a_private_directives_suppressed"] += 1
+                else:
+                    stats["hc013a_private_directives_handled"] += 1
+                stats["private_directives"] += 1
+                i = end + 2
+                continue
+
             if _renderer_code(options) == "013C" and op in PRIVATE_START_OPS:
                 directive = payload.hex()
                 icon_name = HC013C_ICON_DIRECTIVES.get(directive)
@@ -10434,14 +14422,262 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if op in PRIVATE_END_OPS:
                 ctx = _pop_context(contexts, "private")
                 if ctx is not None:
+                    if _renderer_code(options) == "009D":
+                        directive_text = _private_directive_text(
+                            _decode_jis_text_bytes(ctx.payload) + "".join(ctx.text_parts)
+                        ).strip()
+                        status = "suppressed"
+                        if directive_text == "BOX:1":
+                            if hc009d_box_label_open:
+                                ctx.parent.append("</span>")
+                                gaps.add("hc009d_nested_box_label")
+                            ctx.parent.append('<span class="kuroKakomi hc009d-gray-box-label">')
+                            hc009d_box_label_open = True
+                            status = "gray_box_label_start"
+                            stats["hc009d_gray_box_label_starts"] += 1
+                        elif directive_text == "BOX:2":
+                            if hc009d_box_label_open:
+                                ctx.parent.append("</span>")
+                                gaps.add("hc009d_nested_box_label")
+                            ctx.parent.append('<span class="kuroKakomiShiroNuki hc009d-box-label">')
+                            hc009d_box_label_open = True
+                            status = "box_label_start"
+                            stats["hc009d_box_label_starts"] += 1
+                        elif directive_text == "BOX:S":
+                            if hc009d_box_label_open:
+                                ctx.parent.append("</span>")
+                                hc009d_box_label_open = False
+                                status = "box_label_end"
+                                stats["hc009d_box_label_ends"] += 1
+                        elif directive_text == "RUB:E":
+                            if hc009d_ruby_open:
+                                ctx.parent.append(
+                                    '</rb><rp class="rp7">(</rp><rt class="rt7"></rt><rp class="rp7">)</rp></ruby>'
+                                )
+                                gaps.add("hc009d_unterminated_ruby")
+                            ctx.parent.append('<ruby class="ruby7"><rb class="rb7">')
+                            hc009d_ruby_open = True
+                            status = "ruby_start"
+                            stats["hc009d_ruby_starts"] += 1
+                        elif directive_text.startswith("RUB:S"):
+                            ruby_text = directive_text[5:]
+                            if hc009d_ruby_open:
+                                ctx.parent.append(
+                                    '</rb><rp class="rp7">(</rp>'
+                                    f'<rt class="rt7">{_escape_text(ruby_text)}</rt>'
+                                    '<rp class="rp7">)</rp></ruby>'
+                                )
+                                hc009d_ruby_open = False
+                                status = "ruby_end"
+                            else:
+                                status = "ruby_end_unmatched"
+                                gaps.add("hc009d_unmatched_ruby_end")
+                            stats["hc009d_ruby_ends"] += 1
+                        private_directives.append(
+                            {
+                                "start_control": f"1f{ctx.start_op:02x}",
+                                "end_control": f"1f{op:02x}",
+                                "kind": "hc009d_private_directive",
+                                "text_length": len(directive_text),
+                                "status": status,
+                            }
+                        )
+                        if status == "suppressed":
+                            stats["hc009d_private_directives_suppressed"] += 1
+                        else:
+                            stats["hc009d_private_directives_handled"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "013A":
+                        directive_text = _private_directive_text(
+                            _decode_jis_text_bytes(ctx.payload) + "".join(ctx.text_parts)
+                        ).strip()
+                        status = "suppressed"
+                        if directive_text == "SQL:b148":
+                            ctx.parent.append(_hc013a_marker_image_html("b148", options, "img_mark2"))
+                            status = "sql_marker_b148"
+                            stats["hc013a_private_marker_images"] += 1
+                        private_directives.append(
+                            {
+                                "start_control": f"1f{ctx.start_op:02x}",
+                                "end_control": f"1f{op:02x}",
+                                "kind": "hc013a_private_directive",
+                                "text_length": len(directive_text),
+                                "status": status,
+                            }
+                        )
+                        if status == "suppressed":
+                            stats["hc013a_private_directives_suppressed"] += 1
+                        else:
+                            stats["hc013a_private_directives_handled"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "0137":
+                        directive_text = _private_directive_text(
+                            _decode_jis_text_bytes(ctx.payload) + "".join(ctx.text_parts)
+                        ).strip()
+                        status = "suppressed"
+                        if directive_text == "品詞:E":
+                            ctx.parent.append('<span class="hc0137-pos">〘')
+                            status = "part_of_speech_start"
+                        elif directive_text == "品詞:S":
+                            ctx.parent.append("〙</span>")
+                            status = "part_of_speech_end"
+                        elif directive_text == "対義:E":
+                            ctx.parent.append('<span class="hc0137-antonym">↔')
+                            status = "antonym_start"
+                        elif directive_text == "対義:S":
+                            ctx.parent.append("</span>")
+                            status = "antonym_end"
+                        elif directive_text == "関連:E":
+                            ctx.parent.append("<br>")
+                            ctx.parent.append('<span class="hc0137-related-item">')
+                            status = "related_start"
+                        elif directive_text == "関連:S":
+                            ctx.parent.append("</span>")
+                            hc0137_related_items_seen += 1
+                            status = "related_end"
+                        elif directive_text == "RUB:E":
+                            if hc0137_ruby_open:
+                                ctx.parent.append("</rb></ruby>")
+                            ctx.parent.append("<ruby><rb>")
+                            hc0137_ruby_open = True
+                            status = "ruby_start"
+                        elif directive_text.startswith("RUB:S"):
+                            ruby_text = directive_text[5:]
+                            if hc0137_ruby_open:
+                                ctx.parent.append(
+                                    "</rb><rp>（</rp>"
+                                    f"<rt>{_escape_text(ruby_text)}</rt>"
+                                    "<rp>）</rp></ruby>"
+                                )
+                                hc0137_ruby_open = False
+                                status = "ruby_end"
+                            else:
+                                status = "ruby_end_unmatched"
+                                gaps.add("hc0137_unmatched_ruby_end")
+                        else:
+                            metadata_image = _hc0137_metadata_image_key(directive_text)
+                            if metadata_image is not None:
+                                ctx.parent.append(_hc0137_metadata_image_html(metadata_image, options))
+                                status = f"metadata_image_{metadata_image}"
+                        private_directives.append(
+                            {
+                                "start_control": f"1f{ctx.start_op:02x}",
+                                "end_control": f"1f{op:02x}",
+                                "kind": "hc0137_private_directive",
+                                "text_length": len(directive_text),
+                                "status": status,
+                            }
+                        )
+                        if status != "suppressed":
+                            stats["hc0137_private_directives_handled"] += 1
+                        else:
+                            stats["hc0137_private_directives_suppressed"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "02C1":
+                        directive_text = _private_directive_text(
+                            _decode_jis_text_bytes(ctx.payload) + "".join(ctx.text_parts)
+                        ).strip()
+                        status = "suppressed"
+                        if directive_text == "RUB:始":
+                            if hc02c1_ruby_open:
+                                ctx.parent.append(
+                                    '</rb><rp class="rp7">(</rp><rt class="rt7"></rt><rp class="rp7">)</rp></ruby>'
+                                )
+                                gaps.add("hc02c1_unterminated_ruby")
+                            ctx.parent.append('<ruby class="ruby7"><rb class="rb7">')
+                            hc02c1_ruby_open = True
+                            stats["hc02c1_ruby_starts"] += 1
+                            status = "ruby_start"
+                        elif directive_text.startswith("RUB:終"):
+                            ruby_text = directive_text[len("RUB:終") :]
+                            if hc02c1_ruby_open:
+                                ctx.parent.append(
+                                    '</rb><rp class="rp7">(</rp>'
+                                    f'<rt class="rt7">{_escape_text(ruby_text)}</rt>'
+                                    '<rp class="rp7">)</rp></ruby>'
+                                )
+                                hc02c1_ruby_open = False
+                                status = "ruby_end"
+                            else:
+                                status = "ruby_end_unmatched"
+                                gaps.add("hc02c1_unmatched_ruby_end")
+                            stats["hc02c1_ruby_ends"] += 1
+                        private_directives.append(
+                            {
+                                "start_control": f"1f{ctx.start_op:02x}",
+                                "end_control": f"1f{op:02x}",
+                                "kind": "hc02c1_private_directive",
+                                "text_length": len(directive_text),
+                                "status": status,
+                            }
+                        )
+                        if status == "suppressed":
+                            stats["hc02c1_private_directives_suppressed"] += 1
+                        else:
+                            stats["hc02c1_private_directives_handled"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "02C2":
+                        directive_text = _private_directive_text(
+                            _decode_jis_text_bytes(ctx.payload) + "".join(ctx.text_parts)
+                        ).strip()
+                        status = "suppressed"
+                        if directive_text == "RUB:始":
+                            if hc02c2_ruby_open:
+                                ctx.parent.append(
+                                    '</rb><rp class="rp7">(</rp><rt class="rt7"></rt><rp class="rp7">)</rp></ruby>'
+                                )
+                                gaps.add("hc02c2_unterminated_ruby")
+                            ctx.parent.append('<ruby class="ruby7"><rb class="rb7">')
+                            hc02c2_ruby_open = True
+                            stats["hc02c2_ruby_starts"] += 1
+                            status = "ruby_start"
+                        elif directive_text.startswith("RUB:終"):
+                            ruby_text = directive_text[len("RUB:終") :]
+                            if hc02c2_ruby_open:
+                                ctx.parent.append(
+                                    '</rb><rp class="rp7">(</rp>'
+                                    f'<rt class="rt7">{_escape_text(ruby_text)}</rt>'
+                                    '<rp class="rp7">)</rp></ruby>'
+                                )
+                                hc02c2_ruby_open = False
+                                status = "ruby_end"
+                            else:
+                                status = "ruby_end_unmatched"
+                                gaps.add("hc02c2_unmatched_ruby_end")
+                            stats["hc02c2_ruby_ends"] += 1
+                        private_directives.append(
+                            {
+                                "start_control": f"1f{ctx.start_op:02x}",
+                                "end_control": f"1f{op:02x}",
+                                "kind": "hc02c2_private_directive",
+                                "text_length": len(directive_text),
+                                "status": status,
+                            }
+                        )
+                        if status == "suppressed":
+                            stats["hc02c2_private_directives_suppressed"] += 1
+                        else:
+                            stats["hc02c2_private_directives_handled"] += 1
+                        i += 2 + arg_len
+                        continue
                     if _renderer_code(options) == "0135":
                         directive_text = _decode_jis_text_bytes(ctx.payload) + "".join(ctx.text_parts)
-                        image_html = _hc0135_private_directive_image(directive_text, options)
-                        status = "suppressed"
-                        if image_html is not None:
-                            ctx.parent.append(image_html)
-                            stats["hc0135_private_directive_images"] += 1
-                            status = "rendered_image"
+                        directive_html, status = _hc0135_private_directive_html(directive_text, options)
+                        if hc0135_suppress_heading_tail:
+                            status = "suppressed_heading_tail"
+                        elif directive_html is not None:
+                            ctx.parent.append(directive_html)
+                            stats["hc0135_private_directive_rendered"] += 1
+                            if "image" in status:
+                                stats["hc0135_private_directive_images"] += 1
+                            elif "start" in status or "end" in status:
+                                stats["hc0135_private_directive_styles"] += 1
+                            elif "sup_note" in status:
+                                stats["hc0135_private_directive_sup_notes"] += 1
                         private_directives.append(
                             {
                                 "start_control": f"1f{ctx.start_op:02x}",
@@ -10451,6 +14687,316 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                                 "status": status,
                             }
                         )
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "0093":
+                        directive_text = _private_directive_text(
+                            _decode_jis_text_bytes(ctx.payload) + "".join(ctx.text_parts)
+                        )
+                        if directive_text.endswith("B:E"):
+                            if hc0093_ruby_open:
+                                if hc0093_ruby_reading_open:
+                                    ctx.parent.append('</rt><rp class="rp7">)</rp></ruby>')
+                                else:
+                                    ctx.parent.append(
+                                        '</rb><rp class="rp7">(</rp><rt class="rt7"></rt><rp class="rp7">)</rp></ruby>'
+                                    )
+                                gaps.add("hc0093_unterminated_ruby")
+                            ctx.parent.append('<ruby class="ruby7"><rb class="rb7">')
+                            hc0093_ruby_open = True
+                            hc0093_ruby_reading_open = False
+                            stats["hc0093_ruby_starts"] += 1
+                            private_directives.append(
+                                {
+                                    "start_control": f"1f{ctx.start_op:02x}",
+                                    "end_control": f"1f{op:02x}",
+                                    "kind": "hc0093_ruby_base_start",
+                                    "text_length": len(directive_text),
+                                    "status": "rendered",
+                                }
+                            )
+                            i += 2 + arg_len
+                            continue
+                        if directive_text.endswith("B:D"):
+                            if hc0093_ruby_open and not hc0093_ruby_reading_open:
+                                ctx.parent.append('</rb><rp class="rp7">(</rp><rt class="rt7">')
+                                hc0093_ruby_reading_open = True
+                                hc0093_suppress_next_ruby_open_paren = True
+                                status = "rendered"
+                            else:
+                                status = "unmatched"
+                                gaps.add("hc0093_unmatched_ruby_reading_start")
+                            stats["hc0093_ruby_reading_starts"] += 1
+                            private_directives.append(
+                                {
+                                    "start_control": f"1f{ctx.start_op:02x}",
+                                    "end_control": f"1f{op:02x}",
+                                    "kind": "hc0093_ruby_reading_start",
+                                    "text_length": len(directive_text),
+                                    "status": status,
+                                }
+                            )
+                            i += 2 + arg_len
+                            continue
+                        if directive_text.endswith("B:S"):
+                            if hc0093_ruby_open and hc0093_ruby_reading_open:
+                                ctx.parent.append('</rt><rp class="rp7">)</rp></ruby>')
+                                hc0093_ruby_open = False
+                                hc0093_ruby_reading_open = False
+                                hc0093_suppress_next_ruby_close_paren = True
+                                status = "rendered"
+                            else:
+                                status = "unmatched"
+                                gaps.add("hc0093_unmatched_ruby_end")
+                            stats["hc0093_ruby_ends"] += 1
+                            private_directives.append(
+                                {
+                                    "start_control": f"1f{ctx.start_op:02x}",
+                                    "end_control": f"1f{op:02x}",
+                                    "kind": "hc0093_ruby_end",
+                                    "text_length": len(directive_text),
+                                    "status": status,
+                                }
+                            )
+                            i += 2 + arg_len
+                            continue
+                        private_directives.append(
+                            {
+                                "start_control": f"1f{ctx.start_op:02x}",
+                                "end_control": f"1f{op:02x}",
+                                "kind": "hc0093_private_directive",
+                                "text_length": len(directive_text),
+                                "status": "suppressed",
+                            }
+                        )
+                        stats["hc0093_private_directives_suppressed"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "0095":
+                        directive_text = _private_directive_text(
+                            _decode_jis_text_bytes(ctx.payload) + "".join(ctx.text_parts)
+                        ).strip()
+                        status = "suppressed"
+                        if directive_text == "RUB:E":
+                            if hc0095_ruby_open:
+                                ctx.parent.append(
+                                    '</rb><rp class="rp7">(</rp><rt class="rt7"></rt><rp class="rp7">)</rp></ruby>'
+                                )
+                                gaps.add("hc0095_unterminated_ruby")
+                            ctx.parent.append('<ruby class="ruby7"><rb class="rb7">')
+                            hc0095_ruby_open = True
+                            status = "ruby_start"
+                            stats["hc0095_ruby_starts"] += 1
+                        elif directive_text.startswith("RUB:S"):
+                            ruby_text = directive_text[5:]
+                            if hc0095_ruby_open:
+                                ctx.parent.append(
+                                    '</rb><rp class="rp7">(</rp>'
+                                    f'<rt class="rt7">{_escape_text(ruby_text)}</rt>'
+                                    '<rp class="rp7">)</rp></ruby>'
+                                )
+                                hc0095_ruby_open = False
+                                status = "ruby_end"
+                            else:
+                                status = "ruby_end_unmatched"
+                                gaps.add("hc0095_unmatched_ruby_end")
+                            stats["hc0095_ruby_ends"] += 1
+                        private_directives.append(
+                            {
+                                "start_control": f"1f{ctx.start_op:02x}",
+                                "end_control": f"1f{op:02x}",
+                                "kind": "hc0095_private_directive",
+                                "text_length": len(directive_text),
+                                "status": status,
+                            }
+                        )
+                        if status == "suppressed":
+                            stats["hc0095_private_directives_suppressed"] += 1
+                        else:
+                            stats["hc0095_private_directives_handled"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "0096":
+                        directive_text = _private_directive_text(
+                            _decode_jis_text_bytes(ctx.payload) + "".join(ctx.text_parts)
+                        )
+                        if directive_text == "RUB:E":
+                            if hc0096_ruby_open:
+                                ctx.parent.append(
+                                    '</rb><rp class="rp7">(</rp><rt class="rt7"></rt><rp class="rp7">)</rp></ruby>'
+                                )
+                                gaps.add("hc0096_unterminated_ruby")
+                            ctx.parent.append('<ruby class="ruby7"><rb class="rb7">')
+                            hc0096_ruby_open = True
+                            stats["hc0096_ruby_starts"] += 1
+                            private_directives.append(
+                                {
+                                    "start_control": f"1f{ctx.start_op:02x}",
+                                    "end_control": f"1f{op:02x}",
+                                    "kind": "ruby_start",
+                                    "text_length": len(directive_text),
+                                    "status": "rendered",
+                                }
+                            )
+                            i += 2 + arg_len
+                            continue
+                        if directive_text.startswith("RUB:S"):
+                            ruby_text = directive_text[5:]
+                            if hc0096_ruby_open:
+                                ctx.parent.append(
+                                    '</rb><rp class="rp7">(</rp>'
+                                    f'<rt class="rt7">{_escape_text(ruby_text)}</rt>'
+                                    '<rp class="rp7">)</rp></ruby>'
+                                )
+                                hc0096_ruby_open = False
+                                status = "rendered"
+                            else:
+                                status = "unmatched"
+                                gaps.add("hc0096_unmatched_ruby_end")
+                            stats["hc0096_ruby_ends"] += 1
+                            private_directives.append(
+                                {
+                                    "start_control": f"1f{ctx.start_op:02x}",
+                                    "end_control": f"1f{op:02x}",
+                                    "kind": "ruby_end",
+                                    "text_length": len(directive_text),
+                                    "status": status,
+                                }
+                            )
+                            i += 2 + arg_len
+                            continue
+                        private_directives.append(
+                            {
+                                "start_control": f"1f{ctx.start_op:02x}",
+                                "end_control": f"1f{op:02x}",
+                                "kind": "hc0096_private_directive",
+                                "text_length": len(directive_text),
+                                "status": "suppressed",
+                            }
+                        )
+                        stats["hc0096_private_directives_suppressed"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "00AC":
+                        directive_text = _private_directive_text(
+                            _decode_jis_text_bytes(ctx.payload) + "".join(ctx.text_parts)
+                        )
+                        if directive_text == "RUB:E":
+                            if hc00ac_ruby_open:
+                                ctx.parent.append(
+                                    '</rb><rp class="rp7">(</rp><rt class="rt7"></rt><rp class="rp7">)</rp></ruby>'
+                                )
+                                gaps.add("hc00ac_unterminated_ruby")
+                            ctx.parent.append('<ruby class="ruby7"><rb class="rb7">')
+                            hc00ac_ruby_open = True
+                            stats["hc00ac_ruby_starts"] += 1
+                            private_directives.append(
+                                {
+                                    "start_control": f"1f{ctx.start_op:02x}",
+                                    "end_control": f"1f{op:02x}",
+                                    "kind": "ruby_start",
+                                    "text_length": len(directive_text),
+                                    "status": "rendered",
+                                }
+                            )
+                            i += 2 + arg_len
+                            continue
+                        if directive_text.startswith("RUB:S"):
+                            ruby_text = directive_text[5:]
+                            if hc00ac_ruby_open:
+                                ctx.parent.append(
+                                    '</rb><rp class="rp7">(</rp>'
+                                    f'<rt class="rt7">{_escape_text(ruby_text)}</rt>'
+                                    '<rp class="rp7">)</rp></ruby>'
+                                )
+                                hc00ac_ruby_open = False
+                                status = "rendered"
+                            else:
+                                status = "unmatched"
+                                gaps.add("hc00ac_unmatched_ruby_end")
+                            stats["hc00ac_ruby_ends"] += 1
+                            private_directives.append(
+                                {
+                                    "start_control": f"1f{ctx.start_op:02x}",
+                                    "end_control": f"1f{op:02x}",
+                                    "kind": "ruby_end",
+                                    "text_length": len(directive_text),
+                                    "status": status,
+                                }
+                            )
+                            i += 2 + arg_len
+                            continue
+                        private_directives.append(
+                            {
+                                "start_control": f"1f{ctx.start_op:02x}",
+                                "end_control": f"1f{op:02x}",
+                                "kind": "hc00ac_private_directive",
+                                "text_length": len(directive_text),
+                                "status": "suppressed",
+                            }
+                        )
+                        stats["hc00ac_private_directives_suppressed"] += 1
+                        i += 2 + arg_len
+                        continue
+                    if _renderer_code(options) == "00AB":
+                        directive_text = _private_directive_text(
+                            _decode_jis_text_bytes(ctx.payload) + "".join(ctx.text_parts)
+                        )
+                        if directive_text == "RUB:E":
+                            if hc00ab_ruby_open:
+                                ctx.parent.append(
+                                    '</rb><rp class="rp7">(</rp><rt class="rt7"></rt><rp class="rp7">)</rp></ruby>'
+                                )
+                                gaps.add("hc00ab_unterminated_ruby")
+                            ctx.parent.append('<ruby class="ruby7"><rb class="rb7">')
+                            hc00ab_ruby_open = True
+                            stats["hc00ab_ruby_starts"] += 1
+                            private_directives.append(
+                                {
+                                    "start_control": f"1f{ctx.start_op:02x}",
+                                    "end_control": f"1f{op:02x}",
+                                    "kind": "ruby_start",
+                                    "text_length": len(directive_text),
+                                    "status": "rendered",
+                                }
+                            )
+                            i += 2 + arg_len
+                            continue
+                        if directive_text.startswith("RUB:S"):
+                            ruby_text = directive_text[5:]
+                            if hc00ab_ruby_open:
+                                ctx.parent.append(
+                                    '</rb><rp class="rp7">(</rp>'
+                                    f'<rt class="rt7">{_escape_text(ruby_text)}</rt>'
+                                    '<rp class="rp7">)</rp></ruby>'
+                                )
+                                hc00ab_ruby_open = False
+                                status = "rendered"
+                            else:
+                                status = "unmatched"
+                                gaps.add("hc00ab_unmatched_ruby_end")
+                            stats["hc00ab_ruby_ends"] += 1
+                            private_directives.append(
+                                {
+                                    "start_control": f"1f{ctx.start_op:02x}",
+                                    "end_control": f"1f{op:02x}",
+                                    "kind": "ruby_end",
+                                    "text_length": len(directive_text),
+                                    "status": status,
+                                }
+                            )
+                            i += 2 + arg_len
+                            continue
+                        private_directives.append(
+                            {
+                                "start_control": f"1f{ctx.start_op:02x}",
+                                "end_control": f"1f{op:02x}",
+                                "kind": "hc00ab_private_directive",
+                                "text_length": len(directive_text),
+                                "status": "suppressed",
+                            }
+                        )
+                        stats["hc00ab_private_directives_suppressed"] += 1
                         i += 2 + arg_len
                         continue
                     if _renderer_code(options) == "00A4":
@@ -10642,6 +15188,25 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             )
                             i += 2 + arg_len
                             continue
+                    if _renderer_code(options) == "0158":
+                        directive_html = _hc0158_private_image_html(
+                            _decode_jis_text_bytes(ctx.payload) + "".join(ctx.text_parts),
+                            options,
+                        )
+                        if directive_html is not None:
+                            ctx.parent.append(directive_html)
+                            private_directives.append(
+                                {
+                                    "start_control": f"1f{ctx.start_op:02x}",
+                                    "end_control": f"1f{op:02x}",
+                                    "kind": "hc0158_private_image",
+                                    "text_length": len("".join(ctx.text_parts)),
+                                    "status": "rendered",
+                                }
+                            )
+                            stats["hc0158_private_directive_images"] += 1
+                            i += 2 + arg_len
+                            continue
                     if _renderer_code(options) == "009C":
                         image_html = _hc009c_private_image_html("".join(ctx.text_parts), options, stats)
                         if image_html is not None:
@@ -10697,11 +15262,37 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     i += consumed
                     continue
             key = f"{byte:02x}{data[i + 1]:02x}"
-            if _renderer_code(options) == "009F" and hc009f_skip_next_jis:
-                hc009f_skip_next_jis = False
+            if _renderer_code(options) == "009F" and hc009f_suppress_jis_pairs:
+                hc009f_suppress_jis_pairs -= 1
                 stats["hc009f_section_label_pairs_suppressed"] += 1
                 i += 2
                 continue
+            if (
+                _renderer_code(options) == "0137"
+                and hc0137_current_section_state == "midashi"
+                and _active_private_context(contexts) is None
+            ):
+                if key == "2221":
+                    hc0137_suppress_heading_tail = True
+                    stats["hc0137_suppressed_search_tail_markers"] += 1
+                    i += 2
+                    continue
+                if hc0137_suppress_heading_tail:
+                    stats["hc0137_suppressed_search_tail_text"] += 1
+                    i += 2
+                    continue
+            if _renderer_code(options) == "0065":
+                if key == HC0065_EXAMPLE_START_JIS:
+                    hc0065_open_example(_current_parts(root_parts, contexts))
+                    stats["hc0065_suppressed_example_start_markers"] += 1
+                    i += 2
+                    continue
+                if key == HC0065_EXAMPLE_CONTINUATION_JIS and hc0065_example_open:
+                    _current_parts(root_parts, contexts).append("<br>")
+                    stats["line_breaks"] += 1
+                    stats["hc0065_suppressed_example_continuation_markers"] += 1
+                    i += 2
+                    continue
             if _renderer_code(options) == "00A9" and hc00a9_current_section == 0x0C and key == "222a":
                 image_key = "mlinkV" if options.vertical else "mlink"
                 image_src = (
@@ -10731,6 +15322,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if _renderer_code(options) == "0020":
                 parts = _current_parts(root_parts, contexts)
                 if key == "215a":
+                    hc0020_confer_marker_pending = False
                     if _jis_key_at(data, i - 2) != "222a":
                         parts.append('<div class="hr_div2"></div><div class="div_215a">')
                         hc0020_div_215a_open = True
@@ -10744,6 +15336,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     i += 2
                     continue
                 if key == "2221":
+                    hc0020_confer_marker_pending = False
                     if hc0020_definition_open:
                         parts.append("</dd></dl>")
                     parts.append('<dl><dt>')
@@ -10754,6 +15347,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     i += 2
                     continue
                 if key == "2126" and hc0020_definition_open:
+                    hc0020_confer_marker_pending = False
                     parts.append("</dd><dt>")
                     _append_hc0020_named_image(parts, "nakaguro", "img_diamond", options)
                     parts.append("</dt><dd>")
@@ -10761,17 +15355,29 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     i += 2
                     continue
                 if key == "222a":
+                    if not hc0020_contents_open:
+                        hc0020_confer_marker_pending = False
+                        stats["hc0020_midashi_confer_markers_suppressed"] += 1
+                        i += 2
+                        continue
                     dummy = _dummy_image_source(options)
                     if dummy is not None:
                         parts.append(f'<img src="{_escape_attr(dummy)}" class="img_dummy">')
                     _append_hc0020_named_image(parts, "confer", "img_confer", options)
+                    hc0020_confer_marker_pending = True
                     stats["hc0020_confer_markers"] += 1
+                    i += 2
+                    continue
+                if hc0020_confer_marker_pending and key == "b12e":
+                    hc0020_confer_marker_pending = False
+                    stats["hc0020_confer_following_markers_suppressed"] += 1
                     i += 2
                     continue
                 if key in HC0020_SUPPRESSED_JIS_MARKERS:
                     stats["hc0020_suppressed_jis_markers"] += 1
                     i += 2
                     continue
+                hc0020_confer_marker_pending = False
             if _renderer_code(options) == "0096" and key == "214c":
                 j = i + 2
                 marker_key: str | None = None
@@ -10831,6 +15437,20 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     image_key, image_name, consumed = marker
                     _append_hc0091_named_image(_current_parts(root_parts, contexts), image_key, image_name, options, stats)
                     i += consumed
+                    continue
+            if _is_hc005c_renderer(options) and key in HC005C_EXAMPLE_MARKER_JIS:
+                marker = HC005C_EXAMPLE_MARKER_JIS[key]
+                if (
+                    (
+                        hc005c_pending_section_parts is not None
+                        and (marker != "continuation" or hc005c_example_group_active)
+                    )
+                    or hc005c_expected_example_marker == marker
+                ):
+                    hc005c_open_example(_current_parts(root_parts, contexts), marker)
+                    hc005c_expected_example_marker = None
+                    stats[f"hc005c_suppressed_example_marker_{marker}"] += 1
+                    i += 2
                     continue
             if _renderer_code(options) == "0069" and _image_source_for_key(key, options) is not None:
                 _append_hc0069_gaiji_value(
@@ -10911,7 +15531,14 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if image_key is not None:
                     image_src = _image_source_for_key(image_key, options) or _image_source_for_key(f"{image_key}.png", options)
                     if image_src is not None:
-                        _append_renderer_image_gaiji(_current_parts(root_parts, contexts), key, image_src, "gaiji", stats)
+                        _append_renderer_image_gaiji(
+                            _current_parts(root_parts, contexts),
+                            key,
+                            image_src,
+                            "gaiji",
+                            stats,
+                            alt_text=decode_jis_pair(data[i : i + 2]) or None,
+                        )
                     else:
                         _append_text(_current_parts(root_parts, contexts), decode_jis_pair(data[i : i + 2]) or "")
                     stats["hc012d_inline_image_markers"] += 1
@@ -10927,6 +15554,132 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     halfwidth_depth += 1
                     stats[f"hc008f_{css_class}_spans"] += 1
                 value = normalize_fullwidth_ascii(text) if halfwidth_depth or _context_halfwidth_depth(contexts) else text
+                value = _normalize_hc_visible_text(value)
+                if _renderer_code(options) == "0141":
+                    normalized_value = normalize_fullwidth_ascii(value)
+                    if normalized_value != value:
+                        stats["hc0141_fullwidth_ascii_normalized"] += 1
+                    value = normalized_value
+                if _renderer_code(options) == "0093" and hc0093_suppress_next_ruby_open_paren:
+                    if value == "（":
+                        hc0093_suppress_next_ruby_open_paren = False
+                        stats["hc0093_ruby_parentheses_suppressed"] += 1
+                        i += 2
+                        continue
+                    hc0093_suppress_next_ruby_open_paren = False
+                if _renderer_code(options) == "0093" and hc0093_suppress_next_ruby_close_paren:
+                    if value == "）":
+                        hc0093_suppress_next_ruby_close_paren = False
+                        stats["hc0093_ruby_parentheses_suppressed"] += 1
+                        i += 2
+                        continue
+                    hc0093_suppress_next_ruby_close_paren = False
+                if _renderer_code(options) == "0093" and hc0093_current_section in HC0093_SUPPRESSED_SECTION_VALUES:
+                    stats["hc0093_suppressed_section_text"] += 1
+                    i += 2
+                    continue
+                if _renderer_code(options) == "0094" and hc0094_current_section in HC0094_SUPPRESSED_SECTION_VALUES:
+                    stats["hc0094_suppressed_section_text"] += 1
+                    i += 2
+                    continue
+                if _renderer_code(options) == "012E" and hc012e_current_section in HC012E_SUPPRESSED_SECTION_CODES:
+                    stats["hc012e_suppressed_section_text"] += 1
+                    i += 2
+                    continue
+                if _renderer_code(options) == "012E" and hc012e_pending_hitsujun_label:
+                    if hc012e_pending_hitsujun_label.startswith(value):
+                        hc012e_pending_hitsujun_label = hc012e_pending_hitsujun_label[len(value) :]
+                        stats["hc012e_suppressed_hitsujun_label_chars"] += 1
+                        i += 2
+                        continue
+                    hc012e_pending_hitsujun_label = ""
+                if _is_hc_hkdksr_medical_renderer(options) and hc_hkdksr_medical_title_label_pending:
+                    label = "【製剤情報】"
+                    candidate = hc_hkdksr_medical_title_label_buffer + value
+                    if label.startswith(candidate):
+                        hc_hkdksr_medical_title_label_buffer = candidate
+                        stats["hc_hkdksr_medical_suppressed_title_label_chars"] += 1
+                        if candidate == label:
+                            hc_hkdksr_emit_seizaijouhou_title(_current_parts(root_parts, contexts))
+                            hc_hkdksr_medical_title_label_pending = False
+                            hc_hkdksr_medical_title_label_buffer = ""
+                        i += 2
+                        continue
+                    if hc_hkdksr_medical_title_label_buffer:
+                        _append_text(_current_parts(root_parts, contexts), hc_hkdksr_medical_title_label_buffer)
+                        text_parts = _current_text_parts(contexts)
+                        if text_parts is not None:
+                            text_parts.append(hc_hkdksr_medical_title_label_buffer)
+                    hc_hkdksr_medical_title_label_pending = False
+                    hc_hkdksr_medical_title_label_buffer = ""
+                if _is_hc_hkdksr_medical_renderer(options) and hc_hkdksr_medical_product_label_pending:
+                    label = "【商品】"
+                    candidate = hc_hkdksr_medical_product_label_buffer + value
+                    if label.startswith(candidate):
+                        hc_hkdksr_medical_product_label_buffer = candidate
+                        stats["hc_hkdksr_medical_suppressed_product_label_chars"] += 1
+                        if candidate == label:
+                            hc_hkdksr_emit_product_title(_current_parts(root_parts, contexts))
+                            hc_hkdksr_medical_product_label_pending = False
+                            hc_hkdksr_medical_product_label_buffer = ""
+                        i += 2
+                        continue
+                    if hc_hkdksr_medical_product_label_buffer:
+                        _append_text(_current_parts(root_parts, contexts), hc_hkdksr_medical_product_label_buffer)
+                        text_parts = _current_text_parts(contexts)
+                        if text_parts is not None:
+                            text_parts.append(hc_hkdksr_medical_product_label_buffer)
+                    hc_hkdksr_medical_product_label_pending = False
+                    hc_hkdksr_medical_product_label_buffer = ""
+                if _renderer_code(options) == "0135" and hc0135_midashi_open and key == "2223":
+                    hc0135_suppress_heading_tail = True
+                    stats["hc0135_suppressed_search_tail_markers"] += 1
+                    i += 2
+                    continue
+                if _renderer_code(options) == "0135" and hc0135_suppress_heading_tail and hc0135_midashi_open:
+                    stats["hc0135_suppressed_search_tail_text"] += 1
+                    i += 2
+                    continue
+                if _renderer_code(options) == "0132" and hc0132_midashi_open:
+                    if key == "2221":
+                        hc0132_suppress_heading_tail = True
+                        stats["hc0132_suppressed_search_tail_markers"] += 1
+                        i += 2
+                        continue
+                    if hc0132_suppress_heading_tail:
+                        stats["hc0132_suppressed_search_tail_text"] += 1
+                        i += 2
+                        continue
+                if _renderer_code(options) == "0135" and hc0135_example_open and key in HC0135_EXAMPLE_SUPPRESSED_JIS:
+                    stats["hc0135_suppressed_example_punctuation"] += 1
+                    i += 2
+                    continue
+                if _renderer_code(options) == "00AD" and hc00ad_pending_label_candidates:
+                    candidate_buffer = hc00ad_pending_label_buffer + value
+                    matching = {
+                        label: image_key
+                        for label, image_key in hc00ad_pending_label_candidates.items()
+                        if label.startswith(candidate_buffer)
+                    }
+                    if matching:
+                        hc00ad_pending_label_buffer = candidate_buffer
+                        stats["hc00ad_suppressed_label_chars"] += 1
+                        if candidate_buffer in matching:
+                            _current_parts(root_parts, contexts).append(
+                                _hc00ad_label_image_html(candidate_buffer, options)
+                            )
+                            stats["hc00ad_section_label_images"] += 1
+                            hc00ad_pending_label_candidates = {}
+                            hc00ad_pending_label_buffer = ""
+                        i += 2
+                        continue
+                    if hc00ad_pending_label_buffer:
+                        _append_text(_current_parts(root_parts, contexts), hc00ad_pending_label_buffer)
+                        text_parts = _current_text_parts(contexts)
+                        if text_parts is not None:
+                            text_parts.append(hc00ad_pending_label_buffer)
+                    hc00ad_pending_label_candidates = {}
+                    hc00ad_pending_label_buffer = ""
                 if _renderer_code(options) == "0048" and key in HC0048_MIDASHI_MARKERS and not hc0048_midashi_open:
                     parts = _current_parts(root_parts, contexts)
                     if hc0048_section_close is not None:
@@ -10935,7 +15688,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     if hc0048_honbun_open:
                         parts.append("</div>")
                         hc0048_honbun_open = False
-                    parts.append('<div class="midashi">')
+                    parts.append('<div class="midashi hc0048-midashi">')
                     hc0048_midashi_open = True
                     stats["hc0048_midashi_blocks"] += 1
                 if _renderer_code(options) == "00C6" and hc00c6_supab_pending and value in {"A", "B", "Ａ", "Ｂ"}:
@@ -10949,10 +15702,132 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     continue
                 if _renderer_code(options) == "00C6" and hc00c6_supab_pending:
                     hc00c6_supab_pending = False
+                if _is_hc005c_renderer(options) and hc005c_pending_section_parts is not None:
+                    hc005c_flush_pending_section(_current_parts(root_parts, contexts))
+                if _renderer_code(options) == "0065" and hc0065_suppress_label_remaining:
+                    if hc0065_suppress_label_remaining.startswith(value):
+                        hc0065_suppress_label_remaining = hc0065_suppress_label_remaining[len(value) :]
+                        stats["hc0065_suppressed_part_of_speech_label_chars"] += 1
+                        i += 2
+                        continue
+                    hc0065_suppress_label_remaining = ""
+                if _renderer_code(options) == "0065" and hc0065_midashi_open:
+                    hc0065_heading_text_parts.append(value)
+                if _renderer_code(options) == "0065" and hc0065_body_open and not hc0065_body_started:
+                    if value[:1].isspace() or value[:1] in {"*", "＊", "/", "／"}:
+                        hc0065_emit_pending_headword(_current_parts(root_parts, contexts))
+                    else:
+                        hc0065_pending_headword_prefix = None
+                        hc0065_body_started = True
+                if (
+                    _renderer_code(options) == "007D"
+                    and hc007d_contents_body_open
+                    and key == HC007D_EXAMPLE_MARKER_JIS
+                    and _two_byte_key_at(data, i - 14) == "1f0a"
+                ):
+                    parts = _current_parts(root_parts, contexts)
+                    if hc007d_section_open:
+                        parts.append("</div>")
+                        hc007d_section_open = False
+                        stats["hc007d_section_closures"] += 1
+                    if not hc007d_example_open:
+                        if halfwidth_depth:
+                            parts.append("</span>")
+                        parts.append('<div class="exsample">')
+                        if halfwidth_depth:
+                            parts.append('<span class="hankaku">')
+                        hc007d_example_open = True
+                        stats["hc007d_example_boxes"] += 1
+                if _renderer_code(options) == "0092":
+                    if (
+                        not hc0092_line_started
+                        and not hc0092_example_box_open
+                        and hc0092_current_section == 2
+                        and value == "・"
+                    ):
+                        _current_parts(root_parts, contexts).append('<div class="contents">')
+                        hc0092_example_box_open = True
+                        stats["hc0092_example_boxes"] += 1
+                    if value.strip():
+                        hc0092_line_started = True
+                if _renderer_code(options) == "0068" and hc0068_source_line_pending:
+                    if value == "［":
+                        _current_parts(root_parts, contexts).append('<span class="hc0068-source-line">')
+                        hc0068_source_line_open = True
+                        hc0068_source_line_pending = False
+                        stats["hc0068_source_lines"] += 1
+                    elif value.strip():
+                        hc0068_source_line_pending = False
+                if _renderer_code(options) == "0151" and hc0151_suppress_spaces_after_media:
+                    if value.isspace():
+                        stats["hc0151_suppressed_media_padding_chars"] += 1
+                        i += 2
+                        continue
+                    hc0151_suppress_spaces_after_media = False
+                if _renderer_code(options) == "02BC" and hc02bc_suppress_media_label_remaining:
+                    hc02bc_suppress_media_label_remaining -= 1
+                    stats["hc02bc_suppressed_media_label_chars"] += 1
+                    i += 2
+                    continue
+                if _renderer_code(options) == "00A6" and hc00a6_suppress_media_caption:
+                    stats["hc00a6_suppressed_media_caption_chars"] += 1
+                    i += 2
+                    continue
+                if media_filename_label_suppression_remaining:
+                    if media_filename_label_suppression_remaining.startswith(value):
+                        media_filename_label_suppression_remaining = media_filename_label_suppression_remaining[len(value) :]
+                        stats["suppressed_media_filename_label_chars"] += 1
+                        i += 2
+                        continue
+                    media_filename_label_suppression_remaining = ""
+                if _renderer_code(options) == "013F" and hc013f_suppress_media_alt_until_link:
+                    stats["hc013f_suppressed_media_alt_label_chars"] += len(value)
+                    i += 2
+                    continue
+                if _renderer_code(options) == "0158" and hc0158_ruigo_row_open:
+                    parts = _current_parts(root_parts, contexts)
+                    text_parts = _current_text_parts(contexts)
+                    if value == "‖" and not hc0158_ruigo_second_cell:
+                        parts.append('</td><td class="column_ruigo_panel_bodycell">')
+                        hc0158_ruigo_second_cell = True
+                        stats["hc0158_ruigo_panel_delimiters"] += 1
+                    else:
+                        _append_text(parts, value)
+                    if text_parts is not None:
+                        text_parts.append(value)
+                    i += 2
+                    continue
+                if _renderer_code(options) == "0141" and hc0141_double_pipe_crossref_pending and value.strip():
+                    hc0141_double_pipe_crossref_pending = False
+                if _renderer_code(options) == "00AD" and value in "❷❸❹❺❻❼❽❾❿⓫⓬⓭⓮⓯⓰⓱⓲⓳⓴":
+                    _current_parts(root_parts, contexts).append("<br>")
+                    stats["hc00ad_sense_number_linebreaks"] += 1
+                if _renderer_code(options) == "00C6" and hc00c6_heading_capture_active:
+                    normalized_headword_char = normalize_fullwidth_ascii(value)
+                    if normalized_headword_char.strip():
+                        hc00c6_headword_parts.append(normalized_headword_char)
+                if _renderer_code(options) == "00A4" and hc00a4_suppress_heading:
+                    stats["hc00a4_suppressed_internal_heading_chars"] += 1
+                    i += 2
+                    continue
                 _append_text(_current_parts(root_parts, contexts), value)
                 text_parts = _current_text_parts(contexts)
                 if text_parts is not None:
                     text_parts.append(value)
+                if _renderer_code(options) == "0151":
+                    if value.strip():
+                        hc0151_chars_since_break += len(value)
+                    if (
+                        hc0151_current_section in HC0151_SECTION_DIV_CLASSES
+                        and value == "．"
+                        and hc0151_chars_since_break >= HC0151_AUTO_SENTENCE_BREAK_MIN_CHARS
+                        and not (i + 3 < len(data) and data[i + 2] == 0x1F and data[i + 3] in (MEDIA_OPS | {0x0A}))
+                    ):
+                        _current_parts(root_parts, contexts).append("<br>")
+                        hc0151_chars_since_break = 0
+                        stats["hc0151_auto_sentence_breaks"] += 1
+                if _renderer_code(options) == "0065" and hc0065_body_open:
+                    hc0065_body_started = True
             else:
                 stats["invalid_jis_pairs"] += 1
                 gaps.add("invalid_jis_pair")
@@ -10969,6 +15844,20 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 hc012d_section_close = "</div>"
                 hc012d_pending_honbun_user = False
             key = f"{byte:02x}{data[i + 1]:02x}"
+            if _renderer_code(options) == "00A6" and hc00a6_suppress_media_caption:
+                stats["hc00a6_suppressed_media_caption_gaiji"] += 1
+                i += 2
+                continue
+            if _renderer_code(options) == "0020" and hc0020_confer_marker_pending:
+                hc0020_confer_marker_pending = False
+                if key == "b12e":
+                    stats["hc0020_confer_following_markers_suppressed"] += 1
+                    i += 2
+                    continue
+            if _renderer_code(options) == "0094" and hc0094_current_section in HC0094_SUPPRESSED_SECTION_VALUES:
+                stats["hc0094_suppressed_section_markers"] += 1
+                i += 2
+                continue
             if _renderer_code(options) == "0190" and key in HC0190_TEMPLATE_MARKERS:
                 hc0190_template_key = key
                 stats["hc0190_template_markers"] += 1
@@ -10981,16 +15870,45 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2
                 continue
             if _renderer_code(options) == "013A":
+                if hc013a_contents_open and key in HC013A_SENSE_MARKERS:
+                    _current_parts(root_parts, contexts).append("</div>")
+                    hc013a_contents_open = False
+                    stats["hc013a_contents_closures"] += 1
+                direct_image = HC013A_DIRECT_IMAGE_MARKERS.get(key)
+                if direct_image is not None:
+                    image_key, css_class, trailing_break = direct_image
+                    _current_parts(root_parts, contexts).append(_hc013a_marker_image_html(image_key, options, css_class))
+                    if trailing_break:
+                        _current_parts(root_parts, contexts).append("<br>")
+                    stats["hc013a_direct_marker_images"] += 1
+                    i += 2
+                    continue
                 if key in HC013A_SUPPRESSED_GAIJI_MARKERS:
                     stats["hc013a_suppressed_gaiji_markers"] += 1
                     i += 2
                     continue
                 if key == "b264":
                     parts = _current_parts(root_parts, contexts)
-                    if not hc013a_honbun2_open:
+                    if not hc013a_honbun2_div_open:
                         parts.append('<div class="honbun2"><strong>')
+                        hc013a_honbun2_div_open = True
+                        hc013a_honbun2_open = True
+                    elif not hc013a_honbun2_open:
+                        parts.append("<strong>")
                         hc013a_honbun2_open = True
                     stats["hc013a_honbun2_markers"] += 1
+                    i += 2
+                    continue
+                mapped = options.gaiji_map.get(key)
+                if mapped and key in HC013A_PHONETIC_ITALIC_GAIJI:
+                    stats["gaiji_unicode"] += 1
+                    stats["hc013a_phonetic_italic_gaiji"] += 1
+                    _current_parts(root_parts, contexts).append(
+                        f'<i class="hc013a-phonetic">{_escape_text(mapped)}</i>'
+                    )
+                    text_parts = _current_text_parts(contexts)
+                    if text_parts is not None:
+                        text_parts.append(mapped)
                     i += 2
                     continue
                 if (
@@ -11006,6 +15924,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     i += 2
                     continue
             if _renderer_code(options) == "00A4":
+                if hc00a4_suppress_heading:
+                    stats["hc00a4_suppressed_internal_heading_chars"] += 1
+                    i += 2
+                    continue
                 if key in HC00A4_SUPPRESSED_GAIJI_MARKERS:
                     stats["hc00a4_suppressed_gaiji_markers"] += 1
                     i += 2
@@ -11092,6 +16014,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     stats["hc005c_suppressed_gaiji_markers"] += 1
                     i += 2
                     continue
+                if hc005c_pending_section_parts is not None:
+                    hc005c_flush_pending_section(_current_parts(root_parts, contexts))
                 _append_hc005c_gaiji_value(
                     _current_parts(root_parts, contexts),
                     _current_text_parts(contexts),
@@ -11220,6 +16144,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     continue
             if _renderer_code(options) == "0151":
                 parts = _current_parts(root_parts, contexts)
+                if key in HC0151_INTERNAL_MARKERS:
+                    stats["hc0151_suppressed_internal_markers"] += 1
+                    i += 2
+                    continue
                 if key == HC0151_SMALL_OPEN_MARKER:
                     parts.append("<small><small><small>")
                     hc0151_small_depth += 1
@@ -11259,13 +16187,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     hc02c1_section_just_opened = False
                     i += 2
                     continue
-                if key in HC02C1_TEMPLATE_IMAGE_MARKERS:
-                    image_src = _image_source_for_key(key, options)
-                    if image_src is not None:
-                        _append_renderer_image_gaiji(parts, key, image_src, "img_mark4", stats)
-                    else:
-                        _append_gaiji_value(parts, text_parts, key, options, stats)
-                    stats["hc02c1_template_image_markers"] += 1
+                if key in HC02C1_SUPPRESSED_GAIJI_MARKERS:
+                    stats["hc02c1_suppressed_gaiji_markers"] += 1
                     hc02c1_section_just_opened = False
                     i += 2
                     continue
@@ -11392,7 +16315,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         parts.append('</div></td><td><div class="honbun">')
                         stats["hc012e_table_cell_transitions"] += 1
                     else:
-                        stats["hc012e_noop_markers"] += 1
+                        _append_gaiji_value(parts, text_parts, key, options, stats)
+                        stats["hc012e_bracket_side_markers"] += 1
                     i += 2
                     continue
                 if key == "b237":
@@ -11460,6 +16384,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2
                 continue
             if _renderer_code(options) == "0131":
+                if options.gaiji_map.get(key):
+                    _append_gaiji_value(_current_parts(root_parts, contexts), _current_text_parts(contexts), key, options, stats)
+                    stats["hc0131_unicode_gaiji"] += 1
+                    i += 2
+                    continue
                 image_src = _image_source_for_key(key, options)
                 if image_src is not None:
                     css_class = "img_gaiji_V" if options.vertical else "img_gaiji"
@@ -11480,14 +16409,27 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 color_class = HC0094_COLOR_DIV_MARKERS.get(key)
                 if color_class is not None:
                     parts = _current_parts(root_parts, contexts)
+                    if (
+                        hc0094_merge_color_box_marker
+                        and hc0094_color_div_class == color_class
+                        and hc0094_color_div_close is not None
+                    ):
+                        hc0094_merge_color_box_marker = False
+                        stats["hc0094_merged_color_box_markers"] += 1
+                        i += 2
+                        continue
+                    hc0094_merge_color_box_marker = False
                     if hc0094_color_div_close is not None:
                         parts.append(hc0094_color_div_close)
                     parts.append(f'<div class="{color_class}">')
                     hc0094_color_div_close = "</div>"
+                    hc0094_color_div_class = color_class
                     stats["hc0094_color_div_markers"] += 1
                     i += 2
                     continue
                 if key == HC0094_CLASS_ARROW_MARKER:
+                    if hc0094_current_section == 12:
+                        hc0094_toc_line_active = True
                     image_src = _image_source_for_key("class_arrow", options) or "class_arrow.gif"
                     _append_renderer_image_gaiji(_current_parts(root_parts, contexts), key, image_src, "img_gaiji", stats)
                     stats["hc0094_class_arrow_markers"] += 1
@@ -11502,6 +16444,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     i += 2
                     continue
                 if key in HC0094_TEMPLATE_IMAGE_MARKERS:
+                    if hc0094_current_section == 12:
+                        hc0094_toc_line_active = True
                     image_src = _image_source_for_key(key, options)
                     if image_src is not None:
                         _append_renderer_image_gaiji(_current_parts(root_parts, contexts), key, image_src, "img_gaiji", stats)
@@ -11580,6 +16524,20 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     i += 2
                     continue
             if _renderer_code(options) == "0065":
+                if key in HC0065_PART_OF_SPEECH_MARKERS:
+                    label = _hc0065_part_of_speech_label_at(data, i + 2)
+                    label_key = label.strip("【】")
+                    image_key = HC0065_PART_OF_SPEECH_LABEL_IMAGES.get(label_key, "interjective")
+                    image_src = _image_source_for_key(image_key, options) or _image_source_for_key(f"{image_key}.png", options)
+                    if image_src is not None:
+                        _append_renderer_image_gaiji(_current_parts(root_parts, contexts), key, image_src, "img_hinshi", stats)
+                        hc0065_suppress_label_remaining = label
+                        stats["hc0065_part_of_speech_images"] += 1
+                    else:
+                        _append_gaiji_value(_current_parts(root_parts, contexts), _current_text_parts(contexts), key, options, stats)
+                        stats["hc0065_missing_part_of_speech_images"] += 1
+                    i += 2
+                    continue
                 literal = HC0065_LITERAL_MARKERS.get(key)
                 if literal is not None:
                     _append_text(_current_parts(root_parts, contexts), literal)
@@ -11678,6 +16636,21 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if _renderer_code(options) == "0144":
                 parts = _current_parts(root_parts, contexts)
                 text_parts = _current_text_parts(contexts)
+                unicode_override = HC0144_UNICODE_GAIJI_OVERRIDES.get(key)
+                if unicode_override is not None:
+                    _append_text(parts, unicode_override)
+                    if text_parts is not None:
+                        text_parts.append(unicode_override)
+                    stats["gaiji_unicode"] += 1
+                    stats["hc0144_unicode_preferred_markers"] += 1
+                    i += 2
+                    continue
+                if key == "b939":
+                    parts.append(_hc0141_cross_reference_arrow_html(options))
+                    stats["gaiji_image"] += 1
+                    stats["hc0144_arrow_markers"] += 1
+                    i += 2
+                    continue
                 marker = HC0144_OPEN_MARKERS.get(key)
                 if marker is not None:
                     parts.append(marker.html)
@@ -11792,6 +16765,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     parts.append(literal)
                     if text_parts is not None:
                         text_parts.append(_plain_from_html(literal))
+                    hc0141_double_pipe_crossref_pending = key == "a924"
                     stats["hc0141_literal_markers"] += 1
                     i += 2
                     continue
@@ -11842,7 +16816,28 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     stats["hc00c6_noop_markers"] += 1
                     i += 2
                     continue
+                if key in HC00C6_HEADWORD_MACRO_MARKERS:
+                    headword = normalize_fullwidth_ascii("".join(hc00c6_headword_parts)).strip()
+                    replacement = headword or options.gaiji_map.get(key) or ""
+                    if replacement:
+                        _append_text(parts, replacement)
+                        if text_parts is not None:
+                            text_parts.append(replacement)
+                        stats["hc00c6_headword_macros"] += 1
+                    else:
+                        stats["hc00c6_unresolved_headword_macros"] += 1
+                    i += 2
+                    continue
                 if key in HC00C6_IMAGE_MARKERS:
+                    mapped = options.gaiji_map.get(key)
+                    if mapped and key not in HC00C6_FORCED_IMAGE_MARKERS:
+                        _append_text(parts, mapped)
+                        if text_parts is not None:
+                            text_parts.append(mapped)
+                        stats["gaiji_unicode"] += 1
+                        stats["hc00c6_unicode_preferred_markers"] += 1
+                        i += 2
+                        continue
                     image_src = options.image_sources.get(key.lower())
                     if image_src is not None:
                         _append_renderer_image_gaiji(
@@ -11951,9 +16946,18 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if _renderer_code(options) == "0146":
                 parts = _current_parts(root_parts, contexts)
                 text_parts = _current_text_parts(contexts)
+                if key == "b167" and hc0146_example_frame_state == "source":
+                    stats["hc0146_example_raw_paragraph_markers_suppressed"] += 1
+                    i += 2
+                    continue
                 marker = HC0146_OPEN_MARKERS.get(key)
                 if marker is not None:
-                    if key == "b232" and 0xE0 in style_stack:
+                    in_bold_decoration = (
+                        0xE0 in style_stack
+                        and bool(hc0146_decoration_stack)
+                        and hc0146_decoration_stack[-1] == "</b>"
+                    )
+                    if key == "b232" and in_bold_decoration:
                         parts.append('</b><font class="color_font"><b>')
                         stats["hc0146_color_font_bold_nesting_repairs"] += 1
                     else:
@@ -11968,7 +16972,12 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if key in HC0146_CLOSE_MARKERS:
                     if hc0146_marker_stack and hc0146_marker_stack[-1][0] == key:
                         close_code, close_html = hc0146_marker_stack.pop()
-                        if close_code == "b233" and 0xE0 in style_stack:
+                        in_bold_decoration = (
+                            0xE0 in style_stack
+                            and bool(hc0146_decoration_stack)
+                            and hc0146_decoration_stack[-1] == "</b>"
+                        )
+                        if close_code == "b233" and in_bold_decoration:
                             parts.append("</b></font><b>")
                             stats["hc0146_color_font_bold_nesting_repairs"] += 1
                         else:
@@ -12086,9 +17095,21 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     i += 2
                     continue
                 if key == "b379":
+                    if hc0158_active_column_class in {"column_gogi_panel", "column_ruigo_panel"} and hc0158_current_section_value == 21:
+                        stats["hc0158_panel_title_waku_markers_suppressed"] += 1
+                        i += 2
+                        continue
                     _current_parts(root_parts, contexts).append(_hc0158_conditional_waku(_decode_next_jis_text(data, i + 2)))
                     hc0158_marker_stack.append(("b37a", "</span>"))
                     stats["hc0158_style_markers"] += 1
+                    i += 2
+                    continue
+                if (
+                    key == "b37a"
+                    and hc0158_active_column_class in {"column_gogi_panel", "column_ruigo_panel"}
+                    and hc0158_current_section_value == 21
+                ):
+                    stats["hc0158_panel_title_waku_markers_suppressed"] += 1
                     i += 2
                     continue
                 if key == "b354" and hc0158_marker_stack and hc0158_marker_stack[-1][0] == "b354_rank1":
@@ -12159,6 +17180,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                             css_class,
                             stats,
                         )
+                        if key == "b65e" and not hc0063_heading_phase:
+                            _current_parts(root_parts, contexts).append('<div class="exsample">')
+                            hc0063_exsample_open = True
+                            stats["hc0063_exsample_blocks"] += 1
                         stats["hc0063_template_image_markers"] += 1
                     i += 2
                     continue
@@ -12175,6 +17200,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         stats,
                     ):
                         gaps.add(f"missing_hc0093_template_image_{image_key}")
+                    if image_key == "class_arrow":
+                        hc0093_toc_line_active = True
                     i += 2
                     continue
                 if key in HC0093_NOOP_MARKERS:
@@ -12183,16 +17210,17 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     continue
             if _renderer_code(options) == "0095":
                 if key in HC0095_PAGE_KIND_MARKERS:
-                    image_src = _image_source_for_key(key, options)
-                    if image_src is not None:
-                        css_class = "img_gaiji_midashi" if hc0095_current_section == 1 else "img_gaiji"
-                        _append_renderer_image_gaiji(_current_parts(root_parts, contexts), key, image_src, css_class, stats)
-                        stats["hc0095_page_kind_markers"] += 1
-                    else:
-                        _append_gaiji_value(_current_parts(root_parts, contexts), _current_text_parts(contexts), key, options, stats)
+                    stats["hc0095_page_kind_markers"] += 1
+                    stats["hc0095_page_kind_markers_suppressed"] += 1
+                    i += 2
+                    continue
+                if key in HC0095_SUPPRESSED_MARKERS:
+                    stats["hc0095_suppressed_markers"] += 1
                     i += 2
                     continue
                 if key in HC0095_TEMPLATE_MARKERS:
+                    if hc0095_current_section == 12:
+                        hc0095_footer_line_active = True
                     image_src = _image_source_for_key(key, options)
                     if image_src is not None:
                         css_class = "img_mark2" if hc0095_current_section == 12 else "img_mark"
@@ -12280,6 +17308,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2
                 continue
             if _renderer_code(options) == "0020":
+                hc0020_confer_marker_pending = False
                 _append_hc0020_gaiji_value(
                     _current_parts(root_parts, contexts),
                     _current_text_parts(contexts),
@@ -12339,6 +17368,31 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 )
                 i += 2
                 continue
+            if _renderer_code(options) == "013F":
+                parts = _current_parts(root_parts, contexts)
+                if key == HC013F_SUBSCRIPT_START_MARKER:
+                    parts.append("<sub>")
+                    stats["hc013f_subscript_markers"] += 1
+                    i += 2
+                    continue
+                if key == HC013F_SUBSCRIPT_END_MARKER:
+                    parts.append("</sub>")
+                    stats["hc013f_subscript_markers"] += 1
+                    i += 2
+                    continue
+                sense_marker = HC013F_CIRCLED_SENSE_MARKERS.get(key)
+                if sense_marker is not None:
+                    _append_text(parts, sense_marker)
+                    text_parts = _current_text_parts(contexts)
+                    if text_parts is not None:
+                        text_parts.append(sense_marker)
+                    stats["hc013f_sense_number_markers"] += 1
+                    i += 2
+                    continue
+                if key in HC013F_SUPPRESSED_GAIJI_MARKERS:
+                    stats["hc013f_suppressed_gaiji_markers"] += 1
+                    i += 2
+                    continue
             if _renderer_code(options) == "00A3" and key == "b261":
                 _append_gaiji_value(
                     _current_parts(root_parts, contexts),
@@ -12350,6 +17404,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 stats["hc00a3_b261_alias_markers"] += 1
                 i += 2
                 continue
+            mapped_gaiji = options.gaiji_map.get(key)
+            if _renderer_code(options) == "00AD" and mapped_gaiji is not None and mapped_gaiji in "❷❸❹❺❻❼❽❾❿⓫⓬⓭⓮⓯⓰⓱⓲⓳⓴":
+                _current_parts(root_parts, contexts).append("<br>")
+                stats["hc00ad_sense_number_linebreaks"] += 1
             _append_gaiji_value(_current_parts(root_parts, contexts), _current_text_parts(contexts), key, options, stats)
             if _renderer_code(options) == "02C1":
                 hc02c1_section_just_opened = False
@@ -12363,8 +17421,14 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
     while style_stack:
         popped = style_stack.pop()
+        if _renderer_code(options) == "0146" and popped == 0xE0:
+            _current_parts(root_parts, contexts).append(hc0146_decoration_stack.pop() if hc0146_decoration_stack else "</b>")
+            continue
         if _renderer_code(options) in {"0131", "0135"} and popped == 0x06:
             _current_parts(root_parts, contexts).append("</sub></span>")
+            continue
+        if _is_hc005c_renderer(options) and popped == 0xE0:
+            _current_parts(root_parts, contexts).append(hc005c_decoration_stack.pop() if hc005c_decoration_stack else "</b>")
             continue
         if _is_hc005c_renderer(options) and popped == 0x04:
             _current_parts(root_parts, contexts).append("</span>")
@@ -12374,6 +17438,18 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             continue
         if _renderer_code(options) == "007D" and popped == 0x04:
             _current_parts(root_parts, contexts).append("</span>")
+            continue
+        if _renderer_code(options) == "007D" and popped == HC007D_ITALIC_STYLE:
+            _current_parts(root_parts, contexts).append("</i>")
+            continue
+        if _renderer_code(options) == "007D" and popped == HC007D_BOLD_STYLE:
+            _current_parts(root_parts, contexts).append("</b>")
+            continue
+        if _renderer_code(options) == "0092" and popped == HC0092_ITALIC_STYLE:
+            _current_parts(root_parts, contexts).append("</i>")
+            continue
+        if _renderer_code(options) == "0092" and popped == HC0092_BOLD_STYLE:
+            _current_parts(root_parts, contexts).append("</b>")
             continue
         if _renderer_code(options) == "008F" and popped == 0x04:
             _current_parts(root_parts, contexts).append("</span>")
@@ -12410,6 +17486,19 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append("</th></tr></thead><tbody><tr><td>")
         hc009d_table_header_open = False
         stats["hc009d_table_body_starts"] += 1
+    if hc009d_box_label_open:
+        _current_parts(root_parts, contexts).append("</span>")
+        hc009d_box_label_open = False
+        gaps.add("unterminated_hc009d_box_label")
+    if hc009d_ruby_open:
+        _current_parts(root_parts, contexts).append(
+            '</rb><rp class="rp7">(</rp><rt class="rt7"></rt><rp class="rp7">)</rp></ruby>'
+        )
+        hc009d_ruby_open = False
+        gaps.add("hc009d_unterminated_ruby")
+    if hc009d_toc_line_open:
+        _current_parts(root_parts, contexts).append("</div>")
+        hc009d_toc_line_open = False
     while hc009d_marker_stack:
         close_code, close_html = hc009d_marker_stack.pop()
         _current_parts(root_parts, contexts).append(close_html)
@@ -12419,6 +17508,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         close_code, close_html = hc00c6_marker_stack.pop()
         _current_parts(root_parts, contexts).append(close_html)
         gaps.add(f"unterminated_hc00c6_marker_{close_code}")
+    if hc0141_pending_italic_before_halfwidth:
+        gaps.add("unterminated_hc0141_pending_italic")
+    while hc0141_decoration_stack:
+        _current_parts(root_parts, contexts).append(hc0141_decoration_stack.pop())
+        gaps.add("unterminated_hc0141_decoration")
     while hc0141_marker_stack:
         close_code, close_html = hc0141_marker_stack.pop()
         _current_parts(root_parts, contexts).append(close_html)
@@ -12439,6 +17533,13 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         close_code, close_html = hc02be_marker_stack.pop()
         _current_parts(root_parts, contexts).append(close_html)
         gaps.add(f"unterminated_hc02be_marker_{close_code}")
+    while hc02be_decoration_stack:
+        tag = hc02be_decoration_stack.pop()
+        _current_parts(root_parts, contexts).append(f"</{tag}>")
+        gaps.add("unterminated_hc02be_decoration")
+    while hc02bf_decoration_stack:
+        _current_parts(root_parts, contexts).append(hc02bf_decoration_stack.pop())
+        gaps.add("unterminated_hc02bf_decoration")
     while hc02bc_marker_stack:
         close_code, close_html = hc02bc_marker_stack.pop()
         _current_parts(root_parts, contexts).append(close_html)
@@ -12451,14 +17552,28 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append("</div>")
     if hc0094_color_div_close is not None:
         _current_parts(root_parts, contexts).append(hc0094_color_div_close)
+        hc0094_color_div_class = None
     if hc0094_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0094_section_close)
+    if hc0093_ruby_open:
+        if hc0093_ruby_reading_open:
+            _current_parts(root_parts, contexts).append('</rt><rp class="rp7">)</rp></ruby>')
+        else:
+            _current_parts(root_parts, contexts).append(
+                '</rb><rp class="rp7">(</rp><rt class="rt7"></rt><rp class="rp7">)</rp></ruby>'
+            )
+        gaps.add("hc0093_unterminated_ruby")
     if hc0093_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0093_section_close)
     if hc0093_current_section == 5:
         _current_parts(root_parts, contexts).append("</div>")
     if hc0093_contents_body_open:
         _current_parts(root_parts, contexts).append("</div>")
+    if hc0095_ruby_open:
+        _current_parts(root_parts, contexts).append(
+            '</rb><rp class="rp7">(</rp><rt class="rt7"></rt><rp class="rp7">)</rp></ruby>'
+        )
+        gaps.add("hc0095_unterminated_ruby")
     if hc0095_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0095_section_close)
     if hc0095_contents_body_open:
@@ -12466,6 +17581,13 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     if hc0096_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0096_section_close)
     if hc0096_contents_body_open:
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc0096_ruby_open:
+        _current_parts(root_parts, contexts).append(
+            '</rb><rp class="rp7">(</rp><rt class="rt7"></rt><rp class="rp7">)</rp></ruby>'
+        )
+        gaps.add("hc0096_unterminated_ruby")
+    if hc0092_example_box_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc0092_lineinfo_open:
         _current_parts(root_parts, contexts).append("</div>")
@@ -12477,10 +17599,17 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc009d_section_close)
     if hc009b_section_close is not None:
         _current_parts(root_parts, contexts).append(hc009b_section_close)
+    while hc013a_decoration_stack:
+        _current_parts(root_parts, contexts).append(hc013a_decoration_stack.pop())
+        gaps.add("unterminated_hc013a_decoration")
     if hc013a_honbun2_open:
-        _current_parts(root_parts, contexts).append("</strong></div>")
+        _current_parts(root_parts, contexts).append("</strong>")
         hc013a_honbun2_open = False
         stats["hc013a_honbun2_closures"] += 1
+    if hc013a_honbun2_div_open:
+        _current_parts(root_parts, contexts).append("</div>")
+        hc013a_honbun2_div_open = False
+        stats["hc013a_honbun2_div_closures"] += 1
     if hc013a_section_close is not None:
         _current_parts(root_parts, contexts).append(hc013a_section_close)
         hc013a_section_close = None
@@ -12512,8 +17641,13 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     if hc012d_yindex_field_open:
         _current_parts(root_parts, contexts).append("</div>")
         stats["hc012d_yindex_field_closures"] += 1
+    if hc013d_midashi_deferred_close:
+        hc013d_close_deferred_midashi(_current_parts(root_parts, contexts))
     if hc013d_section_close is not None:
         _current_parts(root_parts, contexts).append(hc013d_section_close)
+    if hc013d_product_card_open:
+        _current_parts(root_parts, contexts).append("</div>")
+        stats["hc013d_product_card_closures"] += 1
     if hc013d_pc_table_open:
         _current_parts(root_parts, contexts).append("</td></tr></table><br>")
         stats["hc013d_pc_table_closures"] += 1
@@ -12524,14 +17658,22 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc013d_clickmenu_close)
     if hc013d_clickmenu_field_close is not None:
         _current_parts(root_parts, contexts).append(hc013d_clickmenu_field_close)
+    if hc0141_example_open:
+        _current_parts(root_parts, contexts).append("</div>")
+        stats["hc0141_example_block_closures"] += 1
     if hc0141_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0141_section_close)
     if hc0144_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0144_section_close)
+    if hc0145_example_open:
+        _current_parts(root_parts, contexts).append("</div>")
+        stats["hc0145_example_block_closures"] += 1
     if hc0145_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0145_section_close)
     if hc0158_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0158_section_close)
+    if hc0158_active_column_class is not None:
+        hc0158_close_active_column(_current_parts(root_parts, contexts))
     if hc03e8_section_close is not None:
         _current_parts(root_parts, contexts).append(hc03e8_section_close)
     if hc00a6_section_close is not None:
@@ -12553,6 +17695,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc00ab_section_close)
     if hc00ab_midashi_open:
         _current_parts(root_parts, contexts).append("</div>")
+    if hc00ab_ruby_open:
+        _current_parts(root_parts, contexts).append(
+            '</rb><rp class="rp7">(</rp><rt class="rt7"></rt><rp class="rp7">)</rp></ruby>'
+        )
+        gaps.add("hc00ab_unterminated_ruby")
     if hc00bb_section_close is not None:
         _current_parts(root_parts, contexts).append(hc00bb_section_close)
     if hc00bb_midashi_open:
@@ -12567,12 +17714,32 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         gaps.add("hc00a6_unterminated_ruby")
     if hc012e_section_close is not None:
         _current_parts(root_parts, contexts).append(hc012e_section_close)
+    if hc012e_kanji_main_open:
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc012e_kanji_meta_open:
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc012e_kanji_summary_open:
+        _current_parts(root_parts, contexts).append("</div>")
     if hc012f_section_close is not None:
         _current_parts(root_parts, contexts).append(hc012f_section_close)
+    if hc012f_related_links_open:
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc0131_contents_open:
+        _current_parts(root_parts, contexts).append("</div>")
+        stats["hc0131_example_block_closures"] += 1
     if hc0131_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0131_section_close)
+    while hc0131_decoration_stack:
+        tag = hc0131_decoration_stack.pop()
+        _current_parts(root_parts, contexts).append(f"</{tag}>")
+        stats["hc0131_unterminated_decoration_recovered"] += 1
     if hc02c1_moji_down_open:
         _current_parts(root_parts, contexts).append("</p>")
+    if hc02c1_ruby_open:
+        _current_parts(root_parts, contexts).append(
+            '</rb><rp class="rp7">(</rp><rt class="rt7"></rt><rp class="rp7">)</rp></ruby>'
+        )
+        gaps.add("unterminated_hc02c1_ruby")
     if hc02c1_section_close is not None:
         _current_parts(root_parts, contexts).append(hc02c1_section_close)
     if hc02bf_moji_down_open:
@@ -12595,8 +17762,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append(hc00c4_section_close)
     if hc00c4_font_down_open:
         _current_parts(root_parts, contexts).append("</font>")
+    if _is_hc_hkdksr_medical_renderer(options):
+        hc_hkdksr_close_deferred_midashi(_current_parts(root_parts, contexts))
+        hc_hkdksr_flush_pending_title_label(_current_parts(root_parts, contexts))
+        hc_hkdksr_flush_pending_product_label(_current_parts(root_parts, contexts))
     if hc_hkdksr_medical_section_close is not None:
         _current_parts(root_parts, contexts).append(hc_hkdksr_medical_section_close)
+    if hc_hkdksr_product_card_open:
+        _current_parts(root_parts, contexts).append("</div>")
+        stats["hc_hkdksr_product_card_closures"] += 1
     if hc_hkdksr_medical_table_open:
         _current_parts(root_parts, contexts).append("</td></tr></table>")
     if hc008c_section_close is not None:
@@ -12609,6 +17783,11 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         if hc02c2_moji_down_open:
             _current_parts(root_parts, contexts).append("</p>")
         _current_parts(root_parts, contexts).append("</div>")
+    if hc02c2_ruby_open:
+        _current_parts(root_parts, contexts).append(
+            '</rb><rp class="rp7">(</rp><rt class="rt7"></rt><rp class="rp7">)</rp></ruby>'
+        )
+        gaps.add("unterminated_hc02c2_ruby")
     if hc0147_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0147_section_close)
     if hc0147_bunken_open:
@@ -12641,6 +17820,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append("</div>")
     if hc007d_midashi_open:
         _current_parts(root_parts, contexts).append("</div>")
+    if hc007d_example_open:
+        _current_parts(root_parts, contexts).append("</div>")
     if hc007d_section_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc007d_contents_body_open:
@@ -12667,6 +17848,13 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append("</div>")
     if hc00ac_section_close is not None:
         _current_parts(root_parts, contexts).append(hc00ac_section_close)
+    if hc00ac_midashi_open:
+        hc00ac_midashi_open = False
+    if hc00ac_ruby_open:
+        _current_parts(root_parts, contexts).append(
+            '</rb><rp class="rp7">(</rp><rt class="rt7"></rt><rp class="rp7">)</rp></ruby>'
+        )
+        gaps.add("hc00ac_unterminated_ruby")
     if hc0020_div_215a_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc0020_definition_open:
@@ -12677,11 +17865,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append("</div>")
     if hc0020_contents_open:
         _current_parts(root_parts, contexts).append("</div>")
+    if hc0063_exsample_open:
+        _current_parts(root_parts, contexts).append("</div>")
     if hc0063_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0063_section_close)
     if hc0063_contents_body_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc0065_midashi_open:
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc0065_example_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc0065_body_open:
         _current_parts(root_parts, contexts).append("</div>")
@@ -12691,10 +17883,12 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append("</div>")
     if hc0067_contents_open:
         _current_parts(root_parts, contexts).append("</div>")
-    if hc0068_section_close is not None:
-        _current_parts(root_parts, contexts).append(hc0068_section_close)
     if hc0068_midashi_open:
         _current_parts(root_parts, contexts).append("</div>")
+    if hc0068_source_line_open:
+        _current_parts(root_parts, contexts).append("</span>")
+    if hc0068_section_close is not None:
+        _current_parts(root_parts, contexts).append(hc0068_section_close)
     if hc0068_contents_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc0069_section_close is not None:
@@ -12708,12 +17902,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     if hc0091_contents_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc009f_midashi_open:
+        if hc009f_midashi_alias_open:
+            _current_parts(root_parts, contexts).append("</span>")
         _current_parts(root_parts, contexts).append("</div>")
     if hc009f_section_close is not None:
         _current_parts(root_parts, contexts).append(hc009f_section_close)
     if hc0135_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0135_section_close)
     if hc0135_midashi_open:
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc0135_example_open:
         _current_parts(root_parts, contexts).append("</div>")
     if hc0135_contents_body_open:
         _current_parts(root_parts, contexts).append("</div>")
@@ -12748,12 +17946,19 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append("</span>")
     if hc005c_heading_open:
         _current_parts(root_parts, contexts).append("</div>")
+    if hc005c_example_open:
+        _current_parts(root_parts, contexts).append("</div>")
+        stats["hc005c_example_blocks_closed"] += 1
+    if hc005c_pending_section_parts is not None:
+        hc005c_flush_pending_section(_current_parts(root_parts, contexts))
     if hc005c_section_close is not None:
         _current_parts(root_parts, contexts).append(hc005c_section_close)
     if hc0132_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0132_section_close)
     if hc0132_honbun_open:
         _current_parts(root_parts, contexts).append("</div>")
+    if hc0146_example_frame_state is not None:
+        hc0146_close_example_frame(_current_parts(root_parts, contexts))
     if hc0146_section_close is not None:
         _current_parts(root_parts, contexts).append(hc0146_section_close)
     if hc0146_column_frame_close is not None:
@@ -12774,6 +17979,12 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         _current_parts(root_parts, contexts).append("</div>")
     if hc00ad_section_close is not None:
         _current_parts(root_parts, contexts).append(hc00ad_section_close)
+    if hc00ad_kanji_main_open:
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc00ad_kanji_meta_open:
+        _current_parts(root_parts, contexts).append("</div>")
+    if hc00ad_kanji_summary_open:
+        _current_parts(root_parts, contexts).append("</div>")
     if hc00ad_midashi_open:
         _current_parts(root_parts, contexts).append("</div>")
     _hc0190_close_section(contexts, hc0190_sections, stats)
@@ -12802,6 +18013,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     classes = ["lv-hc-render"]
     if options.vertical:
         classes.append("lv-hc-vertical")
+    if _renderer_code(options) == "02BC":
+        classes.append("hc02bc")
     body = "".join(root_parts)
     if _renderer_code(options) == "0190" and hc0190_template_key is not None:
         template = options.html_templates.get(hc0190_template_key)
@@ -12830,7 +18043,27 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         "role": "readaloud_audio",
                     }
                 )
-    body = _rewrite_lved_addr_hrefs(body)
+    if _renderer_code(options) == "0131":
+        body = _hc0131_finalize_html(body, stats)
+    if _renderer_code(options) == "0093":
+        body = _hc0093_finalize_html(body, stats)
+    if _renderer_code(options) == "00C6":
+        body = _hc00c6_finalize_html(body, stats)
+    if _renderer_code(options) in {"0141", "0144", "0145", "03E8"}:
+        body = _hc014x_finalize_html(body, stats, _renderer_code(options))
+    if _renderer_code(options) == "013F":
+        body = _rewrite_hc013f_fullwidth_tables(body, options, stats)
+    if _renderer_code(options) == "0158":
+        body = _hc0158_finalize_html(body, stats)
+    if _renderer_code(options) == "00AD":
+        body = _hc00ad_decode_codepoint_literals_html(body, stats)
+    body = _rewrite_lved_addr_hrefs(_decode_fullwidth_html_charrefs(body))
+    if _renderer_code(options) in {"0135", "0151"}:
+        while '<span class="hankaku"></span>' in body:
+            body = body.replace('<span class="hankaku"></span>', "")
+    body, nav_images_removed = _strip_viewer_navigation_images(body)
+    if nav_images_removed:
+        stats["viewer_navigation_images_suppressed"] += nav_images_removed
     rendered_html = f'<div class="{" ".join(classes)}">{body}</div>'
     return HcRenderResult(
         html=rendered_html,
@@ -12947,24 +18180,31 @@ def _has_entry_body_sidecar(schema_sidecars: dict[str, Any]) -> bool:
 
 def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: argparse.Namespace) -> dict[str, Any]:
     renderer = getattr(args, "_hc_renderer", None)
+    renderer_code = _effective_renderer_code_for_source(source, renderer)
     reader = SsedRandomReader(source.honmon)
     entries_path = dict_out / "hc_entries.jsonl"
     html_path = dict_out / "raw_honmon_entries.html"
     image_sources, html_templates, stylesheet, copied_assets, renderer_assets = _prepare_hc_render_assets(source, dict_out, renderer)
+    media_image_resolver = _make_colscr_image_resolver(source, dict_out)
     options = HcRenderOptions(
         gaiji_map=source.gaiji_map,
         image_sources=image_sources,
         html_templates=html_templates,
         renderer_assets=renderer_assets,
-        renderer_code=renderer.code if renderer is not None else None,
-        vertical=bool(getattr(args, "vertical", False)),
+        renderer_code=renderer_code,
+        vertical=bool(getattr(args, "_effective_vertical", getattr(args, "vertical", False))),
+        media_image_resolver=media_image_resolver,
     )
     totals: Counter[str] = Counter()
     emitted = 0
     named_gaps: Counter[str] = Counter()
     with entries_path.open("w", encoding="utf-8") as jsonl, html_path.open("w", encoding="utf-8") as html_out:
-        _write_hc_html_header(html_out, stylesheet=stylesheet, vertical=bool(getattr(args, "vertical", False)))
-        for entry_index, (start, end) in enumerate(iter_entry_slices_reader(reader), start=1):
+        _write_hc_html_header(
+            html_out,
+            stylesheet=stylesheet,
+            vertical=bool(getattr(args, "_effective_vertical", getattr(args, "vertical", False))),
+        )
+        for entry_index, (start, end) in enumerate(_hc_entry_slices_reader(reader, renderer_code), start=1):
             if args.limit is not None and emitted >= args.limit:
                 break
             body = reader.read(start, end - start)
@@ -13000,7 +18240,7 @@ def _rendererdb_args(args: argparse.Namespace) -> argparse.Namespace:
     return argparse.Namespace(
         decrypted_db=None,
         include_html=True,
-        vertical=bool(getattr(args, "vertical", False)),
+        vertical=bool(getattr(args, "_effective_vertical", getattr(args, "vertical", False))),
         write_media=bool(args.write_sidecar_media),
         media_limit=args.media_limit,
         write_ziptomedia=bool(args.write_ziptomedia),
@@ -13014,7 +18254,10 @@ def extract_hc_render_for_source(source: DictionarySource, out_dir: Path, args: 
     dict_out.mkdir(parents=True, exist_ok=True)
     renderer = _renderer_for_source(source, compute_hash=not args.no_hash)
     setattr(args, "_hc_renderer", renderer)
+    effective_vertical = _source_prefers_vertical(source, args)
+    setattr(args, "_effective_vertical", effective_vertical)
     renderer_json = hc_renderer_classification_to_json(renderer) if renderer else None
+    renderer_code = _effective_renderer_code_for_source(source, renderer)
     status(args, f"hc-render: {source.dict_id}: rendering raw HONMON controls", verbose=True)
     raw_summary = _render_raw_honmon_entries(source, dict_out, args)
     schema_sidecars = _schema_backed_sidecars(source)
@@ -13025,6 +18268,8 @@ def extract_hc_render_for_source(source: DictionarySource, out_dir: Path, args: 
         rendererdb_summary = extract_rendererdb_dictionary(source, dict_out / "rendererdb", _rendererdb_args(args))
     profile = build_hc_behavior_profile(
         renderer,
+        renderer_code_override=renderer_code,
+        dict_id=source.dict_id,
         schema_sidecars=schema_sidecars,
         rendererdb_summary=rendererdb_summary,
         raw_gaps=raw_summary.get("raw_honmon_named_behavior_gaps", {}),
@@ -13039,7 +18284,8 @@ def extract_hc_render_for_source(source: DictionarySource, out_dir: Path, args: 
             rendererdb_summary,
             dict_out,
             stylesheet=raw_summary.get("raw_honmon_stylesheet"),
-            vertical=bool(getattr(args, "vertical", False)),
+            vertical=effective_vertical,
+            renderer_code=renderer.code if renderer is not None else None,
         )
         if final_html_path is not None:
             final_html_source = "rendererdb_html"

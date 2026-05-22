@@ -126,8 +126,27 @@ def candidate_image_dirs(root: Path) -> list[Path]:
     companion_names = {f"{root.name}_GAIJI"}
     if root.name.upper().startswith("_DCT_"):
         companion_names.add(f"{root.name[5:]}_GAIJI")
+    companion_names.update(companion_template_names(root))
     package_specific.extend(root.parent / name for name in sorted(companion_names))
     return package_specific
+
+
+def companion_template_names(root: Path) -> tuple[str, ...]:
+    """Return observed package-adjacent template directory names.
+
+    Some Windows SSED products keep renderer PNG/CSS assets next to, rather
+    than inside, the ``_DCT_*`` directory.  HC renderers still treat these as
+    logical ``Templates`` assets.
+    """
+
+    names = {f"{root.name}_Templates"}
+    if root.name.upper().startswith("_DCT_"):
+        names.add(f"{root.name[5:]}_Templates")
+    return tuple(sorted(names))
+
+
+def companion_template_dirs(root: Path) -> tuple[Path, ...]:
+    return tuple(root.parent / name for name in companion_template_names(root))
 
 
 def _actual_candidate_path(root: Path, candidate: Path) -> Path | None:
@@ -140,6 +159,11 @@ def _actual_candidate_path(root: Path, candidate: Path) -> Path | None:
 
 def relative_image_source(path: Path, package_hint: Path) -> str:
     for root in candidate_package_roots(package_hint):
+        for template_dir in companion_template_dirs(root):
+            try:
+                return (Path("Templates") / path.relative_to(template_dir)).as_posix()
+            except ValueError:
+                continue
         try:
             return path.relative_to(root).as_posix()
         except ValueError:

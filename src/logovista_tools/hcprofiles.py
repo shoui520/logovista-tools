@@ -14,6 +14,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
+from .hc_parity import confirmed_render_parity_lock
 from .windows import HcRendererClassification
 
 
@@ -51,6 +52,9 @@ class HcBehaviorProfile:
     body_strategy_status: str
     exact_body_html_available: bool
     exact_hc_parity: bool
+    reference_render_parity_confirmed: bool = False
+    reference_render_parity_source: str | None = None
+    reference_render_parity_notes: tuple[str, ...] = ()
     implemented_semantics: tuple[str, ...] = ()
     hook_behaviors: tuple[HcHookBehavior, ...] = ()
     schema_sidecar_roles: dict[str, int] = field(default_factory=dict)
@@ -67,6 +71,9 @@ class HcBehaviorProfile:
             "body_strategy_status": self.body_strategy_status,
             "exact_body_html_available": self.exact_body_html_available,
             "exact_hc_parity": self.exact_hc_parity,
+            "reference_render_parity_confirmed": self.reference_render_parity_confirmed,
+            "reference_render_parity_source": self.reference_render_parity_source,
+            "reference_render_parity_notes": list(self.reference_render_parity_notes),
             "implemented_semantics": list(self.implemented_semantics),
             "hook_behaviors": [row.as_dict() for row in self.hook_behaviors],
             "schema_sidecar_roles": dict(sorted(self.schema_sidecar_roles.items())),
@@ -109,6 +116,8 @@ def _rendererdb_ok(rendererdb_summary: dict[str, Any] | None) -> bool:
 def _family_for_code(code: str | None, renderer: HcRendererClassification | None) -> str:
     if code is None:
         return "no_hc_renderer"
+    if code == "0088":
+        return "legacy_template_css_renderer"
     if code in {"015A", "015B", "015C", "015D", "015E", "015F"}:
         return "modern_dense_t_contents_renderer"
     if code == "0155":
@@ -134,6 +143,27 @@ def _family_for_code(code: str | None, renderer: HcRendererClassification | None
 
 def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
     rows: list[HcHookBehavior] = []
+    if code == "0088":
+        rows.append(
+            HcHookBehavior(
+                name="ngyk300k_mm_category_heading",
+                status="branch_subset_implemented",
+                evidence=(
+                    "HTML=1 with Templates/00000088.css and no HC DLL",
+                    "MM01-MM14 category badge image set",
+                    "raw HONMON section 0001 category label in 〔...〕",
+                    "30nandoku.db category tables align entry addresses with the same category labels",
+                ),
+                implementation=(
+                    "legacy 00000088 renderer inference, MM category badge selection from raw category labels, "
+                    "midashi/midashi_yomi blocks, and section-0002 field splitting"
+                ),
+                notes=(
+                    "This is a legacy package-resource renderer profile, not an HC DLL. "
+                    "The category-to-MM mapping is shared by the package stylesheet, Templates images, and SQL table families."
+                ),
+            )
+        )
     if code in {"015A", "015B", "015C", "015D", "015E", "015F"}:
         rows.append(
             HcHookBehavior(
@@ -142,6 +172,24 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 evidence=("t_contents f_DataId/f_Html SQL", "dense HONMON decimal ID anchors"),
                 implementation="rendererdb data_id join",
                 notes="HC code selects f_Html/f_Title_SS/f_Keyword by f_DataId and related group IDs.",
+            )
+        )
+    if code == "015D":
+        rows.append(
+            HcHookBehavior(
+                name="sinjigen_vertical_exact_body_layout",
+                status="implemented_when_sidecar_present",
+                evidence=(
+                    "EXINFO VERTICAL=1",
+                    "HC015D t_contents f_Html renderer body rows",
+                    "Templates/0000015D.css vertical class rules for midashi/honbun/oyaji/imi/kodaimoji blocks",
+                    "media table stores古代文字 and figure images referenced by bare filenames in f_Html",
+                ),
+                implementation=(
+                    "exact rendererdb body extraction, forced vertical output shell for HC015D, "
+                    "package CSS loading, and bare media filename rewriting to extracted rendererdb assets"
+                ),
+                notes="HC015D body parity depends on sidecar HTML plus the vertical package stylesheet; raw HONMON rendering is not a useful visual fallback for normal entries.",
             )
         )
     if code == "0160":
@@ -331,19 +379,25 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "HC0135 1f06/1f07 sizedown-subscript branch",
                     "HC0135 1f42/1f43 lineLink templates",
                     "HC0135 1fe2/1fe3 named private image directive branch",
+                    "HC0135 1fe2/1fe3 private formatter and 画像: directive branch",
                     "HC0135 image-backed gaiji img_gaiji/img_gaiji_midashi branch",
                     "Templates/00000135.css class definitions",
                 ),
                 implementation=(
                     "1f09 value 1 opens midashi, 1f0a closes midashi and opens "
                     "contents_body, values 9/11/12 map to content_IND0/1/2, "
-                    "value 30 maps to contents_yourei, value 38 emits exam.png "
-                    "when the template is present, values 7 and 35 are state-only, "
+                    "value 24 renders historical-kana text, value 27 renders red "
+                    "construction-pattern text, value 29 renders sound/accent lines, "
+                    "value 30 opens an exam.png contents_yourei block, value 31 "
+                    "renders smaller part-of-speech text, value 38 marks example "
+                    "text inside that block, values 7 and 35 are state-only, "
                     "value 23 emits a break only when it follows a halfwidth-close control, "
                     "1f06/1f07 emit sizedown subscript, "
-                    "internal links use lineLink, named private directives render "
-                    "template icons, and image-backed gaiji use dummy.gif plus "
-                    "img_gaiji or img_gaiji_midashi"
+                    "internal links use lineLink, heading search-tail text after ■ is "
+                    "suppressed, named and 画像: private directives render template "
+                    "images, education-kanji/history/small-font private directives "
+                    "produce inline formatting, and image-backed gaiji use dummy.gif "
+                    "plus img_gaiji or img_gaiji_midashi"
                 ),
                 notes="The subset excludes fixed HTML/fix fallback loading, exact previous/next navigation, generated custom-character DIB output, SQL helper UI, modifyHeadword hooks, and broader visual parity.",
             )
@@ -399,8 +453,15 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "Block/Offset/Body SQL tables",
                     "HC013F SDicGetBodyData fallback and HTMLs path logic",
                     "HC013F 1f6d renderer-state branch in raw HONMON fallback",
+                    "HC013F raw HONMON B121-B12A sense-number marker branch",
+                    "HC013F raw HONMON B162/B163/B15B/B15C/B15E/B232/B233 marker branches",
+                    "HC013F fullwidth escaped conjugation-table HTML branch",
                 ),
-                implementation="rendererdb block/offset body join plus raw HONMON fallback state-control suppression",
+                implementation=(
+                    "rendererdb block/offset body join plus raw HONMON fallback state-control "
+                    "suppression, Unicode sense-number markers, subscript marker spans, "
+                    "and collapsible conjugation tables"
+                ),
                 notes="The renderer sidecar stores horizontal and vertical body HTML keyed by HONMON block/offset; panel/search/headword hooks remain outside the exact body path.",
             )
         )
@@ -416,7 +477,9 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
                 implementation=(
                     "1f09 sections map to the decoded finance dictionary div classes, "
-                    "1f41 starts midashi, 1f04 uses hankaku, and address links use lineLink"
+                    "1f41 starts midashi, 1f04 uses hankaku, midashi alternate-key "
+                    "tails beginning with ◆ are suppressed as search metadata, and "
+                    "address links use lineLink"
                 ),
                 notes="This is a raw HONMON branch subset; product-specific search and non-body helper hooks remain named gaps where present.",
             )
@@ -528,13 +591,15 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "HC02C2 epwing2HtmlBodydataVertical 1f09 branch ladder",
                     "HC02C2 B13E-B15D template image branch exclusion set",
                     "HC02C2 1f41/1f4c skip branch and lineLink template",
+                    "HC02C2 1fe2/1fe3 RUB:始/RUB:終 private ruby branch",
                     "Templates/000002C2.css class definitions",
                 ),
                 implementation=(
                     "1f09 sections map to midashi/honbun blocks, sections 0007-000A emit "
-                    "1.png-4.png img_icon markers, section 0007 opens moji-down text, "
-                    "B13E-B15D render as img_gaiji template images, and line links carry "
-                    "the recovered lineLink class"
+                    "1.png-4.png img_icon markers through package assets, section 0007 "
+                    "opens moji-down text, B13E-B15D render as img_gaiji template images, "
+                    "1fe2/1fe3 RUB:始/RUB:終 directives render ruby text, and line links "
+                    "carry the recovered lineLink class"
                 ),
                 notes="Panel lifecycle, modifyHeadwordEx, and custom DIB generation remain named gaps.",
             )
@@ -655,6 +720,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "HC0096 1f42/1f43 lineLink branch",
                     "HC0096 B121-B149 template-image branch",
                     "HC0096 B150-B152/B155-B15A reflow-state branch",
+                    "HC0096 1fe2/1fe3 RUB:E/RUB:S private ruby branch",
                     "Templates/00000096.css class definitions",
                 ),
                 implementation=(
@@ -663,21 +729,10 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "hankakuMidashi while section 1 is active and hankaku elsewhere, "
                     "1f42/1f43 links carry lineLink, B121-B149 render template image "
                     "markers, and B150-B152/B155-B15A are treated as state/reflow "
-                    "markers rather than visible gaiji"
+                    "markers rather than visible gaiji. RUB:E/RUB:S private directives "
+                    "wrap the following base text in ruby7/rb7/rt7 markup."
                 ),
-                notes="Exact multi-group lineinfo first-axis selection, footer table lifecycle, private ruby directives, and custom DIB generation remain named gaps.",
-            )
-        )
-        rows.append(
-            HcHookBehavior(
-                name="private_ruby_directive_hook",
-                status="classified_not_emulated",
-                evidence=(
-                    "HC0096 epwing2HtmlBodydata 1fe2/1fe3 private directive string comparisons",
-                    "ruby/ruby7 template strings recovered from HC0096",
-                ),
-                implementation=None,
-                notes="The branch is classified but not emitted until directive text mapping is verified against representative entries.",
+                notes="Exact multi-group lineinfo first-axis selection, footer table lifecycle, and custom DIB generation remain named gaps.",
             )
         )
     if code == "009F":
@@ -699,7 +754,10 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "following category label pair and emits the current-season/category "
                     "marker image. B121/B122 render orientation-specific template markers, "
                     "B123 is nonprinting, B261 aliases to B167, and decoded template images "
-                    "render as img_gaiji/img_gaiji_midashi with the renderer dummy image."
+                    "render as img_gaiji/img_gaiji_midashi with the renderer dummy image. "
+                    "Repeated section-1 midashi controls before the season marker are kept "
+                    "inside one midashi line as aliases, and section-3 haiku body blocks get "
+                    "dotted separators."
                 ),
                 notes=(
                     "Exact footer navigation lifecycle, private HTMLs/fix include handling, "
@@ -762,6 +820,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "HC0020 1f41/1f0a midashi-to-contents_body branch",
                     "HC0020 2221/2126 diamond and nakaguro definition-list branch",
                     "HC0020 215A div_215a branch",
+                    "HC0020 222A confer marker branch with following B12E state-marker suppression",
                     "HC0020 1f42/1f43 lineLink2/lineLink branch",
                     "HC0020 image-backed gaiji img_gaiji/img_gaiji_midashi branch",
                     "Templates/00000020.css class definitions",
@@ -771,7 +830,8 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "non-heading 1f09 sections open 3-pixel-multiplied margin-left "
                     "containers, 2221/2126 create diamond/nakaguro definition-list "
                     "rows, 215A opens the div_215a block with hr_div2, 222A emits the "
-                    "confer marker image, 1f42 uses lineLink2, 1f43 uses lineLink, and "
+                    "confer marker image and suppresses the following B12E renderer marker, "
+                    "1f42 uses lineLink2, 1f43 uses lineLink, and "
                     "image-backed gaiji use img_gaiji or img_gaiji_midashi"
                 ),
                 notes="The subset excludes conditional 1f42 lineLink class switching, exact previous-entry fallback rendering, address-threshold hr_div insertion, generated custom-character GIF output, and broader visual parity.",
@@ -812,14 +872,17 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "HC00AA 1f42/1f43 lineLink template",
                     "HC00AA 1f4d media image placeholder branch",
                     "HC00AA Nurse.png, tejyun.png, indent102/105/109 template branches",
+                    "HKBYOIN4 body pointers land on HC00AA section starts, not repeated entry markers",
                     "Templates/000000aa.css class definitions",
                 ),
                 implementation=(
-                    "1f09 sections map the understood hospital dictionary subset to "
-                    "midashi, honbun, right-aligned honbun, boxed table, Nurse table, "
-                    "tejyun image, and indent102/105/109 blocks; 1f42/1f43 links use "
-                    "lineLink, 1f5c/1f6d are consumed as renderer state, and generic "
-                    "media placeholders carry resolved COLSCR addresses"
+                    "HC00AA HONMON extraction slices entries at understood midashi "
+                    "section starts. 1f09 sections map the hospital dictionary subset "
+                    "to midashi, honbun, right-aligned honbun, boxed table, Nurse table, "
+                    "tejyun image, and indent102/105/109 blocks; template images resolve "
+                    "through package assets, 1f42/1f43 links use lineLink, 1f5c/1f6d "
+                    "are consumed as renderer state, and generic media placeholders "
+                    "carry resolved COLSCR addresses"
                 ),
                 notes="Exact generated custom-character DIB output, footer navigation, fixed HTML fallback loading, and visual parity remain named gaps.",
             )
@@ -876,13 +939,17 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "HC00AD large-character font-size branch",
                     "HC00AD paired explanation and HR-separated body branches",
                     "HC00AD 1f41 midashi branch and 1f42/1f43 lineLink template",
+                    "HC00AD section-label image template filenames in the renderer and Templates/",
                     "Templates/000000AD.css class definitions",
                 ),
                 implementation=(
                     "1f09 sections map the understood subset to large-character "
-                    "honbun blocks, paired explanation blocks, and HR-separated "
-                    "body blocks; 1f41 wraps midashi text, 1f5c/1f6d are consumed "
-                    "as renderer state, and links use lineLink"
+                    "honbun blocks, the kanji metadata summary grid, paired "
+                    "explanation blocks, and HR-separated body blocks; common "
+                    "section labels such as imi/kaiji/name/reading groups render "
+                    "through Template images, 1f12/1f13 renders bold emphasis, "
+                    "1f41 wraps midashi text, 1f5c/1f6d are consumed as renderer "
+                    "state, and links use lineLink"
                 ),
                 notes="The subset does not emulate exact horizontal table-cell lifecycle, custom DIB generation, footer navigation, or visual parity.",
             )
@@ -917,13 +984,18 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "HC00AB epwing2HtmlBodydataVertical 1f09 section ladder",
                     "HC00AB honbun hanging-indent and normal-margin branches",
                     "HC00AB midashi and halfwidth span branches",
+                    "HC00AB 1fe2/1fe3 RUB:E/RUB:S private ruby branches",
+                    "HC00AB 1fe0/1fe1 red-emphasis branch",
                     "HC00AB lineLink/media/template strings",
                     "Templates/000000AB.css class definitions",
                 ),
                 implementation=(
                     "1f09 sections map the understood subset to midashi state, "
-                    "hanging honbun blocks, and normal honbun margin blocks; "
+                    "hanging honbun blocks, including the 0011 用例 branch, "
+                    "and normal honbun margin blocks; "
                     "1f41/1f61 wrap midashi text, 1f04/1f05 handle hankaku spans, "
+                    "1fe2/1fe3 RUB:E/RUB:S directives render ruby7 markup, "
+                    "1fe0/1fe1 render red emphasis, "
                     "links use lineLink, and 1f4c/1f5c/1f6d are consumed as renderer state"
                 ),
                 notes="The subset does not emulate fixed HTML/body fallback loading, exact footer/table generation, generated custom-character DIB output, or visual parity.",
@@ -1054,9 +1126,10 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "eMidashi_Japanese continuation text inside headings, 1f09 "
                     "opens margin divs using the recovered 10-pixel multiplier, "
                     "1f04/1f05 map to hankaku or hankakuMidashi spans according "
-                    "to heading state, 1f42/1f43 links use lineLink, template-backed "
-                    "gaiji emit dummy plus img_gaiji_midashi or img_gaiji, and "
-                    "1f4c/1f5c are consumed as renderer state"
+                    "to heading state, 1f42/1f43 links use lineLink, .UNI mapped "
+                    "gaiji emit Unicode before falling back to template/bitmap "
+                    "img_gaiji_midashi or img_gaiji resources, and 1f4c/1f5c are "
+                    "consumed as renderer state"
                 ),
                 notes=(
                     "The subset does not emulate generated custom-character DIB/GIF "
@@ -1278,10 +1351,11 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
                 implementation=(
                     "1f09 sections open margin divs, selected leading JIS symbols open "
-                    "midashi blocks, 1f0a transitions from midashi to honbun, internal "
-                    "links use lineLink, 1f4d...1f6d media references are wrapped in "
-                    "product-local media div placeholders, image-backed gaiji use "
-                    "img_gaiji, and 1f41/1f5c renderer-state controls are consumed"
+                    "midashi blocks with the recovered TEGAMI/SPEECH orange heading "
+                    "skin, 1f0a transitions from midashi to honbun, internal links use "
+                    "lineLink, 1f4d...1f6d media references are wrapped in product-local "
+                    "img_inline media div placeholders, image-backed gaiji use img_gaiji, "
+                    "and 1f41/1f5c renderer-state controls are consumed"
                 ),
                 notes="The subset excludes exact lineLink2/lineLink3 class selection, exact previous/next navigation footer generation, and broader visual parity.",
             )
@@ -1365,15 +1439,20 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "HC00AC epwing2HtmlBodydataVertical 1f09 honbun margin branch",
                     "HC00AC 1f41/1f61 renderer-state branch",
                     "HC00AC 1f42/1f43 lineLink branch",
+                    "HC00AC 1fe2/1fe3 RUB:E/RUB:S private ruby branch",
+                    "HC00AC 1fe0/1fe1 red-emphasis branch",
                     "HC00AC B139/B13A/B13B empty-output gaiji branch",
                     "Templates/000000AC.css class definitions",
                 ),
                 implementation=(
-                    "1f09 sections open honbun margin containers, 1f0a emits "
-                    "line breaks, 1f41/1f61 heading-state controls are consumed "
-                    "instead of rendered as generic headings, internal links use "
-                    "lineLink, image-backed gaiji use img_gaiji, and B139/B13A/B13B "
-                    "are suppressed as renderer state markers"
+                    "1f09 sections open the recovered midashi and honbun margin "
+                    "containers, including the 0010 用例 hanging-indent branch; "
+                    "1f0a emits line breaks, 1f41/1f61 heading-state controls are "
+                    "consumed instead of rendered as generic headings, 1fe2/1fe3 "
+                    "RUB:E/RUB:S directives render ruby7 markup, 1fe0/1fe1 render "
+                    "red emphasis, internal links use lineLink, image-backed gaiji "
+                    "use img_gaiji, and B139/B13A/B13B are suppressed as renderer "
+                    "state markers"
                 ),
                 notes="The subset excludes exact indent constants, previous/next navigation footer generation, external HTML private directives, vertical-wrapper lifecycle, and broader visual parity.",
             )
@@ -1600,13 +1679,15 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "HC009D epwing2HtmlBodydata 1f09 lineinfo branch ladder",
                     "HC009D 1f09 section-8 lookahead for B140/B142/B144/B146/B148/B14A/B150/B152/B154/B156/B158 kakomi markers",
                     "HC009D B121/B125/B130-B13D literal and HTML marker branches",
+                    "HC009D private RUB:E/RUB:S and BOX:2/BOX:S directive branches",
                     "Templates/0000009d.css class definitions",
                 ),
                 implementation=(
                     "1f09 sections map to lineinfoN blocks, section-8 B14x lookahead opens "
                     "the recovered kakomi wrappers and icon images, B121 renders the pointing-hand "
                     "literal, B125 renders checkbox HTML, B130/B131/B138-B13D render line breaks, "
-                    "and internal links use lineLink"
+                    "sections 12/13/14 merge into one breadcrumb line, BOX:2/BOX:S wraps black "
+                    "label boxes, RUB:E/RUB:S renders furigana, and internal links use lineLink"
                 ),
                 notes=(
                     "The subset excludes custom DIB generation for remaining gaiji, exact table "
@@ -1677,7 +1758,8 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "1f09 sections map to midashi/honbun/bunnya/menu blocks, section 0006 "
                     "is consumed as renderer state, 1f62 replaces bunnya numeric link labels "
                     "with bunnya_<id>.png images, section 0004/0005 insert link_1/link_2 "
-                    "icons, 1f06/1f07 render sizedown spans, and template-backed gaiji use "
+                    "icons, section 0005 related-link runs keep intervening 0002 punctuation "
+                    "inline, 1f06/1f07 render sizedown spans, and template-backed gaiji use "
                     "the product image class"
                 ),
                 notes=(
@@ -2009,15 +2091,19 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 evidence=(
                     "HC02C1 epwing2HtmlBodydataVertical 1f09 section branch ladder",
                     "HC02C1 1f42/1f43 lineLink branch",
-                    "HC02C1 B121-B138 moji-down marker branch and B13E-B14D image-template branch",
+                    "HC02C1 B121-B138 moji-down marker branch and B13E-B14D unused-marker branch",
+                    "HC02C1 1fe2/1fe3 RUB:始/RUB:終 private ruby branch",
+                    "HC02C1 1f12/1f13 emphasis branch",
                     "Templates/000002C1.css class definitions",
                 ),
                 implementation=(
                     "1f09 sections map to midashi/honbun containers, sections 0003-0006 "
                     "insert recovered 1.png/2.png/3.png/5.png icon headers, B121-B138 "
                     "markers open moji-down paragraphs when they directly follow a section "
-                    "state, B13E-B14D image markers use img_mark4, 1f41/1f61 are consumed "
-                    "as renderer state, and internal links use lineLink"
+                    "state, B13E-B14D markers are suppressed as explicitly-unused renderer "
+                    "markers, 1fe2/1fe3 RUB:始/RUB:終 directives render ruby text, "
+                    "1f12/1f13 renders bold emphasis, 1f41/1f61 are consumed as renderer "
+                    "state, and internal links use lineLink"
                 ),
                 notes=(
                     "The subset excludes exact custom DIB generation, Panel lifecycle, "
@@ -2035,20 +2121,23 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "HC02BF epwing2HtmlBodydataVertical 1f09 section branch ladder",
                     "HC02BF 1f42/1f43 lineLink branch",
                     "HC02BF B128-B150 moji-down marker branch",
+                    "HC02BF 1fe0/1fe1 decoration mode branches",
                     "Templates/000002BF.css class definitions",
                 ),
                 implementation=(
                     "1f09 sections map to midashi/honbun containers, section 0005 "
                     "inserts the recovered hasei.png icon header, B128-B150 markers "
                     "open moji-down paragraphs when they directly follow section state, "
-                    "1f41/1f61 are consumed as renderer state, and internal links use "
-                    "lineLink"
+                    "1f41/1f61 are consumed as renderer state, internal links use "
+                    "lineLink, and 1fe0 decoration mode 1 maps to italic only in "
+                    "source/etymology section 0004 while mode 4 maps to small author "
+                    "citation text"
                 ),
                 notes=(
                     "The subset excludes exact custom DIB generation, Panel and SQL "
                     "lifecycle hooks, HTMLs/fix fallback lifecycle, modifyHeadwordEx, "
-                    "exact ruby/smallcap state transitions, and full vertical template "
-                    "differences."
+                    "unexercised ruby/smallcap state transitions, and full vertical "
+                    "template differences."
                 ),
             )
         )
@@ -2156,7 +2245,8 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "1f09 maps midashi, honbun, honbun_number, honbun_icon, "
                     "inline icon, and font_down states; 1f41/1f61 map heading "
                     "and honbun_user blocks; internal links use lineLink; image "
-                    "gaiji use gaiji/gaiji_k/gaiji_b classes"
+                    "section icons resolve through package assets; image gaiji "
+                    "use gaiji/gaiji_k/gaiji_b classes"
                 ),
                 notes=(
                     "The subset excludes exact fixed HTMLs/fix fallback loading, "
@@ -2278,13 +2368,15 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
 def build_hc_behavior_profile(
     renderer: HcRendererClassification | None,
     *,
+    renderer_code_override: str | None = None,
+    dict_id: str | None = None,
     schema_sidecars: dict[str, Any] | None = None,
     rendererdb_summary: dict[str, Any] | None = None,
     raw_gaps: dict[str, Any] | None = None,
 ) -> HcBehaviorProfile:
     """Build a behavior profile for one HC renderer package."""
 
-    code = renderer.code if renderer is not None else None
+    code = renderer.code if renderer is not None else renderer_code_override
     name = renderer.path.name if renderer is not None else None
     features = renderer.features if renderer is not None else {}
     roles = _sidecar_roles(schema_sidecars)
@@ -2333,6 +2425,7 @@ def build_hc_behavior_profile(
         implemented.add("HC02BC_rare_b122_implicit_close")
     if code == "02C2":
         implemented.add("HC02C2_section_icons_and_template_gaiji")
+        implemented.add("HC02C2_private_ruby_directives")
     if code == "0147":
         implemented.add("HC0147_contents_bunken_and_template_gaiji")
     if code == "0137":
@@ -2350,10 +2443,12 @@ def build_hc_behavior_profile(
         implemented.add("HC00C5_section_image_layout")
     if code == "00AD":
         implemented.add("HC00AD_large_character_section_layout")
+        implemented.add("HC00AD_summary_label_images_and_bold_markers")
     if code == "00BB":
         implemented.add("HC00BB_honbun_section_layout")
     if code == "00AB":
         implemented.add("HC00AB_honbun_section_layout")
+        implemented.add("HC00AB_ruby_red_emphasis_and_yourei_layout")
     if code == "004D":
         implemented.add("HC004D_midashi_honbun_renderer")
     if code == "0073":
@@ -2364,6 +2459,8 @@ def build_hc_behavior_profile(
         implemented.add("HC007D_midashi_margin_renderer")
     if code == "008F":
         implemented.add("HC008F_jmidashi_margin_renderer")
+    if code == "0088":
+        implemented.add("HC0088_legacy_mm_category_renderer")
     if code == "00C7":
         implemented.add("HC00C7_lineinfo_template_gaiji_renderer")
     if code in {"014A", "02C3", "02C6"}:
@@ -2389,6 +2486,9 @@ def build_hc_behavior_profile(
     if code == "013F" and rendererdb_ok:
         implemented.add("HC013F_block_offset_exact_body_html")
         implemented.add("HC013F_raw_honmon_state_controls")
+        implemented.add("HC013F_raw_honmon_marker_gaiji_controls")
+        implemented.add("HC013F_raw_honmon_sense_number_markers")
+        implemented.add("HC013F_raw_honmon_katu_table")
     if code == "0155" and rendererdb_ok:
         implemented.add("HC0155_main_id_text_exact_body_html")
     if code == "0156" and rendererdb_ok:
@@ -2422,14 +2522,17 @@ def build_hc_behavior_profile(
         implemented.add("HC0095_lineinfo_sections_and_template_gaiji")
     if code == "0096":
         implemented.add("HC0096_lineinfo_sections_and_template_gaiji")
+        implemented.add("HC0096_private_ruby_directives")
     if code == "009F":
         implemented.add("HC009F_season_category_sections_and_template_gaiji")
+        implemented.add("HC009F_grouped_midashi_aliases_and_haiku_separators")
     if code == "0090":
         implemented.add("HC0090_lineinfo_sections_and_gaiji_classes")
     if code == "0092":
         implemented.add("HC0092_lineinfo_sections_and_gaiji_classes")
     if code == "0135":
         implemented.add("HC0135_sinmei_sections_and_private_markers")
+        implemented.add("HC0135_sinmei_examples_accent_and_headword_cleanup")
     if code == "014F":
         implemented.add("HC014F_midashi_contents_and_decoration_modes")
     if code == "0020":
@@ -2444,6 +2547,7 @@ def build_hc_behavior_profile(
     if code == "00AC":
         implemented.add("HC00AC_honbun_margin_sections")
         implemented.add("HC00AC_marker_suppression")
+        implemented.add("HC00AC_ruby_red_emphasis_and_yourei_layout")
     if code in {"02C4", "02C7", "02C9", "02CB", "02CC", "02CD", "02D1"}:
         implemented.add("HC_GEN_YEAR_section_icons_and_template_markers")
     if code == "00C4":
@@ -2455,8 +2559,10 @@ def build_hc_behavior_profile(
         implemented.add("HC005C_heading_section_marker_and_gaiji_layout")
     if code == "02C1":
         implemented.add("HC02C1_section_icons_and_template_gaiji")
+        implemented.add("HC02C1_private_ruby_bold_and_unused_markers")
     if code == "02BF":
         implemented.add("HC02BF_section_icon_and_moji_down_layout")
+        implemented.add("HC02BF_decoration_modes")
     if code == "0065":
         implemented.add("HC0065_midashi_contents_and_grammar_labels")
         implemented.add("HC0065_media_close_state_control")
@@ -2471,6 +2577,7 @@ def build_hc_behavior_profile(
         implemented.add("HC008B_unterminated_line_link_plaintext_recovery")
     if code == "009D":
         implemented.add("HC009D_section_and_kakomi_layout")
+        implemented.add("HC009D_breadcrumb_box_and_ruby_directives")
     if code == "012E":
         implemented.add("HC012E_kanji_layout_and_gaijitemp_markers")
     if code == "00B6":
@@ -2558,12 +2665,23 @@ def build_hc_behavior_profile(
     notes: list[str] = []
     if rendererdb_ok:
         notes.append("Entry body HTML is taken from the renderer/app sidecar, not reconstructed from raw HONMON controls.")
-    if branch_subset_names:
+    parity_lock = confirmed_render_parity_lock(dict_id)
+
+    if branch_subset_names and parity_lock is None:
         notes.append("Decoded branch subsets are implemented, but product visual parity is still unverified/incomplete.")
+    if branch_subset_names and parity_lock is not None:
+        notes.append("Decoded branch subsets are implemented, and this package's reviewed reference renders are locked.")
     if hook_gap_names:
         notes.append("Remaining hook gaps are named; exact HC parity is not claimed while these remain.")
+    if parity_lock is not None:
+        notes.append(
+            f"Reference render parity confirmed for {parity_lock.dict_id} from {parity_lock.source}; "
+            "do not change this package's output without an intentional visual-review update."
+        )
 
     profile_gap_names = raw_gap_names + hook_gap_names + (("visual_parity_unverified",) if branch_subset_names else ())
+    if parity_lock is not None:
+        profile_gap_names = tuple(gap for gap in profile_gap_names if gap != "visual_parity_unverified")
 
     return HcBehaviorProfile(
         renderer_code=code,
@@ -2573,6 +2691,9 @@ def build_hc_behavior_profile(
         body_strategy_status=body_status,
         exact_body_html_available=rendererdb_ok,
         exact_hc_parity=False,
+        reference_render_parity_confirmed=parity_lock is not None,
+        reference_render_parity_source=parity_lock.source if parity_lock is not None else None,
+        reference_render_parity_notes=(parity_lock.notes,) if parity_lock is not None and parity_lock.notes else (),
         implemented_semantics=tuple(sorted(implemented)),
         hook_behaviors=tuple(sorted(hooks, key=lambda row: row.name)),
         schema_sidecar_roles=roles,
