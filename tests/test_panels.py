@@ -4,11 +4,18 @@ import pytest
 
 from logovista_tools.panels import (
     PanelBinParseError,
+    PanelCellReference,
+    PanelDataReference,
     decode_panel_text,
+    iter_panel_cells,
     iter_panel_plist_data_references,
     iter_panel_data_references,
+    panel_bin_navigation_rows,
+    panel_cell_navigation_row,
     parse_panel_bin,
+    resolve_panel_target,
 )
+from logovista_tools.ssed import SsedInfoElement
 
 
 def test_parse_panel_bin_fixed_records() -> None:
@@ -150,6 +157,36 @@ def test_iter_panel_data_references(tmp_path: Path) -> None:
     assert refs[0].filename == "Panel\\goju\\All-A.bin"
 
 
+def test_iter_panel_cells_extracts_inline_navigation_grid(tmp_path: Path) -> None:
+    xml = tmp_path / "Panels.xml"
+    xml.write_text(
+        """<?xml version="1.0" encoding="utf-8"?>
+<panels version="1.0">
+  <panel index="01000000" paneltype="menu" count_x="2">
+    <title>五十音</title>
+    <data>
+      <cell action_verb="lved.panel:01010000" ref="01010000">あ</cell>
+      <cell></cell>
+      <cell action_verb="lved.panel:01020000" ref="01020000">い</cell>
+    </data>
+  </panel>
+</panels>
+""",
+        encoding="utf-8",
+    )
+
+    cells = list(iter_panel_cells(xml))
+
+    assert [cell.label for cell in cells] == ["あ", "い"]
+    assert cells[0].panel_index == "01000000"
+    assert cells[0].panel_type == "menu"
+    assert cells[0].row == 0
+    assert cells[0].column == 0
+    assert cells[1].cell_index == 2
+    assert cells[1].row == 1
+    assert cells[1].column == 0
+
+
 def test_iter_panel_data_references_shift_jis_xml(tmp_path: Path) -> None:
     xml = tmp_path / "Panels.xml"
     text = """<?xml version="1.0" encoding="Shift_JIS"?>
@@ -235,3 +272,113 @@ def test_iter_mobile_panel_plist_path_references(tmp_path: Path) -> None:
     assert refs[0].source_format == "plist"
     assert refs[0].data_type == "bin"
     assert refs[0].filename == "goju/All-A"
+
+
+def test_resolve_panel_target_classifies_sed_components() -> None:
+    elements = [
+        SsedInfoElement(0, 0, 0x00, 2, 5, b"", "HONMON.DIC"),
+        SsedInfoElement(1, 0, 0x01, 6, 6, b"", "MENU.DIC"),
+    ]
+
+    body = resolve_panel_target(3, 0x20, elements)
+    menu = resolve_panel_target(6, 0x40, elements)
+
+    assert body is not None
+    assert body.component == "HONMON.DIC"
+    assert body.kind == "body"
+    assert body.relative_offset == 0x820
+    assert menu is not None
+    assert menu.component == "MENU.DIC"
+    assert menu.kind == "menu"
+    assert resolve_panel_target(0, 0, elements) is None
+
+
+def test_panel_bin_navigation_rows_resolve_record_targets(tmp_path: Path) -> None:
+    data = (
+        (1).to_bytes(4, "little")
+        + (4).to_bytes(4, "little")
+        + (3).to_bytes(4, "little")
+        + (0x20).to_bytes(4, "little")
+        + bytes.fromhex("24220000")
+    )
+    panel = parse_panel_bin(data)
+    elements = [SsedInfoElement(0, 0, 0x00, 2, 5, b"", "HONMON.DIC")]
+    ref = PanelDataReference(
+        panel_index="01010000",
+        panel_type="contents",
+        data_type="bin",
+        filename="Panel/All-A.bin",
+        title="あ",
+    )
+
+    rows = panel_bin_navigation_rows(ref, panel, resolved_path=tmp_path / "All-A.bin", elements=elements)
+
+    assert len(rows) == 1
+    assert rows[0].source == "bin"
+    assert rows[0].target_kind == "body"
+    assert rows[0].label == "あ"
+    assert rows[0].target is not None
+    assert rows[0].target.relative_offset == 0x820
+
+
+def test_panel_cell_navigation_row_targets_panel_ref() -> None:
+    row = panel_cell_navigation_row(
+        PanelCellReference(
+            panel_index="01000000",
+            panel_type="menu",
+            title="五十音",
+            cell_index=0,
+            row=0,
+            column=0,
+            label="あ",
+            ref="01010000",
+            action_verb="lved.panel:01010000",
+        )
+    )
+
+    assert row.source == "cell"
+    assert row.target_kind == "panel"
+    assert row.ref == "01010000"
+
+
+def test_panel_cell_navigation_row_resolves_lved_addr_action() -> None:
+    elements = [SsedInfoElement(1, 0, 0x01, 0x1400, 0x1410, b"", "MENU.DIC")]
+
+    row = panel_cell_navigation_row(
+        PanelCellReference(
+            panel_index="04000000",
+            panel_type="menu",
+            title="百人一首",
+            cell_index=0,
+            row=0,
+            column=0,
+            label="上の句",
+            ref="",
+            action_verb="lved.addr0000140b:059c",
+        ),
+        elements=elements,
+    )
+
+    assert row.target_kind == "menu"
+    assert row.block == 0x140B
+    assert row.offset == 0x059C
+    assert row.target is not None
+    assert row.target.component == "MENU.DIC"
+
+
+def test_panel_cell_navigation_row_classifies_plain_label_cell() -> None:
+    row = panel_cell_navigation_row(
+        PanelCellReference(
+            panel_index="04040000",
+            panel_type="menu",
+            title="最初の文字",
+            cell_index=0,
+            row=0,
+            column=0,
+            label="あ",
+            ref="",
+            action_verb="",
+        )
+    )
+
+    assert row.target_kind == "label"

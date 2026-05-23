@@ -1173,7 +1173,8 @@ the JSON output. Use `--write-decoded` to write decrypted `.wav`, `.pdf`, or
 
 ### `panels`
 
-Decode LogoVista Panel metadata and Panel `.bin` lookup tables.
+Decode LogoVista Panel metadata, inline Panel cells, and Panel `.bin`
+navigation tables.
 
 ```bash
 logovista-tools panels /path/to/LogoVista --dict ZYAKUKOG
@@ -1190,7 +1191,20 @@ argument as a direct Panel metadata file or resource directory; this is useful
 for inspecting app/plugin resource bundles that contain `Panels.plist`,
 `Panel.html`, and `Cell.html` without the dictionary catalog files.
 
-Decoded `.bin` rows expose Panel label text plus target block/offset addresses.
+Decoded output includes two navigation surfaces:
+
+- inline cells from menu panels, including `lved.panel:<panel-id>` transitions
+  and `lved.addr<block>:<offset>` direct address actions;
+- external `.bin` rows, where each label resolves to an SSED block/offset
+  target and, when an `.IDX` catalog is available, to the target component
+  kind such as `body` or `menu`.
+
+When `--out-dir` is used, the command writes `summary.json` and a flat
+`navigation.jsonl` file suitable for a reader/sidebar UI. `summary.json`
+contains the decoded metadata, inline cells, sampled BIN rows, full navigation
+rows, target-kind counts, and parse failures. `navigation.jsonl` contains one
+row per inline cell or BIN record.
+
 The parser handles the common little-endian address-label grammar, id-prefixed
 rows, declared-count mismatch tables, empty/zero-width tables, and the observed
 headerless big-endian UTF-8 mobile table. `vlpljbl.bin` is intentionally ignored

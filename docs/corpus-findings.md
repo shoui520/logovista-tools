@@ -1762,8 +1762,10 @@ decoded set: `panels` contains package information and `panel+`; each `panel`
 contains a `title` and one or more `data` nodes; `data` may contain inline
 `cell` nodes or reference an external file. `paneltype` separates menu and
 contents panels. Menu panels use inline cells whose `ref` attributes point to
-other Panel `index` values. Content panels usually use `data type="bin"` and a
-`filename`; a few use `data type="html"`. Mac bundle resources use a
+other Panel `index` values, and some inline cells use
+`action_verb=lved.addr<block>:<offset>` to jump directly to an SSED address.
+Content panels usually use `data type="bin"` and a `filename`; a few use
+`data type="html"`. Mac bundle resources use a
 `Panels.plist` representation of the same panel/data model, while mobile
 packages can use nested menu plists whose `path` values name `.bin` tables
 under package `bin/` directories.
@@ -1802,10 +1804,11 @@ binary decode failures:         0
 ```
 
 Rows mostly target `HONMON.DIC`; one decoded package also has a small set of
-rows targeting `MENU.DIC`. This makes Panel content an optional navigation
-surface: label -> raw SSED address. It is not an entry body store, media store,
-compressed container, SQLite sidecar, or replacement for normal native index
-search.
+rows targeting `MENU.DIC`. Inline cells can target another Panel id, a direct
+SSED address, or act as plain labels. This makes Panel content an optional
+navigation surface: label -> Panel id or SSED address. It is not an entry body
+store, media store, compressed container, SQLite sidecar, or replacement for
+normal native index search.
 
 Observed packaging details:
 

@@ -6,10 +6,11 @@ import plistlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 from xml.etree import ElementTree
 
 from .entries import decode_tokens, tokens_to_text
+from .ssed import BLOCK_SIZE, SsedInfoElement
 
 
 @dataclass(frozen=True)
@@ -55,11 +56,136 @@ class PanelDataReference:
     source_format: str = "xml"
 
 
+@dataclass(frozen=True)
+class PanelCellReference:
+    """One inline Panel cell that points to another panel or action."""
+
+    panel_index: str
+    panel_type: str
+    title: str
+    cell_index: int
+    row: int | None
+    column: int | None
+    label: str
+    ref: str
+    action_verb: str
+    source_format: str = "xml"
+    attributes: tuple[tuple[str, str], ...] = ()
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "panel_index": self.panel_index,
+            "panel_type": self.panel_type,
+            "title": self.title,
+            "cell_index": self.cell_index,
+            "row": self.row,
+            "column": self.column,
+            "label": self.label,
+            "ref": self.ref,
+            "action_verb": self.action_verb,
+            "source_format": self.source_format,
+            "attributes": dict(self.attributes),
+        }
+
+
+@dataclass(frozen=True)
+class PanelTarget:
+    """Resolved component target for a Panel address row."""
+
+    component: str
+    component_type: str
+    kind: str
+    start_block: int
+    end_block: int
+    relative_offset: int
+    offset_in_block: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "component": self.component,
+            "component_type": self.component_type,
+            "kind": self.kind,
+            "start_block": self.start_block,
+            "end_block": self.end_block,
+            "relative_offset": self.relative_offset,
+            "offset_in_block": self.offset_in_block,
+        }
+
+
+@dataclass(frozen=True)
+class PanelNavigationRow:
+    """One app-facing Panel navigation item.
+
+    External BIN records point at SSED block/offset destinations. Inline cells
+    are menu-like nodes that point to another panel id.
+    """
+
+    source: str
+    panel_index: str
+    panel_type: str
+    panel_title: str
+    label: str
+    source_format: str
+    row_index: int | None = None
+    cell_index: int | None = None
+    record_id: int | None = None
+    data_type: str = ""
+    filename: str = ""
+    resolved_path: str | None = None
+    block: int | None = None
+    offset: int | None = None
+    target: PanelTarget | None = None
+    ref: str = ""
+    action_verb: str = ""
+    row: int | None = None
+    column: int | None = None
+
+    @property
+    def target_kind(self) -> str:
+        if self.target is not None:
+            return self.target.kind
+        if self.ref:
+            return "panel"
+        if self.source == "cell" and self.label and not self.action_verb:
+            return "label"
+        if self.block == 0 and self.offset == 0:
+            return "null"
+        if self.block is not None and self.offset is not None:
+            return "unresolved-address"
+        return "unknown"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "source": self.source,
+            "source_format": self.source_format,
+            "panel_index": self.panel_index,
+            "panel_type": self.panel_type,
+            "panel_title": self.panel_title,
+            "label": self.label,
+            "target_kind": self.target_kind,
+            "row_index": self.row_index,
+            "cell_index": self.cell_index,
+            "row": self.row,
+            "column": self.column,
+            "record_id": self.record_id,
+            "data_type": self.data_type,
+            "filename": self.filename,
+            "resolved_path": self.resolved_path,
+            "block": self.block,
+            "offset": self.offset,
+            "target": self.target.as_dict() if self.target else None,
+            "ref": self.ref,
+            "action_verb": self.action_verb,
+        }
+
+
 class PanelBinParseError(ValueError):
     """Raised when a Panel BIN payload does not match the fixed-record grammar."""
 
 
 _XML_ENCODING_RE = re.compile(br"<\?xml[^>]*encoding=[\"']([^\"']+)[\"']", re.IGNORECASE)
+_LVED_ADDR_RE = re.compile(r"^lved\.addr(?P<block>[0-9A-Fa-f]{8}):(?P<offset>[0-9A-Fa-f]{4})$")
+_LVED_PANEL_RE = re.compile(r"^lved\.panel:(?P<panel>[0-9A-Fa-f]+)$")
 
 
 def decode_panel_text(data: bytes) -> str:
@@ -338,6 +464,52 @@ def iter_panel_data_references(path: Path) -> Iterable[PanelDataReference]:
             )
 
 
+def _optional_int(value: str | None) -> int | None:
+    if value is None or not value.isdecimal():
+        return None
+    return int(value)
+
+
+def iter_panel_cell_references(path: Path) -> Iterable[PanelCellReference]:
+    """Yield inline cells from a ``Panels.xml`` file.
+
+    The observed Windows Panel grammar uses an internal ``menu`` panel whose
+    cells carry ``ref`` and ``action_verb=lved.panel:<id>`` pointers to external
+    data panels. These cells are the first navigation level and must be exposed
+    separately from external BIN rows.
+    """
+
+    root = _parse_panel_xml(path)
+    for panel in root.findall("panel"):
+        title = panel.findtext("title") or ""
+        panel_index = panel.attrib.get("index", "")
+        panel_type = panel.attrib.get("paneltype", "")
+        columns = _optional_int(panel.attrib.get("count_x"))
+        cell_index = 0
+        for data in panel.findall("data"):
+            for cell in data.findall("cell"):
+                label = "".join(cell.itertext()).strip()
+                ref = cell.attrib.get("ref", "")
+                action_verb = cell.attrib.get("action_verb", "")
+                row = cell_index // columns if columns else None
+                column = cell_index % columns if columns else None
+                if label or ref or action_verb:
+                    yield PanelCellReference(
+                        panel_index=panel_index,
+                        panel_type=panel_type,
+                        title=title,
+                        cell_index=cell_index,
+                        row=row,
+                        column=column,
+                        label=label,
+                        ref=ref,
+                        action_verb=action_verb,
+                        source_format="xml",
+                        attributes=tuple(sorted(cell.attrib.items())),
+                    )
+                cell_index += 1
+
+
 def iter_panel_plist_data_references(path: Path) -> Iterable[PanelDataReference]:
     """Yield external Panel data references from a ``Panels.plist``/menu plist.
 
@@ -384,6 +556,54 @@ def iter_panel_plist_data_references(path: Path) -> Iterable[PanelDataReference]
             )
 
 
+def iter_panel_plist_cell_references(path: Path) -> Iterable[PanelCellReference]:
+    """Yield inline/menu-like cells from ``Panels.plist`` or mobile menu plists."""
+
+    root = plistlib.loads(path.read_bytes())
+    if isinstance(root, dict) and isinstance(root.get("panel"), dict):
+        panels = root["panel"].items()
+    elif isinstance(root, list):
+        panels = _iter_mobile_menu_panels(root)
+    else:
+        return
+
+    for panel_index, panel in panels:
+        if not isinstance(panel, dict):
+            continue
+        panel_type = str(panel.get("paneltype", panel.get("type", "")))
+        title = str(panel.get("title", panel.get("item", "")))
+        data_items = panel.get("data")
+        if isinstance(data_items, dict):
+            data_items = [data_items]
+        if not isinstance(data_items, list):
+            continue
+        cell_index = 0
+        for data in data_items:
+            if not isinstance(data, dict):
+                continue
+            if data.get("filename") or data.get("path"):
+                continue
+            label = str(data.get("title", data.get("item", data.get("label", ""))))
+            ref = str(data.get("ref", ""))
+            action_verb = str(data.get("action_verb", data.get("action", "")))
+            if label or ref or action_verb:
+                attrs = tuple(sorted((str(key), str(value)) for key, value in data.items()))
+                yield PanelCellReference(
+                    panel_index=str(panel_index),
+                    panel_type=panel_type,
+                    title=title,
+                    cell_index=cell_index,
+                    row=None,
+                    column=None,
+                    label=label,
+                    ref=ref,
+                    action_verb=action_verb,
+                    source_format="plist",
+                    attributes=attrs,
+                )
+            cell_index += 1
+
+
 def _iter_mobile_menu_panels(items: list[object], prefix: str = "") -> Iterable[tuple[str, dict[str, object]]]:
     for index, item in enumerate(items):
         if not isinstance(item, dict):
@@ -404,3 +624,123 @@ def iter_panel_references(path: Path) -> Iterable[PanelDataReference]:
         yield from iter_panel_plist_data_references(path)
     else:
         yield from iter_panel_data_references(path)
+
+
+def iter_panel_cells(path: Path) -> Iterable[PanelCellReference]:
+    """Yield inline Panel cells from XML or plist metadata."""
+
+    lower = path.name.lower()
+    if lower.endswith(".plist"):
+        yield from iter_panel_plist_cell_references(path)
+    else:
+        yield from iter_panel_cell_references(path)
+
+
+def panel_component_kind(component_type: int) -> str:
+    if component_type == 0x00:
+        return "body"
+    if component_type == 0x01:
+        return "menu"
+    if component_type in {0x03, 0x04, 0x05, 0x06, 0x07, 0x0A}:
+        return "title"
+    if component_type in {0x70, 0x71, 0x80, 0x81, 0x90, 0x91}:
+        return "index"
+    if component_type == 0xD2:
+        return "media-image"
+    if component_type == 0xD8:
+        return "media-audio"
+    if component_type in {0xF1, 0xF2}:
+        return "gaiji-resource"
+    return "component"
+
+
+def resolve_panel_target(block: int, offset: int, elements: list[SsedInfoElement]) -> PanelTarget | None:
+    """Resolve an absolute SSED block/offset address to its catalog component."""
+
+    if block == 0 and offset == 0:
+        return None
+    for element in elements:
+        if not element.start:
+            continue
+        if element.start <= block <= element.end:
+            return PanelTarget(
+                component=element.filename,
+                component_type=f"{element.type:02x}",
+                kind=panel_component_kind(element.type),
+                start_block=element.start,
+                end_block=element.end,
+                relative_offset=(block - element.start) * BLOCK_SIZE + offset,
+                offset_in_block=offset,
+            )
+    return None
+
+
+def panel_bin_navigation_rows(
+    reference: PanelDataReference,
+    panel: PanelBin,
+    *,
+    resolved_path: Path | None,
+    elements: list[SsedInfoElement],
+) -> tuple[PanelNavigationRow, ...]:
+    """Convert decoded Panel BIN records into app-facing navigation rows."""
+
+    return tuple(
+        PanelNavigationRow(
+            source="bin",
+            panel_index=reference.panel_index,
+            panel_type=reference.panel_type,
+            panel_title=reference.title,
+            label=record.text,
+            source_format=reference.source_format,
+            row_index=record.index,
+            record_id=record.record_id,
+            data_type=reference.data_type,
+            filename=reference.filename,
+            resolved_path=str(resolved_path) if resolved_path else None,
+            block=record.block,
+            offset=record.offset,
+            target=resolve_panel_target(record.block, record.offset, elements),
+        )
+        for record in panel.records
+    )
+
+
+def _parse_panel_action_address(action_verb: str) -> tuple[int, int] | None:
+    match = _LVED_ADDR_RE.match(action_verb)
+    if not match:
+        return None
+    return int(match.group("block"), 16), int(match.group("offset"), 16)
+
+
+def _panel_ref_from_action(action_verb: str) -> str:
+    match = _LVED_PANEL_RE.match(action_verb)
+    return match.group("panel") if match else ""
+
+
+def panel_cell_navigation_row(
+    cell: PanelCellReference,
+    *,
+    elements: list[SsedInfoElement] | None = None,
+) -> PanelNavigationRow:
+    """Convert an inline Panel cell to an app-facing navigation row."""
+
+    address = _parse_panel_action_address(cell.action_verb)
+    block = address[0] if address else None
+    offset = address[1] if address else None
+    ref = cell.ref or _panel_ref_from_action(cell.action_verb)
+    return PanelNavigationRow(
+        source="cell",
+        panel_index=cell.panel_index,
+        panel_type=cell.panel_type,
+        panel_title=cell.title,
+        label=cell.label,
+        source_format=cell.source_format,
+        cell_index=cell.cell_index,
+        block=block,
+        offset=offset,
+        target=resolve_panel_target(block, offset, elements or []) if address else None,
+        ref=ref,
+        action_verb=cell.action_verb,
+        row=cell.row,
+        column=cell.column,
+    )

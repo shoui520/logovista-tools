@@ -96,8 +96,13 @@ from .multiview import (
 from .opcode_atlas import extract_opcode_atlas_for_args
 from .parallel import add_jobs_argument, parallel_map_ordered, worker_args
 from .panels import (
+    PanelBin,
     PanelBinParseError,
+    PanelDataReference,
+    iter_panel_cells,
     iter_panel_references,
+    panel_bin_navigation_rows,
+    panel_cell_navigation_row,
     parse_panel_bin_file,
 )
 from .pcmdata import extract_pcmdata_for_sources
@@ -698,13 +703,16 @@ def _panel_metadata_paths(root: Path) -> list[Path]:
 
 
 def _panel_bin_roots(root: Path) -> list[Path]:
-    candidates = [
-        root,
-        root / "Panel",
-        root / "bin",
-        root.parent / f"{root.name}_Panel",
-        root.parent / "bin",
-    ]
+    candidates = [root]
+    for base, relative in (
+        (root, "Panel"),
+        (root, "bin"),
+        (root.parent, f"{root.name}_Panel"),
+        (root.parent, "bin"),
+    ):
+        resolved = _casefolded_relative(base, relative)
+        if resolved is not None:
+            candidates.append(resolved)
     found: list[Path] = []
     for candidate in candidates:
         if candidate.is_dir() and candidate not in found:
@@ -731,8 +739,8 @@ def _resolve_panel_bin(root: Path, filename: str, data_type: str) -> Path | None
     return None
 
 
-def _panel_bin_to_json(path: Path, *, limit: int | None) -> dict[str, Any]:
-    panel = parse_panel_bin_file(path)
+def _panel_bin_to_json(path: Path, *, limit: int | None, panel: PanelBin | None = None) -> dict[str, Any]:
+    panel = panel or parse_panel_bin_file(path)
     records = panel.records if limit is None or limit == 0 else panel.records[:limit]
     return {
         "path": str(path),
@@ -755,6 +763,13 @@ def _panel_bin_to_json(path: Path, *, limit: int | None) -> dict[str, Any]:
     }
 
 
+def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    with path.open("w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, ensure_ascii=False, sort_keys=True))
+            fh.write("\n")
+
+
 def _decode_panels_for_root(
     root: Path,
     *,
@@ -769,8 +784,16 @@ def _decode_panels_for_root(
     else:
         metadata_paths = _panel_metadata_paths(root)
     references: list[dict[str, Any]] = []
+    inline_cells: list[dict[str, Any]] = []
+    navigation_rows: list[dict[str, Any]] = []
     decoded_by_path: dict[Path, dict[str, Any]] = {}
     failures: list[dict[str, Any]] = []
+    elements = []
+    if idx is not None:
+        try:
+            _ssed_title, elements = parse_ssedinfo(idx)
+        except Exception as exc:
+            failures.append({"path": str(idx), "reason": f"ssedinfo_parse_failed: {exc}"})
 
     for metadata_path in metadata_paths:
         try:
@@ -778,6 +801,15 @@ def _decode_panels_for_root(
         except Exception as exc:
             failures.append({"path": str(metadata_path), "reason": f"metadata_parse_failed: {exc}"})
             continue
+        try:
+            cells = list(iter_panel_cells(metadata_path))
+        except Exception as exc:
+            failures.append({"path": str(metadata_path), "reason": f"metadata_cell_parse_failed: {exc}"})
+            cells = []
+        for cell in cells:
+            row = panel_cell_navigation_row(cell, elements=elements)
+            inline_cells.append({"metadata": str(metadata_path), **cell.as_dict()})
+            navigation_rows.append({"metadata": str(metadata_path), **row.as_dict()})
         for ref in refs:
             resolved = _resolve_panel_bin(root, ref.filename, ref.data_type)
             ref_row = {
@@ -794,7 +826,10 @@ def _decode_panels_for_root(
             if resolved is None or ref.data_type.lower() != "bin":
                 continue
             try:
-                decoded_by_path.setdefault(resolved, _panel_bin_to_json(resolved, limit=args.limit))
+                panel = parse_panel_bin_file(resolved)
+                decoded_by_path.setdefault(resolved, _panel_bin_to_json(resolved, limit=args.limit, panel=panel))
+                for row in panel_bin_navigation_rows(ref, panel, resolved_path=resolved, elements=elements):
+                    navigation_rows.append({"metadata": str(metadata_path), **row.as_dict()})
             except PanelBinParseError as exc:
                 failures.append({"path": str(resolved), "reason": str(exc)})
 
@@ -804,11 +839,23 @@ def _decode_panels_for_root(
                 if path.name.lower() == "vlpljbl.bin" or path in decoded_by_path:
                     continue
                 try:
-                    decoded_by_path[path] = _panel_bin_to_json(path, limit=args.limit)
+                    panel = parse_panel_bin_file(path)
+                    decoded_by_path[path] = _panel_bin_to_json(path, limit=args.limit, panel=panel)
+                    ref = PanelDataReference(
+                        panel_index="",
+                        panel_type="unreferenced",
+                        data_type="bin",
+                        filename=str(path.relative_to(root)) if path.is_relative_to(root) else path.name,
+                        title=path.stem,
+                        source_format="unreferenced",
+                    )
+                    for row in panel_bin_navigation_rows(ref, panel, resolved_path=path, elements=elements):
+                        navigation_rows.append(row.as_dict())
                 except PanelBinParseError as exc:
                     failures.append({"path": str(path), "reason": str(exc)})
 
     bins = [decoded_by_path[path] for path in sorted(decoded_by_path)]
+    target_counts = Counter(row.get("target_kind", "unknown") for row in navigation_rows)
     return {
         "dict_id": dict_id,
         "title": title,
@@ -816,6 +863,10 @@ def _decode_panels_for_root(
         "root": str(root),
         "metadata_files": [str(path) for path in metadata_paths],
         "references": references,
+        "inline_cells": inline_cells,
+        "navigation_rows": navigation_rows,
+        "navigation_row_count": len(navigation_rows),
+        "navigation_target_counts": dict(sorted(target_counts.items())),
         "decoded_bins": bins,
         "decoded_bin_count": len(bins),
         "decoded_record_count": sum(row["actual_record_count"] for row in bins),
@@ -870,7 +921,14 @@ def cmd_panels(args: argparse.Namespace) -> int:
     if args.out_dir:
         args.out_dir.mkdir(parents=True, exist_ok=True)
         write_json(args.out_dir / "summary.json", summaries)
+        navigation = [
+            {"dict_id": summary["dict_id"], **row}
+            for summary in summaries
+            for row in summary.get("navigation_rows", [])
+        ]
+        _write_jsonl(args.out_dir / "navigation.jsonl", navigation)
         status(args, f"panels: wrote summary {args.out_dir / 'summary.json'}")
+        status(args, f"panels: wrote navigation rows {args.out_dir / 'navigation.jsonl'}")
 
     if args.json:
         print(json.dumps(summaries, ensure_ascii=False, indent=2))
@@ -879,9 +937,13 @@ def cmd_panels(args: argparse.Namespace) -> int:
     for summary in summaries:
         print(
             f"{summary['dict_id']:12s} metadata={len(summary['metadata_files']):2d} "
-            f"refs={len(summary['references']):4d} bins={summary['decoded_bin_count']:4d} "
+            f"cells={len(summary['inline_cells']):4d} refs={len(summary['references']):4d} "
+            f"bins={summary['decoded_bin_count']:4d} nav={summary['navigation_row_count']:6d} "
             f"records={summary['decoded_record_count']:7d} failures={len(summary['failures'])}"
         )
+        counts = summary.get("navigation_target_counts", {})
+        if counts:
+            print("  targets: " + ", ".join(f"{key}={value}" for key, value in sorted(counts.items())))
         for path in summary["metadata_files"]:
             print(f"  metadata: {path}")
         for row in summary["decoded_bins"][:8]:

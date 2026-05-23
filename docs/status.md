@@ -641,8 +641,11 @@ and non-SSED reader status are tracked separately in
   id-prefixed, declared-count-mismatch, empty/zero-width, and headerless
   big-endian UTF-8 variants. The current decode pass covers 4,544 non-decryptor
   `.bin` candidates with no binary decode failures. Rows mostly target
-  `HONMON.DIC`; a small observed set targets `MENU.DIC`. Panel rows are
-  optional navigation/sidebar data, not ordinary entry bodies.
+  `HONMON.DIC`; a small observed set targets `MENU.DIC`. The toolkit now
+  exposes inline cell navigation (`lved.panel:<id>` and direct
+  `lved.addr<block>:<offset>` actions) plus external BIN rows as flat
+  navigation records with resolved component kinds. Panel rows are optional
+  navigation/sidebar data, not ordinary entry bodies.
 - `CCALTSTR.HA` / `CCALTSTR.FU` are decoded as fixed-record custom-character
   alternate-string tables. They provide short alternate strings keyed by
   JIS-grid custom-character codes and are relevant to search/headword fallback,

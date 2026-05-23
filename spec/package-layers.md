@@ -302,8 +302,11 @@ cell:   ref, direction, color/bkcolor, fontsize
 ```
 
 Menu panels normally use inline `cell` elements whose `ref` values point to
-other Panel `index` values. Content panels normally use external
-`data type="bin"` rows, or less commonly `data type="html"`.
+other Panel `index` values. Some inline cells use
+`action_verb=lved.panel:<panel-id>` for the same transition, while others use
+`action_verb=lved.addr<8-hex-block>:<4-hex-offset>` to jump directly to an
+SSED logical address. Content panels normally use external `data type="bin"`
+rows, or less commonly `data type="html"`.
 
 Mac and mobile packages can represent the same model as plist:
 
@@ -333,6 +336,8 @@ The exact file size is normally `8 + record_count * (8 + text_width)`. Decoded
 records are label-to-address rows for optional Panel navigation surfaces. The
 target is an SSED logical block/offset pair; in the decoded Windows corpus
 these rows target `HONMON.DIC`, with a small observed set targeting `MENU.DIC`.
+Reader tooling should resolve these addresses through the package `SSEDINFO`
+catalog and preserve the target component kind.
 
 Observed compatible variants are:
 
@@ -365,7 +370,10 @@ tree/cells. They do not define the binary record grammar. The Windows reader
 also advertises Panel availability through `EXINFO.INI` `GENERAL/PANELXML` and
 renderer panel lifecycle hooks. A reader that does not implement the original
 UI can still expose the decoded Panel rows as an optional navigation API
-without merging them into ordinary entry body rendering.
+without merging them into ordinary entry body rendering. The practical API
+shape is a flat navigation row stream plus optional grouping by panel id:
+inline menu cells point to other panels or direct addresses, and BIN rows point
+to body/menu/catalog addresses.
 
 Observed Windows `vlpljbl*` names are not one format. Content classification
 is required before interpreting them:
