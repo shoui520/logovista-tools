@@ -319,8 +319,9 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     notes=(
                         "The DLL queries main by decimal ID and composes the entry body "
                         "from Class, C_text, and J_text. Product-specific search/helper, "
-                        "modifyHeadword, plugin, user-data, and custom-DIB hooks remain "
-                        "named gaps."
+                        "modifyHeadword, plugin, and user-data behavior remain named gaps. "
+                        "Custom-DIB capability is reported separately unless a reached visible "
+                        "branch is observed."
                     ),
                 ),
                 HcHookBehavior(
@@ -601,7 +602,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "1fe2/1fe3 RUB:始/RUB:終 directives render ruby text, and line links "
                     "carry the recovered lineLink class"
                 ),
-                notes="Panel lifecycle, modifyHeadwordEx, and custom DIB generation remain named gaps.",
+                notes="Panel lifecycle, modifyHeadwordEx, and custom-DIB generation is classified only when a reached visible branch is observed.",
             )
         )
     if code == "0147":
@@ -623,7 +624,11 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "template images; 1f10 renders rubar.png or an overline label; and "
                     "line links carry the recovered lineLink class"
                 ),
-                notes="Panel lifecycle, modifyHeadword, custom DIB generation, and exact nested bunken anchor bookkeeping remain named gaps.",
+                notes=(
+                    "Panel lifecycle, modifyHeadword, and exact nested bunken anchor "
+                    "bookkeeping remain named gaps. Custom-DIB capability is reported "
+                    "separately unless a reached visible branch is observed."
+                ),
             )
         )
     if code == "0063":
@@ -647,7 +652,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "lineLink2 by neighboring marker context, 1f43 links use lineLink, "
                     "and the decoded template-image gaiji markers render package assets"
                 ),
-                notes="Exact custom DIB behavior and modifyHeadwordEx remain named gaps.",
+                notes="modifyHeadwordEx remains a named gap; exact custom-DIB behavior is deferred unless a reached visible branch is observed.",
             )
         )
     if code == "0093":
@@ -670,7 +675,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "lineLink, and decoded template-image markers render arrow, "
                     "meaning, etymology, and class_arrow assets"
                 ),
-                notes="Exact address-sensitive yourei/youreihan selection, ruby private directives, and custom DIB generation remain named gaps.",
+                notes="Exact address-sensitive yourei/youreihan selection, ruby private directives, and custom-DIB generation is classified only when a reached visible branch is observed.",
             )
         )
         rows.append(
@@ -706,7 +711,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "and hankaku elsewhere, 1f42/1f43 links carry lineLink, and decoded "
                     "template markers render package assets with img_mark/img_mark2 classes."
                 ),
-                notes="Exact footer table lifecycle, private ruby directives, and custom DIB generation remain named gaps.",
+                notes="Exact footer table lifecycle, private ruby directives, and custom-DIB generation is classified only when a reached visible branch is observed.",
             )
         )
     if code == "0096":
@@ -732,7 +737,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "markers rather than visible gaiji. RUB:E/RUB:S private directives "
                     "wrap the following base text in ruby7/rb7/rt7 markup."
                 ),
-                notes="Exact multi-group lineinfo first-axis selection, footer table lifecycle, and custom DIB generation remain named gaps.",
+                notes="Exact multi-group lineinfo first-axis selection, footer table lifecycle, and custom-DIB generation is classified only when a reached visible branch is observed.",
             )
         )
     if code == "009F":
@@ -761,7 +766,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 ),
                 notes=(
                     "Exact footer navigation lifecycle, private HTMLs/fix include handling, "
-                    "generated custom-character DIB output, and representative visual parity remain named gaps."
+                    "generated custom-character DIB output is unexercised unless a reached branch is observed; representative visual parity remains a named gap."
                 ),
             )
         )
@@ -859,7 +864,11 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "characters can be exported as BMP resources, B13E/B13F open aka/beni color "
                     "divs, and internal links carry the recovered lineLink class"
                 ),
-                notes="Exact footer previous/next table generation, custom DIB behavior, and visual parity remain named gaps.",
+                notes=(
+                    "Exact footer previous/next table generation and visual parity remain "
+                    "named gaps. Custom-DIB behavior is deferred unless a reached visible "
+                    "branch is observed."
+                ),
             )
         )
     if code == "00AA":
@@ -884,7 +893,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "are consumed as renderer state, and generic media placeholders "
                     "carry resolved COLSCR addresses"
                 ),
-                notes="Exact generated custom-character DIB output, footer navigation, fixed HTML fallback loading, and visual parity remain named gaps.",
+                notes="Exact footer navigation, fixed HTML fallback loading, and visual parity remain named gaps; generated custom-character DIB output is deferred unless a reached branch is observed.",
             )
         )
     if code == "00A3":
@@ -972,7 +981,11 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                     "1f04/1f05 handle hankaku spans, links use lineLink, and "
                     "1f5c/1f6d are consumed as renderer state"
                 ),
-                notes="The subset does not emulate fixed HTML/body fallback loading, generated custom DIB output, previous/next footer generation, or visual parity.",
+                notes=(
+                    "The subset does not emulate fixed HTML/body fallback loading, "
+                    "previous/next footer generation, or visual parity. Generated "
+                    "custom-DIB output is deferred unless a reached visible branch is observed."
+                ),
             )
         )
     if code == "00AB":
@@ -2300,7 +2313,8 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes=(
                     "The subset excludes address-specific marker-image branches, "
                     "exact contents transition behavior, fixed HTML/body fallback "
-                    "loading, generated custom DIB output, and visual parity."
+                    "loading, and visual parity. Generated custom-DIB output is "
+                    "deferred unless a reached visible branch is observed."
                 ),
             )
         )
@@ -2621,6 +2635,33 @@ def build_hc_behavior_profile(
         implemented.add("HC0157_sound_icon_audio_link")
         implemented.add("HC0157_section_layout")
 
+    if features.get("custom_dib_export"):
+        hooks.append(
+            HcHookBehavior(
+                name="custom_dib_export",
+                status="classified_capability_not_gap",
+                evidence=("export:getCustomCharacterDIB",),
+                implementation=None,
+                notes=(
+                    "The DLL exports a custom DIB entrypoint. This is not a visual parity gap "
+                    "unless body rendering reaches a custom-DIB branch."
+                ),
+            )
+        )
+    if features.get("bridge_bitmap_import"):
+        hooks.append(
+            HcHookBehavior(
+                name="bridge_bitmap_import",
+                status="classified_capability_not_gap",
+                evidence=("import:SDicGetCustomCharacterBitmap",),
+                implementation="standard gaiji/resource bitmap fallback",
+                notes=(
+                    "The renderer imports the dictionary bridge bitmap API. This is ordinary "
+                    "bitmap fallback capability, not proof of generated custom-DIB output."
+                ),
+            )
+        )
+
     feature_gaps = {
         "panel_hooks": "panel_lifecycle_hook",
         "plugin_hooks": "plugin_function_hook",
@@ -2628,7 +2669,6 @@ def build_hc_behavior_profile(
         "dictionary_original_search": "dictionary_original_search_hook",
         "fulltext_search": "fulltext_search_hook",
         "headword_modifier": "modify_headword_hook",
-        "custom_gaiji_dib": "custom_gaiji_dib_hook",
     }
     for feature, hook_name in feature_gaps.items():
         if not features.get(feature):
@@ -2659,7 +2699,12 @@ def build_hc_behavior_profile(
         )
 
     raw_gap_names = () if rendererdb_ok else tuple(sorted(str(key) for key in (raw_gaps or {}).keys()))
-    non_gap_status_prefixes = ("implemented", "branch_subset_implemented", "classified_inactive")
+    non_gap_status_prefixes = (
+        "implemented",
+        "branch_subset_implemented",
+        "classified_inactive",
+        "classified_capability",
+    )
     hook_gap_names = tuple(sorted(hook.name for hook in hooks if not hook.status.startswith(non_gap_status_prefixes)))
     branch_subset_names = tuple(sorted(hook.name for hook in hooks if hook.status.startswith("branch_subset_implemented")))
     notes: list[str] = []

@@ -79,7 +79,8 @@ observed in the Windows SSED corpus. Other exports are optional feature hooks:
 
 ```text
 epwing2HtmlBodydataVertical   vertical HTML rendering
-getCustomCharacterDIB         renderer-side gaiji bitmap generation
+getCustomCharacterDIB         custom-character DIB export capability; visible
+                               behavior must be proven by a reached branch
 modifyHeadword*               headword/display-key rewrite hooks
 initializeSQL/finalizeSQL     renderer/app SQLite setup
 execDicOrgSearch*             dictionary-specific search UI
@@ -130,6 +131,13 @@ family, and for HC0155's ID-keyed `main` table, the entry body can be taken
 from the same renderer sidecar data that the HC plugin queries; product hooks
 can still remain open.
 
+Package-level reference render parity is tracked separately in
+`logovista_tools.hc_parity` and the public HC matrix. A
+`reference_render_parity_confirmed` package has reviewed output that should not
+regress, but this is narrower than exact DLL-hook parity: unexercised
+`modifyHeadword*`, SQL/search, Panel, plugin/user-data, or custom-DIB behavior
+can remain named gaps.
+
 Current code-level renderer families are:
 
 ```text
@@ -146,8 +154,10 @@ shared_body_renderer              common body loop only
 ```
 
 Panel hooks, SQL search UI hooks, plugin callbacks, user-data callbacks,
-custom gaiji DIB generation, and product-specific `modifyHeadword*` behavior
-remain named behavior gaps unless their exact data path is separately decoded.
+reached custom-character DIB branches, and product-specific `modifyHeadword*`
+behavior remain named behavior gaps unless their exact data path is separately
+decoded. Export/import presence alone is recorded as renderer capability rather
+than as a visible-output gap.
 
 Numeric sidecar names often share the HC product code
 (`HC013A.dll` -> `0000013A.idx`), but this is a convention. `EXINFO.INI`

@@ -676,12 +676,14 @@ DICTIONARY_BRIDGE_DLL = "SS" "Dic" "Lib.dll"
 def _hc_features(pe: PeSummary, sidecar_strings: dict[str, tuple[str, ...]]) -> dict[str, bool]:
     exports = set(pe.exports)
     bridge_imports = _imported_function_names(pe, DICTIONARY_BRIDGE_DLL)
+    custom_dib_export = "getCustomCharacterDIB" in exports
+    bridge_bitmap_import = "SDicGetCustomCharacterBitmap" in bridge_imports
     return {
         "html_body_renderer": "epwing2HtmlBodydata" in exports,
         "vertical_renderer": "epwing2HtmlBodydataVertical" in exports,
         "lvelib_renderer": "epwing2HtmlBodydataLVELib" in exports,
-        "custom_gaiji_dib": "getCustomCharacterDIB" in exports
-        or "SDicGetCustomCharacterBitmap" in bridge_imports,
+        "custom_dib_export": custom_dib_export,
+        "bridge_bitmap_import": bridge_bitmap_import,
         "headword_modifier": any(name.startswith("modifyHeadword") for name in exports),
         "panel_hooks": bool({"initializePanel", "finalizePanel"} & exports),
         "sql_hooks": bool({"initializeSQL", "finalizeSQL"} & exports)
@@ -694,7 +696,7 @@ def _hc_features(pe: PeSummary, sidecar_strings: dict[str, tuple[str, ...]]) -> 
         "uses_body_api": "SDicGetBodyData" in bridge_imports,
         "uses_picture_api": "SDicGetPictureData" in bridge_imports,
         "uses_gaiji_unicode_api": "SDicGetCustomCharacterUincode" in bridge_imports,
-        "uses_gaiji_bitmap_api": "SDicGetCustomCharacterBitmap" in bridge_imports,
+        "uses_gaiji_bitmap_api": bridge_bitmap_import,
         "uses_menu_api": "SDicGetMenuData" in bridge_imports,
         "mentions_vlpljbl": bool(sidecar_strings["vlpljbl_tokens"]),
     }
@@ -718,6 +720,7 @@ def hc_renderer_effects(row: HcRendererClassification) -> dict[str, Any]:
     uses_body = "SDicGetBodyData" in bridge_imports
     uses_unicode_gaiji = "SDicGetCustomCharacterUincode" in bridge_imports
     uses_bitmap_gaiji = "SDicGetCustomCharacterBitmap" in bridge_imports
+    custom_dib_export = "getCustomCharacterDIB" in exports
     return {
         "entrypoints": sorted(exports),
         "body_renderer": body_renderer,
@@ -728,6 +731,16 @@ def hc_renderer_effects(row: HcRendererClassification) -> dict[str, Any]:
             "unicode_first": uses_unicode_gaiji,
             "bitmap_fallback": uses_bitmap_gaiji,
             "bitmap_api": "SDicGetCustomCharacterBitmap" if uses_bitmap_gaiji else None,
+        },
+        "custom_dib_strategy": {
+            "export": "getCustomCharacterDIB" if custom_dib_export else None,
+            "bridge_bitmap_import": "SDicGetCustomCharacterBitmap" if uses_bitmap_gaiji else None,
+            "parity_note": (
+                "Export/import presence is a renderer capability only; visible custom-DIB impact "
+                "must be established by a reached body-render branch."
+            )
+            if custom_dib_export or uses_bitmap_gaiji
+            else None,
         },
         "picture_strategy": {
             "bridge_api": "SDicGetPictureData" if uses_picture else None,

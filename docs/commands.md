@@ -60,7 +60,7 @@ Corpus-scale commands support `--jobs`:
 ```
 
 This applies to commands that operate across many dictionaries or resources:
-`scan`, `extract`, `entries`, `resources`, `panels`, `colscr`, `pcmdata`, `extras`, `rendererdb`, `hc-render`,
+`scan`, `extract`, `entries`, `resources`, `panels`, `colscr`, `pcmdata`, `extras`, `rendererdb`, `hc-render`, `hc-render-entry`,
 `spindex`, `audit-honmon`, `gaiji-report`, `gaiji-readiness`, `ga16`,
 `titles`, `indexes`, `menus`, `fulldb`, `profile`, `honmon-bytes`,
 `opcode-atlas`, `component-forensics`, `dump-ir`, `dump-package-models`, LVED
@@ -275,9 +275,14 @@ inspection. The command writes a normalized product stylesheet and copies
 template/image assets next to the output HTML, including renderer `Templates/`
 assets needed by sidecar bodies with bare `sound.png`-style references. Shared
 fallback rules use low-specificity selectors so copied product CSS can override
-generic fallback layout. This improves inspection quality, but the command still reports
-`exact_hc_parity=false` until the product wrapper, section-state, media/link,
-custom gaiji, and hook behavior are all covered.
+generic fallback layout. This improves inspection quality, but the command
+keeps exact DLL-hook parity separate from visual review status. A package may
+report `reference_render_parity_confirmed=true` when its reviewed output is
+locked, while still reporting `exact_hc_parity=false` because unexercised
+`modifyHeadword*`, SQL/search, Panel, plugin/user-data, or reached custom-DIB
+hooks remain named gaps. HC export/import capability alone is not treated as a
+gap: `custom_dib_export` records `getCustomCharacterDIB`, and
+`bridge_bitmap_import` records `SDicGetCustomCharacterBitmap`.
 
 Each dictionary output directory contains:
 
@@ -294,11 +299,38 @@ body DB, media table, and ziptomedia cases, writing its own nested
 `rendererdb/` output. `--compare-rendererdb` remains available as an explicit
 request, but it is no longer required for dense renderer-sidecar packages.
 
-The summary separates `exact_body_html_available` from `exact_hc_parity`.
+The summary separates `exact_body_html_available`,
+`reference_render_parity_confirmed`, and `exact_hc_parity`.
 For example, a `t_contents` package may have exact sidecar body HTML while
 still reporting product-specific gaps for Panel handlers, SQL search UI,
-plugin callbacks, user-data hooks, custom gaiji bitmap hooks, or
-`modifyHeadword*`. The command does not fake exact product behavior.
+plugin callbacks, user-data hooks, reached custom gaiji bitmap/DIB branches,
+or `modifyHeadword*`. The command does not fake exact product behavior.
+
+### `hc-render-entry`
+
+Render specific reference entries by resolving the query through the
+dictionary's native index rows first, then dereferencing the matched body
+pointer:
+
+```bash
+logovista-tools hc-render-entry /path/to/DICT crocodile --out-dir refs
+logovista-tools hc-render-entry /path/to/DICT et --limit 1 --out-dir refs
+logovista-tools hc-render-entry /path/to/DICT "heart-lung machine" --out-dir refs
+```
+
+This command is the preferred path for visual reference work. It does not use
+lvcore and does not generate the whole dictionary just to find one entry. The
+lookup scans parsed LogoVista index rows, scores exact and flattened matches
+above prefix/contains matches, dereferences the body pointer into `HONMON`, and
+then renders that entry with the same HC renderer profile used by `hc-render`.
+For dense-HONMON/renderer-sidecar dictionaries, the command resolves the native
+index hit to the renderer body sidecar when the schema is understood, so the
+result is a real entry render rather than a raw numeric anchor.
+
+Each output dictionary directory contains one HTML file per rendered hit plus
+`matches.jsonl` and `summary.json`. The HTML filename is based on the requested
+query, for example `et_1.html` or `crocodile_1.html`. Use `--limit` only when
+the requested term legitimately has multiple matching entries.
 
 ### `multiview`
 

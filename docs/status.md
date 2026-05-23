@@ -276,8 +276,14 @@ and non-SSED reader status are tracked separately in
   case is `HC013A.dll`, where section `1f09 0011` starts an example block and
   the renderer inserts the `exam` image once for that contiguous examples
   region.
-- Package-level reference-render parity is now confirmed and locked for the
-  reviewed v5/v2 set recorded in
+- HC custom-character DIB support is split between capability and reached
+  behavior. `custom_dib_export` records the `getCustomCharacterDIB` export, and
+  `bridge_bitmap_import` records the `SDicGetCustomCharacterBitmap` bridge
+  import. Those do not by themselves block renderer parity. A custom-DIB gap is
+  named only when a decoded body-render branch reaches visible generated output
+  that the toolkit does not reproduce.
+- Package-level reference-render parity is now confirmed and locked for 39
+  reviewed v5/v2 packages recorded in
   [HC Renderer Parity Matrix](hc-renderer-parity.md#reference-render-parity-confirmed).
   Those locks cover visual output for the reviewed packages; code-level notes
   about remaining product hooks still track unexercised DLL behavior and should
@@ -293,9 +299,8 @@ and non-SSED reader status are tracked separately in
   section `1f09` payloads map to product block classes such as `midashi`,
   `yakugo`, `contents`, and `exampleyakugo`; example blocks insert `exam.png`;
   A23C/A23D and A24C/A24D create `partwaku` labels; A244/A245 drives `supAB`
-  A/B labels; and template-backed gaiji markers use HC00C6 image classes. This
-  is still not full visual parity because unresolved literal/DIB branches and
-  broader representative coverage remain.
+  A/B labels; and template-backed gaiji markers use HC00C6 image classes. Exact DLL-hook parity is still open because unresolved literal/DIB branches and
+  broader unreviewed renderer behavior remain.
 - `HC02BE.dll` now has a focused raw-HONMON branch-subset proof for KQDENTAL:
   section `1f09` payloads map to `ind_####` product classes; phonetic gaiji
   markers become half/full-width accent-image composites using `aigu.png`,
@@ -318,8 +323,8 @@ and non-SSED reader status are tracked separately in
   section `0007` opens `moji-down` text; B13E-B15D render as `img_gaiji`
   template images; `1f41`/`1f4c` are consumed as renderer state controls; and
   internal links carry the recovered `lineLink` class. Custom DIB generation,
-  `modifyHeadwordEx`, Panel lifecycle hooks, and broader visual parity remain
-  named gaps.
+  `modifyHeadwordEx`, Panel lifecycle hooks, and broader unreviewed renderer behavior remains
+  a named gap.
 - `HC012E.dll` now has a focused raw-HONMON branch-subset proof for NKGORIN2:
   `Gaijitemp/` image glyphs are discovered as package resources; common
   section `1f09` payloads map to `honbun`, `bushu`, `kaku_midashi`, `exam`,
@@ -339,7 +344,7 @@ and non-SSED reader status are tracked separately in
   map to `kaisetsu_s`, `kaisetsu_m`, `link_k`, and `link_t` images; A134/A137
   map to spacing; and internal links carry the recovered `lineLink` class.
   Custom DIB generation, `modifyHeadword`, SQL/original-search hooks, exact
-  yindex/ruigo script lifecycle, and broader visual parity remain named gaps.
+  yindex/ruigo script lifecycle, and broader unreviewed renderer behavior remains a named gap.
 - `HC0145.dll` now has a focused raw-HONMON branch-subset proof for RDRSP2:
   `1f09` section payloads are decoded as decimal section states and map to
   `midashi`, `komidashi`, `honbun`, and `contents` blocks; `1f41` is consumed
@@ -349,7 +354,7 @@ and non-SSED reader status are tracked separately in
   and known selector gaiji are consumed instead of displayed as placeholders.
   Custom DIB generation, `modifyHeadwordEx`, SQL original-search plus
   D_Example/D_Idiom hooks, exact table/navigation wrapper lifecycle, and
-  broader visual parity remain named gaps.
+  broader unreviewed renderer behavior remains a named gap.
 - `HC0144.dll` now has a focused raw-HONMON branch-subset proof for RPLUSREV:
   `1f09` sections map to `midashi`, `komidashi`, `honbun`, and `contents`
   blocks; `1f41` is consumed as renderer state; internal links carry
@@ -357,8 +362,8 @@ and non-SSED reader status are tracked separately in
   emit recovered literal markers; and B921/B926-B929/B92C-B92F/B931-B933/B935/B937
   are consumed as renderer selector/no-output markers. Custom DIB generation,
   `modifyHeadwordEx`, SQL example/idiom helpers, exact `HTMLs`/`fix` fallback
-  lifecycle, custom-character image suffix selection, and broader visual parity
-  remain named gaps.
+  lifecycle, custom-character image suffix selection, and broader unreviewed renderer behavior
+  remains a named gap.
 - `HC03E8.dll` now has a focused raw-HONMON branch-subset proof for GENKANA5:
   sampled `1f09` sections map to product `midashi`, `honbun`, and `contents`
   blocks; `1f41` is consumed as renderer state; internal links carry
@@ -367,8 +372,8 @@ and non-SSED reader status are tracked separately in
   and B921/B939/B926-B929/B92C-B92F/B931-B933/B935/B937 are consumed as selector
   markers. Custom DIB generation, `modifyHeadwordEx`, SQL full-text/zenbun
   hooks, exact `HTMLs`/`fix` fallback lifecycle, custom-character image suffix
-  selection, dense-sidecar body behavior, and broader visual parity remain
-  named gaps.
+  selection, dense-sidecar body behavior, and broader unreviewed renderer behavior remains
+  a named gap.
 - `HC0141.dll` now has a focused raw-HONMON branch-subset proof for Readers3:
   `1f09` sections map to `midashi`, `komidashi`, `honbun`, and `contents`
   blocks; `1f41` is consumed as renderer state; internal links carry
@@ -377,8 +382,8 @@ and non-SSED reader status are tracked separately in
   B926-B929/B92C-B92F/B931-B933/B935 are consumed as selector markers. Custom
   DIB generation, `modifyHeadword`, dictionary-original SQL search,
   D_Example/D_Idiom helper integration, exact body-file/fix fallback lifecycle,
-  custom-character image suffix selection, and broader visual parity remain
-  named gaps.
+  custom-character image suffix selection, and broader unreviewed renderer behavior remains
+  a named gap.
 - `HC0190.dll` now has a focused branch-subset proof for the SIZK read-aloud
   dictionaries: B121-B124 choose package `HTMLs/` templates, `1f09` sections
   are bucketed by numeric section id, and `<!--&IND####;-->` placeholders are
@@ -395,7 +400,7 @@ and non-SSED reader status are tracked separately in
   suppressed; and private `IMG:I########.PNG` directives produce full-image
   links with `images_thumb` preview buttons. Custom gaiji bitmap generation,
   `modifyHeadword`, Panel/plugin/user-data hooks, SQL/search helpers, and
-  broader visual parity remain named gaps.
+  broader unreviewed renderer behavior remains a named gap.
 - `HC02C5.dll` now has a focused raw-HONMON branch-subset proof for GENIUS53:
   `1f41` opens product `midashi` or `CB_Title` heading blocks; internal links
   carry `lLink`; `1f5c`/`1f6d` are consumed as renderer anchor-close state;
@@ -404,8 +409,8 @@ and non-SSED reader status are tracked separately in
   and recovered gaiji-plane marker branches emit bold numeric labels, small
   letter labels, and `img_hin` images. Exact select-menu lifecycle, full
   `gohou`/`gohou2` lookahead branches, custom character DIB generation,
-  `modifyHeadword`, Panel hooks, SQL/search helpers, and broader visual parity
-  remain named gaps.
+  `modifyHeadword`, Panel hooks, SQL/search helpers, and broader unreviewed renderer behavior
+  remains a named gap.
 - `HC0151.dll` now has a focused raw-HONMON branch-subset proof for IBIO5:
   `1f41` opens product `midashi`; `1f61` opens product `contents`; clear
   `1f09` payloads map to recovered `indent##` blocks or table row/cell
@@ -414,7 +419,7 @@ and non-SSED reader status are tracked separately in
   small-text delimiters; and B159 emits table cell transitions in table
   sections. Exact previous/next navigation anchors, HTMLs/fix fallback
   lifecycle, custom DIB generation, `modifyHeadwordEx`, Panel hooks,
-  SQL/search helpers, and broader visual parity remain named gaps.
+  SQL/search helpers, and broader unreviewed renderer behavior remains a named gap.
 - `HC013D.dll` now has a focused raw-HONMON branch-subset proof for HKDKSR13:
   `1f09` section payloads map to drug-layout classes such as `title3`,
   `medblk`, `med`, `medprice`, `medimage`, `mednamelist*`, and `indent##`;
@@ -426,7 +431,7 @@ and non-SSED reader status are tracked separately in
   branches emit the `syohatsu`, `midashi*`, `title*`, litre-unit, and entity
   templates. The full HKDKSR13 raw-HONMON render now emits no raw behavior
   gaps. Custom DIB generation, `modifyHeadword`, full picture extraction into
-  final HTML, and broader visual parity remain named gaps.
+  final HTML, and broader unreviewed renderer behavior remains a named gap.
 - `HC009D.dll` now has a focused raw-HONMON branch-subset proof for GKCEREMO:
   `1f09` section payloads map to product `lineinfoN` blocks; section `0008`
   uses the next B14x renderer marker to open product kakomi boxes such as
@@ -435,8 +440,8 @@ and non-SSED reader status are tracked separately in
   close those boxes; B121 renders a pointing-hand literal; B125 renders the
   checkbox marker; B130/B131/B138-B13D render explicit line breaks; and
   internal links carry `lineLink`. Remaining custom DIB gaiji, exact table
-  header/body lifecycle, loose HTMLs fallback, and broader visual parity remain
-  named gaps.
+  header/body lifecycle, loose HTMLs fallback, and broader unreviewed renderer behavior remains
+  a named gap.
 - `HC0158.dll` now has a focused raw-HONMON branch-subset proof: B3xx formatter
   gaiji become rank/star, part-of-speech, conjugation, boxed-label, and red
   emphasis spans; numbered/SVG gaiji remain image-backed; `PCMDATA.DIC` sound
@@ -460,11 +465,11 @@ and non-SSED reader status are tracked separately in
   frames are handled from the decompiled body-loop branch table and
   `Templates/00000146.css`. The full PROYAL43 raw-HONMON render now emits no
   raw behavior gaps. Product wrapper state, custom hooks, and representative
-  visual parity remain incomplete.
+  visual parity remains incomplete.
 - `HC00C6.dll` now consumes halfwidth-wrapped structural markers observed in
   Dconci87: A244 supAB marker wrappers and empty `1f04`/`1f05` runs no longer
   produce empty halfwidth spans in generated HTML. Custom DIB output and
-  broader visual parity remain incomplete.
+  broader unreviewed renderer behavior remains incomplete.
 - `HC0142.dll` now has a focused raw-HONMON branch-subset proof: `1f41` starts
   the `midashi` block, `1f0a` transitions into the `honbun` block or emits line
   breaks, internal links use `lineLink`, and recovered marker gaiji emit
@@ -537,7 +542,7 @@ and non-SSED reader status are tracked separately in
   `1f41`/`1f61` wrap `midashi`, internal links use `lineLink`, image-backed
   gaiji use `img_gaiji`, and `1f5c`/`1f6d` are consumed as renderer state.
   Fixed HTML/body fallback loading, custom DIB file generation, exact
-  previous/next navigation footer generation, and visual parity remain
+  previous/next navigation footer generation, and visual parity remains
   incomplete.
 - `HC00B3.dll` now has a focused raw-HONMON branch-subset proof for GEN2012:
   `1f09` section `0001` is heading state, normal sections open `honbun`
@@ -545,7 +550,7 @@ and non-SSED reader status are tracked separately in
   `midashi`, internal links use `lineLink`, image-backed gaiji use
   `img_gaiji`, and `1f5c`/`1f6d` are consumed as renderer state. Exact
   previous/next navigation footer generation, fixed HTML/body fallback
-  loading, exact generated custom-bitmap output, and visual parity remain
+  loading, exact generated custom-bitmap output, and visual parity remains
   incomplete.
 - `HC00A9.dll` now has a focused raw-HONMON branch-subset proof for GEN2011:
   the first `1f41`/`1f0a` pair drives the product `midashi` lifecycle, body
@@ -554,8 +559,9 @@ and non-SSED reader status are tracked separately in
   `mlink.gif`/`mlinkV.gif` marker, `1f04` becomes `hankakuLink` in header and
   `hankaku` elsewhere, internal links use `lineLink`, media controls use
   `img_inline` placeholders, and `1f5c`/`1f6d` are consumed as renderer state.
-  Fixed HTML/body fallback loading, exact previous/next footer generation,
-  generated custom DIB output, and visual parity remain incomplete.
+  Fixed HTML/body fallback loading, exact previous/next footer generation, and
+  visual parity remain incomplete. Generated custom-DIB output is deferred
+  unless a reached visible branch is observed.
 - The late GEN-year renderer subset now covers `HC02C9.dll`, `HC02CB.dll`,
   `HC02CC.dll`, `HC02CD.dll`, and `HC02D1.dll`: body `1f09` sections use the
   recovered GEN-year `honbun` wrappers, `1fe2` `2331..2334` emits numbered
@@ -565,7 +571,7 @@ and non-SSED reader status are tracked separately in
   Focused renders for GEN2018, GENMEM1, GENMEM2, GEN2020, and GEN2021 emitted
   no raw render gaps for this subset. Custom DIB generation, `modifyHeadword`,
   Panel lifecycle hooks, fixed HTML/body fallback loading, exact previous/next
-  navigation footer generation, and visual parity remain incomplete.
+  navigation footer generation, and visual parity remains incomplete.
 - `HC00A0.dll` now has a focused raw-HONMON branch-subset proof for the
   Gakken phrase/detail renderer used by GKBUSINE/GKTRAVEL: `1f09` section
   `0001` fills the English detail slot, section `0002` fills the Japanese
@@ -574,7 +580,7 @@ and non-SSED reader status are tracked separately in
   private `<PlaySound>####.mp3</PlaySound>` directives become loose `mp3/`
   audio references. Interactive `lved.sql` menu/search generation, plugin
   callbacks, user-data/play-count persistence, exact generated body-file
-  lifecycle, and visual parity remain incomplete.
+  lifecycle, and visual parity remains incomplete.
 - `HC02C0.dll` now has a focused raw-HONMON branch-subset proof for GEN2015:
   `1f09` section `0001` is heading state, body sections open `honbun`
   margin containers, section `000c` opens `footer`, `1f41`/`1f61` wrap
@@ -592,7 +598,7 @@ and non-SSED reader status are tracked separately in
   `img_gaiji`, and `A435`/`A436` plus `1f5c`/`1f6d` are consumed as renderer
   state. JIS-content-triggered `img_mark` branches, exact generated
   custom-bitmap output, `modifyHeadword` application to hit-list headings,
-  exact navigation footer generation, and visual parity remain incomplete.
+  exact navigation footer generation, and visual parity remains incomplete.
 - `HC02CA.dll` now has a focused GEN2019 branch-subset proof: `1f09`
   section `0001` is heading state, body sections open `honbun` margin
   containers, section `000c` opens `footer`, `1f41`/`1f61` wrap `midashi`,
@@ -600,22 +606,24 @@ and non-SSED reader status are tracked separately in
   markers, `B12D`/`B12E`/`B12F` render as `img_mark` template markers,
   `B130`/`B131` are consumed as renderer state, and `B135` emits U+20BB7.
   Custom DIB generation, `modifyHeadword`, exact navigation footer generation,
-  and visual parity remain incomplete.
+  and visual parity remains incomplete.
 - `HC0136.dll` now has a focused GEN2013 branch-subset proof: `1f09`
   section `0001` is heading state, body sections open `honbun` margin
   containers, section `000c` opens `footer`, `1f41`/`1f61` wrap `midashi`,
   internal links use `lineLink`, `1fe2` `2331..2334` maps to `img_icon`
   markers, image-backed gaiji use `img_gaiji`, and `1f5c`/`1f6d` are consumed
   as renderer state. Exact previous/next navigation footer generation and
-  visual parity remain incomplete.
+  visual parity remains incomplete.
 - The all-family HC pass has decompiled a representative for each of the 109
   exact SHA-256 renderer binaries. HC013A, HC0065, HC009B, HC00B3, HC02C0, HC013C, HC009D, HC00C6, HC012D,
   HC012E, HC0131, HC013D, HC0141, HC0144, HC0145, HC0190, HC009C, HC02C5,
   HC0151, HC03E8, HC02BC, HC02BE, HC02C2, HC0146, HC0142, HC02C1, HC02BF,
   HC012F, HC00A6, HC014A, HC02C3, HC02C4, HC02C7, HC0157, HC0158, HC00A0, HC02CA, and HC0136
-  currently have decoded branch subsets, not full HC parity.
-  Other branch tables remain named gaps until their output constants and product
-  data paths are understood.
+  currently have decoded branch subsets. Package-level visual parity is locked
+  for the reviewed subset recorded in the HC matrix; exact DLL-hook parity is
+  still not claimed while unexercised product hooks remain named gaps.
+  Other branch tables remain named gaps until their output constants and
+  product data paths are understood.
 - The default raw-resource gaiji readiness pass intentionally does not use
   Windows renderer databases. `NGYOKTUK` has no direct `.uni`/GA16/image gaiji
   resources, but its encrypted `vlpljblF` sidecar decrypts to row-ordered

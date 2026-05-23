@@ -137,6 +137,7 @@ The full command reference is in [docs/commands.md](docs/commands.md).
 | [CLI Command Reference](docs/commands.md) | Toolkit CLI commands plus pointers to the separate lvcore and lvcore-audit CLIs. |
 | [Project Status and Roadmap](docs/status.md) | `logovista-tools` capability status and roadmap. |
 | [lvcore Status](docs/lvcore-status.md) | Reader-core status table, boundaries, and audit counters. |
+| [HC Renderer Parity Matrix](docs/hc-renderer-parity.md) | HC renderer family status, package-level visual parity locks, and remaining hook gaps. |
 | [Package Families](docs/package-families.md) | SSED package layers, non-SSED families, and file lookup behavior. |
 | [Corpus Findings](docs/corpus-findings.md) | Observed behavior from real dictionaries and platform comparisons. |
 | [Legal and Data Policy](docs/legal.md) | Repository scope and data-handling policy. |

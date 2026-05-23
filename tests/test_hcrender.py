@@ -1,5 +1,6 @@
 import argparse
 import io
+import json
 import re
 import sqlite3
 from pathlib import Path
@@ -20,6 +21,7 @@ from logovista_tools.hcrender import (
     _prepare_hc_render_assets,
     _renderer_behavior_gaps,
     _rendererdb_args,
+    _score_index_row,
     _rewrite_exact_body_asset_refs,
     _rewrite_lved_addr_hrefs,
     _schema_backed_sidecars,
@@ -28,6 +30,7 @@ from logovista_tools.hcrender import (
     _source_prefers_vertical,
     _strip_viewer_navigation_images,
     _write_exact_hc_entries_html_from_rendererdb,
+    _write_rendererdb_fragment_media,
     _write_hc_html_header,
     render_hc_body,
 )
@@ -35,7 +38,7 @@ from logovista_tools.colscr import MediaPointer
 from logovista_tools.hcprofiles import build_hc_behavior_profile
 from logovista_tools.resources import load_image_resource_profile, relative_image_source
 from logovista_tools.ssed import SsedRandomReader
-from logovista_tools.windows import HcRendererClassification, PeSummary
+from logovista_tools.windows import HcRendererClassification, PeImport, PeImportDll, PeSummary, hc_renderer_effects
 from logovista_tools.writer import encode_sseddata_literal
 
 
@@ -1038,6 +1041,19 @@ def test_hc02bc_target_slice_expands_child_title_pointer(tmp_path: Path) -> None
     assert "childB" in rendered.plain
     assert "bodyB" in rendered.plain
     assert "childA" not in rendered.plain
+
+
+def test_hc0065_target_slice_skips_anchor_stub(tmp_path: Path) -> None:
+    anchor_stub = b"\x1f\x09\x00\x01\x1f\x41\x01\x00\x1f\x61"
+    body = b"\x1f\x09\x00\x01" + jis_ascii_text("oh") + b"\x1f\x09\x00\x02" + jis_ascii_text("definition")
+    next_entry = b"\x1f\x09\x00\x01" + jis_ascii_text("next")
+    expanded = anchor_stub + body + next_entry
+    path = tmp_path / "HONMON.DIC"
+    path.write_bytes(encode_sseddata_literal(expanded, start_block=0, kind=0))
+    reader = SsedRandomReader(path)
+
+    assert _hc_entry_slice_containing_reader(reader, "0065", 4) == (0, len(anchor_stub))
+    assert _hc_target_slice_reader(reader, "0065", 4) == (len(anchor_stub), len(anchor_stub) + len(body))
 
 
 def test_hc02bc_resolved_media_suppresses_internal_image_label() -> None:
@@ -3047,6 +3063,33 @@ def test_hc013d_groups_product_name_price_and_image_sections_into_cards() -> Non
     assert rendered.stats["hc013d_product_cards"] == 2
     assert rendered.stats["hc013d_product_card_closures"] == 2
     assert rendered.stats["hc013d_product_linebreaks_suppressed"] == 4
+    assert rendered.stats["hc013d_section_linebreaks_suppressed"] == 4
+
+
+def test_hc013d_suppresses_redundant_block_section_linebreaks() -> None:
+    body = (
+        b"\x1f\x09\x00\x04"
+        + jis_text("一般名")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x08"
+        + jis_text("服用量")
+        + b"\x1f\x0a"
+        + b"\x1f\x09\x00\x50"
+        + jis_text("本文")
+        + b"\x1f\x0a"
+    )
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="013D"))
+
+    assert rendered.html == (
+        '<div class="lv-hc-render">'
+        '<div class="title3">一般名</div>'
+        '<div class="medblk">服用量</div>'
+        '<div class="indent50">本文</div>'
+        "</div>"
+    )
+    assert rendered.stats["hc013d_section_linebreaks_suppressed"] == 3
+    assert rendered.stats.get("line_breaks", 0) == 0
 
 
 def test_hc02c2_maps_section_icons_and_moji_down_blocks() -> None:
@@ -5442,9 +5485,9 @@ def test_hc009f_maps_season_category_sections_and_template_gaiji() -> None:
     )
 
     assert '<div class="midashi">見出し</div>' in rendered.html
-    assert '<img src="Templates/Hsp.png" class="img_mark">' in rendered.html
-    assert '<img src="Templates/Hsp1.png" class="img_mark">' in rendered.html
-    assert '<img src="Templates/Hsp.png" class="img_mark"><img src="Templates/Hsp1.png" class="img_mark">' in rendered.html
+    assert '<img src="Templates/Hsp.png" class="img_mark hc009f-marker">' in rendered.html
+    assert '<img src="Templates/Hsp1.png" class="img_mark hc009f-marker">' in rendered.html
+    assert '<img src="Templates/Hsp.png" class="img_mark hc009f-marker"><img src="Templates/Hsp1.png" class="img_mark hc009f-marker">' in rendered.html
     assert "春" not in rendered.html
     assert "時" not in rendered.html
     assert "候" not in rendered.html
@@ -5525,7 +5568,8 @@ def test_hc009f_groups_midashi_aliases_and_haiku_separators_vertically() -> None
     assert '<div class="lv-hc-render lv-hc-vertical">' in rendered.html
     assert rendered.html.count('<div class="midashi">') == 1
     assert '<div class="midashi">【春】<span class="hc009f-midashi-alias">陽春</span><span class="hc009f-midashi-alias">芳春</span></div>' in rendered.html
-    assert '<img src="Templates/Vsp.png" class="img_mark"><img src="Templates/Vsp1.png" class="img_mark">' in rendered.html
+    assert '<img src="Templates/Vsp.png" class="img_mark hc009f-marker"><img src="Templates/Vsp1.png" class="img_mark hc009f-marker">' in rendered.html
+    assert ".lv-hc-render.lv-hc-vertical .hc009f-marker" in HC_RENDER_FINAL_CSS
     assert "Templates/Hsp.png" not in rendered.html
     assert rendered.html.count('class="hc009f-haiku-separator"') == 2
     assert '<div class="honbun" style="margin-top:1em;">説明</div>' in rendered.html
@@ -5539,6 +5583,11 @@ def test_hc_render_vertical_shell_uses_modern_writing_mode() -> None:
     assert ":where(.lv-hc-render.lv-hc-vertical)" in HC_RENDER_FINAL_CSS
     assert "writing-mode: vertical-rl;" in HC_RENDER_FINAL_CSS
     assert "text-orientation: mixed;" in HC_RENDER_FINAL_CSS
+    assert ":where(html.v)" in HC_RENDER_FINAL_CSS
+    assert "overflow-y: hidden !important;" in HC_RENDER_FINAL_CSS
+    assert ":where(body.v > .exact-rendererdb-entry .midashi)" in HC_RENDER_FINAL_CSS
+    assert "height: auto !important;" in HC_RENDER_FINAL_CSS
+    assert "lvInitVerticalPageScroll" in HC_RENDER_BASE_SCRIPT
 
 
 def test_hc009f_entry_slices_group_season_aliases_with_body(tmp_path: Path) -> None:
@@ -5881,12 +5930,13 @@ def test_hc0135_renders_sinmei_private_state_markers_and_example_box() -> None:
     assert "§" not in rendered.html
     assert "えん§延長" not in rendered.html
     assert '<span class="hc0135-sup-note">(オ)</span>' in rendered.html
-    assert '<i class="hc0135-kyouiku-kanji">延</i>' in rendered.html
+    assert '<span class="hc0135-kyouiku-kanji">延</span>' in rendered.html
     assert '<span class="hc0135-history-kana">−チヤウ</span>' in rendered.html
     assert '<span class="hc0135-part-of-speech">（自他サ）</span>' in rendered.html
-    assert '<div class="hc0135-construction-pattern">（なに<b class="hc0135-red-emphasis">ヲ</b>−する）</div>' in rendered.html
-    assert '<div class="hc0135-accent-line"><a class="lv-hc-audio"' in rendered.html
-    assert '<img src="Templates/sound.png" class="img_mark2"></a><img src="Templates/accent00.png" class="img_mark2"></div>' in rendered.html
+    assert '<span class="hc0135-construction-pattern">（なに<b class="hc0135-red-emphasis">ヲ</b>−する）</span>' in rendered.html
+    assert '<span class="hc0135-accent-line"><img src="Templates/accent00.png" class="img_mark2"><a class="lv-hc-audio"' in rendered.html
+    assert '<img src="Templates/accent00.png" class="img_mark2"><a class="lv-hc-audio"' in rendered.html
+    assert '<img src="Templates/sound.png" class="img_mark2"></a></span><br>' in rendered.html
     assert '<div class="contents_yourei"><img src="Templates/exam.png" class="img_icon_Big"><br>' in rendered.html
     assert "「" not in rendered.html
     assert "」" not in rendered.html
@@ -7103,6 +7153,8 @@ def test_hc0065_part_of_speech_marker_uses_following_label_image() -> None:
 
     assert 'src="Templates/interjective.png"' in rendered.html
     assert 'src="Templates/adverb.png"' in rendered.html
+    assert '<span class="hc0065-hinshi-prefix">━</span><img class="lv-hc-gaiji img_hinshi" src="Templates/interjective.png"' in rendered.html
+    assert '<span class="hc0065-hinshi-prefix">━</span><img class="lv-hc-gaiji img_hinshi" src="Templates/adverb.png"' in rendered.html
     assert "【間】" not in rendered.html
     assert "副】" not in rendered.html
     assert rendered.stats["hc0065_part_of_speech_images"] == 2
@@ -7498,7 +7550,116 @@ def test_rewrite_exact_body_asset_refs_uses_case_insensitive_lookup(tmp_path: Pa
     )
 
 
-def test_hc_render_uses_exinfo_vertical_default(tmp_path: Path) -> None:
+def test_hc_render_entry_lookup_prefers_exact_short_query_over_noise() -> None:
+    assert _score_index_row("et", {"key": "ET", "target_key": "ET"}) == (120, "target_key:exact")
+    assert _score_index_row("et", {"key": "ABÊTIR", "target_key": "ABÊTIR"}) == (0, "")
+    assert _score_index_row("crocodile", {"key": "CROCODILE", "target_key": "CROCODILE"}) == (
+        120,
+        "target_key:exact",
+    )
+
+
+def test_rewrite_exact_body_asset_refs_can_prefer_horizontal_template_assets(tmp_path: Path) -> None:
+    (tmp_path / "Templates").mkdir()
+    (tmp_path / "Templates" / "b174.png").write_bytes(b"png")
+    (tmp_path / "Templates" / "b174_v.png").write_bytes(b"vertical")
+    (tmp_path / "Templates" / "b225.png").write_bytes(b"png")
+    (tmp_path / "Templates" / "b225_v.png").write_bytes(b"vertical")
+
+    rewritten = _rewrite_exact_body_asset_refs(
+        '<img src="Templates/b174_v.png"><object data="b225_v.png"></object>',
+        tmp_path,
+        prefer_horizontal_assets=True,
+    )
+
+    assert rewritten == '<img src="Templates/b174.png"><object data="Templates/b225.png"></object>'
+
+
+def test_exact_rendererdb_media_placeholders_use_raw_honmon_media_sources(tmp_path: Path) -> None:
+    dict_out = tmp_path / "ZYAKUKOG"
+    (dict_out / "media" / "colscr").mkdir(parents=True)
+    (dict_out / "Templates").mkdir(parents=True)
+    (dict_out / "Templates" / "katu.png").write_bytes(b"png")
+    (dict_out / "Templates" / "katu_v.png").write_bytes(b"vertical")
+    (dict_out / "media" / "colscr" / "00044253_1574.bmp").write_bytes(b"BM")
+    raw_entries = dict_out / "hc_entries.jsonl"
+    raw_entries.write_text(
+        json.dumps(
+            {
+                "entry_index": 3977,
+                "html": '<img class="lv-hc-media" src="media/colscr/00044253_1574.bmp">',
+                "media": [
+                    {
+                        "target": {
+                            "component": "COLSCR.DIC",
+                            "block": 44253,
+                            "offset": 1574,
+                        }
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    rendererdb_entries = dict_out / "rendererdb_entries.jsonl"
+    rendererdb_entries.write_text(
+        json.dumps(
+            {
+                "dict_id": "ZYAKUKOG",
+                "raw_honmon": {"entry_index": 3977},
+                "html": '<div><img src="00001163-1166-00000001.gif"><img src="katu_v.png"></div>',
+                "plain": "川竹",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    html_path = _write_exact_hc_entries_html_from_rendererdb(
+        {"entries_path": str(rendererdb_entries)},
+        dict_out,
+        stylesheet=None,
+        vertical=False,
+        renderer_code="013F",
+        raw_honmon_entries_path=raw_entries,
+    )
+
+    rendered = html_path.read_text(encoding="utf-8")
+    assert '<html class="h">' in rendered
+    assert 'src="media/colscr/00044253_1574.bmp"' in rendered
+    assert 'src="Templates/katu.png"' in rendered
+    assert "00001163-1166-00000001.gif" not in rendered
+    assert "_v.png" not in rendered
+
+
+def test_exact_rendererdb_fragment_media_writes_referenced_blobs(tmp_path: Path) -> None:
+    con = sqlite3.connect(":memory:")
+    try:
+        con.execute("create table media(No integer primary key, f_name text, f_type integer, f_main blob)")
+        con.execute("insert into media values(?, ?, ?, ?)", (3539, "T03983_KK010", 2, b"\x89PNG\r\n\x1a\npng"))
+        con.execute("insert into media values(?, ?, ?, ?)", (3540, "unused", 2, b"\x89PNG\r\n\x1a\nunused"))
+        con.commit()
+
+        media_dir = tmp_path / "SINJIGEN" / "rendererdb" / "SINJIGEN" / "media"
+        written = _write_rendererdb_fragment_media(
+            con,
+            media_dir,
+            '<div><img src="T03983_KK010.png"><img src="missing.png"></div>',
+        )
+    finally:
+        con.close()
+
+    assert written == 1
+    assert (media_dir / "T03983_KK010.png").is_file()
+    assert not (media_dir / "unused.png").exists()
+    rewritten = _rewrite_exact_body_asset_refs('<img src="T03983_KK010.png">', tmp_path / "SINJIGEN")
+    assert 'src="rendererdb/SINJIGEN/media/T03983_KK010.png"' in rewritten
+
+
+def test_hc_render_vertical_requires_explicit_flag(tmp_path: Path) -> None:
     root = tmp_path / "DAIJIRN4"
     root.mkdir()
     idx = root / "DAIJIRN4.IDX"
@@ -7508,7 +7669,7 @@ def test_hc_render_uses_exinfo_vertical_default(tmp_path: Path) -> None:
     (root / "EXINFO.INI").write_text("[GENERAL]\nVERTICAL=1\n", encoding="cp932")
     source = DictionarySource("DAIJIRN4", idx, "DAIJIRN4", honmon, 1, {})
 
-    assert _source_prefers_vertical(source, argparse.Namespace(vertical=False)) is True
+    assert _source_prefers_vertical(source, argparse.Namespace(vertical=False)) is False
     assert _source_prefers_vertical(source, argparse.Namespace(vertical=True)) is True
 
 
@@ -7621,6 +7782,7 @@ def test_hc015d_exact_rendererdb_resolves_dictionary_font_pua(tmp_path: Path) ->
         '"html":"<div class=\\"midashi\\">新</div><div class=\\"honbun\\">'
         '<span class=\\"imi\\">\\ue0b0\\ue130\\ue029\\ue84b\\ue5c9\\ue209\\ue1ad</span>'
         '<span class=\\"wari\\"><span class=\\"wari_mae\\">シ</span><br><span class=\\"wari_ato\\">ン</span></span>'
+        '<span class=\\"wari\\"><span class=\\"wari_mae\\">あた</span><br><span class=\\"wari_ato\\">らし</span></span>'
         '</div>",'
         '"plain":"新"}\n',
         encoding="utf-8",
@@ -7652,6 +7814,55 @@ def test_hc015d_exact_rendererdb_resolves_dictionary_font_pua(tmp_path: Path) ->
     assert "\ue1ad" not in rendered
     assert ".rendererdb-entry.hc015d .wari br" in HC_RENDER_FINAL_CSS
     assert ".rendererdb-entry.hc015d .oyaji_data_main_jou" in HC_RENDER_FINAL_CSS
+    assert "html.v .rendererdb-entry.hc015d .oyaji_data_main_jou" in HC_RENDER_FINAL_CSS
+    assert "html.v .rendererdb-entry.hc015d .oyaji_data_no" in HC_RENDER_FINAL_CSS
+    assert "html.v .rendererdb-entry.hc015d .wari" in HC_RENDER_FINAL_CSS
+    assert "hc015d-wari-chars" in rendered
+    assert "hc015d-wari-left" in rendered
+    assert "hc015d-wari-right" in rendered
+    assert '<span class="hc015d-wari-cell hc015d-wari-left" style="grid-row:1">ら</span>' in rendered
+    assert '<span class="hc015d-wari-cell hc015d-wari-right" style="grid-row:1">あ</span>' in rendered
+    assert '<span class="hc015d-wari-cell hc015d-wari-left" style="grid-row:2">し</span>' in rendered
+    assert '<span class="hc015d-wari-cell hc015d-wari-right" style="grid-row:2">た</span>' in rendered
+    assert "display: inline-grid !important;" in HC_RENDER_FINAL_CSS
+    assert "grid-template-columns: max-content max-content !important;" in HC_RENDER_FINAL_CSS
+    assert "column-gap: 0.12em !important;" in HC_RENDER_FINAL_CSS
+    assert "row-gap: 0.06em !important;" in HC_RENDER_FINAL_CSS
+    assert "width: 0.74em !important;" in HC_RENDER_FINAL_CSS
+    assert "direction: ltr !important;" in HC_RENDER_FINAL_CSS
+    assert "grid-column: 1 !important;" in HC_RENDER_FINAL_CSS
+    assert "grid-column: 2 !important;" in HC_RENDER_FINAL_CSS
+
+
+def test_hc015d_known_dictionary_font_pua_resolves_without_kanji_table(tmp_path: Path) -> None:
+    dict_out = tmp_path / "SINJIGEN"
+    dict_out.mkdir()
+    sqlite_path = dict_out / "vlpljblb.sqlite"
+    con = sqlite3.connect(sqlite_path)
+    try:
+        con.execute("CREATE TABLE t_data (id INTEGER PRIMARY KEY)")
+        con.commit()
+    finally:
+        con.close()
+    entries = dict_out / "rendererdb_entries.jsonl"
+    entries.write_text(
+        '{"dict_id":"SINJIGEN","data_id":112380,'
+        '"html":"<div class=\\"honbun\\">\\ue5c9</div>",'
+        '"plain":"新"}\n',
+        encoding="utf-8",
+    )
+
+    html_path = _write_exact_hc_entries_html_from_rendererdb(
+        {"entries_path": str(entries), "sqlite_path": str(sqlite_path)},
+        dict_out,
+        stylesheet="hc-renderer.css",
+        vertical=False,
+        renderer_code="015D",
+    )
+
+    rendered = html_path.read_text(encoding="utf-8")
+    assert "薪" in rendered
+    assert "\ue5c9" not in rendered
 
 
 def test_hc03e8_exact_rendererdb_plain_rows_get_midashi_honbun_layout(tmp_path: Path) -> None:
@@ -8370,6 +8581,69 @@ def test_hc_renderer_product_hooks_are_named_gaps() -> None:
     assert _renderer_behavior_gaps(row) == ["panel_hooks", "sql_search_or_helper_hooks"]
 
 
+def test_hc_custom_dib_export_is_capability_not_renderer_gap() -> None:
+    row = HcRendererClassification(
+        path=Path("HC013A.dll"),
+        code="013A",
+        expected_numeric_index="0000013A.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(kind="unknown"),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=(),
+        features={"custom_dib_export": True, "bridge_bitmap_import": True},
+    )
+
+    gaps = _renderer_behavior_gaps(row)
+    data = build_hc_behavior_profile(row).as_dict()
+    hook_names = {hook["name"] for hook in data["hook_behaviors"]}
+
+    assert "custom_gaiji_dib_hook" not in gaps
+    assert "custom_dib_export" not in data["named_gaps"]
+    assert "bridge_bitmap_import" not in data["named_gaps"]
+    assert {"custom_dib_export", "bridge_bitmap_import"} <= hook_names
+
+
+def test_hc_renderer_effects_split_dib_export_from_bridge_bitmap_import() -> None:
+    row = HcRendererClassification(
+        path=Path("HC0001.dll"),
+        code="0001",
+        expected_numeric_index="00000001.idx",
+        size=1,
+        sha256=None,
+        pe=PeSummary(
+            kind="pe",
+            exports=("epwing2HtmlBodydata", "getCustomCharacterDIB"),
+            imports=(PeImportDll("SSDicLib.dll", (PeImport("SDicGetCustomCharacterBitmap"),)),),
+        ),
+        exinfo_html_dll=None,
+        exinfo_declares_this=None,
+        numeric_indexes=(),
+        expected_numeric_index_present=False,
+        vlpljbl_siblings=(),
+        dic_tokens=(),
+        vlpljbl_tokens=(),
+        html_templates=(),
+        sql_snippets=(),
+        image_templates=(),
+        features={"custom_dib_export": True, "bridge_bitmap_import": True},
+    )
+
+    effects = hc_renderer_effects(row)
+
+    assert effects["custom_dib_strategy"]["export"] == "getCustomCharacterDIB"
+    assert effects["custom_dib_strategy"]["bridge_bitmap_import"] == "SDicGetCustomCharacterBitmap"
+    assert "visible custom-DIB impact" in effects["custom_dib_strategy"]["parity_note"]
+
+
 def test_branch_subset_profiles_do_not_claim_visual_parity() -> None:
     row = HcRendererClassification(
         path=Path("HC0146.dll"),
@@ -8477,14 +8751,14 @@ def test_hc004d_profile_records_bmanner_subset_without_claiming_parity() -> None
         html_templates=("Templates/0000004d.css",),
         sql_snippets=(),
         image_templates=("sound.png", "image.png", "movie.png"),
-        features={"custom_gaiji_dib": True},
+        features={"custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC004D_midashi_honbun_renderer" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
@@ -8599,14 +8873,14 @@ def test_hc00aa_profile_records_hkbyoin_subset_without_claiming_parity() -> None
         html_templates=("Templates/000000aa.css",),
         sql_snippets=(),
         image_templates=("Nurse.png", "tejyun.png"),
-        features={"custom_gaiji_dib": True},
+        features={"custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC00AA_hkbyoin_section_media_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
@@ -8673,14 +8947,14 @@ def test_hc00a3_profile_records_viku_subset_without_claiming_parity() -> None:
         html_templates=("Templates/000000A3.css", "Templates/000000A3.js"),
         sql_snippets=(),
         image_templates=("answerH.gif", "kaisetsuV.gif"),
-        features={"custom_gaiji_dib": True},
+        features={"custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC00A3_quiz_answer_section_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
@@ -8732,14 +9006,14 @@ def test_hc00c5_profile_records_gkkanyok_subset_without_claiming_parity() -> Non
         html_templates=("Templates/000000C5.css",),
         sql_snippets=(),
         image_templates=("imi.png", "yourei_V.png"),
-        features={"custom_gaiji_dib": True},
+        features={"custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC00C5_section_image_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
@@ -8808,7 +9082,7 @@ def test_hc00ad_maps_large_character_sections_and_state_close() -> None:
     assert '<div class="hc00ad-kanji-summary"><div class="hc00ad-kanji-main">' in rendered.html
     assert '<div class="hc00ad-kanji-meta">' in rendered.html
     assert "font-size:6em" in rendered.html
-    assert "text-indent:-1.000000em" in rendered.html
+    assert '<div class="honbun hc00ad-label-section" style="margin-left:0.250000em;text-indent:0.000000em;">' in rendered.html
     assert "<hr" in rendered.html
     assert rendered.html.count("<hr") == 1
     assert "Templates/jyouyou.png" in rendered.html
@@ -8825,7 +9099,8 @@ def test_hc00ad_maps_large_character_sections_and_state_close() -> None:
     assert "<strong>❶語<br>❷姓</strong>" in rendered.html
     assert "<em>リ</em>" not in rendered.html
     assert "<em>語</em>" not in rendered.html
-    assert '<div class="hc00ad-media-block"><img class="lv-hc-media"' in rendered.html
+    assert '<img src="Templates/kaiji.png" class="img_mark"><span class="hc00ad-media-block"><img class="lv-hc-media"' in rendered.html
+    assert '</span><br>会意' in rendered.html
     assert 'src="media/colscr/00000123_0045.bmp"' in rendered.html
     assert "00000123_0045.bmp" in rendered.html
     assert "00000123_0045.bmp" in rendered.html[: rendered.html.index("会意")]
@@ -8862,7 +9137,7 @@ def test_hc00ad_profile_records_kanjigen_subset_without_claiming_parity() -> Non
         html_templates=("Templates/000000AD.css",),
         sql_snippets=(),
         image_templates=("imi.png", "v_imi.png"),
-        features={"custom_gaiji_dib": True},
+        features={"custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
@@ -8870,7 +9145,7 @@ def test_hc00ad_profile_records_kanjigen_subset_without_claiming_parity() -> Non
     assert "HC00AD_large_character_section_layout" in data["implemented_semantics"]
     assert "HC00AD_summary_label_images_and_bold_markers" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
@@ -8921,14 +9196,14 @@ def test_hc00bb_profile_records_gen2000_subset_without_claiming_parity() -> None
         html_templates=("Templates/00000134.css",),
         sql_snippets=(),
         image_templates=("mlink.gif", "forward.gif"),
-        features={"custom_gaiji_dib": True},
+        features={"custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC00BB_honbun_section_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
@@ -9010,7 +9285,7 @@ def test_hc00ab_profile_records_gkyojijk_subset_without_claiming_parity() -> Non
         html_templates=("Templates/000000AB.css",),
         sql_snippets=(),
         image_templates=("b138.gif", "b13a.gif", "lineLink.gif"),
-        features={"custom_gaiji_dib": True},
+        features={"custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
@@ -9018,7 +9293,7 @@ def test_hc00ab_profile_records_gkyojijk_subset_without_claiming_parity() -> Non
     assert "HC00AB_honbun_section_layout" in data["implemented_semantics"]
     assert "HC00AB_ruby_red_emphasis_and_yourei_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
@@ -9040,7 +9315,7 @@ def test_hc0137_profile_records_iwanami_subset_without_claiming_parity() -> None
         html_templates=("Templates/00000137.css",),
         sql_snippets=("initializeSQL",),
         image_templates=("b1.png", "g1.png"),
-        features={"panel_hooks": True, "headword_modifier": True, "sql_hooks": True, "custom_gaiji_dib": True},
+        features={"panel_hooks": True, "headword_modifier": True, "sql_hooks": True, "custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
@@ -9049,7 +9324,7 @@ def test_hc0137_profile_records_iwanami_subset_without_claiming_parity() -> None
     assert data["exact_hc_parity"] is False
     assert "panel_lifecycle" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
@@ -9071,7 +9346,7 @@ def test_hc02c8_profile_records_zukaiho_subset_without_claiming_parity() -> None
         html_templates=("Templates/000002C8.css",),
         sql_snippets=("initializeSQL",),
         image_templates=("B136.png", "B146.png", "mlink.gif"),
-        features={"headword_modifier": True, "sql_hooks": True, "custom_gaiji_dib": True},
+        features={"headword_modifier": True, "sql_hooks": True, "custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
@@ -9079,7 +9354,7 @@ def test_hc02c8_profile_records_zukaiho_subset_without_claiming_parity() -> None
     assert "HC02C8_zukaiho_section_table_and_indent_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
     assert "modify_headword_hook" in data["named_gaps"]
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
@@ -9101,7 +9376,7 @@ def test_hc008c_profile_records_hkdk_2010_subset_without_claiming_parity() -> No
         html_templates=("0000008C.css",),
         sql_snippets=(),
         image_templates=("b170.gif", "sound.png"),
-        features={"custom_gaiji_dib": True},
+        features={"custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
@@ -9109,7 +9384,7 @@ def test_hc008c_profile_records_hkdk_2010_subset_without_claiming_parity() -> No
     assert "HC008C_medical_section_layout" in data["implemented_semantics"]
     assert "HC008C_conditional_link_classes" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
@@ -9188,14 +9463,14 @@ def test_hc0068_profile_records_contents_layout_subset_without_claiming_parity()
         html_templates=("Templates/00000068.css",),
         sql_snippets=(),
         image_templates=("sound.png", "image.png", "dummy.gif", "b655.gif"),
-        features={"custom_gaiji_dib": True},
+        features={"custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0068_midashi_contents_and_margin_sections" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
@@ -9217,14 +9492,14 @@ def test_hc0069_profile_records_contents_layout_subset_without_claiming_parity()
         html_templates=("Templates/00000069.css",),
         sql_snippets=(),
         image_templates=("sound.png", "image.png", "dummy.gif"),
-        features={"custom_gaiji_dib": True, "headword_modifier": True},
+        features={"custom_dib_export": True, "headword_modifier": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0069_midashi_contents_and_margin_sections" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
@@ -9276,7 +9551,7 @@ def test_hc00de_profile_records_britannica_state_marker_subset_without_claiming_
         html_templates=("Media/HTMLs/%d-%d.html",),
         sql_snippets=(),
         image_templates=(),
-        features={"custom_gaiji_dib": True, "headword_modifier": True, "panel_hooks": True},
+        features={"custom_dib_export": True, "headword_modifier": True, "panel_hooks": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
@@ -9284,7 +9559,7 @@ def test_hc00de_profile_records_britannica_state_marker_subset_without_claiming_
     assert "HC_BRITANNICA_state_gaiji_marker_suppression" in data["implemented_semantics"]
     assert "HC_BRITANNICA_midashi_state_sections_and_line_links" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
     assert any(hook["name"] == "britannica_panel_media_html" for hook in data["hook_behaviors"])
@@ -9339,14 +9614,14 @@ def test_hc009d_profile_records_kakomi_subset_without_claiming_parity() -> None:
         html_templates=(),
         sql_snippets=(),
         image_templates=(),
-        features={"custom_gaiji_dib": True},
+        features={"custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC009D_section_and_kakomi_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
 
 
 def test_hc012d_profile_records_section_subset_without_claiming_parity() -> None:
@@ -9396,14 +9671,14 @@ def test_hc0145_profile_records_section_subset_without_claiming_parity() -> None
         html_templates=(),
         sql_snippets=(),
         image_templates=(),
-        features={"custom_gaiji_dib": True, "sql_hooks": True, "headword_modifier": True},
+        features={"custom_dib_export": True, "sql_hooks": True, "headword_modifier": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0145_section_and_marker_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "sql_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
 
@@ -9426,14 +9701,14 @@ def test_hc0144_profile_records_section_subset_without_claiming_parity() -> None
         html_templates=(),
         sql_snippets=(),
         image_templates=(),
-        features={"custom_gaiji_dib": True, "sql_hooks": True, "headword_modifier": True},
+        features={"custom_dib_export": True, "sql_hooks": True, "headword_modifier": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0144_section_and_marker_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "sql_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
 
@@ -9456,14 +9731,14 @@ def test_hc03e8_profile_records_section_subset_without_claiming_parity() -> None
         html_templates=(),
         sql_snippets=(),
         image_templates=(),
-        features={"custom_gaiji_dib": True, "sql_hooks": True, "headword_modifier": True},
+        features={"custom_dib_export": True, "sql_hooks": True, "headword_modifier": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC03E8_section_and_marker_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "sql_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
 
@@ -9486,14 +9761,14 @@ def test_hc0141_profile_records_section_subset_without_claiming_parity() -> None
         html_templates=(),
         sql_snippets=(),
         image_templates=(),
-        features={"custom_gaiji_dib": True, "sql_hooks": True, "headword_modifier": True, "dictionary_original_search": True},
+        features={"custom_dib_export": True, "sql_hooks": True, "headword_modifier": True, "dictionary_original_search": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0141_section_and_marker_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "dictionary_original_search_hook" in data["named_gaps"]
     assert "sql_hook" in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
@@ -9544,14 +9819,14 @@ def test_hc009c_profile_records_section_image_subset_without_claiming_parity() -
         html_templates=(),
         sql_snippets=(),
         image_templates=("Templates/B122.gif",),
-        features={"custom_gaiji_dib": True},
+        features={"custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC009C_section_image_index_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
 
 
 def test_hc02c5_profile_records_section_marker_subset_without_claiming_parity() -> None:
@@ -9572,14 +9847,14 @@ def test_hc02c5_profile_records_section_marker_subset_without_claiming_parity() 
         html_templates=(),
         sql_snippets=(),
         image_templates=("Templates/B273.png",),
-        features={"custom_gaiji_dib": True, "headword_modifier": True, "panel_hooks": True},
+        features={"custom_dib_export": True, "headword_modifier": True, "panel_hooks": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC02C5_section_marker_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
     assert "panel_lifecycle" in data["named_gaps"]
 
@@ -9602,14 +9877,14 @@ def test_hc0151_profile_records_biology_layout_subset_without_claiming_parity() 
         html_templates=("Templates/00000151.css",),
         sql_snippets=(),
         image_templates=("Templates/B156.png",),
-        features={"custom_gaiji_dib": True, "headword_modifier": True, "panel_hooks": True},
+        features={"custom_dib_export": True, "headword_modifier": True, "panel_hooks": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0151_section_table_marker_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
     assert "panel_lifecycle_hook" in data["named_gaps"]
 
@@ -9632,14 +9907,14 @@ def test_hc0142_profile_records_panel_layout_subset_without_claiming_parity() ->
         html_templates=("Templates/00000142.css",),
         sql_snippets=(),
         image_templates=("Templates/b13f.png",),
-        features={"custom_gaiji_dib": True, "headword_modifier": True, "panel_hooks": True, "vertical_renderer": True},
+        features={"custom_dib_export": True, "headword_modifier": True, "panel_hooks": True, "vertical_renderer": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0142_panel_body_marker_layout" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
     assert "panel_lifecycle" in data["named_gaps"]
 
@@ -9662,7 +9937,7 @@ def test_hc02c1_profile_records_panel_layout_subset_without_claiming_parity() ->
         html_templates=("Templates/000002C1.css",),
         sql_snippets=(),
         image_templates=("Templates/B14C.png",),
-        features={"custom_gaiji_dib": True, "headword_modifier": True, "panel_hooks": True, "vertical_renderer": True},
+        features={"custom_dib_export": True, "headword_modifier": True, "panel_hooks": True, "vertical_renderer": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
@@ -9670,7 +9945,7 @@ def test_hc02c1_profile_records_panel_layout_subset_without_claiming_parity() ->
     assert "HC02C1_section_icons_and_template_gaiji" in data["implemented_semantics"]
     assert "HC02C1_private_ruby_bold_and_unused_markers" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
     assert "panel_lifecycle" in data["named_gaps"]
 
@@ -9693,7 +9968,7 @@ def test_hc02bf_profile_records_panel_layout_subset_without_claiming_parity() ->
         html_templates=("Templates/000002BF.css",),
         sql_snippets=("SELECT ...",),
         image_templates=("Templates/hasei.png",),
-        features={"custom_gaiji_dib": True, "headword_modifier": True, "panel_hooks": True, "sql_hooks": True, "vertical_renderer": True},
+        features={"custom_dib_export": True, "headword_modifier": True, "panel_hooks": True, "sql_hooks": True, "vertical_renderer": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
@@ -9701,7 +9976,7 @@ def test_hc02bf_profile_records_panel_layout_subset_without_claiming_parity() ->
     assert "HC02BF_section_icon_and_moji_down_layout" in data["implemented_semantics"]
     assert "HC02BF_decoration_modes" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
     assert "panel_lifecycle" in data["named_gaps"]
 
@@ -9724,14 +9999,14 @@ def test_hc012f_profile_records_bunnya_subset_without_claiming_parity() -> None:
         html_templates=("Templates/0000012F.css",),
         sql_snippets=(),
         image_templates=("Templates/bunnya_18.png", "Templates/b122.png"),
-        features={"custom_gaiji_dib": True, "headword_modifier": True, "vertical_renderer": True},
+        features={"custom_dib_export": True, "headword_modifier": True, "vertical_renderer": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC012F_bunnya_section_and_template_gaiji" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
 
 
@@ -9753,14 +10028,14 @@ def test_hc0131_profile_records_kqebhou_subset_without_claiming_parity() -> None
         html_templates=("Templates/00000131.css",),
         sql_snippets=("SELECT ...",),
         image_templates=("Templates/b132.png",),
-        features={"custom_gaiji_dib": True, "headword_modifier": True, "sql_hooks": True, "vertical_renderer": True},
+        features={"custom_dib_export": True, "headword_modifier": True, "sql_hooks": True, "vertical_renderer": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0131_kqebhou_section_and_template_gaiji" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
     assert "sql_hook" in data["named_gaps"]
 
@@ -9812,14 +10087,14 @@ def test_hkdksr_medical_profiles_record_subset_without_claiming_parity() -> None
             html_templates=(f"Templates/{css_name}",),
             sql_snippets=("SELECT ...",),
             image_templates=("Templates/b12a.png", "Templates/midashi1.png"),
-            features={"custom_gaiji_dib": True, "headword_modifier": True, "panel_hooks": True, "sql_hooks": True, "vertical_renderer": True},
+            features={"custom_dib_export": True, "headword_modifier": True, "panel_hooks": True, "sql_hooks": True, "vertical_renderer": True},
         )
 
         data = build_hc_behavior_profile(row).as_dict()
 
         assert "HC_HKDKSR_medical_section_layout" in data["implemented_semantics"]
         assert data["exact_hc_parity"] is False
-        assert "custom_gaiji_dib_hook" in data["named_gaps"]
+        assert "custom_dib_export" not in data["named_gaps"]
         assert "modify_headword_hook" in data["named_gaps"]
         assert "panel_lifecycle_hook" in data["named_gaps"]
         assert "sql_hook" in data["named_gaps"]
@@ -9844,14 +10119,14 @@ def test_hc_gen_year_profile_records_subset_without_claiming_parity() -> None:
             html_templates=(f"Templates/0000{code}.css",),
             sql_snippets=(),
             image_templates=("Templates/B132.png",),
-            features={"custom_gaiji_dib": True, "headword_modifier": True, "vertical_renderer": True},
+            features={"custom_dib_export": True, "headword_modifier": True, "vertical_renderer": True},
         )
 
         data = build_hc_behavior_profile(row).as_dict()
 
         assert "HC_GEN_YEAR_section_icons_and_template_markers" in data["implemented_semantics"]
         assert data["exact_hc_parity"] is False
-        assert "custom_gaiji_dib_hook" in data["named_gaps"]
+        assert "custom_dib_export" not in data["named_gaps"]
         assert "modify_headword_hook" in data["named_gaps"]
 
 
@@ -9873,7 +10148,7 @@ def test_hc02ca_profile_records_subset_without_claiming_parity() -> None:
         html_templates=("Templates/000002CA.css",),
         sql_snippets=(),
         image_templates=("Templates/B12D.png", "Templates/B135.png"),
-        features={"custom_gaiji_dib": True, "headword_modifier": True, "vertical_renderer": True},
+        features={"custom_dib_export": True, "headword_modifier": True, "vertical_renderer": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
@@ -9881,7 +10156,7 @@ def test_hc02ca_profile_records_subset_without_claiming_parity() -> None:
     assert "HC02CA_honbun_margin_sections" in data["implemented_semantics"]
     assert "HC02CA_private_state_and_bitmap_gaiji" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
 
 
@@ -9932,14 +10207,14 @@ def test_hc0063_profile_records_subset_without_claiming_parity() -> None:
         html_templates=("Templates/00000063.css",),
         sql_snippets=(),
         image_templates=("Templates/roman-alphabet.gif",),
-        features={"custom_gaiji_dib": True, "headword_modifier": True},
+        features={"custom_dib_export": True, "headword_modifier": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0063_contents_sections_and_template_gaiji" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
 
 
@@ -9961,14 +10236,14 @@ def test_hc0093_profile_records_subset_without_claiming_parity() -> None:
         html_templates=("Templates/00000093.css",),
         sql_snippets=(),
         image_templates=("Templates/arrow.gif", "Templates/meaning.gif", "Templates/etymology.gif", "Templates/class_arrow.gif"),
-        features={"custom_gaiji_dib": True},
+        features={"custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0093_lineinfo_sections_and_template_gaiji" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "private_ruby_directive_hook" in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
@@ -9991,14 +10266,14 @@ def test_hc0095_profile_records_subset_without_claiming_parity() -> None:
         html_templates=("Templates/00000095.css",),
         sql_snippets=(),
         image_templates=("Templates/B128.png", "Templates/B12F.png"),
-        features={"custom_gaiji_dib": True},
+        features={"custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0095_lineinfo_sections_and_template_gaiji" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
@@ -10020,7 +10295,7 @@ def test_hc0096_profile_records_subset_without_claiming_parity() -> None:
         html_templates=("Templates/00000096.css",),
         sql_snippets=(),
         image_templates=("Templates/B124.gif", "Templates/B250.gif"),
-        features={"custom_gaiji_dib": True},
+        features={"custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
@@ -10028,7 +10303,7 @@ def test_hc0096_profile_records_subset_without_claiming_parity() -> None:
     assert "HC0096_lineinfo_sections_and_template_gaiji" in data["implemented_semantics"]
     assert "HC0096_private_ruby_directives" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "private_ruby_directive_hook" not in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
@@ -10051,14 +10326,14 @@ def test_hc009f_profile_records_subset_without_claiming_parity() -> None:
         html_templates=("Templates/0000009F.css",),
         sql_snippets=(),
         image_templates=("Templates/Hsp.png", "Templates/Hsp1.png", "Templates/b121H.gif"),
-        features={"custom_gaiji_dib": True},
+        features={"custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC009F_season_category_sections_and_template_gaiji" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
@@ -10080,14 +10355,14 @@ def test_hc014f_profile_records_subset_without_claiming_parity() -> None:
         html_templates=("Templates/0000014F.css",),
         sql_snippets=("SELECT f_midasi,f_block,f_offset FROM t_Search_1 WHERE f_midasi LIKE '%'",),
         image_templates=("Templates/back.gif", "Templates/forward.gif"),
-        features={"custom_gaiji_dib": True, "headword_modifier": True, "plugin_hooks": True, "sql_hooks": True},
+        features={"custom_dib_export": True, "headword_modifier": True, "plugin_hooks": True, "sql_hooks": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC014F_midashi_contents_and_decoration_modes" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
     assert "sql_hook" in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
@@ -10111,14 +10386,14 @@ def test_hc0135_profile_records_subset_without_claiming_parity() -> None:
         html_templates=("Templates/00000135.css",),
         sql_snippets=("SELECT f_word FROM t_originalsearch WHERE f_word LIKE '%'",),
         image_templates=("Templates/exam.png", "Templates/shikakuha.png"),
-        features={"custom_gaiji_dib": True, "headword_modifier": True, "plugin_hooks": True, "sql_hooks": True},
+        features={"custom_dib_export": True, "headword_modifier": True, "plugin_hooks": True, "sql_hooks": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0135_sinmei_sections_and_private_markers" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
     assert "sql_hook" in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
@@ -10232,14 +10507,14 @@ def test_hc02c0_profile_records_subset_without_claiming_parity() -> None:
         html_templates=("Templates/000002C0.css",),
         sql_snippets=(),
         image_templates=("Templates/B121.png",),
-        features={"custom_gaiji_dib": True, "headword_modifier": True, "vertical_renderer": True},
+        features={"custom_dib_export": True, "headword_modifier": True, "vertical_renderer": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC02C0_honbun_margin_sections" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
 
 
@@ -10347,7 +10622,7 @@ def test_hc0159_profile_records_exact_rendererdb_body_without_claiming_hook_pari
         sql_snippets=("SELECT f_Html FROM t_contents WHERE f_DataId = ?", "SELECT * FROM kisoku;"),
         image_templates=("back.gif", "forward.gif"),
         features={
-            "custom_gaiji_dib": True,
+            "custom_dib_export": True,
             "dictionary_original_search": True,
             "fulltext_search": True,
             "headword_modifier": True,
@@ -10392,7 +10667,7 @@ def test_hc015c_profile_records_t_contents_body_without_claiming_hook_parity() -
         sql_snippets=("SELECT f_Html FROM t_contents WHERE f_DataId = ?",),
         image_templates=(),
         features={
-            "custom_gaiji_dib": True,
+            "custom_dib_export": True,
             "dictionary_original_search": True,
             "fulltext_search": True,
             "headword_modifier": True,
@@ -10433,7 +10708,7 @@ def test_hc015d_profile_records_t_contents_body_without_claiming_hook_parity() -
         sql_snippets=("SELECT f_Html FROM t_contents WHERE f_DataId = ?",),
         image_templates=(),
         features={
-            "custom_gaiji_dib": True,
+            "custom_dib_export": True,
             "dictionary_original_search": True,
             "fulltext_search": True,
             "headword_modifier": True,
@@ -10476,7 +10751,7 @@ def test_hc0160_profile_records_unanchored_t_contents_body_without_claiming_hook
         sql_snippets=("SELECT f_contents FROM t_contents WHERE f_data_id = ?",),
         image_templates=("icon_bm.png", "icon_bm_on.png"),
         features={
-            "custom_gaiji_dib": True,
+            "custom_dib_export": True,
             "dictionary_original_search": True,
             "fulltext_search": True,
             "headword_modifier": True,
@@ -10524,7 +10799,7 @@ def test_hc0c80_profile_records_array_t_contents_body_without_claiming_hook_pari
         sql_snippets=("SELECT f_contents FROM t_contents WHERE f_array_no = ?",),
         image_templates=(),
         features={
-            "custom_gaiji_dib": True,
+            "custom_dib_export": True,
             "dictionary_original_search": True,
             "headword_modifier": True,
             "plugin_hooks": True,
@@ -10565,7 +10840,7 @@ def test_hc0156_profile_records_main_id_text_body_without_claiming_hook_parity()
         html_templates=("Templates/00000156.css",),
         sql_snippets=("main(ID, Class, K_text, J_text)",),
         image_templates=(),
-        features={"custom_gaiji_dib": True, "headword_modifier": True, "sql_hooks": True},
+        features={"custom_dib_export": True, "headword_modifier": True, "sql_hooks": True},
     )
 
     data = build_hc_behavior_profile(
@@ -10605,7 +10880,7 @@ def test_hc016x_profile_records_order_id_contents_body_without_claiming_hook_par
         sql_snippets=("SELECT f_contents FROM t_contents WHERE f_order_id = ?",),
         image_templates=(),
         features={
-            "custom_gaiji_dib": True,
+            "custom_dib_export": True,
             "dictionary_original_search": True,
             "fulltext_search": True,
             "headword_modifier": True,
@@ -10652,7 +10927,7 @@ def test_hc0153_profile_records_honbun_array_body_without_claiming_hook_parity()
         sql_snippets=("SELECT f_contents FROM HONBUN WHERE f_array_no = ? ;",),
         image_templates=("b16c.png",),
         features={
-            "custom_gaiji_dib": True,
+            "custom_dib_export": True,
             "dictionary_original_search": True,
             "fulltext_search": True,
             "headword_modifier": True,
@@ -10698,7 +10973,7 @@ def test_hc014d_profile_records_ordered_honbun_body_without_claiming_hook_parity
         sql_snippets=("SELECT Contents_HTML_box FROM HONBUN",),
         image_templates=(),
         features={
-            "custom_gaiji_dib": True,
+            "custom_dib_export": True,
             "headword_modifier": True,
             "sql_hooks": True,
             "plugin_hooks": True,
@@ -10741,7 +11016,7 @@ def test_hc02d0_profile_records_t_contents_body_without_claiming_hook_parity() -
         sql_snippets=("SELECT f_Html FROM t_contents WHERE f_DataId = ?",),
         image_templates=(),
         features={
-            "custom_gaiji_dib": True,
+            "custom_dib_export": True,
             "dictionary_original_search": True,
             "fulltext_search": True,
             "headword_modifier": True,
@@ -10782,7 +11057,7 @@ def test_hc013f_profile_records_block_offset_rendererdb_body_without_claiming_ho
         sql_snippets=("SELECT Body FROM",),
         image_templates=("b16c.png", "forwardV.gif"),
         features={
-            "custom_gaiji_dib": True,
+            "custom_dib_export": True,
             "headword_modifier": True,
             "panel_hooks": True,
             "sql_hooks": True,
@@ -10804,7 +11079,7 @@ def test_hc013f_profile_records_block_offset_rendererdb_body_without_claiming_ho
     assert hooks["block_offset_body_lookup"]["status"] == "implemented_when_sidecar_present"
     assert hooks["panel_lifecycle"]["status"] == "classified_not_emulated"
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "unknown_control_1f6d" not in data["named_gaps"]
 
 
@@ -10826,14 +11101,14 @@ def test_hc013d_profile_records_drug_layout_subset_without_claiming_parity() -> 
         html_templates=(),
         sql_snippets=(),
         image_templates=(),
-        features={"custom_gaiji_dib": True, "headword_modifier": True},
+        features={"custom_dib_export": True, "headword_modifier": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC013D_hkdksr13_drug_layout_and_template_markers" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "modify_headword_hook" in data["named_gaps"]
 
 
@@ -11338,6 +11613,11 @@ def test_hc005c_skips_heading_gaiji_uses_numeric_separators_and_italic_examples(
         + b"\x1f\xe1"
         + jis_fullwidth_ascii(" by her words.")
         + b"\x1f\x05"
+        + jis_text("　")
+        + b"\x1f\x04"
+        + jis_text("　")
+        + b"\x1f\x05"
+        + jis_text("彼女の言葉で彼は元気づけられた。")
         + b"\x1f\x0a"
         + b"\x1f\x09\x00\x03"
         + b"\x1f\xe0\x00\x00"
@@ -11362,9 +11642,18 @@ def test_hc005c_skips_heading_gaiji_uses_numeric_separators_and_italic_examples(
     assert '<img src="Templates/exam.gif" class="img_mark"><br><div class="contents">' in rendered.html
     assert "<i>animated</i>" in rendered.html
     assert "<b>animated</b>" not in rendered.html
+    assert (
+        '<span class="hankaku">Hewas<i>animated</i>byherwords.</span>'
+        "<br>彼女の言葉で彼は元気づけられた。"
+    ) in rendered.html
+    assert "words.</span>　" not in rendered.html
+    assert "words.</span><span" not in rendered.html
     assert rendered.stats["hc005c_definition_separators"] == 2
     assert rendered.stats["hc005c_decoration_bold"] == 3
     assert rendered.stats["hc005c_decoration_italic"] == 1
+    assert rendered.stats["hc005c_example_translation_linebreaks"] == 1
+    assert rendered.stats["hc005c_suppressed_example_translation_padding_chars"] == 1
+    assert rendered.stats["hc005c_suppressed_example_translation_padding_spans"] == 1
 
 
 def test_hc0092_maps_lineinfo_sections_and_hankaku_midashi() -> None:
@@ -11468,14 +11757,14 @@ def test_hc0092_profile_records_kcompej_subset_without_claiming_parity() -> None
         html_templates=("Templates/00000092.css",),
         sql_snippets=(),
         image_templates=("b128.gif", "hosetu.png"),
-        features={"custom_gaiji_dib": True},
+        features={"custom_dib_export": True},
     )
 
     data = build_hc_behavior_profile(row).as_dict()
 
     assert "HC0092_lineinfo_sections_and_gaiji_classes" in data["implemented_semantics"]
     assert data["exact_hc_parity"] is False
-    assert "custom_gaiji_dib_hook" in data["named_gaps"]
+    assert "custom_dib_export" not in data["named_gaps"]
     assert "visual_parity_unverified" in data["named_gaps"]
 
 

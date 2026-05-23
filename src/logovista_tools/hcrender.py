@@ -15,6 +15,7 @@ import re
 import shutil
 import sqlite3
 import sys
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from html.parser import HTMLParser
@@ -38,11 +39,29 @@ from .gaiji import (
     parse_uni_resource,
 )
 from .hcprofiles import build_hc_behavior_profile
+from .indexes import INDEX_TYPES, scan_index_component_reader
 from .parallel import parallel_map_ordered, worker_args
 from .pcmdata import PcmPointer, parse_pcm_pointer
-from .rendererdb import extract_rendererdb_dictionary, media_column_names, media_table_name
+from .rendererdb import (
+    block_offset_body_tables,
+    blob_extension,
+    choose_block_offset_body_table,
+    extract_rendererdb_dictionary,
+    honbun_columns,
+    html_to_plain,
+    main_id_text_columns,
+    media_column_names,
+    media_table_name,
+    parse_decimal_int,
+    parse_dense_honmon_id_with_marker,
+    prepare_sidecar_database,
+    quote_identifier,
+    safe_media_name,
+    table_exists,
+    t_contents_columns,
+)
 from .resources import candidate_package_roots, companion_template_dirs
-from .ssed import find_case_insensitive, resolve_case_insensitive_path
+from .ssed import BLOCK_SIZE, find_case_insensitive, parse_ssedinfo, resolve_case_insensitive_path
 from .ssed import SsedRandomReader
 from .windows import (
     HcRendererClassification,
@@ -96,6 +115,7 @@ WINDOWS_READER_STYLE = "windows"
 PACKAGE_READER_STYLE = "package"
 EXACT_RENDERERDB_BLUE_HEADWORD_CODES = frozenset({"0159", "015A", "015B", "015D", "03E8"})
 EXACT_RENDERERDB_VERTICAL_CODES = frozenset({"015D"})
+EXACT_RENDERERDB_FORCE_HORIZONTAL_CODES = frozenset({"013F"})
 
 HC015D_IMAGE_PUA_MARKERS = {
     "\ue020": ("955.png", "慣"),
@@ -163,6 +183,7 @@ HC015D_KNOWN_PUA_EQUIVALENTS = {
     # glyphs that are not present in t_kanji. Keep these as explicit
     # renderer-profile facts rather than letting private-use boxes leak.
     "\ue84b": "亲",
+    "\ue5c9": "薪",
     # Kanbun return marks observed in HC015D example fragments.
     "\ue1a1": "㆒",
     "\ue1a2": "㆓",
@@ -268,11 +289,16 @@ HC_RENDER_BASE_CSS = """
   margin-top: 0.25em;
 }
 :where(.lv-hc-render .hc0135-accent-line) {
-  margin: 0.15em 0;
+  display: inline;
+  white-space: nowrap;
+  margin: 0 0.2em 0 0;
 }
 :where(.lv-hc-render .hc0135-construction-pattern),
 :where(.lv-hc-render .hc0135-red-emphasis) {
   color: #c40000;
+}
+:where(.lv-hc-render .hc0135-kyouiku-kanji) {
+  font-style: normal;
 }
 :where(.lv-hc-render .hc0135-part-of-speech),
 :where(.lv-hc-render .hc0135-history-kana),
@@ -377,13 +403,17 @@ HC_RENDER_FINAL_CSS = """
   grid-column: 2;
 }
 :where(.lv-hc-render .hc00ad-media-block) {
-  display: block;
-  clear: both;
-  margin: 0.35em 0;
+  display: inline-block;
+  margin: 0 0.25em 0.25em 0;
+  vertical-align: top;
 }
 :where(.lv-hc-render .hc00ad-media-block .lv-hc-media) {
   display: block;
   max-height: none;
+}
+:where(.lv-hc-render .hc00ad-label-section) {
+  margin-left: 0.25em !important;
+  text-indent: 0 !important;
 }
 :where(.lv-hc-render .hc012e-hitsujun-animation) {
   display: inline-block;
@@ -530,6 +560,7 @@ HC_RENDER_FINAL_CSS = """
   height: auto;
   min-height: 20px;
   box-sizing: border-box;
+  background-color: #acd357;
   background-image: url("Templates/back3.png");
   background-repeat: repeat-x;
 }
@@ -656,6 +687,101 @@ HC_RENDER_FINAL_CSS = """
   display: block;
   line-height: 1;
 }
+:where(html.v .rendererdb-entry.hc015d .oyaji_data_main),
+:where(html.v .rendererdb-entry.hc015d .oyaji_data_main_jou),
+:where(html.v .rendererdb-entry.hc015d .oyaji_data_main_jin),
+:where(.lv-hc-render.lv-hc-vertical .oyaji_data_main),
+:where(.lv-hc-render.lv-hc-vertical .oyaji_data_main_jou),
+:where(.lv-hc-render.lv-hc-vertical .oyaji_data_main_jin) {
+  display: inline-flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  box-sizing: border-box !important;
+  writing-mode: horizontal-tb !important;
+  -ms-writing-mode: lr-tb !important;
+  text-orientation: mixed !important;
+  white-space: nowrap !important;
+}
+:where(html.v .rendererdb-entry.hc015d .oyaji_data_no),
+:where(.lv-hc-render.lv-hc-vertical .oyaji_data_no) {
+  display: block !important;
+  text-align: center !important;
+  writing-mode: horizontal-tb !important;
+  -ms-writing-mode: lr-tb !important;
+  text-orientation: mixed !important;
+  line-height: 1 !important;
+  margin: 0 0 0.12em !important;
+}
+:where(html.v .rendererdb-entry.hc015d .oyaji_data_hyouki),
+:where(.lv-hc-render.lv-hc-vertical .oyaji_data_hyouki) {
+  display: block !important;
+  writing-mode: horizontal-tb !important;
+  -ms-writing-mode: lr-tb !important;
+  text-orientation: mixed !important;
+  line-height: 0.95 !important;
+}
+:where(html.v .rendererdb-entry.hc015d .wari),
+:where(.lv-hc-render.lv-hc-vertical .wari) {
+  display: inline-block !important;
+  direction: rtl !important;
+  writing-mode: horizontal-tb !important;
+  -ms-writing-mode: lr-tb !important;
+  text-orientation: mixed !important;
+  line-height: 1 !important;
+  vertical-align: middle !important;
+  white-space: nowrap !important;
+}
+:where(html.v .rendererdb-entry.hc015d .wari br),
+:where(.lv-hc-render.lv-hc-vertical .wari br) {
+  display: none !important;
+}
+:where(html.v .rendererdb-entry.hc015d .wari_mae),
+:where(html.v .rendererdb-entry.hc015d .wari_ato),
+:where(.lv-hc-render.lv-hc-vertical .wari_mae),
+:where(.lv-hc-render.lv-hc-vertical .wari_ato) {
+  display: inline-block !important;
+  direction: ltr !important;
+  writing-mode: vertical-rl !important;
+  -ms-writing-mode: tb-rl !important;
+  text-orientation: upright !important;
+  line-height: 1 !important;
+  vertical-align: top !important;
+}
+:where(html.v .rendererdb-entry.hc015d .hc015d-wari-chars),
+:where(.lv-hc-render.lv-hc-vertical .hc015d-wari-chars) {
+  display: inline-grid !important;
+  grid-template-columns: max-content max-content !important;
+  grid-auto-rows: max-content !important;
+  column-gap: 0.12em !important;
+  row-gap: 0.06em !important;
+  direction: ltr !important;
+  writing-mode: horizontal-tb !important;
+  -ms-writing-mode: lr-tb !important;
+  text-orientation: mixed !important;
+  line-height: 1 !important;
+  vertical-align: middle !important;
+  white-space: nowrap !important;
+}
+:where(html.v .rendererdb-entry.hc015d .hc015d-wari-cell),
+:where(.lv-hc-render.lv-hc-vertical .hc015d-wari-cell) {
+  display: inline-block !important;
+  width: 0.74em !important;
+  text-align: center !important;
+  font-size: 0.6em !important;
+  line-height: 1 !important;
+  writing-mode: horizontal-tb !important;
+  -ms-writing-mode: lr-tb !important;
+  text-orientation: mixed !important;
+}
+:where(html.v .rendererdb-entry.hc015d .hc015d-wari-left),
+:where(.lv-hc-render.lv-hc-vertical .hc015d-wari-left) {
+  grid-column: 1 !important;
+}
+:where(html.v .rendererdb-entry.hc015d .hc015d-wari-right),
+:where(.lv-hc-render.lv-hc-vertical .hc015d-wari-right) {
+  grid-column: 2 !important;
+}
 :where(.rendererdb-entry.hc015d .hc015d-marker) {
   display: inline-block;
   width: auto;
@@ -668,6 +794,26 @@ HC_RENDER_FINAL_CSS = """
   border-right: 2px dotted #999999;
   margin-right: 0.75em;
   padding-right: 0.75em;
+}
+:where(html.v) {
+  height: 100%;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+}
+:where(body.v) {
+  height: 100vh;
+  max-height: 100vh;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+}
+:where(body.v > .exact-rendererdb-entry) {
+  box-sizing: border-box;
+  max-height: 100vh;
+}
+:where(body.v > .exact-rendererdb-entry .midashi) {
+  box-sizing: border-box;
+  height: auto !important;
+  min-height: calc(100vh - 1em);
 }
 :where(.lv-hc-render.lv-hc-vertical) {
   writing-mode: vertical-rl;
@@ -729,9 +875,24 @@ HC_RENDER_FINAL_CSS = """
   border-top: 1px dotted #777777;
   margin: 0.45em 0;
 }
+:where(.lv-hc-render .hc009f-marker) {
+  display: inline-block;
+  width: auto;
+  height: 1em;
+  max-width: none;
+  max-height: 1em;
+  vertical-align: -0.12em;
+}
 :where(.lv-hc-render.lv-hc-vertical .hc009f-midashi-alias) {
   margin-left: 0;
   margin-top: 0.75em;
+}
+:where(.lv-hc-render.lv-hc-vertical .hc009f-marker) {
+  width: 1em;
+  height: auto;
+  max-width: 1em;
+  max-height: none;
+  vertical-align: middle;
 }
 :where(.lv-hc-render.lv-hc-vertical .hc009f-haiku-separator) {
   border-top: 0;
@@ -828,6 +989,35 @@ function lvInitAudioControls() {
 function lvInitGeneratedControls() {
   lvInitStrokeOrderAnimations();
   lvInitAudioControls();
+  lvInitVerticalPageScroll();
+}
+function lvInitVerticalPageScroll() {
+  if (!document.documentElement.classList.contains("v") && !document.body.classList.contains("v")) {
+    return;
+  }
+  window.addEventListener("wheel", function(event) {
+    if (event.ctrlKey || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
+      return;
+    }
+    var maxHorizontal = Math.max(
+      0,
+      document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      document.body.scrollWidth - window.innerWidth
+    );
+    if (maxHorizontal <= 0) {
+      return;
+    }
+    var before = window.scrollX || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
+    window.scrollBy({ left: -event.deltaY, top: 0, behavior: "auto" });
+    var after = window.scrollX || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
+    if (after === before) {
+      window.scrollBy({ left: event.deltaY, top: 0, behavior: "auto" });
+      after = window.scrollX || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
+    }
+    if (after !== before) {
+      event.preventDefault();
+    }
+  }, { passive: false });
 }
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", lvInitGeneratedControls);
@@ -1813,6 +2003,12 @@ def _hc_target_slice_reader(
     if containing is None:
         return None
     start, end = containing
+    if (renderer_code or "").upper() == "0065":
+        data = reader.read(start, max(0, end - start))
+        if data.startswith(b"\x1f\x09\x00\x01\x1f\x41") and data.endswith(b"\x1f\x61"):
+            next_slice = _hc_entry_slice_containing_reader(reader, renderer_code, end)
+            if next_slice is not None and next_slice[0] == end:
+                return next_slice
     if (renderer_code or "").upper() != "02BC" or target_offset <= start:
         return containing
 
@@ -2014,7 +2210,7 @@ def _hc00ad_section_parts(code: str) -> tuple[list[str], str | None, str | None]
         ], "</div>", "paired_explanation"
     if 40 <= value <= 69:
         return [
-            '<div class="honbun" style="margin-left:2.000000em;text-indent:-1.000000em;">',
+            '<div class="honbun hc00ad-label-section" style="margin-left:0.250000em;text-indent:0.000000em;">',
         ], "</div>", "hr_explanation"
     if 70 <= value <= 79:
         return [
@@ -3133,6 +3329,19 @@ HC013D_MED_SECTION_CLASSES = {
     22: ("div", ' class="mednamelist3"'),
 }
 HC013D_INDENT_SECTION_VALUES = frozenset({40, 41, *range(50, 70)})
+HC013D_SECTION_LINEBREAK_SUPPRESSED_VALUES = frozenset(
+    {
+        *HC013D_MED_SECTION_CLASSES,
+        *HC013D_INDENT_SECTION_VALUES,
+        2,
+        3,
+        5,
+        7,
+        9,
+        12,
+        13,
+    }
+)
 HC013D_TITLE_TRIGGER_SEQUENCES = {
     ("4a2c", "4e60"),
     ("3d68", "4a7d"),
@@ -5391,6 +5600,22 @@ def _hc005c_halfwidth_span_is_punctuation(data: bytes, offset: int) -> bool:
     return bool(text) and all(ch in ".,;:!?|()[]{}<>/\"' " for ch in text)
 
 
+def _hc005c_halfwidth_span_text(data: bytes, offset: int) -> tuple[str, int] | None:
+    chars: list[str] = []
+    pos = offset
+    while pos + 1 < len(data):
+        if data[pos] == 0x1F:
+            if data[pos + 1] == 0x05:
+                return "".join(chars), pos + 2 + control_arg_length(data, pos)
+            return None
+        if 0x21 <= data[pos] <= 0x7E and 0x21 <= data[pos + 1] <= 0x7E:
+            chars.append(normalize_fullwidth_ascii(decode_jis_pair(data[pos : pos + 2])))
+            pos += 2
+            continue
+        return None
+    return None
+
+
 def _hc012e_honbun_div(*, indented: bool = False) -> str:
     if indented:
         return '<div class="honbun" style="margin-left:1.000000em;text-indent:-1.000000em;">'
@@ -5599,9 +5824,9 @@ def _hc0135_section_parts(
     if value == 0x18:
         return ['<span class="hc0135-history-kana">'], "</span>", "history_kana"
     if value == 0x27:
-        return ['<div class="hc0135-construction-pattern">'], "</div>", "construction_pattern"
+        return ['<span class="hc0135-construction-pattern">'], "</span>", "construction_pattern"
     if value == 0x29:
-        return ['<div class="hc0135-accent-line">'], "</div>", "accent_line"
+        return ['<span class="hc0135-accent-line">'], "</span><br>", "accent_line"
     if value == 0x31:
         return ['<span class="hc0135-part-of-speech">'], "</span>", "part_of_speech"
     if value == 0x17:
@@ -5667,9 +5892,9 @@ def _hc0135_private_directive_html(text: str, options: HcRenderOptions) -> tuple
         if marker:
             return f'<span class="hc0135-sup-note">({_escape_text(marker)})</span>', "rendered_sup_note"
     if directive == "教育漢字開始":
-        return '<i class="hc0135-kyouiku-kanji">', "rendered_kyouiku_kanji_start"
+        return '<span class="hc0135-kyouiku-kanji">', "rendered_kyouiku_kanji_start"
     if directive == "教育漢字終了":
-        return "</i>", "rendered_kyouiku_kanji_end"
+        return "</span>", "rendered_kyouiku_kanji_end"
     if directive == "歴史仮名開始":
         return '<span class="hc0135-history-kana">', "rendered_history_kana_start"
     if directive == "歴史仮名終了":
@@ -5681,6 +5906,39 @@ def _hc0135_private_directive_html(text: str, options: HcRenderOptions) -> tuple
     if directive == "フォント小終了":
         return "</span>", "rendered_small_end"
     return None, "suppressed"
+
+
+_HC_SECTION_ANCHOR_RE = re.compile(r'<a name="section-\d+"></a>')
+_HC0135_LEADING_BREAK_RE = re.compile(r'(<div class="honbun_user">)(?:<br>)+')
+_HC0135_TRAILING_BREAK_RE = re.compile(r'(?:<br>)+(?=</div>)')
+_HC0135_BREAK_RUN_RE = re.compile(r'(?:<br>){2,}')
+
+
+def _hc0135_finalize_html(body: str, stats: Counter[str]) -> str:
+    """Apply HC0135's invisible-state cleanup after control decoding.
+
+    HC0135 uses many 1f09 state markers and anchors around pronunciation,
+    accent, and example-state transitions.  The Windows renderer does not turn
+    those invisible transitions into visible blank lines.  Keeping that cleanup
+    profile-local avoids weakening the generic decoder while preventing
+    structural markers from leaking as extra line breaks in SINMEI7 output.
+    """
+
+    section_anchors = len(_HC_SECTION_ANCHOR_RE.findall(body))
+    if section_anchors:
+        body = _HC_SECTION_ANCHOR_RE.sub("", body)
+        stats["hc0135_section_anchors_suppressed"] += section_anchors
+    before = body.count("<br>")
+    previous = None
+    while previous != body:
+        previous = body
+        body = _HC0135_LEADING_BREAK_RE.sub(r"\1", body)
+        body = _HC0135_TRAILING_BREAK_RE.sub("", body)
+        body = _HC0135_BREAK_RUN_RE.sub("<br>", body)
+    removed = before - body.count("<br>")
+    if removed > 0:
+        stats["hc0135_structural_breaks_suppressed"] += removed
+    return body
 
 
 def _hc012d_honbun_starts_with_marker(data: bytes, control_offset: int) -> bool:
@@ -6181,7 +6439,8 @@ def _hc009f_marker_image(stem: str, css_class: str, options: HcRenderOptions) ->
     src = _hc009f_image_src(stem, options)
     if src is None:
         return None
-    return f'<img src="{_escape_attr(src)}" class="{css_class}">'
+    classes = f"{css_class} hc009f-marker"
+    return f'<img src="{_escape_attr(src)}" class="{_escape_attr(classes)}">'
 
 
 def _hc009f_season_from_jis(code: str) -> tuple[str, str] | None:
@@ -7071,11 +7330,9 @@ def _write_hc_html_footer(html_out: Any) -> None:
 
 
 def _source_prefers_vertical(source: DictionarySource, args: argparse.Namespace) -> bool:
-    if bool(getattr(args, "vertical", False)):
-        return True
-    exinfo = load_exinfo_for_idx(source.idx)
-    value = (exinfo.general.get("VERTICAL", "") if exinfo is not None else "").strip().casefold()
-    return value in {"1", "true", "yes", "y", "vertical"}
+    # EXINFO.INI VERTICAL is a reader capability/metadata hint, not a mandate
+    # that every generated reference render should use vertical layout.
+    return bool(getattr(args, "vertical", False))
 
 
 def _effective_renderer_code_for_source(
@@ -7089,6 +7346,410 @@ def _effective_renderer_code_for_source(
     if source.dict_id.upper() == "ARCHSIC3":
         return "ARCHSIC3"
     return _legacy_renderer_code_for_source(source)
+
+
+@dataclass(frozen=True)
+class HcIndexHit:
+    query: str
+    score: int
+    reason: str
+    component: str
+    key: str
+    target_key: str
+    body_block: int
+    body_offset: int
+    title_block: int
+    title_offset: int
+    page_index: int
+    row_index: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "query": self.query,
+            "score": self.score,
+            "reason": self.reason,
+            "component": self.component,
+            "key": self.key,
+            "target_key": self.target_key,
+            "body": {"block": self.body_block, "offset": self.body_offset},
+            "title": {"block": self.title_block, "offset": self.title_offset},
+            "page_index": self.page_index,
+            "row_index": self.row_index,
+        }
+
+
+class _LookupComplete(Exception):
+    pass
+
+
+def _index_component_priority(filename: str) -> tuple[int, str]:
+    name = filename.casefold()
+    if name == "fhindex.dic":
+        return (0, name)
+    if name == "kwindex.dic":
+        return (1, name)
+    if name == "bhindex.dic":
+        return (2, name)
+    if "index" in name:
+        return (3, name)
+    if name.startswith("mul"):
+        return (4, name)
+    return (5, name)
+
+
+def _query_filename_stem(query: str) -> str:
+    stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", query.strip()).strip("._ ")
+    stem = re.sub(r"\s+", "_", stem)
+    return stem or "entry"
+
+
+def _lookup_normalize(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", normalize_fullwidth_ascii(text)).casefold()
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _lookup_flatten(text: str) -> str:
+    normalized = _lookup_normalize(text)
+    return "".join(
+        ch
+        for ch in normalized
+        if ch.isalnum() or "\u3040" <= ch <= "\u30ff" or "\u3400" <= ch <= "\u9fff"
+    )
+
+
+def _score_lookup_field(query_norm: str, query_flat: str, value: str) -> tuple[int, str]:
+    value_norm = _lookup_normalize(value)
+    value_flat = _lookup_flatten(value)
+    if not value_norm or not value_flat:
+        return 0, ""
+    if value_norm == query_norm:
+        return 120, "exact"
+    if value_flat == query_flat:
+        return 115, "flat_exact"
+    if value_norm.startswith(query_norm):
+        return 100, "prefix"
+    if value_flat.startswith(query_flat):
+        return 95, "flat_prefix"
+    if len(query_flat) >= 3 and query_flat in value_flat:
+        return 70, "contains"
+    if len(value_flat) >= 3 and value_flat in query_flat:
+        return 60, "query_contains_key"
+    return 0, ""
+
+
+def _score_index_row(query: str, row: dict[str, Any]) -> tuple[int, str]:
+    query_norm = _lookup_normalize(query)
+    query_flat = _lookup_flatten(query)
+    if not query_flat:
+        return 0, ""
+    scored: list[tuple[int, str]] = []
+    for field_name in ("key", "target_key"):
+        value = row.get(field_name)
+        if not isinstance(value, str):
+            continue
+        score, reason = _score_lookup_field(query_norm, query_flat, value)
+        if score:
+            scored.append((score, f"{field_name}:{reason}"))
+    return max(scored, default=(0, ""))
+
+
+def _find_index_hits_for_source(
+    source: DictionarySource,
+    query: str,
+    *,
+    limit: int,
+    components: set[str] | None = None,
+) -> list[HcIndexHit]:
+    _title, elements = parse_ssedinfo(source.idx)
+    hits_by_body: dict[tuple[int, int], HcIndexHit] = {}
+    selected_components = {component.casefold() for component in components or set()}
+    for element in sorted(elements, key=lambda item: _index_component_priority(item.filename)):
+        if element.type not in INDEX_TYPES or not element.start:
+            continue
+        if selected_components and element.filename.casefold() not in selected_components:
+            continue
+        index_path = find_case_insensitive(source.idx.parent, element.filename)
+        if index_path is None:
+            continue
+
+        def collect(row: dict[str, Any]) -> None:
+            if row.get("kind") != "leaf":
+                return
+            score, reason = _score_index_row(query, row)
+            if score <= 0:
+                return
+            body = row.get("body")
+            title = row.get("title")
+            if not isinstance(body, dict) or not isinstance(title, dict):
+                return
+            try:
+                body_block = int(body["block"])
+                body_offset = int(body["offset"])
+                title_block = int(title["block"])
+                title_offset = int(title["offset"])
+            except (KeyError, TypeError, ValueError):
+                return
+            key = (body_block, body_offset)
+            hit = HcIndexHit(
+                query=query,
+                score=score,
+                reason=reason,
+                component=str(row.get("component") or element.filename),
+                key=str(row.get("key") or ""),
+                target_key=str(row.get("target_key") or ""),
+                body_block=body_block,
+                body_offset=body_offset,
+                title_block=title_block,
+                title_offset=title_offset,
+                page_index=int(row.get("page_index") or 0),
+                row_index=int(row.get("row_index") or 0),
+            )
+            old = hits_by_body.get(key)
+            if old is None or (hit.score, hit.component, hit.key) > (old.score, old.component, old.key):
+                hits_by_body[key] = hit
+            if len(hits_by_body) >= limit and max(candidate.score for candidate in hits_by_body.values()) >= 115:
+                raise _LookupComplete
+
+        try:
+            scan_index_component_reader(
+                element.filename,
+                element.type,
+                index_path,
+                element.start,
+                gaiji="unicode",
+                gaiji_map=source.gaiji_map,
+                emit_internal=False,
+                emit_row=collect,
+            )
+        except _LookupComplete:
+            break
+    hits = sorted(
+        hits_by_body.values(),
+        key=lambda hit: (-hit.score, hit.component.casefold(), _lookup_flatten(hit.key), hit.body_block, hit.body_offset),
+    )
+    return hits[:limit]
+
+
+def _target_relative_offset(source: DictionarySource, hit: HcIndexHit) -> int:
+    return (hit.body_block - source.honmon_start_block) * BLOCK_SIZE + hit.body_offset
+
+
+def _dense_data_id_at(reader: SsedRandomReader, start: int) -> int | None:
+    for offset in (start, max(0, start - 2)):
+        data = reader.read(offset, 34)
+        parsed = parse_dense_honmon_id_with_marker(data[:32])
+        if parsed is not None:
+            return parsed[0]
+        parsed = parse_dense_honmon_id_with_marker(data[2:34])
+        if parsed is not None:
+            return parsed[0]
+    return None
+
+
+def _rendererdb_fragment_media_lookup_keys(fragment: str) -> tuple[str, ...]:
+    """Return blob-table lookup keys for rendererdb image references."""
+
+    keys: set[str] = set()
+    for match in HTML_IMG_SRC_RE.finditer(fragment):
+        src = html.unescape(match.group("src")).strip()
+        if not src:
+            continue
+        lower = src.lower()
+        if ":" in src or src.startswith("/") or lower.startswith(("data:", "javascript:", "mailto:")):
+            continue
+        normalized = src.replace("\\", "/").split("#", 1)[0].split("?", 1)[0]
+        name = Path(normalized).name
+        if not name:
+            continue
+        keys.add(name.lower())
+        stem = Path(name).stem
+        if stem:
+            keys.add(stem.lower())
+    return tuple(sorted(keys))
+
+
+def _write_rendererdb_fragment_media(con: sqlite3.Connection, media_dir: Path, fragment: str) -> int:
+    """Write rendererdb media blobs referenced by one exact body fragment.
+
+    The batch rendererdb command can dump every media blob, but focused
+    ``hc-render-entry`` output should only need the assets used by the selected
+    row.  Renderer HTML normally references media by bare filename while the
+    SQLite table stores the extensionless name, so lookup accepts both forms.
+    """
+
+    keys = _rendererdb_fragment_media_lookup_keys(fragment)
+    if not keys:
+        return 0
+    media_table = media_table_name(con)
+    media_columns = media_column_names(con)
+    if media_table is None or media_columns is None:
+        return 0
+    number_col, name_col, type_col, blob_col = media_columns
+    media_dir.mkdir(parents=True, exist_ok=True)
+    placeholders = ", ".join("?" for _key in keys)
+    type_expr = "0 as _media_type" if type_col is None else f"{quote_identifier(type_col)} as _media_type"
+    rows = con.execute(
+        f"select {quote_identifier(number_col)} as _media_no, "
+        f"{quote_identifier(name_col)} as _media_name, "
+        f"{type_expr}, {quote_identifier(blob_col)} as _media_blob "
+        f"from {quote_identifier(media_table)} "
+        f"where lower({quote_identifier(name_col)}) in ({placeholders}) "
+        f"order by {quote_identifier(number_col)}",
+        keys,
+    )
+    written = 0
+    used_names: set[str] = set()
+    for row in rows:
+        number_value, name_value, _type_value, blob_value = row
+        name = str(name_value or "")
+        blob = bytes(blob_value or b"")
+        if not name or not blob:
+            continue
+        try:
+            number = int(number_value)
+        except (TypeError, ValueError):
+            number = written + 1
+        output = media_dir / safe_media_name(number, name, blob_extension(blob), used_names)
+        output.write_bytes(blob)
+        written += 1
+    return written
+
+
+def _rendererdb_record_for_target(
+    source: DictionarySource,
+    dict_out: Path,
+    renderer_code: str | None,
+    *,
+    raw_start: int,
+    raw_end: int,
+    target_start: int,
+    vertical: bool,
+) -> dict[str, Any] | None:
+    exinfo = load_exinfo_for_idx(source.idx)
+    sidecars = discover_renderer_sidecars(source.idx, exinfo)
+    if not sidecars:
+        return None
+    renderer_code_upper = (renderer_code or "").upper()
+    effective_vertical = vertical or renderer_code_upper in EXACT_RENDERERDB_VERTICAL_CODES
+    if renderer_code_upper in EXACT_RENDERERDB_FORCE_HORIZONTAL_CODES:
+        effective_vertical = False
+    raw_block = source.honmon_start_block + raw_start // BLOCK_SIZE
+    raw_offset = raw_start % BLOCK_SIZE
+    reader = SsedRandomReader(source.honmon)
+    data_id = _dense_data_id_at(reader, target_start) or _dense_data_id_at(reader, raw_start)
+    rendererdb_out = dict_out / "rendererdb" / source.dict_id
+    for sidecar in sidecars:
+        db_path = prepare_sidecar_database(sidecar, rendererdb_out, argparse.Namespace())
+        con = sqlite3.connect(db_path)
+        try:
+            con.row_factory = sqlite3.Row
+            block_tables = block_offset_body_tables(con)
+            if block_tables:
+                chosen = choose_block_offset_body_table(block_tables, vertical=effective_vertical)
+                if chosen is not None:
+                    table, columns = chosen
+                    block_col = columns["Block"]
+                    offset_col = columns["Offset"]
+                    body_col = columns["Body"]
+                    id_col = columns.get("ID")
+                    ver_col = columns.get("Ver")
+                    select_parts = [f"{quote_identifier(body_col)} as {quote_identifier('html')}"]
+                    if id_col is not None:
+                        select_parts.append(f"{quote_identifier(id_col)} as {quote_identifier('id')}")
+                    if ver_col is not None:
+                        select_parts.append(f"{quote_identifier(ver_col)} as {quote_identifier('version')}")
+                    query = (
+                        f"select {', '.join(select_parts)} from {quote_identifier(table)} "
+                        f"where cast({quote_identifier(block_col)} as integer)=? "
+                        f"and cast({quote_identifier(offset_col)} as integer)=? limit 1"
+                    )
+                    row = con.execute(query, (raw_block, raw_offset)).fetchone()
+                    if row is not None:
+                        html_value = str(row["html"] or "")
+                        _write_rendererdb_fragment_media(con, rendererdb_out / "media", html_value)
+                        return {
+                            "strategy": "rendererdb_block_offset",
+                            "table": table,
+                            "id": row["id"] if "id" in row.keys() else None,
+                            "version": row["version"] if "version" in row.keys() else None,
+                            "raw_honmon": {
+                                "start_offset": raw_start,
+                                "end_offset": raw_end,
+                                "start_block": raw_block,
+                                "start_block_offset": raw_offset,
+                            },
+                            "html": html_value,
+                            "plain": html_to_plain(html_value),
+                        }
+            if table_exists(con, "HONBUN") and honbun_columns(con):
+                columns = honbun_columns(con)
+                html_col = columns.get("Contents_HTML_box")
+                id_col = columns.get("ID")
+                if html_col is not None:
+                    entry_index = sum(1 for _start, _end in _hc_entry_slices_reader(reader, renderer_code) if _start <= raw_start)
+                    order_col = id_col or "rowid"
+                    row = con.execute(
+                        f"select {quote_identifier(html_col)} as html from HONBUN "
+                        f"order by {quote_identifier(order_col)} limit 1 offset ?",
+                        (max(0, entry_index - 1),),
+                    ).fetchone()
+                    if row is not None:
+                        html_value = str(row["html"] or "")
+                        _write_rendererdb_fragment_media(con, rendererdb_out / "media", html_value)
+                        return {
+                            "strategy": "rendererdb_honbun_order",
+                            "table": "HONBUN",
+                            "raw_honmon": {"entry_index": entry_index, "start_offset": raw_start, "end_offset": raw_end},
+                            "html": html_value,
+                            "plain": html_to_plain(html_value),
+                        }
+            if data_id is not None and table_exists(con, "t_contents"):
+                columns = t_contents_columns(con)
+                data_id_col = columns.get("f_DataId")
+                html_col = columns.get("f_Html")
+                title_col = columns.get("f_Title")
+                if data_id_col is not None and html_col is not None:
+                    select_parts = [f"{quote_identifier(html_col)} as html"]
+                    if title_col:
+                        select_parts.append(f"{quote_identifier(title_col)} as title")
+                    row = con.execute(
+                        f"select {', '.join(select_parts)} from t_contents "
+                        f"where cast({quote_identifier(data_id_col)} as integer)=? limit 1",
+                        (data_id,),
+                    ).fetchone()
+                    if row is not None:
+                        html_value = str(row["html"] or "")
+                        _write_rendererdb_fragment_media(con, rendererdb_out / "media", html_value)
+                        return {
+                            "strategy": "rendererdb_t_contents_data_id",
+                            "table": "t_contents",
+                            "data_id": data_id,
+                            "title": row["title"] if "title" in row.keys() else None,
+                            "raw_honmon": {"start_offset": raw_start, "end_offset": raw_end},
+                            "html": html_value,
+                            "plain": html_to_plain(html_value),
+                        }
+            if data_id is not None and main_id_text_columns(con):
+                columns = main_id_text_columns(con)
+                row = con.execute(
+                    f"select {quote_identifier(columns['J_text'])} as html from main "
+                    f"where cast({quote_identifier(columns['ID'])} as integer)=? limit 1",
+                    (data_id,),
+                ).fetchone()
+                if row is not None:
+                    html_value = str(row["html"] or "")
+                    _write_rendererdb_fragment_media(con, rendererdb_out / "media", html_value)
+                    return {
+                        "strategy": "rendererdb_main_data_id",
+                        "table": "main",
+                        "data_id": data_id,
+                        "raw_honmon": {"start_offset": raw_start, "end_offset": raw_end},
+                        "html": html_value,
+                        "plain": html_to_plain(html_value),
+                    }
+        finally:
+            con.close()
+    return None
 
 
 def _relative_browser_path(path: Path, base: Path) -> str:
@@ -7287,26 +7948,141 @@ def _normalize_exact_body_fragment_html(fragment: str) -> str:
     return _normalize_renderer_fragment_structure(normalized)
 
 
+RENDERERDB_TEMP_MEDIA_RE = re.compile(r"^\d{8}-\d{4}-(\d{8})\.[A-Za-z0-9]+$")
+RAW_HONMON_MEDIA_SRC_RE = re.compile(
+    r'<img\b(?=[^>]*\blv-hc-media\b)[^>]*\bsrc=(["\'])([^"\']+)\1',
+    re.IGNORECASE,
+)
+
+
+def _horizontal_asset_name(name: str) -> str | None:
+    stem = Path(name).stem
+    suffix = Path(name).suffix
+    if not suffix:
+        return None
+    if not stem.casefold().endswith("_v"):
+        return None
+    return stem[:-2] + suffix
+
+
+def _raw_honmon_media_sources_for_record(record: dict[str, Any], dict_out: Path) -> tuple[str, ...]:
+    sources: list[str] = []
+    seen: set[str] = set()
+    html_value = record.get("html")
+    if isinstance(html_value, str):
+        for _quote, src in RAW_HONMON_MEDIA_SRC_RE.findall(html_value):
+            source = html.unescape(src)
+            if source and source not in seen:
+                seen.add(source)
+                sources.append(source)
+    for media_row in record.get("media") or ():
+        if not isinstance(media_row, dict):
+            continue
+        target = media_row.get("target")
+        if not isinstance(target, dict):
+            continue
+        if target.get("component") != "COLSCR.DIC":
+            continue
+        try:
+            block = int(target["block"])
+            offset = int(target["offset"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        media_dir = dict_out / "media" / "colscr"
+        prefix = f"{block:08d}_{offset:04d}."
+        match = next((path for path in sorted(media_dir.glob(f"{prefix}*")) if path.is_file()), None)
+        if match is None:
+            continue
+        source = _relative_browser_path(match, dict_out)
+        if source not in seen:
+            seen.add(source)
+            sources.append(source)
+    return tuple(sources)
+
+
+def _raw_honmon_media_sources_by_entry(
+    raw_honmon_entries_path: Path | None,
+    dict_out: Path,
+) -> dict[int, tuple[str, ...]]:
+    if raw_honmon_entries_path is None or not raw_honmon_entries_path.is_file():
+        return {}
+    by_entry: dict[int, tuple[str, ...]] = {}
+    with raw_honmon_entries_path.open("r", encoding="utf-8") as jsonl:
+        for line in jsonl:
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(record, dict):
+                continue
+            try:
+                entry_index = int(record.get("entry_index"))
+            except (TypeError, ValueError):
+                continue
+            sources = _raw_honmon_media_sources_for_record(record, dict_out)
+            if sources:
+                by_entry[entry_index] = sources
+    return by_entry
+
+
 def _rewrite_exact_body_asset_refs(
     fragment: str,
     dict_out: Path,
     *,
     ziptomedia_hrefs: dict[str, str] | None = None,
     data_id_targets: dict[str, str] | None = None,
+    placeholder_media_sources: tuple[str, ...] = (),
+    prefer_horizontal_assets: bool = False,
 ) -> str:
     """Rewrite bare renderer-sidecar asset names to copied package assets."""
 
-    def mapped_bare_asset(src: str) -> str | None:
+    def horizontal_variant(path: Path) -> Path | None:
+        if not prefer_horizontal_assets:
+            return None
+        horizontal_name = _horizontal_asset_name(path.name)
+        if horizontal_name is None:
+            return None
+        candidate = path.with_name(horizontal_name)
+        if candidate.is_file():
+            return candidate
+        case_match = find_case_insensitive(path.parent, horizontal_name)
+        if case_match is not None and case_match.is_file():
+            return case_match
+        return None
+
+    def mapped_asset(src: str) -> str | None:
         lower = src.lower()
         if (
             ":" in src
             or src.startswith("/")
             or "\\" in src
-            or "/" in src
             or lower.startswith(("data:", "javascript:", "mailto:"))
         ):
             return None
-        if (dict_out / src).is_file():
+        temp_media = RENDERERDB_TEMP_MEDIA_RE.match(Path(src).name)
+        if temp_media is not None and placeholder_media_sources:
+            index = max(0, int(temp_media.group(1)) - 1)
+            if index < len(placeholder_media_sources):
+                return placeholder_media_sources[index]
+        if "/" in src:
+            direct = dict_out / src
+            horizontal = horizontal_variant(direct)
+            if horizontal is not None:
+                return _relative_browser_path(horizontal, dict_out)
+            if direct.is_file():
+                return src
+            case_match = resolve_case_insensitive_path(dict_out, Path(src))
+            if case_match is not None and case_match.is_file():
+                horizontal = horizontal_variant(case_match)
+                return _relative_browser_path(horizontal or case_match, dict_out)
+            return None
+        direct = dict_out / src
+        horizontal = horizontal_variant(direct)
+        if horizontal is not None:
+            return _relative_browser_path(horizontal, dict_out)
+        if direct.is_file():
             return src
         for dirname in (
             "Templates",
@@ -7320,23 +8096,27 @@ def _rewrite_exact_body_asset_refs(
             "rendererdb/media",
         ):
             candidate = dict_out / dirname / src
+            horizontal = horizontal_variant(candidate)
+            if horizontal is not None:
+                return _relative_browser_path(horizontal, dict_out)
             if candidate.is_file():
-                return str(Path(dirname) / src)
+                return _relative_browser_path(candidate, dict_out)
             case_match = find_case_insensitive(dict_out / dirname, src)
             if case_match is not None and case_match.is_file():
-                return _relative_browser_path(case_match, dict_out)
+                horizontal = horizontal_variant(case_match)
+                return _relative_browser_path(horizontal or case_match, dict_out)
         return None
 
     def replace_src(match: re.Match[str]) -> str:
         quote = match.group(1)
         src = html.unescape(match.group(2))
-        mapped = mapped_bare_asset(src)
+        mapped = mapped_asset(src)
         return match.group(0) if mapped is None or mapped == src else f"src={quote}{_escape_attr(mapped)}{quote}"
 
     def replace_object_data(match: re.Match[str]) -> str:
         quote = match.group(1)
         src = html.unescape(match.group(2))
-        mapped = mapped_bare_asset(src)
+        mapped = mapped_asset(src)
         return match.group(0) if mapped is None or mapped == src else f"data={quote}{_escape_attr(mapped)}{quote}"
 
     def replace_ziptomedia_href(match: re.Match[str]) -> str:
@@ -7524,6 +8304,40 @@ def _load_hc015d_kanji_pua_map(rendererdb_summary: dict[str, Any] | None) -> dic
     return replacements
 
 
+HC015D_WARI_RE = re.compile(
+    r'<span class="wari"><span class="wari_mae">(?P<mae>[^<>]*)</span>'
+    r"<br\s*/?>"
+    r'<span class="wari_ato">(?P<ato>[^<>]*)</span></span>'
+)
+
+
+def _hc015d_wari_chars_html(mae: str, ato: str) -> str:
+    max_len = max(len(mae), len(ato))
+    cells: list[str] = []
+    for index in range(max_len):
+        left = ato[index] if index < len(ato) else "\u3000"
+        right = mae[index] if index < len(mae) else "\u3000"
+        row = index + 1
+        cells.append(
+            f'<span class="hc015d-wari-cell hc015d-wari-left" style="grid-row:{row}">'
+            f"{_escape_text(left)}</span>"
+            f'<span class="hc015d-wari-cell hc015d-wari-right" style="grid-row:{row}">'
+            f"{_escape_text(right)}</span>"
+        )
+    return '<span class="wari hc015d-wari-chars">' + "".join(cells) + "</span>"
+
+
+def _rewrite_hc015d_wari_pairs(fragment: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        mae = html.unescape(match.group("mae"))
+        ato = html.unescape(match.group("ato"))
+        if max(len(mae), len(ato)) <= 1:
+            return match.group(0)
+        return _hc015d_wari_chars_html(mae, ato)
+
+    return HC015D_WARI_RE.sub(replace, fragment)
+
+
 def _apply_hc015d_exact_rendererdb_profile(
     fragment: str,
     *,
@@ -7537,7 +8351,7 @@ def _apply_hc015d_exact_rendererdb_profile(
         replacements[marker] = _hc015d_marker_image_html(filename, alt)
     for marker, replacement in sorted(replacements.items(), key=lambda item: item[0]):
         fragment = fragment.replace(marker, replacement)
-    return fragment
+    return _rewrite_hc015d_wari_pairs(fragment)
 
 
 def _apply_exact_rendererdb_renderer_profile(
@@ -7577,6 +8391,7 @@ def _write_exact_hc_entries_html_from_rendererdb(
     vertical: bool,
     renderer_code: str | None = None,
     reader_style: str = WINDOWS_READER_STYLE,
+    raw_honmon_entries_path: Path | None = None,
 ) -> Path | None:
     entries_path_value = rendererdb_summary.get("entries_path")
     if not entries_path_value:
@@ -7600,9 +8415,10 @@ def _write_exact_hc_entries_html_from_rendererdb(
         for key in _data_id_match_keys(raw_data_id):
             data_id_targets.setdefault(key, raw_data_id)
     ziptomedia_hrefs = _ziptomedia_href_map(rendererdb_summary, dict_out)
+    raw_media_sources = _raw_honmon_media_sources_by_entry(raw_honmon_entries_path, dict_out)
     html_path = dict_out / "hc_entries.html"
     renderer_code_upper = (renderer_code or "").upper()
-    effective_vertical = vertical or renderer_code_upper in EXACT_RENDERERDB_VERTICAL_CODES
+    effective_vertical = _exact_rendererdb_vertical(renderer_code, vertical)
     with html_path.open("w", encoding="utf-8") as html_out:
         _write_hc_html_header(html_out, stylesheet=stylesheet, vertical=effective_vertical)
         for record in records:
@@ -7610,11 +8426,20 @@ def _write_exact_hc_entries_html_from_rendererdb(
             label = html.escape(str(record.get("data_id") or record.get("entry_index") or ""))
             fragment = record.get("html")
             if isinstance(fragment, str) and fragment:
+                raw_honmon = record.get("raw_honmon")
+                raw_entry_index: int | None = None
+                if isinstance(raw_honmon, dict):
+                    try:
+                        raw_entry_index = int(raw_honmon.get("entry_index"))
+                    except (TypeError, ValueError):
+                        raw_entry_index = None
                 body_html = _rewrite_exact_body_asset_refs(
                     fragment,
                     dict_out,
                     ziptomedia_hrefs=ziptomedia_hrefs,
                     data_id_targets=data_id_targets,
+                    placeholder_media_sources=raw_media_sources.get(raw_entry_index, ()),
+                    prefer_horizontal_assets=not effective_vertical,
                 )
                 body_html = _apply_exact_rendererdb_renderer_profile(
                     body_html,
@@ -8585,6 +9410,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     hc005c_entry_side: str | None = None
     hc005c_decoration_stack: list[str] = []
     hc005c_japanese_example_needs_translation_break = False
+    hc005c_english_example_translation_pending_break = False
+    hc005c_english_example_translation_seen = False
     hc0092_lineinfo_open = False
     hc0092_current_section: int | None = None
     hc0092_contents_open = False
@@ -8703,11 +9530,14 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
 
     def hc005c_close_active_section(parts: list[str]) -> None:
         nonlocal hc005c_section_close, hc005c_example_open, hc005c_japanese_example_needs_translation_break
+        nonlocal hc005c_english_example_translation_pending_break, hc005c_english_example_translation_seen
         hc005c_close_pending_section()
         if hc005c_example_open:
             parts.append("</div>")
             hc005c_example_open = False
             hc005c_japanese_example_needs_translation_break = False
+            hc005c_english_example_translation_pending_break = False
+            hc005c_english_example_translation_seen = False
             stats["hc005c_example_blocks_closed"] += 1
         if hc005c_section_close is not None:
             parts.append(hc005c_section_close)
@@ -8716,6 +9546,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     def hc005c_open_example(parts: list[str], marker: str) -> None:
         nonlocal hc005c_example_open, hc005c_example_group_active
         nonlocal hc005c_japanese_example_needs_translation_break, hc005c_section_close
+        nonlocal hc005c_english_example_translation_pending_break, hc005c_english_example_translation_seen
         hc005c_close_pending_section()
         hc005c_example_group_active = True
         if hc005c_section_close is not None:
@@ -8725,6 +9556,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             if hc005c_example_open:
                 parts.append('<div class="hr_div2"></div>')
                 hc005c_japanese_example_needs_translation_break = hc005c_entry_side != "english"
+                hc005c_english_example_translation_pending_break = False
+                hc005c_english_example_translation_seen = False
                 stats["hc005c_example_separators_in_box"] += 1
                 return
             parts.append('<div class="hr_div2"></div>')
@@ -8740,6 +9573,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             parts.append('<div class="contents">')
             hc005c_example_open = True
             hc005c_japanese_example_needs_translation_break = hc005c_entry_side != "english"
+            hc005c_english_example_translation_pending_break = False
+            hc005c_english_example_translation_seen = False
             stats["hc005c_example_blocks"] += 1
 
     def hc0065_close_midashi(parts: list[str]) -> None:
@@ -11698,8 +12533,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if _renderer_code(options) == "013D" and hc013d_section_close is not None:
                     _current_parts(root_parts, contexts).append(hc013d_section_close)
                     hc013d_section_close = None
-                    if hc013d_current_section_value in {6, 10, 11}:
-                        stats["hc013d_product_linebreaks_suppressed"] += 1
+                    if hc013d_current_section_value in HC013D_SECTION_LINEBREAK_SUPPRESSED_VALUES:
+                        stats["hc013d_section_linebreaks_suppressed"] += 1
+                        if hc013d_current_section_value in {6, 10, 11}:
+                            stats["hc013d_product_linebreaks_suppressed"] += 1
                         i += 2 + arg_len
                         continue
                 if _renderer_code(options) == "013D" and hc013d_midashi_deferred_close:
@@ -12550,6 +13387,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     hc005c_expected_example_marker = marker
                 elif hc005c_pending_section_parts is not None:
                     hc005c_flush_pending_section(_current_parts(root_parts, contexts))
+                if marker is None and hc005c_english_example_translation_pending_break:
+                    span_text = _hc005c_halfwidth_span_text(data, i + 2 + arg_len)
+                    if span_text is not None:
+                        span_value, span_end = span_text
+                        if not span_value.strip():
+                            stats["hc005c_suppressed_example_translation_padding_spans"] += 1
+                            i = span_end
+                            continue
+                        hc005c_english_example_translation_pending_break = False
                 css = "hankakuMidashi" if hc005c_heading_open else "hankaku"
                 parts = _current_parts(root_parts, contexts)
                 if (
@@ -12571,6 +13417,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 continue
 
             if _is_hc005c_renderer(options) and op == 0x05:
+                closed_halfwidth = False
                 if 0x04 in style_stack:
                     while style_stack:
                         popped = style_stack.pop()
@@ -12582,7 +13429,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                                 _current_parts(root_parts, contexts).append(f"</{close_tag}>")
                         if popped == 0x04:
                             halfwidth_depth = max(0, halfwidth_depth - 1)
+                            closed_halfwidth = True
                             break
+                if (
+                    closed_halfwidth
+                    and hc005c_example_open
+                    and hc005c_entry_side == "english"
+                    and not hc005c_english_example_translation_seen
+                ):
+                    hc005c_english_example_translation_pending_break = True
                 next_op = data[i + 2 + arg_len + 1] if i + 2 + arg_len + 1 < len(data) and data[i + 2 + arg_len] == 0x1F else None
                 if (
                     hc005c_heading_open
@@ -13894,6 +14749,15 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     hc0132_midashi_open = False
                     hc0132_suppress_heading_tail = False
                     stats["hc0132_midashi_closures"] += 1
+                if (
+                    _is_hc005c_renderer(options)
+                    and start_op == 0x04
+                    and closed_requested_style
+                    and hc005c_example_open
+                    and hc005c_entry_side == "english"
+                    and not hc005c_english_example_translation_seen
+                ):
+                    hc005c_english_example_translation_pending_break = True
                 i += 2 + arg_len
                 continue
 
@@ -14105,6 +14969,10 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 if target:
                     attrs.append(f'data-lv-resource="{_escape_attr(target["resource_id"])}"')
                 parent = ctx.parent if ctx else _current_parts(root_parts, contexts)
+                if label_extra and _renderer_code(options) == "0135":
+                    parent.append(label_extra)
+                    stats["hc0135_audio_label_extras"] += 1
+                    label_extra = ""
                 parent.append(f"<a {' '.join(attrs)}>{label}</a>")
                 if label_extra:
                     parent.append(label_extra)
@@ -14211,7 +15079,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     }
                 )
                 html = _media_placeholder_html(control, target, image_src)
-                _current_parts(root_parts, contexts).append(f'<div class="hc00ad-media-block">{html}</div>')
+                _current_parts(root_parts, contexts).append(f'<span class="hc00ad-media-block">{html}</span><br>')
                 if image_src:
                     media_filename_label_suppression_remaining = _media_filename_label_at(data, i + 2 + arg_len)
                 stats["media_images" if image_src else "media_placeholders"] += 1
@@ -15780,6 +16648,16 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                         i += 2
                         continue
                     media_filename_label_suppression_remaining = ""
+                if _is_hc005c_renderer(options) and hc005c_english_example_translation_pending_break:
+                    if value.isspace():
+                        stats["hc005c_suppressed_example_translation_padding_chars"] += 1
+                        i += 2
+                        continue
+                    if value.strip():
+                        _current_parts(root_parts, contexts).append("<br>")
+                        hc005c_english_example_translation_pending_break = False
+                        hc005c_english_example_translation_seen = True
+                        stats["hc005c_example_translation_linebreaks"] += 1
                 if _renderer_code(options) == "013F" and hc013f_suppress_media_alt_until_link:
                     stats["hc013f_suppressed_media_alt_label_chars"] += len(value)
                     i += 2
@@ -16530,7 +17408,9 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     image_key = HC0065_PART_OF_SPEECH_LABEL_IMAGES.get(label_key, "interjective")
                     image_src = _image_source_for_key(image_key, options) or _image_source_for_key(f"{image_key}.png", options)
                     if image_src is not None:
-                        _append_renderer_image_gaiji(_current_parts(root_parts, contexts), key, image_src, "img_hinshi", stats)
+                        parts = _current_parts(root_parts, contexts)
+                        parts.append('<span class="hc0065-hinshi-prefix">━</span>')
+                        _append_renderer_image_gaiji(parts, key, image_src, "img_hinshi", stats)
                         hc0065_suppress_label_remaining = label
                         stats["hc0065_part_of_speech_images"] += 1
                     else:
@@ -18055,6 +18935,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         body = _rewrite_hc013f_fullwidth_tables(body, options, stats)
     if _renderer_code(options) == "0158":
         body = _hc0158_finalize_html(body, stats)
+    if _renderer_code(options) == "0135":
+        body = _hc0135_finalize_html(body, stats)
     if _renderer_code(options) == "00AD":
         body = _hc00ad_decode_codepoint_literals_html(body, stats)
     body = _rewrite_lved_addr_hrefs(_decode_fullwidth_html_charrefs(body))
@@ -18064,6 +18946,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     body, nav_images_removed = _strip_viewer_navigation_images(body)
     if nav_images_removed:
         stats["viewer_navigation_images_suppressed"] += nav_images_removed
+    if _renderer_code(options) == "0135":
+        body = _hc0135_finalize_html(body, stats)
     rendered_html = f'<div class="{" ".join(classes)}">{body}</div>'
     return HcRenderResult(
         html=rendered_html,
@@ -18098,7 +18982,6 @@ def _renderer_behavior_gaps(renderer: HcRendererClassification | None) -> list[s
         ("user_data_hooks", "user_data_hooks"),
         ("sql_hooks", "sql_search_or_helper_hooks"),
         ("headword_modifier", "modify_headword_hook"),
-        ("custom_gaiji_dib", "custom_gaiji_dib_hook"),
     ):
         if renderer.features.get(feature):
             gaps.append(gap)
@@ -18236,6 +19119,210 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
     }
 
 
+def _exact_rendererdb_vertical(renderer_code: str | None, vertical: bool) -> bool:
+    renderer_code_upper = (renderer_code or "").upper()
+    effective_vertical = vertical or renderer_code_upper in EXACT_RENDERERDB_VERTICAL_CODES
+    if renderer_code_upper in EXACT_RENDERERDB_FORCE_HORIZONTAL_CODES:
+        return False
+    return effective_vertical
+
+
+def _write_hc_render_entry_file(
+    path: Path,
+    *,
+    stylesheet: str | None,
+    vertical: bool,
+    body_html: str,
+    metadata: dict[str, Any],
+) -> None:
+    with path.open("w", encoding="utf-8") as html_out:
+        _write_hc_html_header(html_out, stylesheet=stylesheet, vertical=vertical)
+        html_out.write(f"<!-- {json.dumps(metadata, ensure_ascii=False, sort_keys=True)} -->\n")
+        html_out.write(body_html)
+        html_out.write("\n")
+        _write_hc_html_footer(html_out)
+
+
+def _render_hc_index_hit(
+    source: DictionarySource,
+    dict_out: Path,
+    hit: HcIndexHit,
+    *,
+    renderer: HcRendererClassification | None,
+    renderer_code: str | None,
+    image_sources: dict[str, str],
+    html_templates: dict[str, str],
+    stylesheet: str | None,
+    renderer_assets: dict[str, str],
+    vertical: bool,
+    reader_style: str,
+    sequence: int,
+) -> dict[str, Any]:
+    reader = SsedRandomReader(source.honmon)
+    target_offset = _target_relative_offset(source, hit)
+    target_slice = _hc_target_slice_reader(reader, renderer_code, target_offset)
+    if target_slice is None:
+        return {
+            "query": hit.query,
+            "status": "unresolved_body_pointer",
+            "hit": hit.as_dict(),
+            "target_offset": target_offset,
+        }
+    start, end = target_slice
+    media_image_resolver = _make_colscr_image_resolver(source, dict_out)
+    options = HcRenderOptions(
+        gaiji_map=source.gaiji_map,
+        image_sources=image_sources,
+        html_templates=html_templates,
+        renderer_assets=renderer_assets,
+        renderer_code=renderer_code,
+        vertical=vertical,
+        media_image_resolver=media_image_resolver,
+        entry_start_offset=start,
+    )
+    raw_result = render_hc_body(reader.read(start, end - start), options)
+    raw_record = {
+        "html": raw_result.html,
+        "media": raw_result.media,
+    }
+    raw_media_sources = _raw_honmon_media_sources_for_record(raw_record, dict_out)
+    exact_record = _rendererdb_record_for_target(
+        source,
+        dict_out,
+        renderer_code,
+        raw_start=start,
+        raw_end=end,
+        target_start=target_offset,
+        vertical=vertical,
+    )
+    renderer_code_upper = (renderer_code or "").upper()
+    output_vertical = vertical
+    body_source = "raw_honmon_controls"
+    body_html = raw_result.html
+    if exact_record is not None and isinstance(exact_record.get("html"), str) and exact_record.get("html"):
+        output_vertical = _exact_rendererdb_vertical(renderer_code, vertical)
+        body_html = _rewrite_exact_body_asset_refs(
+            str(exact_record["html"]),
+            dict_out,
+            placeholder_media_sources=raw_media_sources,
+            prefer_horizontal_assets=not output_vertical,
+        )
+        body_html = _apply_exact_rendererdb_renderer_profile(
+            body_html,
+            renderer_code=renderer_code,
+            rendererdb_summary={"status": exact_record.get("strategy")},
+        )
+        classes = ["rendererdb-entry", "exact-rendererdb-entry"]
+        if renderer_code:
+            classes.append(f"hc{renderer_code_upper.lower()}")
+        if reader_style == WINDOWS_READER_STYLE:
+            classes.append("lv-hc-windows-reader")
+            if renderer_code_upper in EXACT_RENDERERDB_BLUE_HEADWORD_CODES:
+                classes.append("lv-hc-blue-headword")
+        body_html = f'<div class="{" ".join(classes)}">{body_html}</div>'
+        body_source = str(exact_record.get("strategy") or "rendererdb")
+    filename = f"{_query_filename_stem(hit.query)}_{sequence}.html"
+    html_path = dict_out / filename
+    metadata = {
+        "dict_id": source.dict_id,
+        "query": hit.query,
+        "body_source": body_source,
+        "hit": hit.as_dict(),
+        "target_offset": target_offset,
+        "slice": {"start": start, "end": end},
+    }
+    _write_hc_render_entry_file(
+        html_path,
+        stylesheet=stylesheet,
+        vertical=output_vertical,
+        body_html=body_html,
+        metadata=metadata,
+    )
+    return {
+        "query": hit.query,
+        "status": "rendered",
+        "html_path": str(html_path),
+        "body_source": body_source,
+        "hit": hit.as_dict(),
+        "target_offset": target_offset,
+        "slice": {"start": start, "end": end},
+        "raw_stats": dict(sorted(raw_result.stats.items())),
+        "raw_media": raw_result.media,
+        "exact_rendererdb": exact_record,
+    }
+
+
+def extract_hc_render_entries_for_source(source: DictionarySource, out_dir: Path, args: argparse.Namespace) -> dict[str, Any]:
+    dict_out = out_dir / source.dict_id
+    dict_out.mkdir(parents=True, exist_ok=True)
+    renderer = _renderer_for_source(source, compute_hash=not args.no_hash)
+    renderer_code = _effective_renderer_code_for_source(source, renderer)
+    effective_vertical = _source_prefers_vertical(source, args)
+    image_sources, html_templates, stylesheet, copied_assets, renderer_assets = _prepare_hc_render_assets(source, dict_out, renderer)
+    rows: list[dict[str, Any]] = []
+    matches_path = dict_out / "matches.jsonl"
+    components = set(args.component or [])
+    with matches_path.open("w", encoding="utf-8") as out:
+        for query in args.query:
+            status(args, f"hc-render-entry: {source.dict_id}: searching indexes for {query!r}", verbose=True)
+            hits = _find_index_hits_for_source(source, query, limit=args.limit, components=components or None)
+            if not hits:
+                row = {
+                    "query": query,
+                    "status": "no_index_hit",
+                    "dict_id": source.dict_id,
+                }
+                out.write(json.dumps(row, ensure_ascii=False) + "\n")
+                rows.append(row)
+                continue
+            for sequence, hit in enumerate(hits, start=1):
+                row = _render_hc_index_hit(
+                    source,
+                    dict_out,
+                    hit,
+                    renderer=renderer,
+                    renderer_code=renderer_code,
+                    image_sources=image_sources,
+                    html_templates=html_templates,
+                    stylesheet=stylesheet,
+                    renderer_assets=renderer_assets,
+                    vertical=effective_vertical,
+                    reader_style=args.reader_style,
+                    sequence=sequence,
+                )
+                out.write(json.dumps(row, ensure_ascii=False) + "\n")
+                rows.append(row)
+    summary = {
+        "schema": "logovista-hc-render-entry-summary-v1",
+        "dict_id": source.dict_id,
+        "dict_title": source.title,
+        "queries": list(args.query),
+        "matches_path": str(matches_path),
+        "assets_copied": copied_assets,
+        "entries": rows,
+    }
+    (dict_out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    return summary
+
+
+def extract_hc_render_entries_for_sources(args: argparse.Namespace) -> list[dict[str, Any]]:
+    sources = discover_dictionaries(
+        [args.root],
+        jobs=getattr(args, "jobs", 1),
+        dict_ids=args.dict,
+        include_gaiji=True,
+        include_images=True,
+    )
+    if not sources:
+        raise ValueError("hc-render-entry: no SSED dictionaries found")
+    if len(sources) > 1 and not args.dict:
+        raise ValueError("hc-render-entry: multiple dictionaries found; pass --dict to select one")
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    rows = [extract_hc_render_entries_for_source(source, args.out_dir, args) for source in sources]
+    (args.out_dir / "summary.json").write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+    return rows
+
+
 def _rendererdb_args(args: argparse.Namespace) -> argparse.Namespace:
     return argparse.Namespace(
         decrypted_db=None,
@@ -18286,6 +19373,7 @@ def extract_hc_render_for_source(source: DictionarySource, out_dir: Path, args: 
             stylesheet=raw_summary.get("raw_honmon_stylesheet"),
             vertical=effective_vertical,
             renderer_code=renderer.code if renderer is not None else None,
+            raw_honmon_entries_path=Path(str(raw_summary["raw_honmon_entries_path"])),
         )
         if final_html_path is not None:
             final_html_source = "rendererdb_html"
@@ -18387,3 +19475,16 @@ def add_hc_render_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--no-hash", action="store_true", help="Skip SHA-256 calculation for HC plugin classification.")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
     parser.set_defaults(include_html=True)
+
+
+def add_hc_render_entry_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("root", type=Path, help="Dictionary package directory, collection root, or direct .IDX path.")
+    parser.add_argument("query", nargs="+", help="Entry query to resolve through native index rows. Quote phrases with spaces.")
+    parser.add_argument("--out-dir", type=Path, default=Path("logovista-hc-render-entry"))
+    parser.add_argument("--dict", action="append", help="Dictionary id to use when the root contains more than one dictionary.")
+    parser.add_argument("--limit", type=int, default=1, help="Maximum rendered matches per query after index scoring.")
+    parser.add_argument("--component", action="append", help="Restrict lookup to one index component name such as KWINDEX.DIC.")
+    parser.add_argument("--vertical", action="store_true", help="Apply vertical-rendering class hints when the renderer profile supports them.")
+    parser.add_argument("--reader-style", choices=(WINDOWS_READER_STYLE, PACKAGE_READER_STYLE), default=WINDOWS_READER_STYLE)
+    parser.add_argument("--no-hash", action="store_true", help="Skip SHA-256 calculation for HC plugin classification.")
+    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")

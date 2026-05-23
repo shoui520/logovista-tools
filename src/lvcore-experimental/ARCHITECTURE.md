@@ -22,9 +22,11 @@ shared caches, and composed reader services. The SSED reader services are
 gaiji, sidecars, entries/body resolution, indexes/search, and resources. Public
 dictionary operations are exposed through a `Dictionary` handle, with
 package-level wrappers kept as convenience delegates for current
-single-dictionary SSED packages. This is the intended Rust shape: an owning
-package handle, dictionary handles, and focused sub-stores rather than
-a package-level mixin graph.
+single-dictionary SSED packages. The current Python code still reuses the
+former mixin implementation modules inside those service classes, but
+package-level dynamic dispatch has been removed. This is an intermediate
+Rust-shaping step: the target design remains an owning package handle,
+dictionary handles, and concrete sub-stores without Python mixin inheritance.
 
 ## Layering
 

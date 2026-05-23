@@ -60,7 +60,12 @@ from .gaiji import (
 from .gaiji_readiness import extract_gaiji_readiness_for_args
 from .honmon_bytes import extract_honmon_byte_reports_for_args
 from .hcprofiles import build_hc_behavior_profile
-from .hcrender import add_hc_render_args, extract_hc_render_for_sources
+from .hcrender import (
+    add_hc_render_args,
+    add_hc_render_entry_args,
+    extract_hc_render_entries_for_sources,
+    extract_hc_render_for_sources,
+)
 from .indexes import extract_indexes_for_idx
 from .ir import extract_ir_for_args
 from .lved import (
@@ -1453,6 +1458,25 @@ def cmd_hc_render(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_hc_render_entry(args: argparse.Namespace) -> int:
+    status(args, "hc-render-entry: resolving query through native index rows")
+    summaries = extract_hc_render_entries_for_sources(args)
+    for summary in summaries:
+        for row in summary.get("entries", []):
+            if row.get("status") == "rendered":
+                hit = row.get("hit") or {}
+                print(
+                    f"{summary['dict_id']:12s} {row['query']!r} -> {row['html_path']} "
+                    f"key={hit.get('key')!r} score={hit.get('score')} source={row.get('body_source')}",
+                    file=sys.stderr,
+                )
+            else:
+                print(f"{summary['dict_id']:12s} {row.get('query')!r} -> {row.get('status')}", file=sys.stderr)
+    if args.json:
+        print(json.dumps(summaries, ensure_ascii=False, indent=2))
+    return 0
+
+
 def _vlpljbl_task(payload: tuple[Path, argparse.Namespace]) -> dict[str, Any]:
     path, args = payload
     row = classify_vlpljbl_file(
@@ -2356,6 +2380,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_hc_render_args(p_hc_render)
     add_jobs_argument(p_hc_render)
     p_hc_render.set_defaults(func=cmd_hc_render)
+
+    p_hc_render_entry = sub.add_parser(
+        "hc-render-entry",
+        help="Resolve query terms through native index rows and render only the matched HC entry.",
+    )
+    add_hc_render_entry_args(p_hc_render_entry)
+    add_jobs_argument(p_hc_render_entry)
+    p_hc_render_entry.set_defaults(func=cmd_hc_render_entry)
 
     p_multiview = sub.add_parser(
         "multiview",
