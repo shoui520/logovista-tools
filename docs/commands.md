@@ -327,6 +327,13 @@ For dense-HONMON/renderer-sidecar dictionaries, the command resolves the native
 index hit to the renderer body sidecar when the schema is understood, so the
 result is a real entry render rather than a raw numeric anchor.
 
+For direct body-stream dictionaries, focused rendering uses the native index
+body pointer as a HONMON landing address. It keeps a full generic `1f09 0001`
+entry when the hit starts that slice, but can narrow a target that lands inside
+a broader generic slice to the next native-index body boundary. That distinction
+is what lets indexed child entries render independently without cutting off
+example sections from normal primary entries.
+
 Each output dictionary directory contains one HTML file per rendered hit plus
 `matches.jsonl` and `summary.json`. The HTML filename is based on the requested
 query, for example `et_1.html` or `crocodile_1.html`. Use `--limit` only when

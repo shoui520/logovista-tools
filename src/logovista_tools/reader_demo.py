@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterable
 
+from .body_boundaries import index_body_marker_boundaries_for_source, target_needs_index_boundaries
 from .entries import DictionarySource, discover_dictionaries
 from .gaiji import load_gaiji_profile
 from .hcrender import (
@@ -229,6 +230,7 @@ class _ReaderDemoBuilder:
         self.renderer = _renderer_for_source(source, compute_hash=False)
         self.renderer_code = _effective_renderer_code_for_source(source, self.renderer)
         self.reader = SsedRandomReader(source.honmon)
+        self.boundary_offsets: tuple[int, ...] | None = None
         self.image_sources, self.html_templates, self.stylesheet, self.copied_assets, self.renderer_assets = _prepare_hc_render_assets(
             source,
             out_dir,
@@ -297,7 +299,14 @@ class _ReaderDemoBuilder:
 
     def _render_address(self, address: _QueuedAddress) -> _RenderedEntry | None:
         target_offset = (address.block - self.source.honmon_start_block) * BLOCK_SIZE + address.offset
-        target_slice = _hc_target_slice_reader(self.reader, self.renderer_code, target_offset)
+        if self.boundary_offsets is None and target_needs_index_boundaries(self.reader, target_offset):
+            self.boundary_offsets = index_body_marker_boundaries_for_source(self.source, self.reader)
+        target_slice = _hc_target_slice_reader(
+            self.reader,
+            self.renderer_code,
+            target_offset,
+            boundary_offsets=self.boundary_offsets,
+        )
         if target_slice is None:
             self.failures.append(
                 {

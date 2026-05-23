@@ -23,6 +23,12 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from .cli_ux import status
+from .body_boundaries import (
+    generic_entry_slice_containing_reader,
+    index_body_marker_boundaries_for_source,
+    target_needs_index_boundaries,
+    target_slice_from_index_boundaries,
+)
 from .colscr import MediaPointer, find_colscr_path, parse_media_pointer, read_colscr_record
 from .controls import KNOWN_NONPRINTING_CONTROLS, control_arg_length
 from .entries import (
@@ -61,7 +67,13 @@ from .rendererdb import (
     t_contents_columns,
 )
 from .resources import candidate_package_roots, companion_template_dirs
-from .ssed import BLOCK_SIZE, find_case_insensitive, parse_ssedinfo, resolve_case_insensitive_path
+from .ssed import (
+    BLOCK_SIZE,
+    CaseFoldedDirectory,
+    find_case_insensitive,
+    parse_ssedinfo,
+    resolve_case_insensitive_path,
+)
 from .ssed import SsedRandomReader
 from .windows import (
     HcRendererClassification,
@@ -1911,10 +1923,58 @@ def _hc00aa_entry_slices(data: bytes) -> tuple[tuple[int, int], ...]:
     return tuple(slices)
 
 
+HC0137_ENTRY_START_SECTION_VALUES = {1, 2, 3, 4}
+
+
+def _hc0137_entry_start_offsets(data: bytes) -> tuple[int, ...]:
+    """Return HC0137 midashi-section offsets that start addressable entries."""
+
+    starts: list[int] = []
+    pos = 0
+    while True:
+        pos = data.find(b"\x1f\x09", pos)
+        if pos < 0:
+            break
+        value = _hc0137_section_value(data[pos + 2 : pos + 4].hex())
+        if value in HC0137_ENTRY_START_SECTION_VALUES:
+            starts.append(pos)
+        pos += 2
+    return tuple(starts)
+
+
+def _slices_from_starts(starts: Iterable[int], end: int) -> tuple[tuple[int, int], ...]:
+    ordered = tuple(starts)
+    if not ordered:
+        return ()
+    slices: list[tuple[int, int]] = []
+    for index, start in enumerate(ordered):
+        next_end = ordered[index + 1] if index + 1 < len(ordered) else end
+        if next_end > start:
+            slices.append((start, next_end))
+    return tuple(slices)
+
+
+def _hc0137_entry_slices(data: bytes) -> tuple[tuple[int, int], ...]:
+    """Return Iwanami/HC0137 addressable body slices.
+
+    HC0137 uses ``1f09 0001`` as a kana/entry-group start, but index and Panel
+    pointers also land on ``0002``/``0003``/``0004`` midashi sections inside
+    those groups.  Treating only ``0001`` as an entry marker makes a focused
+    render for later entries inherit the whole group from the first headword.
+    """
+
+    return _slices_from_starts(_hc0137_entry_start_offsets(data), len(data))
+
+
 def _hc_entry_slices_reader(reader: SsedRandomReader, renderer_code: str | None) -> Iterable[tuple[int, int]]:
     if (renderer_code or "").upper() == "00AA":
         data = reader.read(0, reader.expanded_size)
         slices = _hc00aa_entry_slices(data)
+        if slices:
+            return iter(slices)
+    if (renderer_code or "").upper() == "0137":
+        data = reader.read(0, reader.expanded_size)
+        slices = _hc0137_entry_slices(data)
         if slices:
             return iter(slices)
     if (renderer_code or "").upper() == "009F":
@@ -1984,10 +2044,29 @@ def _hc_entry_slice_containing_reader(
     return None
 
 
+def _hc0137_target_slice_within_outer(data: bytes, relative_target: int) -> tuple[int, int] | None:
+    starts = _hc0137_entry_start_offsets(data)
+    if not starts:
+        return None
+    subentry_start: int | None = None
+    subentry_end = len(data)
+    for start in starts:
+        if start <= relative_target:
+            subentry_start = start
+            continue
+        subentry_end = start
+        break
+    if subentry_start is None or subentry_end <= subentry_start:
+        return None
+    return subentry_start, subentry_end
+
+
 def _hc_target_slice_reader(
     reader: SsedRandomReader,
     renderer_code: str | None,
     target_offset: int,
+    *,
+    boundary_offsets: Iterable[int] | None = None,
 ) -> tuple[int, int] | None:
     """Return the body range a renderer should receive for a search target.
 
@@ -1999,17 +2078,47 @@ def _hc_target_slice_reader(
     nearest containing 0002 section up to the next sibling section.
     """
 
+    code = (renderer_code or "").upper()
+    generic_containing = generic_entry_slice_containing_reader(reader, target_offset)
+    target_starts_generic_slice = (
+        generic_containing is not None
+        and (
+            generic_containing[0] == target_offset
+            or (target_offset >= 2 and generic_containing[0] == target_offset - 2)
+        )
+    )
+    if not target_starts_generic_slice:
+        boundary_slice = target_slice_from_index_boundaries(
+            boundary_offsets,
+            target_offset,
+            fallback_end=generic_containing[1] if generic_containing is not None else reader.expanded_size,
+        )
+        if boundary_slice is not None:
+            return boundary_slice
+
+    if code == "0137":
+        containing = generic_containing
+        if containing is None:
+            return _hc_entry_slice_containing_reader(reader, renderer_code, target_offset)
+        start, end = containing
+        data = reader.read(start, end - start)
+        relative = _hc0137_target_slice_within_outer(data, target_offset - start)
+        if relative is None:
+            return _hc_entry_slice_containing_reader(reader, renderer_code, target_offset) or containing
+        relative_start, relative_end = relative
+        return start + relative_start, start + relative_end
+
     containing = _hc_entry_slice_containing_reader(reader, renderer_code, target_offset)
     if containing is None:
         return None
     start, end = containing
-    if (renderer_code or "").upper() == "0065":
+    if code == "0065":
         data = reader.read(start, max(0, end - start))
         if data.startswith(b"\x1f\x09\x00\x01\x1f\x41") and data.endswith(b"\x1f\x61"):
             next_slice = _hc_entry_slice_containing_reader(reader, renderer_code, end)
             if next_slice is not None and next_slice[0] == end:
                 return next_slice
-    if (renderer_code or "").upper() != "02BC" or target_offset <= start:
+    if code != "02BC" or target_offset <= start:
         return containing
 
     data = reader.read(start, end - start)
@@ -6748,6 +6857,35 @@ def _safe_relative_path(value: str) -> Path | None:
     return path
 
 
+_STATIC_CASEFOLD_DIR_CACHE: dict[str, CaseFoldedDirectory] = {}
+
+
+def _static_casefold_dir(root: Path) -> CaseFoldedDirectory:
+    key = str(root)
+    cached = _STATIC_CASEFOLD_DIR_CACHE.get(key)
+    if cached is None:
+        cached = CaseFoldedDirectory.from_path(root)
+        _STATIC_CASEFOLD_DIR_CACHE[key] = cached
+    return cached
+
+
+def _resolve_static_package_relative(root: Path, relative: str | Path) -> Path | None:
+    """Resolve a package-local path in static source directories.
+
+    This intentionally caches source-package directory catalogs.  Do not use it
+    for generated output directories, where files can appear during the same
+    command.
+    """
+
+    current = root
+    for part in Path(str(relative).replace("\\", "/")).parts:
+        child = _static_casefold_dir(current).find(part)
+        if child is None:
+            return None
+        current = child
+    return current
+
+
 def _resolve_package_relative(source: DictionarySource, value: str) -> Path | None:
     relative = _safe_relative_path(value)
     if relative is None:
@@ -6756,11 +6894,11 @@ def _resolve_package_relative(source: DictionarySource, value: str) -> Path | No
         suffix = Path(*relative.parts[1:])
         for root in candidate_package_roots(source.idx):
             for template_dir in companion_template_dirs(root):
-                found = resolve_case_insensitive_path(template_dir, suffix)
+                found = _resolve_static_package_relative(template_dir, suffix)
                 if found is not None and found.is_file():
                     return found
     for root in candidate_package_roots(source.idx):
-        found = resolve_case_insensitive_path(root, relative)
+        found = _resolve_static_package_relative(root, relative)
         if found is not None and found.is_file():
             return found
     return None
@@ -6773,11 +6911,11 @@ def _resolve_package_relative_dir(source: DictionarySource, value: str) -> Path 
     if len(relative.parts) == 1 and relative.parts[0].casefold() == "templates":
         for root in candidate_package_roots(source.idx):
             for template_dir in companion_template_dirs(root):
-                found = find_case_insensitive(template_dir.parent, template_dir.name)
+                found = _static_casefold_dir(template_dir.parent).find(template_dir.name)
                 if found is not None and found.is_dir():
                     return found
     for root in candidate_package_roots(source.idx):
-        found = resolve_case_insensitive_path(root, relative)
+        found = _resolve_static_package_relative(root, relative)
         if found is not None and found.is_dir():
             return found
     return None
@@ -19157,10 +19295,11 @@ def _render_hc_index_hit(
     vertical: bool,
     reader_style: str,
     sequence: int,
+    boundary_offsets: Iterable[int] | None = None,
 ) -> dict[str, Any]:
     reader = SsedRandomReader(source.honmon)
     target_offset = _target_relative_offset(source, hit)
-    target_slice = _hc_target_slice_reader(reader, renderer_code, target_offset)
+    target_slice = _hc_target_slice_reader(reader, renderer_code, target_offset, boundary_offsets=boundary_offsets)
     if target_slice is None:
         return {
             "query": hit.query,
@@ -19262,6 +19401,8 @@ def extract_hc_render_entries_for_source(source: DictionarySource, out_dir: Path
     rows: list[dict[str, Any]] = []
     matches_path = dict_out / "matches.jsonl"
     components = set(args.component or [])
+    boundary_reader = SsedRandomReader(source.honmon)
+    boundary_offsets_by_component: dict[str, tuple[int, ...]] = {}
     with matches_path.open("w", encoding="utf-8") as out:
         for query in args.query:
             status(args, f"hc-render-entry: {source.dict_id}: searching indexes for {query!r}", verbose=True)
@@ -19276,6 +19417,18 @@ def extract_hc_render_entries_for_source(source: DictionarySource, out_dir: Path
                 rows.append(row)
                 continue
             for sequence, hit in enumerate(hits, start=1):
+                target_offset = _target_relative_offset(source, hit)
+                boundary_offsets: tuple[int, ...] | None = None
+                if target_needs_index_boundaries(boundary_reader, target_offset):
+                    component_key = hit.component.casefold()
+                    boundary_offsets = boundary_offsets_by_component.get(component_key)
+                    if boundary_offsets is None:
+                        boundary_offsets = index_body_marker_boundaries_for_source(
+                            source,
+                            boundary_reader,
+                            components=(hit.component,),
+                        )
+                        boundary_offsets_by_component[component_key] = boundary_offsets
                 row = _render_hc_index_hit(
                     source,
                     dict_out,
@@ -19289,6 +19442,7 @@ def extract_hc_render_entries_for_source(source: DictionarySource, out_dir: Path
                     vertical=effective_vertical,
                     reader_style=args.reader_style,
                     sequence=sequence,
+                    boundary_offsets=boundary_offsets,
                 )
                 out.write(json.dumps(row, ensure_ascii=False) + "\n")
                 rows.append(row)

@@ -184,6 +184,34 @@ cross-reference, and extra index leaf structures in this corpus. This is still
 an empirical result, not a claim that every LogoVista product ever shipped uses
 only these layouts.
 
+### Focused Entry-Boundary Audit
+
+A focused boundary audit found that marker-only `1f09 0001` slicing is too
+coarse for several direct body-stream dictionaries. Native `*INDEX.DIC` body
+pointers can land on addressable `1f09` section starts inside a broader generic
+entry group. Those addresses are real reader navigation targets, not just
+renderer formatting noise.
+
+The highest-impact confirmed case is IWKOKU7N/HC0137. Its native index and
+Panel targets can start at `1f09 0001`, `0002`, `0003`, or `0004`. Without
+HONMON/index-level sub-boundaries, focused renders for entries such as
+`新しい`, `アート紙`, and `アーベント` inherit unrelated preceding text from the
+broader generic slice.
+
+The safe rule is narrower than "always cut at every index pointer". If a target
+starts the generic `1f09 0001` slice, keep the full generic entry because
+examples and subentries often follow inside that slice. If the target lands
+inside a broader generic slice and begins with a section marker, use the
+native-index body boundaries to isolate the child target. This is why the
+current focused renderer fixes IWKOKU7N-style children without cutting off
+KENE7J5/KCOMPEJ2-style examples.
+
+Other sampled packages also contain index targets inside generic slices,
+including several Gakken, Kenkyusha, medical, and kanji dictionaries. The
+audit result should be read as a HONMON/index boundary model requirement first;
+individual HC profiles still decide how each section value maps to visible
+HTML.
+
 ## Full HONMON Byte Scan
 
 The stronger corpus pass scans every expanded `HONMON.DIC` byte, not sampled

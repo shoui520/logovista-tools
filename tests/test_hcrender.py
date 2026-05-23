@@ -5,6 +5,11 @@ import re
 import sqlite3
 from pathlib import Path
 
+from logovista_tools.body_boundaries import (
+    target_needs_index_boundaries,
+    target_slice_from_index_boundaries,
+    target_starts_on_section_marker,
+)
 from logovista_tools.entries import DictionarySource
 from logovista_tools.hcrender import (
     HC_RENDER_BASE_CSS,
@@ -27,6 +32,7 @@ from logovista_tools.hcrender import (
     _schema_backed_sidecars,
     _effective_renderer_code_for_source,
     _hc_entry_slices_reader,
+    _hc0137_entry_slices,
     _source_prefers_vertical,
     _strip_viewer_navigation_images,
     _write_exact_hc_entries_html_from_rendererdb,
@@ -38,7 +44,14 @@ from logovista_tools.colscr import MediaPointer
 from logovista_tools.hcprofiles import build_hc_behavior_profile
 from logovista_tools.resources import load_image_resource_profile, relative_image_source
 from logovista_tools.ssed import SsedRandomReader
-from logovista_tools.windows import HcRendererClassification, PeImport, PeImportDll, PeSummary, hc_renderer_effects
+from logovista_tools.windows import (
+    DICTIONARY_BRIDGE_DLL,
+    HcRendererClassification,
+    PeImport,
+    PeImportDll,
+    PeSummary,
+    hc_renderer_effects,
+)
 from logovista_tools.writer import encode_sseddata_literal
 
 
@@ -1041,6 +1054,80 @@ def test_hc02bc_target_slice_expands_child_title_pointer(tmp_path: Path) -> None
     assert "childB" in rendered.plain
     assert "bodyB" in rendered.plain
     assert "childA" not in rendered.plain
+
+
+def test_hc0137_slices_iwanami_midashi_sections_as_entries(tmp_path: Path) -> None:
+    entry_prefix = b"\x1f\x09\x00\x04" + jis_text("亜") + b"\x1f\x09\x00\x12" + jis_text("つぐ")
+    entry_a = b"\x1f\x09\x00\x01" + jis_text("アート") + b"\x1f\x09\x00\x12" + jis_text("芸術")
+    entry_b = b"\x1f\x09\x00\x02" + jis_text("アート紙") + b"\x1f\x09\x00\x12" + jis_text("厚紙")
+    entry_c = b"\x1f\x09\x00\x03" + jis_text("アーカイブ") + b"\x1f\x09\x00\x12" + jis_text("記録")
+    entry_d = b"\x1f\x09\x00\x04" + jis_text("アーベント") + b"\x1f\x09\x00\x12" + jis_text("夜")
+    expanded = entry_prefix + entry_a + entry_b + entry_c + entry_d
+    path = tmp_path / "HONMON.DIC"
+    path.write_bytes(encode_sseddata_literal(expanded, start_block=0, kind=0))
+    reader = SsedRandomReader(path)
+
+    assert _hc0137_entry_slices(expanded) == (
+        (0, len(entry_prefix)),
+        (len(entry_prefix), len(entry_prefix) + len(entry_a)),
+        (len(entry_prefix) + len(entry_a), len(entry_prefix) + len(entry_a) + len(entry_b)),
+        (
+            len(entry_prefix) + len(entry_a) + len(entry_b),
+            len(entry_prefix) + len(entry_a) + len(entry_b) + len(entry_c),
+        ),
+        (len(entry_prefix) + len(entry_a) + len(entry_b) + len(entry_c), len(expanded)),
+    )
+    reader_slices = list(_hc_entry_slices_reader(reader, "0137"))
+    assert reader_slices[:4] == list(_hc0137_entry_slices(expanded))[:4]
+    assert reader_slices[4] == (len(entry_prefix) + len(entry_a) + len(entry_b) + len(entry_c), reader.expanded_size)
+
+    prefix_target = entry_prefix.index(jis_text("つぐ"))
+    assert _hc_target_slice_reader(reader, "0137", prefix_target) == (0, len(entry_prefix))
+
+    target = len(entry_prefix) + len(entry_a) + entry_b.index(jis_text("厚紙"))
+    assert _hc_entry_slice_containing_reader(reader, "0137", target) == (
+        len(entry_prefix) + len(entry_a),
+        len(entry_prefix) + len(entry_a) + len(entry_b),
+    )
+    assert _hc_target_slice_reader(reader, "0137", target) == (
+        len(entry_prefix) + len(entry_a),
+        len(entry_prefix) + len(entry_a) + len(entry_b),
+    )
+
+    start, end = _hc_target_slice_reader(reader, "0137", target) or (0, 0)
+    rendered = render_hc_body(reader.read(start, end - start), HcRenderOptions(renderer_code="0137", entry_start_offset=start))
+    assert "アート紙" in rendered.plain
+    assert "厚紙" in rendered.plain
+    assert "アート芸術" not in rendered.plain
+    assert "アーベント" not in rendered.plain
+
+
+def test_index_derived_body_boundaries_are_honmon_level(tmp_path: Path) -> None:
+    expanded = (
+        b"\x1f\x09\x00\x01"
+        + jis_text("親")
+        + b"\x1f\x09\x00\x12"
+        + jis_text("親本文")
+        + b"\x1f\x09\x00\x02"
+        + jis_text("子")
+        + b"\x1f\x09\x00\x12"
+        + jis_text("子本文")
+    )
+    path = tmp_path / "HONMON.DIC"
+    path.write_bytes(encode_sseddata_literal(expanded, start_block=0, kind=0))
+    reader = SsedRandomReader(path)
+    child_start = expanded.index(b"\x1f\x09\x00\x02")
+
+    assert target_starts_on_section_marker(reader, child_start)
+    assert not target_needs_index_boundaries(reader, 0)
+    assert target_needs_index_boundaries(reader, child_start)
+    assert target_slice_from_index_boundaries((0, child_start), child_start, fallback_end=len(expanded)) == (
+        child_start,
+        len(expanded),
+    )
+    assert target_slice_from_index_boundaries((0, child_start), child_start + 4, fallback_end=len(expanded)) is None
+    assert _hc_target_slice_reader(reader, None, 0, boundary_offsets=(0, child_start)) == (0, reader.expanded_size)
+    assert _hc_target_slice_reader(reader, None, child_start, boundary_offsets=(0, child_start)) == (child_start, reader.expanded_size)
 
 
 def test_hc0065_target_slice_skips_anchor_stub(tmp_path: Path) -> None:
@@ -8622,7 +8709,7 @@ def test_hc_renderer_effects_split_dib_export_from_bridge_bitmap_import() -> Non
         pe=PeSummary(
             kind="pe",
             exports=("epwing2HtmlBodydata", "getCustomCharacterDIB"),
-            imports=(PeImportDll("SSDicLib.dll", (PeImport("SDicGetCustomCharacterBitmap"),)),),
+            imports=(PeImportDll(DICTIONARY_BRIDGE_DLL, (PeImport("SDicGetCustomCharacterBitmap"),)),),
         ),
         exinfo_html_dll=None,
         exinfo_declares_this=None,

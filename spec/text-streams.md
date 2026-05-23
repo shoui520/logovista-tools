@@ -229,6 +229,23 @@ debug comparison.
 This works well for dictionaries where `HONMON.DIC` really is a body stream,
 including dictionaries such as GENIUSEB, HAESPJPN, and OUKOKU11.
 
+Focused rendering and reader navigation need one additional guard: native index
+body pointers are valid landing addresses, but they are not always safe
+universal end boundaries. If a requested target starts the generic `1f09 0001`
+entry slice, the renderer keeps the full generic slice because examples,
+subentries, and usage sections can follow inside the same entry. If a requested
+target lands inside a broader generic slice and begins with a section marker,
+the renderer may narrow to the next native-index body boundary. This prevents
+late indexed children from inheriting the whole parent/group body without
+cutting off examples from normal primary entries.
+
+IWKOKU7N/HC0137 is the clearest observed case: addressable entries begin at
+`1f09 0001`, `0002`, `0003`, and `0004` midashi sections. A search or Panel
+target such as `新しい` points directly at a `0004` section inside a broader
+generic group, so marker-only `0001` slicing renders the wrong preceding
+entry. The fix is HONMON/index-level boundary handling; the HC profile only
+describes which section values are visible entry starts for that renderer.
+
 ## Dense HONMON Tables
 
 Some products have a large expanded `HONMON.DIC`, but it is not a definition
