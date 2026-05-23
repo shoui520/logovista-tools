@@ -107,6 +107,7 @@ from .panels import (
 )
 from .pcmdata import extract_pcmdata_for_sources
 from .profiles import extract_profiles_for_args
+from .reader_demo import add_reader_demo_args, generate_reader_demo
 from .rendererdb import extract_rendererdb_for_sources
 from .resources import ImageResource, load_image_resource_profile
 from .spindex import discover_spindex_files, inspect_spindex
@@ -1539,6 +1540,24 @@ def cmd_hc_render_entry(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_reader_demo(args: argparse.Namespace) -> int:
+    status(args, "reader-demo: generating static reader proof page")
+    summaries = generate_reader_demo(args)
+    for summary in summaries:
+        menu_components = summary.get("menu", {}).get("components", [])
+        menu_status = ",".join(str(row.get("status")) for row in menu_components) if menu_components else "absent"
+        print(
+            f"{summary['dict_id']:12s} html={summary['html_path']} "
+            f"entries={summary['entry_count']} panels={summary['panels']['rows']} "
+            f"panel_cells={summary['panels']['inline_cells']} menu={menu_status} "
+            f"audio={summary['audio_file_count']}",
+            file=sys.stderr,
+        )
+    if args.json:
+        print(json.dumps(summaries, ensure_ascii=False, indent=2))
+    return 0
+
+
 def _vlpljbl_task(payload: tuple[Path, argparse.Namespace]) -> dict[str, Any]:
     path, args = payload
     row = classify_vlpljbl_file(
@@ -2450,6 +2469,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_hc_render_entry_args(p_hc_render_entry)
     add_jobs_argument(p_hc_render_entry)
     p_hc_render_entry.set_defaults(func=cmd_hc_render_entry)
+
+    p_reader_demo = sub.add_parser(
+        "reader-demo",
+        help="Generate a static web-reader proof for HC entries, MENU, Panels, links, and PCMDATA.",
+    )
+    add_reader_demo_args(p_reader_demo)
+    add_jobs_argument(p_reader_demo)
+    p_reader_demo.set_defaults(func=cmd_reader_demo)
 
     p_multiview = sub.add_parser(
         "multiview",

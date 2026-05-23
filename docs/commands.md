@@ -60,7 +60,7 @@ Corpus-scale commands support `--jobs`:
 ```
 
 This applies to commands that operate across many dictionaries or resources:
-`scan`, `extract`, `entries`, `resources`, `panels`, `colscr`, `pcmdata`, `extras`, `rendererdb`, `hc-render`, `hc-render-entry`,
+`scan`, `extract`, `entries`, `resources`, `panels`, `colscr`, `pcmdata`, `extras`, `rendererdb`, `hc-render`, `hc-render-entry`, `reader-demo`,
 `spindex`, `audit-honmon`, `gaiji-report`, `gaiji-readiness`, `ga16`,
 `titles`, `indexes`, `menus`, `fulldb`, `profile`, `honmon-bytes`,
 `opcode-atlas`, `component-forensics`, `dump-ir`, `dump-package-models`, LVED
@@ -331,6 +331,39 @@ Each output dictionary directory contains one HTML file per rendered hit plus
 `matches.jsonl` and `summary.json`. The HTML filename is based on the requested
 query, for example `et_1.html` or `crocodile_1.html`. Use `--limit` only when
 the requested term legitimately has multiple matching entries.
+
+### `reader-demo`
+
+Generate a static web-reader proof page for one SSED dictionary package:
+
+```bash
+logovista-tools reader-demo /path/to/_DCT_HAESPJPN --dict HAESPJPN \
+  --query danzar --query 再開 --out-dir reader-demo
+```
+
+This command is intentionally a proof-of-concept integration surface, not a
+bulk extractor. It uses the HC entry renderer, native index lookup, decoded
+Panel rows, decoded `MENU.DIC` rows when a package has a menu component, entry
+`lvaddr://` links, copied template/media assets, and resolved `PCMDATA.DIC`
+audio files to build one browser page under `<out-dir>/<DICT>/index.html`.
+
+The page contains:
+
+- rendered seed entries from `--query`;
+- pre-rendered targets from Panel rows and one level of entry-internal links;
+- a Panel navigator that preserves Panel hierarchy: root cells reveal child
+  cells, child cells reveal decoded `.bin` rows, and row buttons load entries;
+- `MENU.DIC` navigation rows when the package declares and supplies that
+  component;
+- in-entry `lvaddr://` links that route to embedded entries;
+- PCMDATA sound links rewritten to local WAV/MP3 files and a page-level audio
+  player.
+
+`reader-demo` reports missing menu components explicitly. Some Panel-capable
+dictionaries do not declare `MENU.DIC`; some package copies declare `MENU.DIC`
+but do not include the file. In those cases the generated page can still prove
+Panel, entry-link, and PCMDATA behavior, but it cannot prove menu navigation
+for that package copy.
 
 ### `multiview`
 
