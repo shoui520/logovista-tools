@@ -246,6 +246,21 @@ generic group, so marker-only `0001` slicing renders the wrong preceding
 entry. The fix is HONMON/index-level boundary handling; the HC profile only
 describes which section values are visible entry starts for that renderer.
 
+Some body streams do not use `1f09 0001` as an entry marker at all. KQJEXPRS,
+for example, uses `1f09 0002` section starts in `HONMON.DIC`; a `0001` marker
+scan sees the whole stream as one generic slice. In that shape, native index
+section targets become the primary boundaries. If an index row points to text
+inside one of those sections rather than to the section marker itself, focused
+rendering uses the closest preceding native-index section boundary inside the
+same generic slice.
+
+Native index rows can also target a visible `1f41...1f61` heading span inside a
+larger generic marker group. In that shape the heading span is an addressable
+local entry start, and the next visible peer heading in the same generic group
+is the focused interval end. Empty heading spans are not enough evidence for an
+entry boundary; some renderer families use empty `1f41...1f61` spans as anchor
+stubs immediately before the real body marker.
+
 ## Dense HONMON Tables
 
 Some products have a large expanded `HONMON.DIC`, but it is not a definition

@@ -27,7 +27,7 @@ from .body_boundaries import (
     generic_entry_slice_containing_reader,
     index_body_marker_boundaries_for_source,
     target_needs_index_boundaries,
-    target_slice_from_index_boundaries,
+    target_slice_from_reader_and_index_boundaries,
 )
 from .colscr import MediaPointer, find_colscr_path, parse_media_pointer, read_colscr_record
 from .controls import KNOWN_NONPRINTING_CONTROLS, control_arg_length
@@ -2070,31 +2070,16 @@ def _hc_target_slice_reader(
 ) -> tuple[int, int] | None:
     """Return the body range a renderer should receive for a search target.
 
-    STEDMAN6/HC02BC has native title targets that can point at child
-    fukumidashi rows inside a larger marker-delimited entry.  Rendering from the
-    pointer alone loses the enclosing section control state; rendering the
-    entire parent is correct but too broad for a child hit.  HC02BC's child
-    rows are introduced by section ``1f09 0002``, so child targets expand to the
-    nearest containing 0002 section up to the next sibling section.
+    Shared HONMON/index boundary handling runs first.  The remaining branches
+    are renderer-specific compatibility rules whose behavior is not yet generic
+    enough to move into the common boundary resolver.
     """
 
     code = (renderer_code or "").upper()
     generic_containing = generic_entry_slice_containing_reader(reader, target_offset)
-    target_starts_generic_slice = (
-        generic_containing is not None
-        and (
-            generic_containing[0] == target_offset
-            or (target_offset >= 2 and generic_containing[0] == target_offset - 2)
-        )
-    )
-    if not target_starts_generic_slice:
-        boundary_slice = target_slice_from_index_boundaries(
-            boundary_offsets,
-            target_offset,
-            fallback_end=generic_containing[1] if generic_containing is not None else reader.expanded_size,
-        )
-        if boundary_slice is not None:
-            return boundary_slice
+    boundary_slice = target_slice_from_reader_and_index_boundaries(reader, target_offset, boundary_offsets)
+    if boundary_slice is not None:
+        return boundary_slice
 
     if code == "0137":
         containing = generic_containing

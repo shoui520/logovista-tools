@@ -334,6 +334,18 @@ a broader generic slice to the next native-index body boundary. That distinction
 is what lets indexed child entries render independently without cutting off
 example sections from normal primary entries.
 
+For markerless streams where `1f09 0001` is not the body-entry marker,
+`hc-render-entry` also uses native-index section boundaries as the entry
+intervals. If the matched row points to visible text inside one of those
+sections, the output starts at the closest preceding native-index section
+boundary instead of rendering the whole HONMON component.
+
+Some native rows target visible `1f41...1f61` heading spans inside a larger
+generic marker group. In that shape, `hc-render-entry` treats the visible
+heading as the focused entry start and stops at the next visible peer heading.
+Empty heading spans used as renderer anchor stubs are ignored by this generic
+rule.
+
 Each output dictionary directory contains one HTML file per rendered hit plus
 `matches.jsonl` and `summary.json`. The HTML filename is based on the requested
 query, for example `et_1.html` or `crocodile_1.html`. Use `--limit` only when

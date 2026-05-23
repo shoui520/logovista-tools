@@ -6,8 +6,12 @@ import sqlite3
 from pathlib import Path
 
 from logovista_tools.body_boundaries import (
+    target_containing_slice_from_index_boundaries,
     target_needs_index_boundaries,
+    target_slice_from_visible_heading_span,
+    target_slice_from_reader_and_index_boundaries,
     target_slice_from_index_boundaries,
+    target_starts_on_visible_heading_span,
     target_starts_on_section_marker,
 )
 from logovista_tools.entries import DictionarySource
@@ -1127,7 +1131,77 @@ def test_index_derived_body_boundaries_are_honmon_level(tmp_path: Path) -> None:
     )
     assert target_slice_from_index_boundaries((0, child_start), child_start + 4, fallback_end=len(expanded)) is None
     assert _hc_target_slice_reader(reader, None, 0, boundary_offsets=(0, child_start)) == (0, reader.expanded_size)
+    assert target_slice_from_reader_and_index_boundaries(reader, child_start, (0, child_start)) == (
+        child_start,
+        reader.expanded_size,
+    )
     assert _hc_target_slice_reader(reader, None, child_start, boundary_offsets=(0, child_start)) == (child_start, reader.expanded_size)
+
+
+def test_markerless_stream_uses_index_boundary_containing_text_target(tmp_path: Path) -> None:
+    first = b"\x1f\x09\x00\x02" + jis_text("最初") + b"\x1f\x0a"
+    second_start = len(first)
+    second = b"\x1f\x09\x00\x02" + jis_text("別々") + b"\x1f\x0a" + jis_text("例文")
+    expanded = first + second
+    path = tmp_path / "HONMON.DIC"
+    path.write_bytes(encode_sseddata_literal(expanded, start_block=0, kind=0))
+    reader = SsedRandomReader(path)
+    text_target = second_start + second.index(jis_text("例文"))
+
+    assert target_needs_index_boundaries(reader, text_target)
+    assert target_containing_slice_from_index_boundaries(
+        (0, second_start),
+        text_target,
+        containing_start=0,
+        fallback_end=reader.expanded_size,
+    ) == (second_start, reader.expanded_size)
+    assert target_slice_from_reader_and_index_boundaries(reader, text_target, (0, second_start)) == (
+        second_start,
+        reader.expanded_size,
+    )
+    assert _hc_target_slice_reader(reader, None, text_target, boundary_offsets=(0, second_start)) == (
+        second_start,
+        reader.expanded_size,
+    )
+
+
+def test_visible_heading_span_target_slices_to_next_peer_heading(tmp_path: Path) -> None:
+    intro = b"\x1f\x09\x00\x01" + jis_text("親")
+    first_heading = b"\x1f\x41\x01\x00" + jis_text("見出し一") + b"\x1f\x61"
+    first_body = b"\x1f\x0a" + jis_text("本文一")
+    second_heading = b"\x1f\x41\x01\x00" + jis_text("見出し二") + b"\x1f\x61"
+    second_body = b"\x1f\x0a" + jis_text("本文二")
+    expanded = intro + first_heading + first_body + second_heading + second_body
+    path = tmp_path / "HONMON.DIC"
+    path.write_bytes(encode_sseddata_literal(expanded, start_block=0, kind=0))
+    reader = SsedRandomReader(path)
+    target = len(intro)
+    next_target = len(intro) + len(first_heading) + len(first_body)
+
+    assert target_starts_on_visible_heading_span(reader, target)
+    assert target_needs_index_boundaries(reader, target)
+    assert target_slice_from_visible_heading_span(
+        reader,
+        target,
+        containing_start=0,
+        fallback_end=reader.expanded_size,
+    ) == (target, next_target)
+    assert target_slice_from_reader_and_index_boundaries(reader, target, None) == (target, next_target)
+    assert _hc_target_slice_reader(reader, None, target, boundary_offsets=None) == (target, next_target)
+
+
+def test_empty_heading_span_target_is_not_generic_boundary(tmp_path: Path) -> None:
+    anchor_stub = b"\x1f\x09\x00\x01\x1f\x41\x01\x00\x1f\x61"
+    body = b"\x1f\x09\x00\x01" + jis_text("本文")
+    expanded = anchor_stub + body
+    path = tmp_path / "HONMON.DIC"
+    path.write_bytes(encode_sseddata_literal(expanded, start_block=0, kind=0))
+    reader = SsedRandomReader(path)
+    empty_heading = 4
+
+    assert not target_starts_on_visible_heading_span(reader, empty_heading)
+    assert not target_needs_index_boundaries(reader, empty_heading)
+    assert target_slice_from_reader_and_index_boundaries(reader, empty_heading, None) is None
 
 
 def test_hc0065_target_slice_skips_anchor_stub(tmp_path: Path) -> None:

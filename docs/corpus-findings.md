@@ -212,6 +212,34 @@ audit result should be read as a HONMON/index boundary model requirement first;
 individual HC profiles still decide how each section value maps to visible
 HTML.
 
+An unbounded semantic boundary audit over the current Windows SSED corpus plus
+the recovered GEN packages covered 184 dictionary targets with no timeouts. It
+found 38 dictionaries where native index rows point to `1f09` section starts
+inside broader generic slices. It also found markerless body streams such as
+KQJEXPRS, where `1f09 0002` sections rather than `1f09 0001` markers define
+reader entry intervals. Focused rendering now handles both shapes: exact
+section targets are sliced from that target to the next index-derived section
+boundary, while non-section text targets in markerless streams use the nearest
+preceding native-index section boundary.
+
+The same audit found three dictionaries where native index rows point to
+visible `1f41...1f61` heading spans inside a larger generic marker group:
+MEDEXPDA, Gen2003, and one mixed selector case in 45KAGAKU. Those visible
+heading targets are now treated as local focused-entry starts and end at the
+next visible peer heading. Empty `1f41...1f61` spans, such as GENIUSEB anchor
+stubs, are not treated as generic entry starts.
+
+The same audit keeps separate non-body issues instead of mixing them into the
+entry-boundary model:
+
+- dense-HONMON / renderer-sidecar packages require sidecar dereferencing;
+- several packages intentionally reuse the body pointer as the title pointer or
+  point titles back into HONMON;
+- a few local packages declare missing index components, which is package
+  integrity or sidecar-model evidence rather than an index parser failure;
+- selector-style rows can carry sentinel/out-of-range body values and should
+  not be promoted to entry bodies without additional evidence.
+
 ## Full HONMON Byte Scan
 
 The stronger corpus pass scans every expanded `HONMON.DIC` byte, not sampled
