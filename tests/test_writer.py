@@ -1201,7 +1201,7 @@ def test_jmdict_writer_emits_navigation_panels_templates_and_ccaltstr(tmp_path) 
     license_html = tmp_path / "licence.html"
     license_html.write_text("<html><body><h1>Licence</h1><p>EDRDG licence text.</p></body></html>", encoding="utf-8")
     project_html = tmp_path / "project.html"
-    project_html.write_text("<html><body><h1>Project</h1><p>Project page text.</p></body></html>", encoding="utf-8")
+    project_html.write_text("\ufeff<html><body><h1>Project</h1><p>Project page text.</p></body></html>", encoding="utf-8")
     args = Namespace(
         input=source,
         out_dir=tmp_path / "out",
@@ -1245,6 +1245,8 @@ def test_jmdict_writer_emits_navigation_panels_templates_and_ccaltstr(tmp_path) 
     assert any((package / "Templates").glob("*.svg"))
     assert (package / "CCALTSTR.FU").is_file() or (package / "CCALTSTR.HA").is_file()
     assert (tmp_path / "showcase" / "index.html").is_file()
+    uni = parse_uni_resource(package / "JMDICT.uni")
+    assert "\ufeff" not in {record.display for record in uni.records}
 
     refs = list(iter_panel_data_references(package / "Panels.xml"))
     assert refs

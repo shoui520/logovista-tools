@@ -19,6 +19,7 @@ import unicodedata
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from functools import lru_cache
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Iterable
@@ -30,6 +31,7 @@ from .writer import (
     BodyControl,
     BodyMarkup,
     CompressionMode,
+    EmbeddedBitmapFontRenderer,
     FULL_GAIJI_START,
     HALF_GAIJI_START,
     FontFallbackGlyphRenderer,
@@ -41,6 +43,7 @@ from .writer import (
     WriterEntry,
     WriterMenuItem,
     build_plain_honmon_package,
+    blank_glyph,
     component_offset_to_pointer,
     default_catalog_data,
     encode_ccaltstr_table,
@@ -53,7 +56,6 @@ from .writer import (
     encode_ssedinfo,
     encode_title_stream,
     logical_block_count,
-    rows_to_ga16_glyph,
     write_plain_package,
 )
 
@@ -73,6 +75,8 @@ VECTOR_FONT_PREFERENCES = (
     "chinese/vector/NotoSansSC-Regular.ttf",
     "english/vector/NotoSans-Regular.ttf",
     "emoji/NotoColorEmoji-Regular.ttf",
+    "chinese/vector/HanaMinA.ttf",
+    "chinese/vector/HanaMinB.ttf",
 )
 BITMAP_FONT_PREFERENCES = (
     "japanese/msgothic.ttc",
@@ -225,7 +229,7 @@ class _HtmlTextExtractor(HTMLParser):
     def handle_data(self, data: str) -> None:
         if self.skip_depth:
             return
-        text = re.sub(r"\s+", " ", data)
+        text = re.sub(r"\s+", " ", data.replace("\ufeff", ""))
         if text.strip():
             self.parts.append(text)
 
@@ -250,6 +254,34 @@ def _path_list(value: Any) -> list[Path]:
 
 def _preferred_fonts(root: Path, preferences: Iterable[str]) -> list[Path]:
     return [root / rel for rel in preferences if (root / rel).is_file()]
+
+
+@dataclass
+class _BitmapOnlyGa16Renderer:
+    renderers: tuple[Any, ...]
+    fallback_misses: Counter[str]
+
+    def __call__(self, text: str, width: int, height: int, space: str) -> bytes:
+        for renderer in self.renderers:
+            try:
+                glyph = renderer(text, width, height, space)
+            except Exception:
+                continue
+            if glyph and any(glyph):
+                return glyph
+        self.fallback_misses[text] += 1
+        return blank_glyph(width, height)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "mode": "bitmap-only",
+            "sources": [
+                list(getattr(renderer, "sources", ()))
+                for renderer in self.renderers
+            ],
+            "fallback_misses": sum(self.fallback_misses.values()),
+            "fallback_miss_samples": list(self.fallback_misses.keys())[:20],
+        }
 
 
 def jmdict_vector_fonts(args: Any) -> list[Path]:
@@ -278,38 +310,85 @@ def jmdict_ga16_glyph_renderer(args: Any, bitmap_fonts: list[Path]) -> Any | Non
     """Build the GA16 renderer from the bitmap-preference font list only.
 
     The preference list may contain LogoVista GA16 resources/directories or
-    Windows-style TTC/TTF fonts.  Both are kept separate from the vector
-    Template font list; the latter is used only for loose Template PNG/SVG
-    redundancy.
+    Windows-style TTC/TTF fonts with embedded bitmap strikes.  It intentionally
+    does not use outline/vector rendering; missing bitmap glyphs become blank
+    GA16 cells because Unicode and Template resources are the higher-quality
+    display paths.
     """
 
     if not bitmap_fonts:
         return None
     logo_bitmap_paths: list[Path] = []
-    outline_bitmap_preference_paths: list[Path] = []
+    embedded_bitmap_paths: list[Path] = []
     for path in bitmap_fonts:
         if path.is_dir() or path.suffix.lower() == ".uni" or is_bitmap_gaiji_resource_name(path):
             logo_bitmap_paths.append(path)
         else:
-            outline_bitmap_preference_paths.append(path)
-    if logo_bitmap_paths and not outline_bitmap_preference_paths:
+            embedded_bitmap_paths.append(path)
+    renderers: list[Any] = []
+    if logo_bitmap_paths:
         try:
-            return FontFallbackGlyphRenderer.from_sources(bitmap_paths=logo_bitmap_paths, vector_paths=())
+            renderers.append(FontFallbackGlyphRenderer.from_sources(bitmap_paths=logo_bitmap_paths, vector_paths=()))
         except Exception:
-            return None
-    try:
-        return FontFallbackGlyphRenderer.from_sources(
-            bitmap_paths=logo_bitmap_paths,
-            vector_paths=outline_bitmap_preference_paths,
-            vector_face_index=None,
-            threshold=getattr(args, "font_threshold", 220),
-        )
-    except Exception:
+            pass
+    if embedded_bitmap_paths:
+        try:
+            renderers.append(EmbeddedBitmapFontRenderer.from_paths(embedded_bitmap_paths))
+        except Exception:
+            pass
+    if not renderers:
         return None
+    return _BitmapOnlyGa16Renderer(tuple(renderers), Counter())
+
+
+@lru_cache(maxsize=64)
+def _font_face_coverages(path_text: str) -> tuple[tuple[int, frozenset[int]], ...]:
+    try:
+        from fontTools.ttLib import TTCollection, TTFont
+    except ImportError:
+        return ()
+    path = Path(path_text)
+    faces: list[tuple[int, frozenset[int]]] = []
+    try:
+        if path.suffix.lower() in {".ttc", ".otc"}:
+            collection = TTCollection(str(path), lazy=True)
+            try:
+                for index, font in enumerate(collection.fonts):
+                    faces.append((index, _font_coverage(font)))
+            finally:
+                for font in collection.fonts:
+                    close = getattr(font, "close", None)
+                    if close is not None:
+                        close()
+            return tuple(faces)
+        font = TTFont(str(path), lazy=True)
+        try:
+            return ((0, _font_coverage(font)),)
+        finally:
+            close = getattr(font, "close", None)
+            if close is not None:
+                close()
+    except Exception:
+        return ()
+
+
+def _font_coverage(font: Any) -> frozenset[int]:
+    cmap = font.get("cmap")
+    if cmap is None:
+        return frozenset()
+    codepoints: set[int] = set()
+    for table in cmap.tables:
+        if not table.isUnicode():
+            continue
+        for codepoint, glyph_name in table.cmap.items():
+            if str(glyph_name).lower() in {".notdef", "glyph0", "glyph00000"}:
+                continue
+            codepoints.add(int(codepoint))
+    return frozenset(codepoints)
 
 
 def _clean(value: Any) -> str:
-    return re.sub(r"\s+", " ", str(value or "").replace("\u0000", "")).strip()
+    return re.sub(r"\s+", " ", str(value or "").replace("\u0000", "").replace("\ufeff", "")).strip()
 
 
 def _katakana_to_hiragana(value: str) -> str:
@@ -924,22 +1003,31 @@ def _render_template_gaiji_png(text: str, font_paths: list[Path], *, size: int =
 
     from PIL import Image, ImageDraw, ImageFont
 
+    required_codepoints = {
+        ord(ch)
+        for ch in text
+        if not unicodedata.combining(ch) and unicodedata.category(ch) != "Cf"
+    }
     for path in font_paths:
-        try:
-            font = ImageFont.truetype(str(path), size=size - 4)
-        except Exception:
-            continue
-        image = Image.new("RGBA", (size, size), (255, 255, 255, 0))
-        draw = ImageDraw.Draw(image)
-        bbox = draw.textbbox((0, 0), text, font=font)
-        width = max(1, bbox[2] - bbox[0])
-        height = max(1, bbox[3] - bbox[1])
-        draw.text(((size - width) / 2 - bbox[0], (size - height) / 2 - bbox[1]), text, font=font, fill=(0, 0, 0, 255))
-        alpha = image.getchannel("A")
-        if alpha.getbbox():
-            out = BytesIO()
-            image.save(out, format="PNG")
-            return out.getvalue()
+        coverages = _font_face_coverages(str(path)) or ((0, frozenset()),)
+        for face_index, coverage in coverages:
+            if required_codepoints and coverage and not required_codepoints.issubset(coverage):
+                continue
+            try:
+                font = ImageFont.truetype(str(path), size=size - 4, index=face_index)
+            except Exception:
+                continue
+            image = Image.new("RGBA", (size, size), (255, 255, 255, 0))
+            draw = ImageDraw.Draw(image)
+            bbox = draw.textbbox((0, 0), text, font=font)
+            width = max(1, bbox[2] - bbox[0])
+            height = max(1, bbox[3] - bbox[1])
+            draw.text(((size - width) / 2 - bbox[0], (size - height) / 2 - bbox[1]), text, font=font, fill=(0, 0, 0, 255))
+            alpha = image.getchannel("A")
+            if alpha.getbbox():
+                out = BytesIO()
+                image.save(out, format="PNG")
+                return out.getvalue()
     return b""
 
 
@@ -1238,8 +1326,6 @@ def build_jmdict_writer_package(args: Any) -> dict[str, Any]:
     bitmap_fonts = jmdict_bitmap_fonts(args)
     vector_fonts = jmdict_vector_fonts(args)
     glyph_renderer = jmdict_ga16_glyph_renderer(args, bitmap_fonts)
-    if bitmap_fonts and glyph_renderer is None:
-        glyph_renderer = lambda _text, width, height, _space: rows_to_ga16_glyph(["." * width for _ in range(height)], width=width, height=height)
 
     package_dir = args.out_dir / dict_id
     if package_dir.exists() and not args.force:
@@ -1294,6 +1380,7 @@ def build_jmdict_writer_package(args: Any) -> dict[str, Any]:
                 "bitmap_fonts": [str(path) for path in bitmap_fonts],
                 "vector_fonts": [str(path) for path in vector_fonts],
                 "layout": "split",
+                "ga16_renderer": glyph_renderer.as_dict() if hasattr(glyph_renderer, "as_dict") else None,
             },
             "jmdict_features": {
                 "kwindex_targets": extra_report.kwindex_targets,

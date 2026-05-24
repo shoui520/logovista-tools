@@ -2017,9 +2017,10 @@ navigation model without a platform-specific auxiliary text tree.
 JMdict gaiji output is deliberately redundant in the LogoVista style:
 display text uses Unicode through `.uni` where possible; loose `Templates/`
 PNG/SVG gaiji are generated from the configured vector font preference list;
-GA16 bitmap resources are generated from the configured bitmap-preference font
-list. The font families remain separate so the GA16 output does not silently
-fall through to the Template vector list.
+GA16 bitmap resources are generated only from LogoVista bitmap resources or
+embedded bitmap strikes in the configured bitmap-preference fonts. The font
+families remain separate so the GA16 output does not silently fall through to
+the Template vector list.
 
 The writer separates display text from lookup aliases. Body and title text keep
 their display spelling, but index keys are generated from raw and normalized

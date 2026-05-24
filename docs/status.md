@@ -199,9 +199,10 @@ and non-SSED reader status are tracked separately in
   Panels cover the browse/navigation role more directly.
 - JMdict gaiji emission uses redundant LogoVista-style resources: Unicode
   mappings in `.uni`, loose `Templates/` PNG/SVG glyphs from vector fonts, and
-  GA16 bitmap glyphs from the bitmap-preference font list only. This keeps
-  Unicode-first rendering, Template resources, and GA16 fallback as separate
-  artifacts.
+  GA16 bitmap glyphs only from LogoVista bitmap resources or embedded bitmap
+  strikes in the bitmap-preference font list. This keeps Unicode-first
+  rendering, Template resources, and GA16 fallback as separate artifacts and
+  prevents GA16 from silently using outline/vector rendering.
 - `verify-written-package` validates writer output as a package, not just as
   individual parseable components. It checks `SSEDINFO` ranges against
   `SSEDDATA` headers, expanded sizes, branch upper-bound rows, final `ff`

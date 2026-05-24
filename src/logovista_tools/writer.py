@@ -1703,6 +1703,67 @@ class BitmapGaijiFontRenderer:
         return glyph
 
 
+@dataclass
+class EmbeddedBitmapFontRenderer:
+    """Render from embedded bitmap strikes in TrueType/OpenType fonts.
+
+    This is for GA16-style writer output.  It intentionally does not fall back
+    to outlines; if a requested glyph is absent from the embedded 1bpp strike,
+    the caller should use another bitmap source or emit a blank GA16 fallback.
+    """
+
+    fonts: tuple[object, ...]
+    sources: tuple[str, ...] = ()
+
+    @classmethod
+    def from_paths(cls, paths: Iterable[Path]) -> "EmbeddedBitmapFontRenderer":
+        try:
+            from fontTools.ttLib import TTCollection, TTFont
+        except ImportError as exc:  # pragma: no cover - depends on optional local tooling
+            raise RuntimeError("fontTools is required for embedded bitmap gaiji rendering") from exc
+
+        fonts: list[object] = []
+        sources: list[str] = []
+        for source in paths:
+            path = Path(source)
+            try:
+                if path.suffix.lower() in {".ttc", ".otc"}:
+                    collection = TTCollection(str(path), lazy=False)
+                    for index, font in enumerate(collection.fonts):
+                        if _font_has_embedded_bitmap_strike(font):
+                            fonts.append(font)
+                            sources.append(f"{path}#{index}")
+                        else:
+                            close = getattr(font, "close", None)
+                            if close is not None:
+                                close()
+                    continue
+                font = TTFont(str(path), lazy=False)
+                if _font_has_embedded_bitmap_strike(font):
+                    fonts.append(font)
+                    sources.append(str(path))
+                else:
+                    close = getattr(font, "close", None)
+                    if close is not None:
+                        close()
+            except Exception:
+                continue
+        if not fonts:
+            raise ValueError("no embedded bitmap strikes found in supplied font paths")
+        return cls(fonts=tuple(fonts), sources=tuple(sources))
+
+    def __call__(self, text: str, width: int, height: int, space: str) -> bytes:
+        codepoints = tuple(ord(ch) for ch in text if not unicodedata.combining(ch))
+        if len(codepoints) != 1:
+            raise ValueError(f"embedded bitmap renderer supports one codepoint, got {text!r}")
+        codepoint = codepoints[0]
+        for font in self.fonts:
+            glyph = _embedded_bitmap_glyph(font, codepoint, width=width, height=height)
+            if glyph is not None and any(glyph):
+                return glyph
+        raise ValueError(f"embedded bitmap font has no {width}x{height} glyph for {text!r}")
+
+
 def _rendered_glyph_is_usable(
     renderer: GlyphRenderer,
     glyph: bytes,
@@ -1718,6 +1779,75 @@ def _rendered_glyph_is_usable(
         if marker is not None and marker == glyph:
             return False
     return True
+
+
+def _font_has_embedded_bitmap_strike(font: object) -> bool:
+    try:
+        return "EBLC" in font and "EBDT" in font and any(
+            strike.bitmapSizeTable.bitDepth == 1
+            for strike in font["EBLC"].strikes
+        )
+    except Exception:
+        return False
+
+
+def _font_codepoint_to_glyph_name(font: object, codepoint: int) -> str | None:
+    cmap = font.get("cmap")
+    if cmap is None:
+        return None
+    for table in cmap.tables:
+        if not table.isUnicode():
+            continue
+        glyph_name = table.cmap.get(codepoint)
+        if glyph_name is not None and str(glyph_name).lower() not in {".notdef", "glyph0", "glyph00000"}:
+            return str(glyph_name)
+    return None
+
+
+def _embedded_bitmap_glyph(font: object, codepoint: int, *, width: int, height: int) -> bytes | None:
+    glyph_name = _font_codepoint_to_glyph_name(font, codepoint)
+    if glyph_name is None:
+        return None
+    eblc = font["EBLC"]
+    ebdt = font["EBDT"]
+    target_row_size = ga16_row_size(width)
+    for strike_index, strike in enumerate(eblc.strikes):
+        size = strike.bitmapSizeTable
+        if size.bitDepth != 1 or size.ppemY != height:
+            continue
+        strike_data = ebdt.strikeData[strike_index]
+        bitmap = strike_data.get(glyph_name)
+        if bitmap is None:
+            continue
+        for subtable in strike.indexSubTables:
+            names = getattr(subtable, "names", ())
+            if glyph_name not in names:
+                continue
+            metrics = getattr(subtable, "metrics", None)
+            if metrics is None:
+                metrics = getattr(bitmap, "metrics", None)
+            if metrics is None:
+                continue
+            source_width = int(getattr(metrics, "width", 0))
+            source_height = int(getattr(metrics, "height", 0))
+            if source_width <= 0 or source_height <= 0 or source_width > width or source_height > height:
+                continue
+            data = getattr(bitmap, "data", b"")
+            source_row_size = ga16_row_size(source_width)
+            if len(data) < source_row_size * source_height:
+                continue
+            y_offset = max(0, (height - source_height) // 2)
+            x_offset = max(0, (width - source_width) // 2)
+            out = bytearray(target_row_size * height)
+            for y in range(source_height):
+                src_row = data[y * source_row_size : (y + 1) * source_row_size]
+                dst_y = y + y_offset
+                for x in range(source_width):
+                    if src_row[x // 8] & (0x80 >> (x % 8)):
+                        dst_x = x + x_offset
+                        out[dst_y * target_row_size + dst_x // 8] |= 0x80 >> (dst_x % 8)
+            return bytes(out)
+    return None
 
 
 def _bitmap_font_candidate_files(path: Path) -> tuple[list[Path], list[Path]]:
