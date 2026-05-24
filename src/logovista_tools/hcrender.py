@@ -46,6 +46,7 @@ from .gaiji import (
 )
 from .hcprofiles import build_hc_behavior_profile
 from .indexes import INDEX_TYPES, scan_index_component_reader
+from .navigation import NavigationResolver, lvaddr_href
 from .parallel import parallel_map_ordered, worker_args
 from .pcmdata import PcmPointer, parse_pcm_pointer
 from .rendererdb import (
@@ -3742,7 +3743,7 @@ def _link_payload_is_packed_bcd(options: HcRenderOptions) -> bool:
 def _pointer_href(pointer: dict[str, int] | None) -> str:
     if pointer is None:
         return "lvaddr://unresolved"
-    return f"lvaddr://{pointer['block']:08d}/{pointer['offset']:04d}"
+    return lvaddr_href(pointer["block"], pointer["offset"])
 
 
 def _media_target(pointer: MediaPointer | None) -> dict[str, Any] | None:
@@ -7485,6 +7486,8 @@ class HcIndexHit:
     title_offset: int
     page_index: int
     row_index: int
+    body_target: dict[str, Any] | None = None
+    title_target: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -7496,6 +7499,8 @@ class HcIndexHit:
             "target_key": self.target_key,
             "body": {"block": self.body_block, "offset": self.body_offset},
             "title": {"block": self.title_block, "offset": self.title_offset},
+            "body_target": self.body_target,
+            "title_target": self.title_target,
             "page_index": self.page_index,
             "row_index": self.row_index,
         }
@@ -7584,6 +7589,7 @@ def _find_index_hits_for_source(
     components: set[str] | None = None,
 ) -> list[HcIndexHit]:
     _title, elements = parse_ssedinfo(source.idx)
+    navigation = NavigationResolver(elements)
     hits_by_body: dict[tuple[int, int], HcIndexHit] = {}
     selected_components = {component.casefold() for component in components or set()}
     for element in sorted(elements, key=lambda item: _index_component_priority(item.filename)):
@@ -7612,6 +7618,10 @@ def _find_index_hits_for_source(
                 title_offset = int(title["offset"])
             except (KeyError, TypeError, ValueError):
                 return
+            body_resolution = navigation.resolve_body(body_block, body_offset)
+            if body_resolution.target is None:
+                return
+            title_resolution = navigation.resolve(title_block, title_offset)
             key = (body_block, body_offset)
             hit = HcIndexHit(
                 query=query,
@@ -7626,6 +7636,8 @@ def _find_index_hits_for_source(
                 title_offset=title_offset,
                 page_index=int(row.get("page_index") or 0),
                 row_index=int(row.get("row_index") or 0),
+                body_target=body_resolution.target.as_dict(),
+                title_target=title_resolution.target.as_dict() if title_resolution.target is not None else None,
             )
             old = hits_by_body.get(key)
             if old is None or (hit.score, hit.component, hit.key) > (old.score, old.component, old.key):
@@ -7924,7 +7936,10 @@ def _rewrite_lved_addr_hrefs(fragment: str) -> str:
         if not block or not offset:
             return match.group(0)
         original = f"lved.addr{block}:{offset}"
-        target = f"lvaddr://{block}/{offset}"
+        try:
+            target = lvaddr_href(int(block, 16), int(offset, 16))
+        except ValueError:
+            return match.group(0)
         return (
             f'{prefix}{quote}{_escape_attr(target)}{suffix_quote} '
             f'data-lv-original-href="{_escape_attr(original)}" '

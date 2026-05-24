@@ -10,7 +10,9 @@ from typing import Any, Iterable
 from xml.etree import ElementTree
 
 from .entries import decode_tokens, tokens_to_text
-from .ssed import BLOCK_SIZE, SsedInfoElement
+from .navigation import NavigationTarget as PanelTarget
+from .navigation import parse_lvaddr_href, resolve_component_target
+from .ssed import SsedInfoElement
 
 
 @dataclass(frozen=True)
@@ -85,30 +87,6 @@ class PanelCellReference:
             "action_verb": self.action_verb,
             "source_format": self.source_format,
             "attributes": dict(self.attributes),
-        }
-
-
-@dataclass(frozen=True)
-class PanelTarget:
-    """Resolved component target for a Panel address row."""
-
-    component: str
-    component_type: str
-    kind: str
-    start_block: int
-    end_block: int
-    relative_offset: int
-    offset_in_block: int
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "component": self.component,
-            "component_type": self.component_type,
-            "kind": self.kind,
-            "start_block": self.start_block,
-            "end_block": self.end_block,
-            "relative_offset": self.relative_offset,
-            "offset_in_block": self.offset_in_block,
         }
 
 
@@ -636,43 +614,10 @@ def iter_panel_cells(path: Path) -> Iterable[PanelCellReference]:
         yield from iter_panel_cell_references(path)
 
 
-def panel_component_kind(component_type: int) -> str:
-    if component_type == 0x00:
-        return "body"
-    if component_type == 0x01:
-        return "menu"
-    if component_type in {0x03, 0x04, 0x05, 0x06, 0x07, 0x0A}:
-        return "title"
-    if component_type in {0x70, 0x71, 0x80, 0x81, 0x90, 0x91}:
-        return "index"
-    if component_type == 0xD2:
-        return "media-image"
-    if component_type == 0xD8:
-        return "media-audio"
-    if component_type in {0xF1, 0xF2}:
-        return "gaiji-resource"
-    return "component"
-
-
 def resolve_panel_target(block: int, offset: int, elements: list[SsedInfoElement]) -> PanelTarget | None:
     """Resolve an absolute SSED block/offset address to its catalog component."""
 
-    if block == 0 and offset == 0:
-        return None
-    for element in elements:
-        if not element.start:
-            continue
-        if element.start <= block <= element.end:
-            return PanelTarget(
-                component=element.filename,
-                component_type=f"{element.type:02x}",
-                kind=panel_component_kind(element.type),
-                start_block=element.start,
-                end_block=element.end,
-                relative_offset=(block - element.start) * BLOCK_SIZE + offset,
-                offset_in_block=offset,
-            )
-    return None
+    return resolve_component_target(block, offset, elements)
 
 
 def panel_bin_navigation_rows(
@@ -707,9 +652,9 @@ def panel_bin_navigation_rows(
 
 def _parse_panel_action_address(action_verb: str) -> tuple[int, int] | None:
     match = _LVED_ADDR_RE.match(action_verb)
-    if not match:
-        return None
-    return int(match.group("block"), 16), int(match.group("offset"), 16)
+    if match:
+        return int(match.group("block"), 16), int(match.group("offset"), 16)
+    return parse_lvaddr_href(action_verb)
 
 
 def _panel_ref_from_action(action_verb: str) -> str:

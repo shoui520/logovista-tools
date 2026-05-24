@@ -25,7 +25,8 @@ from .lvcrypto import (
     decrypt_logofont_cipher_file_to_path,
     decrypt_logofont_cipher_prefix,
 )
-from .ssed import BLOCK_SIZE, SsedInfoElement, find_case_insensitive, read_file_prefix
+from .navigation import resolve_component_target as resolve_navigation_component_target
+from .ssed import SsedInfoElement, find_case_insensitive, read_file_prefix
 
 
 SQLITE_MAGIC = b"SQLite format 3\x00"
@@ -242,19 +243,9 @@ def resolve_aux_virtual_target(block: int, offset: int) -> dict[str, Any] | None
 
 
 def resolve_component_target(block: int, offset: int, elements: list[SsedInfoElement]) -> dict[str, Any] | None:
-    for element in elements:
-        if not element.start:
-            continue
-        if element.start <= block <= element.end:
-            relative_offset = (block - element.start) * BLOCK_SIZE + offset
-            return {
-                "component": element.filename,
-                "component_type": f"{element.type:02x}",
-                "start_block": element.start,
-                "end_block": element.end,
-                "relative_offset": relative_offset,
-                "offset_in_block": offset,
-            }
+    target = resolve_navigation_component_target(block, offset, elements)
+    if target is not None:
+        return target.as_dict()
     return resolve_aux_virtual_target(block, offset)
 
 

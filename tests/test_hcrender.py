@@ -19,6 +19,7 @@ from logovista_tools.hcrender import (
     HC_RENDER_BASE_CSS,
     HC_RENDER_FINAL_CSS,
     HC_RENDER_BASE_SCRIPT,
+    HcIndexHit,
     HcRenderOptions,
     PACKAGE_READER_STYLE,
     _hc_entry_slice_containing_reader,
@@ -88,6 +89,32 @@ def test_hc_render_internal_link_uses_end_payload_target() -> None:
     assert 'href="lvaddr://00000001/0032"' in rendered.html
     assert rendered.links[0]["target"] == {"block": 1, "offset": 32}
     assert rendered.stats["links"] == 1
+
+
+def test_hc_index_hit_serializes_resolved_navigation_targets() -> None:
+    hit = HcIndexHit(
+        query="head",
+        score=120,
+        reason="key:exact",
+        component="FKINDEX.DIC",
+        key="head",
+        target_key="head",
+        body_block=10,
+        body_offset=2,
+        title_block=20,
+        title_offset=4,
+        page_index=1,
+        row_index=2,
+        body_target={"component": "HONMON.DIC", "kind": "body", "address_key": "00000010:0002"},
+        title_target={"component": "FHTITLE.DIC", "kind": "title", "address_key": "00000020:0004"},
+    )
+
+    row = hit.as_dict()
+
+    assert row["body"] == {"block": 10, "offset": 2}
+    assert row["body_target"]["kind"] == "body"
+    assert row["body_target"]["address_key"] == "00000010:0002"
+    assert row["title_target"]["kind"] == "title"
 
 
 def test_hc_render_colscr_media_placeholder_decodes_bcd_target() -> None:
@@ -11488,7 +11515,7 @@ def test_hc_render_exact_rendererdb_html_rewrites_internal_addr_and_image_links(
     )
 
     rendered = html_path.read_text(encoding="utf-8")
-    assert 'href="lvaddr://00000109/0226"' in rendered
+    assert 'href="lvaddr://00000265/0550"' in rendered
     assert 'data-lv-original-href="lved.addr00000109:0226"' in rendered
     assert 'data-lv-address-block="00000109"' in rendered
     assert 'data-lv-address-offset="0226"' in rendered
@@ -11501,7 +11528,7 @@ def test_hc_render_exact_rendererdb_html_rewrites_internal_addr_and_image_links(
 def test_hc_render_rewrites_embedded_fixed_html_lved_addr_links() -> None:
     rendered = _rewrite_lved_addr_hrefs('<a href="lved.addr00000133:0208">(jump)</a>')
 
-    assert 'href="lvaddr://00000133/0208"' in rendered
+    assert 'href="lvaddr://00000307/0520"' in rendered
     assert 'data-lv-original-href="lved.addr00000133:0208"' in rendered
     assert re.search(r'(?<![\w-])href="lved\.', rendered) is None
 

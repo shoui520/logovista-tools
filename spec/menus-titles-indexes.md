@@ -142,6 +142,15 @@ text-like stream. lvcore classifies this as a text-like resource component,
 not as a structured index page tree. KCOMPEJ2 has a loose `RIGHT.DIC`
 `SSEDDATA` file that is not listed in its main `SSEDINFO` catalog.
 
+`MENU.DIC` and `TOC.DIC` both use text-stream navigation records rather than
+index pages. Runtime navigation resolves their block/offset destinations
+against the same `SSEDINFO` component ranges used for Panel rows and entry
+links. Resolved targets are classified as `body`, `menu`, `toc`, `right`,
+`idxjump`, `title`, `index`, media, gaiji, or generic component targets. Reader
+frontends should only render entry bodies directly for targets whose resolved
+kind is `body`; targets such as `toc` or `menu` are navigation nodes that need a
+second navigation step.
+
 The toolkit and the clean lvcore reader parser parse the common `FK/FH/BK/BH`
 page formats, direct and grouped `KWINDEX` rows, direct and grouped `CRINDEX`
 rows, the body-only `0x30`/`0x60` variants, simple alternate `0x72`/`0x92`

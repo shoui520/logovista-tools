@@ -362,19 +362,25 @@ logovista-tools reader-demo /path/to/_DCT_HAESPJPN --dict HAESPJPN \
 
 This command is intentionally a proof-of-concept integration surface, not a
 bulk extractor. It uses the HC entry renderer, native index lookup, decoded
-Panel rows, decoded `MENU.DIC` rows when a package has a menu component, entry
-`lvaddr://` links, copied template/media assets, and resolved `PCMDATA.DIC`
-audio files to build one browser page under `<out-dir>/<DICT>/index.html`.
+Panel rows/cells, decoded `MENU.DIC` and `TOC.DIC` rows when a package has
+those components, entry `lvaddr://` links, copied template/media assets, and
+resolved `PCMDATA.DIC` audio files to build one browser page under
+`<out-dir>/<DICT>/index.html`.
 
 The page contains:
 
 - rendered seed entries from `--query`;
-- pre-rendered targets from Panel rows and one level of entry-internal links;
+- pre-rendered targets from Panel rows, direct Panel cells, MENU/TOC body
+  destinations, and one level of entry-internal links;
 - a Panel navigator that preserves Panel hierarchy: root cells reveal child
   cells, child cells reveal decoded `.bin` rows, and row buttons load entries;
-- `MENU.DIC` navigation rows when the package declares and supplies that
-  component;
-- in-entry `lvaddr://` links that route to embedded entries;
+- `MENU.DIC` / `TOC.DIC` navigation rows when the package declares and supplies
+  those components. Body targets load entries; decoded non-body targets such as
+  TOC-to-TOC jumps scroll to the target navigation row when that row is embedded
+  in the sample;
+- in-entry `lvaddr://` links that route to embedded entries. Decimal
+  `lvaddr://00000042/0016` and hex-derived `lvaddr://0000002a/0010` forms are
+  normalized to the same internal address key;
 - PCMDATA sound links rewritten to local WAV/MP3 files and a page-level audio
   player.
 
@@ -1737,8 +1743,8 @@ bounded browse from a complete extraction.
 
 ### `menus`
 
-Extract `MENU.DIC` menu lines, hierarchy, link labels, and destination
-pointers:
+Extract `MENU.DIC` and `TOC.DIC` navigation lines, hierarchy, link labels, and
+destination pointers:
 
 ```bash
 logovista-tools menus /path/to/LogoVista --out-dir menus
@@ -1784,8 +1790,12 @@ Each JSONL row looks like:
           "kind": "body",
           "start_block": 25678,
           "end_block": 64404,
+          "block": 25678,
+          "offset": 2,
           "relative_offset": 2,
-          "offset_in_block": 2
+          "offset_in_block": 2,
+          "absolute_book_offset": 52586498,
+          "address_key": "00025678:0002"
         }
       }
     }
@@ -1803,8 +1813,12 @@ Each JSONL row looks like:
       "kind": "body",
       "start_block": 25678,
       "end_block": 64404,
+      "block": 25678,
+      "offset": 2,
       "relative_offset": 2,
-      "offset_in_block": 2
+      "offset_in_block": 2,
+      "absolute_book_offset": 52586498,
+      "address_key": "00025678:0002"
     }
   }
 }
@@ -1815,13 +1829,16 @@ Section depth is derived from the numeric ordering of section control codes in
 that menu component, so `0001`/`0002`/`0003`, `0022`/`0023`, and similar style
 families become practical tree levels.
 
-Each destination is resolved against the `.IDX` component block ranges. The
-`target` object names the component and classifies it as `body`, `menu`,
-`title`, `index`, `media-image`, `media-audio`, `gaiji-resource`, or generic
-`component`. `relative_offset` is the byte offset inside the expanded target
-component. A six-byte payload of `000000000000` is emitted as `is_null: true`
-with no target and is counted as a null/sentinel destination rather than an
-unresolved pointer.
+Each destination is resolved against the `.IDX` component block ranges by the
+shared navigation resolver used by Panels and the reader demo. The `target`
+object names the component and classifies it as `body`, `menu`, `toc`, `right`,
+`idxjump`, `title`, `index`, `media-image`, `media-audio`, `gaiji-resource`, or
+generic `component`. `relative_offset` is the byte offset inside the expanded
+target component, and `address_key` is the reader-facing decimal
+`block:offset` key. A six-byte payload of `000000000000` is emitted as
+`is_null: true` with no target and is counted as a null/sentinel destination
+rather than an unresolved pointer. `TOC.DIC` `1f49`/`1f69` links use the final
+six bytes of the 10-byte start payload as a big-endian target pointer.
 
 When `--limit` is used, `menus` decodes incrementally and reads one extra menu
 record where possible before stopping. This keeps the requested final row from

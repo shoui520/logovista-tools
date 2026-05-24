@@ -26,7 +26,8 @@ from .hcrender import (
     _renderer_for_source,
     render_hc_body,
 )
-from .menus import build_menu_tree, parse_menu_stream, resolve_menu_record_destinations
+from .menus import MENU_LIKE_NAMES, MENU_LIKE_TYPES, build_menu_tree, parse_menu_stream, resolve_menu_record_destinations
+from .navigation import NavigationResolver, NavigationTarget, address_key
 from .panels import (
     PanelBinParseError,
     iter_panel_cells,
@@ -101,7 +102,7 @@ def _safe_id(value: str) -> str:
 
 
 def _address_key(block: int, offset: int) -> str:
-    return f"{block:08d}:{offset:04d}"
+    return address_key(block, offset)
 
 
 def _target_key(target: dict[str, Any] | None) -> str | None:
@@ -111,6 +112,17 @@ def _target_key(target: dict[str, Any] | None) -> str | None:
         return _address_key(int(target["block"]), int(target["offset"]))
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def _nav_row_key(component: str, line_index: int) -> str:
+    return f"{component}:{line_index}"
+
+
+def _record_containing_component_offset(records: list[Any], offset: int) -> Any | None:
+    for record in records:
+        if int(record.byte_start) <= offset < int(record.byte_end):
+            return record
+    return None
 
 
 def _is_honmon_address(
@@ -227,6 +239,8 @@ class _ReaderDemoBuilder:
         self.source = source
         self.out_dir = out_dir
         self.args = args
+        self.catalog_title, self.elements = parse_ssedinfo(source.idx)
+        self.navigation = NavigationResolver(self.elements)
         self.renderer = _renderer_for_source(source, compute_hash=False)
         self.renderer_code = _effective_renderer_code_for_source(source, self.renderer)
         self.reader = SsedRandomReader(source.honmon)
@@ -260,15 +274,21 @@ class _ReaderDemoBuilder:
         self.failures: list[dict[str, Any]] = []
 
     def enqueue(self, block: int, offset: int, *, label: str, source: str, depth: int = 0) -> None:
-        if not _is_honmon_address(self.source, block, offset, reader=self.reader):
+        resolution = self.navigation.resolve_body(block, offset, expanded_size=self.reader.expanded_size)
+        if resolution.target is None:
             return
-        key = _address_key(block, offset)
+        self.enqueue_target(resolution.target, label=label, source=source, depth=depth)
+
+    def enqueue_target(self, target: NavigationTarget, *, label: str, source: str, depth: int = 0) -> None:
+        if not target.is_body or not (0 <= target.relative_offset < self.reader.expanded_size):
+            return
+        key = target.address_key
         if key in self.queued or key in self.entries:
             return
         if len(self.queued) + len(self.entries) >= int(self.args.max_entries):
             return
         self.queued.add(key)
-        self.queue.append((_QueuedAddress(block=block, offset=offset, label=label, source=source), depth))
+        self.queue.append((_QueuedAddress(block=target.block, offset=target.offset, label=label, source=source), depth))
 
     def render_queued(self) -> None:
         while self.queue and len(self.entries) < int(self.args.max_entries):
@@ -402,13 +422,12 @@ def _query_seeds(builder: _ReaderDemoBuilder, queries: list[str]) -> list[dict[s
 
 
 def _menu_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
-    title, elements = parse_ssedinfo(builder.source.idx)
     gaiji_profile = load_gaiji_profile(builder.source.idx)
     components: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
     seeded = 0
-    for element in elements:
-        if element.type != 0x01 and element.filename.upper() != "MENU.DIC":
+    for element in builder.elements:
+        if element.type not in MENU_LIKE_TYPES and element.filename.upper() not in MENU_LIKE_NAMES:
             continue
         path = find_case_insensitive(builder.source.idx.parent, element.filename)
         if path is None:
@@ -416,23 +435,35 @@ def _menu_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
             continue
         reader = SsedRandomReader(path)
         parsed = parse_menu_stream(reader.read(0, reader.expanded_size), gaiji="unicode", gaiji_map=gaiji_profile.map)
-        resolve_menu_record_destinations(parsed.records, elements)
-        for record in parsed.records[: builder.args.menu_row_limit]:
+        resolve_menu_record_destinations(parsed.records, builder.elements)
+        limited_records = parsed.records[: builder.args.menu_row_limit]
+        limited_line_indexes = {record.line_index for record in limited_records}
+        for record in limited_records:
             item = record.as_dict()
             item["component"] = element.filename
+            item["navigation_key"] = _nav_row_key(element.filename, record.line_index)
             item["target_key"] = None
+            item["navigation_target_key"] = None
             destination = item.get("destination")
             target = destination.get("target") if isinstance(destination, dict) else None
             if isinstance(target, dict) and target.get("kind") == "body" and isinstance(destination, dict):
                 try:
                     block = int(destination["block"])
                     offset = int(destination["offset"])
-                    key = _address_key(block, offset)
+                    key = str(target.get("address_key") or _address_key(block, offset))
                     item["target_key"] = key
                     builder.enqueue(block, offset, label=record.label(), source="menu")
                     seeded += 1
                 except (KeyError, TypeError, ValueError):
                     pass
+            elif isinstance(target, dict) and target.get("component") == element.filename:
+                try:
+                    relative_offset = int(target["relative_offset"])
+                except (KeyError, TypeError, ValueError):
+                    relative_offset = -1
+                target_record = _record_containing_component_offset(limited_records, relative_offset)
+                if target_record is not None and target_record.line_index in limited_line_indexes:
+                    item["navigation_target_key"] = _nav_row_key(element.filename, target_record.line_index)
             rows.append(item)
         components.append(
             {
@@ -444,7 +475,7 @@ def _menu_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
             }
         )
     return {
-        "title": title,
+        "title": builder.catalog_title,
         "components": components,
         "rows": rows,
         "seeded_entries": seeded,
@@ -452,7 +483,6 @@ def _menu_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
 
 
 def _panel_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
-    _title, elements = parse_ssedinfo(builder.source.idx)
     metadata_paths = _panel_metadata_paths(builder.source.idx.parent)
     inline_cells: list[dict[str, Any]] = []
     panel_rows: list[dict[str, Any]] = []
@@ -464,8 +494,18 @@ def _panel_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
         try:
             metadata_cells = list(iter_panel_cells(metadata_path))
             for cell in metadata_cells:
-                row = panel_cell_navigation_row(cell, elements=elements).as_dict()
+                row = panel_cell_navigation_row(cell, elements=builder.elements).as_dict()
                 row["metadata"] = str(metadata_path)
+                if row.get("target_kind") == "body":
+                    try:
+                        block = int(row["block"])
+                        offset = int(row["offset"])
+                        key = str(((row.get("target") or {}) if isinstance(row.get("target"), dict) else {}).get("address_key") or _address_key(block, offset))
+                        row["target_key"] = key
+                        builder.enqueue(block, offset, label=str(row.get("label") or cell.title), source="panel-cell")
+                        seeded += 1
+                    except (TypeError, ValueError):
+                        row["target_key"] = None
                 inline_cells.append(row)
         except Exception as exc:
             failures.append({"path": str(metadata_path), "reason": f"cell_parse_failed: {exc}"})
@@ -515,7 +555,7 @@ def _panel_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
             except PanelBinParseError as exc:
                 failures.append({"path": str(resolved), "reason": str(exc)})
                 continue
-            for row_obj in panel_bin_navigation_rows(ref, panel, resolved_path=resolved, elements=elements):
+            for row_obj in panel_bin_navigation_rows(ref, panel, resolved_path=resolved, elements=builder.elements):
                 row = row_obj.as_dict()
                 row["metadata"] = str(metadata_path)
                 if row.get("target_kind") == "body":
@@ -524,7 +564,7 @@ def _panel_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
                         try:
                             block = int(row["block"])
                             offset = int(row["offset"])
-                            row["target_key"] = _address_key(block, offset)
+                            row["target_key"] = str(((row.get("target") or {}) if isinstance(row.get("target"), dict) else {}).get("address_key") or _address_key(block, offset))
                             builder.enqueue(block, offset, label=str(row.get("label") or ref.title), source="panel")
                             seeded += 1
                         except (TypeError, ValueError):
@@ -562,6 +602,17 @@ def _button(label: str, key: str | None, css: str = "") -> str:
     return f'<button class="{css}" data-entry-key="{html.escape(key, quote=True)}">{escaped}</button>'
 
 
+def _navigation_button(label: str, target_key: str | None, row_key: str | None, css: str = "") -> str:
+    escaped = html.escape(label or "(blank)")
+    row_attr = f' data-nav-row-key="{html.escape(row_key, quote=True)}"' if row_key else ""
+    if not target_key:
+        return f'<button class="{css}"{row_attr} disabled>{escaped}</button>'
+    return (
+        f'<button class="{css}"{row_attr} '
+        f'data-nav-target-key="{html.escape(target_key, quote=True)}">{escaped}</button>'
+    )
+
+
 def _menu_html(menu: dict[str, Any], entries: dict[str, _RenderedEntry]) -> str:
     parts = ["<section><h2>MENU.DIC</h2>"]
     components = menu.get("components") or []
@@ -577,8 +628,20 @@ def _menu_html(menu: dict[str, Any], entries: dict[str, _RenderedEntry]) -> str:
         parts.append('<div class="nav-list">')
         for row in rows:
             key = row.get("target_key")
+            nav_target_key = row.get("navigation_target_key")
+            nav_row_key = row.get("navigation_key")
             label = " / ".join(row.get("path") or []) or row.get("text") or f"line {row.get('line_index')}"
-            parts.append(_button(str(label), str(key) if key in entries else None, "menu-link"))
+            if key:
+                parts.append(_button(str(label), str(key) if key in entries else None, "menu-link"))
+            else:
+                parts.append(
+                    _navigation_button(
+                        str(label),
+                        str(nav_target_key) if nav_target_key else None,
+                        str(nav_row_key) if nav_row_key else None,
+                        "menu-link",
+                    )
+                )
         parts.append("</div>")
     parts.append("</section>")
     return "\n".join(parts)
@@ -610,14 +673,16 @@ def _panels_html(panels: dict[str, Any], entries: dict[str, _RenderedEntry]) -> 
             parts.append(f'<h4>Panel {html.escape(parent_id)}</h4><div class="nav-list">')
             for cell in group_cells:
                 label = cell.get("label") or cell.get("panel_title") or cell.get("ref") or "(blank)"
+                key = cell.get("target_key")
                 ref = cell.get("ref")
-                if ref:
+                if key:
+                    parts.append(_button(str(label), str(key) if key in entries else None, "panel-cell"))
+                elif ref:
                     parts.append(
                         f'<button class="panel-cell" data-panel-ref="{html.escape(str(ref), quote=True)}" '
                         f'data-panel-parent="{html.escape(parent_id, quote=True)}">{html.escape(str(label))}</button>'
                     )
                 else:
-                    key = cell.get("target_key")
                     parts.append(_button(str(label), str(key) if key in entries else None, "panel-cell"))
             parts.append("</div></div>")
     rows = panels.get("rows") or []
@@ -692,6 +757,7 @@ button {{ border: 1px solid #bbb; border-radius: 4px; padding: 4px 7px; backgrou
 button:hover {{ border-color: #777; }}
 button:disabled {{ color: #999; cursor: not-allowed; background: #f1f1f1; }}
 button.is-active {{ border-color: #5da24c; background: #edf7eb; }}
+button.is-nav-target {{ border-color: #5da24c; background: #edf7eb; }}
 .entry-box {{ background: #fff; border: 1px solid #d0d0d0; padding: 18px; min-height: 60vh; }}
 .entry-meta {{ color: #666; font-size: 13px; margin-bottom: 10px; }}
 #audio-player {{ width: min(520px, 100%); margin: 12px 0; }}
@@ -725,12 +791,13 @@ button.is-active {{ border-color: #5da24c; background: #edf7eb; }}
 const entryManifest = JSON.parse(document.getElementById('entry-manifest').textContent);
 const entryTitles = Object.fromEntries(entryManifest.map(row => [row.key, row.title]));
 function normalizeAddress(block, offset) {{
-  const b = String(parseInt(block, 10)).padStart(8, '0');
-  const o = String(parseInt(offset, 10)).padStart(4, '0');
+  const base = /[a-f]/i.test(String(block)) || /[a-f]/i.test(String(offset)) ? 16 : 10;
+  const b = String(parseInt(block, base)).padStart(8, '0');
+  const o = String(parseInt(offset, base)).padStart(4, '0');
   return `${{b}}:${{o}}`;
 }}
 function keyFromHref(href) {{
-  const m = href.match(/^lvaddr:\\/\\/(\\d+)\\/(\\d+)$/);
+  const m = href.match(/^lvaddr:\\/\\/([0-9A-Fa-f]+)\\/([0-9A-Fa-f]+)$/);
   if (!m) return null;
   return normalizeAddress(m[1], m[2]);
 }}
@@ -802,6 +869,17 @@ function activateInitialPanel() {{
 }}
 document.querySelectorAll('[data-entry-key]').forEach(btn => {{
   btn.addEventListener('click', () => loadEntry(btn.getAttribute('data-entry-key')));
+}});
+document.querySelectorAll('[data-nav-target-key]').forEach(btn => {{
+  btn.addEventListener('click', () => {{
+    const key = btn.getAttribute('data-nav-target-key');
+    const target = key ? document.querySelector(`[data-nav-row-key="${{CSS.escape(key)}}"]`) : null;
+    document.querySelectorAll('[data-nav-row-key]').forEach(row => row.classList.remove('is-nav-target'));
+    if (target) {{
+      target.classList.add('is-nav-target');
+      target.scrollIntoView({{block: 'nearest'}});
+    }}
+  }});
 }});
 document.querySelectorAll('[data-panel-ref]').forEach(btn => {{
   btn.addEventListener('click', () => activatePanel(btn.getAttribute('data-panel-ref')));

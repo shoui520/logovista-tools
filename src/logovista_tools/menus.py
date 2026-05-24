@@ -20,32 +20,15 @@ from .entries import (
     normalize_fullwidth_ascii,
 )
 from .gaiji import load_gaiji_profile
+from .navigation import NavigationTarget as MenuTarget
+from .navigation import resolve_component_target
 from .ssed import BLOCK_SIZE, CHUNK_SIZE, SsedInfoElement, SsedRandomReader, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 
 
 MENU_TYPE = 0x01
-
-
-@dataclass(frozen=True)
-class MenuTarget:
-    component: str
-    component_type: str
-    kind: str
-    start_block: int
-    end_block: int
-    relative_offset: int
-    offset_in_block: int
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "component": self.component,
-            "component_type": self.component_type,
-            "kind": self.kind,
-            "start_block": self.start_block,
-            "end_block": self.end_block,
-            "relative_offset": self.relative_offset,
-            "offset_in_block": self.offset_in_block,
-        }
+TOC_TYPE = 0x20
+MENU_LIKE_TYPES = frozenset({MENU_TYPE, TOC_TYPE})
+MENU_LIKE_NAMES = frozenset({"MENU.DIC", "TOC.DIC"})
 
 
 @dataclass(frozen=True)
@@ -187,43 +170,27 @@ def parse_menu_destination(payload: bytes) -> MenuDestination | None:
     )
 
 
-def component_kind(component_type: int) -> str:
-    if component_type == 0x00:
-        return "body"
-    if component_type == 0x01:
-        return "menu"
-    if component_type in {0x03, 0x04, 0x05, 0x06, 0x07, 0x0A}:
-        return "title"
-    if component_type in {0x70, 0x71, 0x80, 0x81, 0x90, 0x91}:
-        return "index"
-    if component_type == 0xD2:
-        return "media-image"
-    if component_type == 0xD8:
-        return "media-audio"
-    if component_type in {0xF1, 0xF2}:
-        return "gaiji-resource"
-    return "component"
+def parse_toc_destination(payload: bytes) -> MenuDestination | None:
+    """Parse the target half of a TOC/internal-link 10-byte start payload."""
+
+    if len(payload) != 10:
+        return None
+    target = payload[4:10]
+    return MenuDestination(
+        payload=target,
+        block=int.from_bytes(target[:4], "big"),
+        offset=int.from_bytes(target[4:6], "big"),
+        encoding="toc-big-endian",
+    )
 
 
 def resolve_menu_destination(
     destination: MenuDestination,
     elements: list[SsedInfoElement],
 ) -> MenuDestination:
-    for element in elements:
-        if not element.start:
-            continue
-        if element.start <= destination.block <= element.end:
-            relative_offset = (destination.block - element.start) * BLOCK_SIZE + destination.offset
-            target = MenuTarget(
-                component=element.filename,
-                component_type=f"{element.type:02x}",
-                kind=component_kind(element.type),
-                start_block=element.start,
-                end_block=element.end,
-                relative_offset=relative_offset,
-                offset_in_block=destination.offset,
-            )
-            return replace(destination, target=target)
+    target = resolve_component_target(destination.block, destination.offset, elements)
+    if target is not None:
+        return replace(destination, target=target)
     return destination
 
 
@@ -361,6 +328,20 @@ def parse_menu_stream(
                 i += 2
                 continue
 
+            if op == 0x49:
+                arg_len = control_arg_length(data, i)
+                if private_depth:
+                    i += 2 + arg_len
+                    continue
+                payload = data[i + 2 : i + 2 + arg_len]
+                line.active_link = _ActiveLink(
+                    control="1f49",
+                    start_offset=i,
+                    start_payload=payload.hex() if payload else None,
+                )
+                i += 2 + arg_len
+                continue
+
             if op == 0x4A:
                 arg_len = control_arg_length(data, i)
                 if private_depth:
@@ -386,6 +367,24 @@ def parse_menu_stream(
                     finish_active_link(line, end_offset=i + 8, destination=destination)
                     stats["links"] += 1
                 i += 8
+                continue
+
+            if op == 0x69:
+                destination = None
+                if line.active_link is not None and line.active_link.start_payload:
+                    try:
+                        start_payload = bytes.fromhex(line.active_link.start_payload)
+                    except ValueError:
+                        start_payload = b""
+                    destination = parse_toc_destination(start_payload)
+                if destination is not None and not private_depth:
+                    stats["destinations"] += 1
+                    if destination.is_null:
+                        stats["null_destinations"] += 1
+                if not private_depth:
+                    finish_active_link(line, end_offset=i + 2, destination=destination)
+                    stats["links"] += 1
+                i += 2
                 continue
 
             if op == 0x6A:
@@ -533,7 +532,9 @@ def extract_menus_for_idx(idx: Path, out_dir: Path, args: argparse.Namespace) ->
 
     with menus_path.open("w", encoding="utf-8") as out:
         for element in elements:
-            if element.type != MENU_TYPE or not element.start:
+            if element.type not in MENU_LIKE_TYPES and element.filename.upper() not in MENU_LIKE_NAMES:
+                continue
+            if not element.start:
                 continue
             source = find_case_insensitive(idx.parent, element.filename)
             if source is None:

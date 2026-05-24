@@ -132,7 +132,10 @@ IBIO4VRS `TOC.DIC`. The start control has a 10-byte payload. The first four
 bytes behave like outline/path or level bytes; the final six bytes are a
 standard big-endian body pointer (`block`, `offset`). For example,
 `1f49 00010203 00000004 0130` wraps a visible TOC label and points to block
-`4`, offset `0x0130`. The closing `1f69` has no payload.
+`4`, offset `0x0130`. The closing `1f69` has no payload. In toolkit navigation
+output, the destination payload is recorded as the final six target bytes with
+encoding `toc-big-endian`; the full 10-byte start payload remains on the link as
+`start_payload`.
 
 `1f 4a` starts are followed by 16 bytes of binary target metadata before
 visible link text resumes. In PCMDATA dictionaries, the same payload encodes a

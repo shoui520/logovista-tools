@@ -446,6 +446,21 @@ def test_toc_link_control_uses_10_byte_payload() -> None:
     assert stats["unknown_controls"] == 0
 
 
+def test_parse_menu_stream_resolves_toc_link_start_payload() -> None:
+    payload = bytes.fromhex("00010203000000040130")
+    parsed = parse_menu_stream(b"\x1f\x49" + payload + bytes.fromhex("2422") + b"\x1f\x69", gaiji="drop")
+
+    assert parsed.stats["links"] == 1
+    assert parsed.stats["destinations"] == 1
+    assert parsed.records[0].text == "あ"
+    assert parsed.records[0].links[0].control == "1f49"
+    assert parsed.records[0].links[0].start_payload == payload.hex()
+    assert parsed.records[0].destination is not None
+    assert parsed.records[0].destination.encoding == "toc-big-endian"
+    assert parsed.records[0].destination.block == 4
+    assert parsed.records[0].destination.offset == 0x0130
+
+
 def test_bare_title_separator_1103_is_nonprinting() -> None:
     tokens, stats = decode_tokens(bytes.fromhex("242211032424"))
 
