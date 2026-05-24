@@ -2900,9 +2900,9 @@ def build_parser() -> argparse.ArgumentParser:
         "write-plain",
         help="Build an experimental author-core plain-HONMON SSED package from CSV or Yomitan input.",
     )
-    p_write_plain.add_argument("input", type=Path, help="KOUJIEN-style CSV or Yomitan v3 zip.")
+    p_write_plain.add_argument("input", type=Path, help="KOUJIEN-style CSV, Yomitan v3 zip, or JMdict XML gzip.")
     p_write_plain.add_argument("--out-dir", type=Path, required=True, help="Output directory; package is written under OUT/DICID.")
-    p_write_plain.add_argument("--input-format", choices=("auto", "koujien-csv", "yomitan"), default="auto")
+    p_write_plain.add_argument("--input-format", choices=("auto", "koujien-csv", "yomitan", "jmdict"), default="auto")
     p_write_plain.add_argument("--dict-id", help="SSED catalog stem to write. Defaults to a sanitized input filename.")
     p_write_plain.add_argument("--title", help="SSED catalog title. Defaults to source metadata or filename.")
     p_write_plain.add_argument("--limit", type=int, help="Import at most N source rows for smoke tests.")
@@ -2959,6 +2959,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_write_plain.add_argument("--font-face-index", type=int, default=0, help="Vector font face index for single-font mode.")
     p_write_plain.add_argument("--font-threshold", type=int, default=220)
     p_write_plain.add_argument("--include-yomitan-forms", action="store_true", help="Import Yomitan rows tagged as forms instead of skipping them.")
+    p_write_plain.add_argument("--font-root", type=Path, help="Font preference root for JMdict gaiji rendering.")
+    p_write_plain.add_argument("--jmdict-license-html", type=Path, help="JMdict licence.html to import as a MENU-linked entry.")
+    p_write_plain.add_argument("--jmdict-project-html", type=Path, help="JMdict project HTML page to import as a flattened MENU-linked entry.")
+    p_write_plain.add_argument(
+        "--jmdict-english-keywords-per-entry",
+        type=int,
+        default=4,
+        help="Maximum English gloss keyword tokens to add per JMdict entry to KWINDEX.DIC.",
+    )
+    p_write_plain.add_argument("--showcase-out-dir", type=Path, help="Write a standalone JMdict feature showcase HTML directory.")
+    p_write_plain.add_argument("--showcase-limit", type=int, default=1000, help="Number of entries to embed in the JMdict showcase.")
     p_write_plain.add_argument("--no-merge-duplicates", action="store_true", help="Keep duplicate headword rows as separate body entries.")
     p_write_plain.add_argument("--force", action="store_true", help="Replace an existing output package directory.")
     p_write_plain.add_argument("--debug", action="store_true", help="Print traceback on import/build failure.")

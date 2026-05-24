@@ -1003,6 +1003,8 @@ def detect_input_format(path: Path, requested: str = "auto") -> str:
         return "yomitan"
     if path.suffix.lower() == ".csv":
         return "koujien-csv"
+    if path.suffix.lower() == ".gz" and "jmdict" in path.name.casefold():
+        return "jmdict"
     raise ValueError(f"cannot detect writer input format for {path}")
 
 
@@ -1056,6 +1058,11 @@ def _path_list_arg(value: Any) -> list[Path]:
 
 def build_writer_import_package(args: Any) -> dict[str, Any]:
     input_format = detect_input_format(args.input, args.input_format)
+    if input_format == "jmdict":
+        from .writer_jmdict import build_jmdict_writer_package
+
+        return build_jmdict_writer_package(args)
+
     entries, report = import_entries(
         args.input,
         input_format=input_format,

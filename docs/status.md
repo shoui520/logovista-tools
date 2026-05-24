@@ -175,8 +175,9 @@ and non-SSED reader status are tracked separately in
   includes normal-layout `SSEDINFO` encoding, compressed `SSEDDATA` emission
   with a literal-only diagnostic mode, parallel chunk compression for large
   components, block/pointer helpers, body-stream `HONMON.DIC` entry encoding,
-  title stream encoding, simple and tagged index page encoding with branch/leaf
-  page splitting, upper-bound branch keys, final-sibling `ff` sentinels,
+  title stream encoding, simple, tagged, and direct-row keyword index page
+  encoding with branch/leaf page splitting, upper-bound branch keys,
+  final-sibling `ff` sentinels,
   depth-capped branch key widths, `1f04`/`1f05` halfwidth ASCII display spans,
   deterministic Unicode-to-JIS/gaiji allocation, `.uni` emission, and
   `GA16HALF` / `GA16FULL` emission. Synthetic tests validate both parser
@@ -187,6 +188,20 @@ and non-SSED reader status are tracked separately in
   compatibility normalization, and fold katakana to hiragana for Japanese
   lookup keys. Duplicate simple keys and large tagged groups may span adjacent
   leaves, matching observed LogoVista index behavior.
+- The writer has a JMdict-specific authoring path that maps JMdict XML to
+  LogoVista-equivalent SSED structures: normal body entries, forward/backward
+  title/index streams, `KWTITLE.DIC` / `KWINDEX.DIC` keyword rows,
+  `MENU.DIC` navigation links, root-level `Panels.dtd`, `Panels.xml`,
+  `Panel.html`, `Cell.html`, and `Panel/*.bin` address-label browse tables.
+  It also emits optional `CCALTSTR.HA` / `CCALTSTR.FU` alternate strings for
+  generated gaiji codes when ASCII transliterations are available. Numeric
+  sidecar trees are intentionally not emitted for JMdict because MENU and
+  Panels cover the browse/navigation role more directly.
+- JMdict gaiji emission uses redundant LogoVista-style resources: Unicode
+  mappings in `.uni`, loose `Templates/` PNG/SVG glyphs from vector fonts, and
+  GA16 bitmap glyphs from the bitmap-preference font list only. This keeps
+  Unicode-first rendering, Template resources, and GA16 fallback as separate
+  artifacts.
 - `verify-written-package` validates writer output as a package, not just as
   individual parseable components. It checks `SSEDINFO` ranges against
   `SSEDDATA` headers, expanded sizes, branch upper-bound rows, final `ff`

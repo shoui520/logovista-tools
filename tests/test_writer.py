@@ -1,4 +1,5 @@
 import pytest
+import gzip
 import json
 import zipfile
 from argparse import Namespace
@@ -17,10 +18,13 @@ from logovista_tools.gaiji import parse_ga16_resource, parse_uni_resource
 from logovista_tools.indexes import (
     IndexPointer,
     parse_internal_page,
+    parse_kw_leaf_page,
     parse_simple_leaf_page,
     scan_index_component,
     scan_index_component_reader,
 )
+from logovista_tools.menus import parse_menu_stream
+from logovista_tools.panels import iter_panel_data_references, parse_panel_bin
 from logovista_tools.pcmdata import pcm_references_for_limit
 from logovista_tools.spans import decode_lossless_spans
 from logovista_tools.ssed import (
@@ -42,7 +46,10 @@ from logovista_tools.writer import (
     build_plain_honmon_package,
     encode_body_text,
     encode_ga16_resource,
+    encode_keyword_index_pages,
     encode_jis_cell,
+    encode_menu_stream,
+    encode_panel_bin,
     encode_search_key,
     encode_simple_index_pages,
     encode_sseddata,
@@ -56,6 +63,7 @@ from logovista_tools.writer import (
     rows_to_ga16_glyph,
     SsedInfoComponent,
     GaijiAllocator,
+    WriterMenuItem,
     write_plain_package,
 )
 from logovista_tools.writer_import import (
@@ -65,6 +73,8 @@ from logovista_tools.writer_import import (
     normalize_lookup_key,
     structured_content_to_body_markup,
 )
+from logovista_tools.writer_jmdict import build_jmdict_writer_package
+from logovista_tools.writer_verify import verify_written_package
 
 
 def page_words(data: bytes) -> list[int]:
@@ -1092,3 +1102,154 @@ def test_pcm_reference_scan_can_stop_before_full_honmon(tmp_path) -> None:
     assert references[0].pointer.end_offset == 20
     assert bytes_scanned < expanded_bytes
     assert complete is False
+
+
+def test_keyword_index_writer_emits_kw_direct_rows() -> None:
+    target = IndexTarget(
+        key="example",
+        body=IndexPointer(10, 20),
+        title=IndexPointer(30, 40),
+    )
+
+    pages = encode_keyword_index_pages([target], start_block=100)
+    rows, _key, _title, _hint, groups, unknown = parse_kw_leaf_page(
+        "KWINDEX.DIC",
+        pages[:BLOCK_SIZE],
+        1,
+        100,
+        current_key=None,
+        current_title=None,
+        current_count_hint=None,
+        gaiji="drop",
+        gaiji_map={},
+    )
+
+    assert unknown == 0
+    assert groups == 0
+    assert rows[0].key == "EXAMPLE"
+    assert rows[0].body == IndexPointer(10, 20)
+    assert rows[0].title == IndexPointer(30, 40)
+
+
+def test_menu_and_panel_writer_primitives_roundtrip() -> None:
+    gaiji = GaijiAllocator()
+    menu = encode_menu_stream([WriterMenuItem("About JMdict", IndexPointer(1234, 56))], gaiji)
+    parsed = parse_menu_stream(menu, gaiji_map=gaiji.mapping())
+
+    assert parsed.stats["unknown_controls"] == 0
+    assert parsed.records[0].links[0].label == "About JMdict"
+    assert parsed.records[0].links[0].destination.block == 1234
+    assert parsed.records[0].links[0].destination.offset == 56
+
+    panel_bytes = encode_panel_bin([("あ", IndexPointer(5, 6)), ("い", IndexPointer(7, 8))], gaiji=gaiji)
+    panel = parse_panel_bin(panel_bytes)
+
+    assert panel.format == "address_label"
+    assert [row.text for row in panel.records] == ["あ", "い"]
+    assert panel.records[1].block == 7
+    assert panel.records[1].offset == 8
+
+
+def test_jmdict_writer_emits_navigation_panels_templates_and_ccaltstr(tmp_path) -> None:
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE JMdict [
+<!ELEMENT JMdict (entry*)>
+<!ELEMENT entry (ent_seq, k_ele*, r_ele+, sense+)>
+<!ELEMENT ent_seq (#PCDATA)>
+<!ELEMENT k_ele (keb, ke_inf*, ke_pri*)>
+<!ELEMENT keb (#PCDATA)>
+<!ELEMENT ke_inf (#PCDATA)>
+<!ELEMENT ke_pri (#PCDATA)>
+<!ELEMENT r_ele (reb, re_inf*, re_pri*)>
+<!ELEMENT reb (#PCDATA)>
+<!ELEMENT re_inf (#PCDATA)>
+<!ELEMENT re_pri (#PCDATA)>
+<!ELEMENT sense (pos*, field*, misc*, dial*, gloss*, example*)>
+<!ELEMENT pos (#PCDATA)>
+<!ELEMENT field (#PCDATA)>
+<!ELEMENT misc (#PCDATA)>
+<!ELEMENT dial (#PCDATA)>
+<!ELEMENT gloss (#PCDATA)>
+<!ATTLIST gloss xml:lang CDATA #IMPLIED>
+<!ELEMENT example (ex_sent*)>
+<!ELEMENT ex_sent (#PCDATA)>
+<!ATTLIST ex_sent xml:lang CDATA #IMPLIED>
+]>
+<JMdict>
+<entry>
+  <ent_seq>1</ent_seq>
+  <k_ele><keb>試験ō</keb><ke_pri>news1</ke_pri></k_ele>
+  <r_ele><reb>しけん</reb></r_ele>
+  <sense>
+    <pos>noun (common) (futsuumeishi)</pos>
+    <field>linguistics</field>
+    <gloss xml:lang="eng">test entry</gloss>
+    <example><ex_sent xml:lang="jpn">これは試験です。</ex_sent><ex_sent xml:lang="eng">This is a test.</ex_sent></example>
+  </sense>
+</entry>
+<entry>
+  <ent_seq>9999999</ent_seq>
+  <k_ele><keb>ＪＭｄｉｃｔ</keb></k_ele>
+  <r_ele><reb>ジェイエムディクト</reb></r_ele>
+  <sense><pos>unclassified</pos><gloss xml:lang="eng">Japanese-Multilingual Dictionary Project</gloss></sense>
+</entry>
+</JMdict>
+"""
+    source = tmp_path / "JMdict_e_examp.gz"
+    with gzip.open(source, "wb") as handle:
+        handle.write(xml.encode("utf-8"))
+    license_html = tmp_path / "licence.html"
+    license_html.write_text("<html><body><h1>Licence</h1><p>EDRDG licence text.</p></body></html>", encoding="utf-8")
+    project_html = tmp_path / "project.html"
+    project_html.write_text("<html><body><h1>Project</h1><p>Project page text.</p></body></html>", encoding="utf-8")
+    args = Namespace(
+        input=source,
+        out_dir=tmp_path / "out",
+        input_format="jmdict",
+        dict_id="JMDICT",
+        title="JMdict Test",
+        limit=None,
+        progress_every=0,
+        simple_only=False,
+        compression="literal",
+        jobs=1,
+        gaiji_font=None,
+        gaiji_vector_font=None,
+        gaiji_bitmap_font=None,
+        font_root=tmp_path / "no-fonts",
+        font_face_index=0,
+        font_threshold=220,
+        jmdict_license_html=license_html,
+        jmdict_project_html=project_html,
+        jmdict_english_keywords_per_entry=2,
+        showcase_out_dir=tmp_path / "showcase",
+        showcase_limit=4,
+        no_merge_duplicates=False,
+        force=True,
+    )
+
+    report = build_jmdict_writer_package(args)
+    package = tmp_path / "out" / "JMDICT"
+
+    assert report["input_format"] == "jmdict"
+    assert (package / "JMDICT.IDX").is_file()
+    assert (package / "KWTITLE.DIC").is_file()
+    assert (package / "KWINDEX.DIC").is_file()
+    assert (package / "MENU.DIC").is_file()
+    assert (package / "Panels.dtd").is_file()
+    assert (package / "Panels.xml").is_file()
+    assert (package / "Panel.html").is_file()
+    assert (package / "Cell.html").is_file()
+    assert not (package / "Panel" / "Panels.xml").exists()
+    assert any((package / "Panel").glob("*.bin"))
+    assert any((package / "Templates").glob("*.svg"))
+    assert (package / "CCALTSTR.FU").is_file() or (package / "CCALTSTR.HA").is_file()
+    assert (tmp_path / "showcase" / "index.html").is_file()
+
+    refs = list(iter_panel_data_references(package / "Panels.xml"))
+    assert refs
+    first_panel = parse_panel_bin((package / refs[0].filename).read_bytes())
+    assert first_panel.records
+
+    verify = verify_written_package(package)
+    assert verify.ok is True

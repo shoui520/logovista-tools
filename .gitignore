@@ -8,6 +8,8 @@ __pycache__/
 venv/
 build/
 dist/
+.codex/
+AGENTS.md
 
 # Dictionary payloads and generated extraction output.
 *.DIC

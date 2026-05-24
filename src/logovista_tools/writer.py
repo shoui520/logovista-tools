@@ -972,6 +972,13 @@ class IndexTarget:
     target_key: str | None = None
 
 
+@dataclass(frozen=True)
+class WriterMenuItem:
+    label: str
+    body: IndexPointer
+    section_code: bytes = b"\x00\x01"
+
+
 @dataclass
 class _IndexNode:
     branch_key: bytes
@@ -1248,6 +1255,33 @@ def encode_simple_index_pages(
     return _encode_index_tree(records, start_block=start_block)
 
 
+def encode_keyword_index_pages(
+    targets: Iterable[IndexTarget],
+    *,
+    start_block: int,
+    gaiji: GaijiAllocator | None = None,
+) -> bytes:
+    """Encode direct-row ``KWINDEX.DIC`` pages.
+
+    Observed keyword indexes use a tagged direct row grammar:
+    ``00 len key body-pointer title-pointer``.  This is intentionally separate
+    from ``encode_simple_index_pages`` because type-0x80 readers expect the
+    leading row tag.
+    """
+
+    encoded_targets: list[tuple[bytes, IndexTarget]] = []
+    for target in targets:
+        key_bytes = _try_encode_search_key(target.key, gaiji)
+        if key_bytes is None:
+            continue
+        encoded_targets.append((key_bytes, target))
+    sorted_targets = sorted(encoded_targets, key=lambda row: row[0])
+    records: list[tuple[bytes, bytes]] = []
+    for key_bytes, target in sorted_targets:
+        records.append((b"\x00" + bytes([len(key_bytes)]) + key_bytes + pointer_pair(target.body, target.title), key_bytes))
+    return _encode_index_tree(records, start_block=start_block)
+
+
 def encode_tagged_index_pages(
     targets: Iterable[IndexTarget],
     *,
@@ -1274,6 +1308,85 @@ def encode_tagged_index_pages(
     pages = _split_tagged_record_pages(grouped_records)
     leaves = _build_leaf_nodes_from_pages(pages, tagged_leaf=True)
     return _encode_index_tree_from_leaf_nodes(leaves, start_block=start_block, tagged_leaf=True)
+
+
+def encode_menu_stream(items: Iterable[WriterMenuItem], gaiji: GaijiAllocator | None = None) -> bytes:
+    """Encode a small ``MENU.DIC`` body stream with BCD destination links."""
+
+    out = bytearray()
+    for item in items:
+        if len(item.section_code) != 2:
+            raise ValueError("MENU section code must be exactly two bytes")
+        out.extend(b"\x1f\x09")
+        out.extend(item.section_code)
+        out.extend(b"\x1f\x43")
+        out.extend(encode_body_text(item.label, gaiji))
+        out.extend(b"\x1f\x63")
+        out.extend(encode_bcd_decimal(item.body.block, 8))
+        out.extend(encode_bcd_decimal(item.body.offset, 4))
+        out.extend(b"\x1f\x0a")
+    return bytes(out)
+
+
+def encode_panel_bin(
+    rows: Iterable[tuple[str, IndexPointer]],
+    *,
+    gaiji: GaijiAllocator | None = None,
+    text_width: int | None = None,
+) -> bytes:
+    """Encode the common fixed-record Windows Panel BIN table.
+
+    Layout: ``u32le count, u32le text_width, repeated(u32le block, u32le
+    offset, fixed-width JIS-control-stream label)``.
+    """
+
+    encoded: list[tuple[bytes, IndexPointer]] = []
+    max_width = 0
+    for label, pointer in rows:
+        text = encode_body_text(label, gaiji)
+        encoded.append((text, pointer))
+        max_width = max(max_width, len(text))
+    width = text_width if text_width is not None else max(2, max_width)
+    if width < max_width:
+        raise ValueError(f"Panel BIN text_width {width} is smaller than encoded label width {max_width}")
+    out = bytearray()
+    out.extend(len(encoded).to_bytes(4, "little"))
+    out.extend(width.to_bytes(4, "little"))
+    for text, pointer in encoded:
+        out.extend(pointer.block.to_bytes(4, "little"))
+        out.extend(pointer.offset.to_bytes(4, "little"))
+        out.extend(text.ljust(width, b"\x00"))
+    return bytes(out)
+
+
+def encode_ccaltstr_table(
+    assignments: Iterable[GaijiAssignment],
+    *,
+    kind: Literal["half", "full"],
+    values: dict[str, str] | None = None,
+) -> bytes:
+    """Encode a ``CCALTSTR.HA`` / ``CCALTSTR.FU`` alternate-string table."""
+
+    rows = sorted(assignments, key=lambda row: row.code)
+    if not rows:
+        return b""
+    magic = b"SDICALTH" if kind == "half" else b"SDICALTF"
+    values = values or {}
+    out = bytearray(magic)
+    out.extend((1).to_bytes(2, "little"))
+    out.extend(rows[0].code.to_bytes(2, "big"))
+    out.extend(len(rows).to_bytes(2, "big"))
+    out.extend(b"\x00\x00")
+    for index, row in enumerate(rows):
+        expected = gaiji_grid_code_for_index(rows[0].code, index)
+        if row.code != expected:
+            raise ValueError(f"CCALTSTR assignments for {kind} are not contiguous at {row.key}")
+        value = values.get(row.key, row.text)
+        encoded = value.encode("ascii", errors="ignore")[:60]
+        out.extend(row.code.to_bytes(2, "big"))
+        out.extend(encoded)
+        out.extend(b"\x00" * (60 - len(encoded)))
+    return bytes(out)
 
 
 def _split_tagged_record_pages(groups: list[tuple[bytes, bytes, list[bytes]]]) -> list[tuple[bytes, list[bytes]]]:

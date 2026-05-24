@@ -1995,11 +1995,31 @@ logovista-tools write-plain KOUJIEN7.csv \
   --json
 ```
 
-Supported input formats are KOUJIEN-style CSV and Yomitan v3 zip packages.
-The command emits a self-contained SSED package with `HONMON.DIC`, title
-streams, FK/FH/BK/BH indexes, and dictionary-local `.uni` / GA16 resources when
-gaiji are required. `--compression literal` is retained only as a noncanonical,
-size-inflating diagnostic mode for private stress tests.
+Supported input formats are KOUJIEN-style CSV, Yomitan v3 zip packages, and
+JMdict XML gzip files. The common writer path emits a self-contained SSED
+package with `HONMON.DIC`, title streams, FK/FH/BK/BH indexes, and
+dictionary-local `.uni` / GA16 resources when gaiji are required.
+`--compression literal` is retained only as a noncanonical, size-inflating
+diagnostic mode for private stress tests.
+
+The JMdict import path preserves more source structure than a flat glossary
+import. It emits `KWTITLE.DIC` / `KWINDEX.DIC` keyword rows for selected
+gloss/tag/category lookup terms, `MENU.DIC` links for about/licence/category
+navigation, root-level `Panels.dtd`, `Panels.xml`, `Panel.html`, and
+`Cell.html` plus `Panel/*.bin` fixed-record address-label tables for kana,
+part-of-speech, field/domain, dialect, priority/common, source-language, and
+example-bearing browse surfaces. It may also emit `CCALTSTR.HA` /
+`CCALTSTR.FU` alternate-string tables for generated custom-character codes with
+ASCII transliteration fallbacks. Numeric `00000xxx.idx` sidecar trees are not
+emitted by the JMdict path because MENU and Panels cover the intended
+navigation model without a platform-specific auxiliary text tree.
+
+JMdict gaiji output is deliberately redundant in the LogoVista style:
+display text uses Unicode through `.uni` where possible; loose `Templates/`
+PNG/SVG gaiji are generated from the configured vector font preference list;
+GA16 bitmap resources are generated from the configured bitmap-preference font
+list. The font families remain separate so the GA16 output does not silently
+fall through to the Template vector list.
 
 The writer separates display text from lookup aliases. Body and title text keep
 their display spelling, but index keys are generated from raw and normalized
@@ -2013,6 +2033,9 @@ found by a plain lookup key such as `かなれい`.
 JSON reports include import counts, duplicate merges, skipped rows, long-key
 drops, emitted search-key/alias counts, headword-markup cleanup counts,
 flattened markup/media counts, gaiji allocation counts, and output file sizes.
+JMdict reports additionally include keyword target counts, MENU item counts,
+Panel BIN row counts, Template gaiji counts, CCALTSTR row counts, and optional
+showcase output metadata.
 
 ### `verify-written-package`
 
