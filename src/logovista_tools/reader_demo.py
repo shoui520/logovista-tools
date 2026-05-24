@@ -696,6 +696,7 @@ def _auxiliary_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
     text_streams: list[dict[str, Any]] = []
     multi_descriptors: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
+    seen_text_components: set[str] = set()
     for element in builder.elements:
         upper = element.filename.upper()
         path = find_case_insensitive(builder.source.idx.parent, element.filename)
@@ -775,8 +776,26 @@ def _auxiliary_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
                         "lines": _decode_text_component_lines(path, builder.source.gaiji_map, 80),
                     }
                 )
+                seen_text_components.add(upper)
             except Exception as exc:
                 failures.append({"component": element.filename, "reason": f"text_decode_failed: {exc}"})
+    for name in ("RIGHT.DIC", "IDXJUMP.DIC"):
+        if name in seen_text_components:
+            continue
+        path = resolve_case_insensitive_path(builder.source.idx.parent, name)
+        if path is None or not path.is_file():
+            continue
+        try:
+            text_streams.append(
+                {
+                    "component": path.name,
+                    "type": "loose",
+                    "lines": _decode_text_component_lines(path, builder.source.gaiji_map, 80),
+                }
+            )
+            seen_text_components.add(name)
+        except Exception as exc:
+            failures.append({"component": path.name, "reason": f"text_decode_failed: {exc}"})
     return {
         "index_rows": index_rows,
         "title_streams": title_streams,

@@ -7,6 +7,7 @@ from logovista_tools.reader_demo import (
     _QueuedAddress,
     _ReaderDemoBuilder,
     _RenderedEntry,
+    _auxiliary_data,
     _decode_text_component_lines,
     _entries_html,
     _menu_html,
@@ -247,3 +248,26 @@ def test_decode_text_component_lines_reads_bounded_prefix(monkeypatch, tmp_path:
 
     assert lines == ["first", "second"]
     assert reads == [(0, 128 * 1024)]
+
+
+def test_auxiliary_data_includes_loose_right_dic(monkeypatch, tmp_path: Path) -> None:
+    idx = tmp_path / "TEST.IDX"
+    idx.write_bytes(b"")
+    right = tmp_path / "RIGHT.DIC"
+    right.write_bytes(b"placeholder")
+    builder = SimpleNamespace(
+        elements=[],
+        source=SimpleNamespace(idx=idx, gaiji_map={}),
+        args=SimpleNamespace(index_row_limit=10),
+    )
+    monkeypatch.setattr(
+        "logovista_tools.reader_demo._decode_text_component_lines",
+        lambda path, _gaiji_map, _limit: [f"decoded:{path.name}"],
+    )
+
+    auxiliary = _auxiliary_data(builder)
+
+    assert auxiliary["text_streams"] == [
+        {"component": "RIGHT.DIC", "type": "loose", "lines": ["decoded:RIGHT.DIC"]}
+    ]
+    assert auxiliary["failures"] == []

@@ -382,7 +382,9 @@ The page contains:
   TOC-to-TOC or MENU-to-MENU jumps either scroll to the embedded target row or
   open a bounded preview of the target menu region;
 - selected `KWINDEX.DIC`, `KWTITLE.DIC`, `MUL*.DIC`, `MULTI*.DIC`,
-  `RIGHT.DIC`, and `IDXJUMP.DIC` auxiliary components where present. Auxiliary
+  `RIGHT.DIC`, and `IDXJUMP.DIC` auxiliary resources where present. Some
+  packages carry `RIGHT.DIC` / `IDXJUMP.DIC` as loose sidecars rather than
+  declared catalog components; `reader-demo` samples those too. Auxiliary
   text/title streams are sampled with bounded prefix reads so large title
   components do not need to be fully expanded for a sidebar preview;
 - `HANREI/` and `HANREI.chm` references where present. Loose HTML HANREI files
