@@ -108,6 +108,7 @@ from .panels import (
 from .pcmdata import extract_pcmdata_for_sources
 from .profiles import extract_profiles_for_args
 from .reader_demo import add_reader_demo_args, generate_reader_demo
+from .repacker import add_repacker_args, repack_sources
 from .rendererdb import extract_rendererdb_for_sources
 from .resources import ImageResource, load_image_resource_profile
 from .spindex import discover_spindex_files, inspect_spindex
@@ -1558,6 +1559,36 @@ def cmd_reader_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_repacker(args: argparse.Namespace) -> int:
+    status(args, "repacker: losslessly round-tripping SSED catalog/components")
+    try:
+        summaries = repack_sources(args)
+    except Exception as exc:
+        print(f"repacker: {exc}", file=sys.stderr)
+        if getattr(args, "verbose", False):
+            traceback.print_exc()
+        return 2
+    ok = sum(1 for summary in summaries if summary.get("ok"))
+    total_files = sum(len(summary.get("files") or []) for summary in summaries)
+    changed = sum(
+        1
+        for summary in summaries
+        for file_row in summary.get("files") or []
+        if not file_row.get("byte_identical")
+    )
+    missing = sum(len(summary.get("missing_declared_components") or []) for summary in summaries)
+    unsupported = sum(len(summary.get("unsupported_components") or []) for summary in summaries)
+    print(
+        f"repacker: packages={len(summaries)} ok={ok} files={total_files} "
+        f"changed={changed} missing_declared={missing} unsupported={unsupported} "
+        f"out={args.out_dir}",
+        file=sys.stderr,
+    )
+    if args.json:
+        print(json.dumps(summaries, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if changed == 0 and unsupported == 0 else 1
+
+
 def _vlpljbl_task(payload: tuple[Path, argparse.Namespace]) -> dict[str, Any]:
     path, args = payload
     row = classify_vlpljbl_file(
@@ -2477,6 +2508,15 @@ def build_parser() -> argparse.ArgumentParser:
     add_reader_demo_args(p_reader_demo)
     add_jobs_argument(p_reader_demo)
     p_reader_demo.set_defaults(func=cmd_reader_demo)
+
+    p_repacker = sub.add_parser(
+        "repacker",
+        aliases=["repack"],
+        help="Losslessly parse and re-emit existing SSEDINFO/SSEDDATA package components.",
+    )
+    add_repacker_args(p_repacker)
+    add_jobs_argument(p_repacker)
+    p_repacker.set_defaults(func=cmd_repacker)
 
     p_multiview = sub.add_parser(
         "multiview",

@@ -223,6 +223,15 @@ and non-SSED reader status are tracked separately in
   preferred planning report for `read_existing`, `export_existing`,
   `author_core_ssed_v0`, and `lossless_repack_existing`; regenerate it after
   focused parser fixes before quoting aggregate readiness counts.
+- Focused lossless physical repacker proof for 22 older non-HC SSED packages:
+  `25IGAKU`, `ARCHSIC3`, `EJJE100`, `IGOSHO`, `ITALIAN`, `JOTSU05`,
+  `JSSAURUS`, `KATSUYOU`, `NMEDEJ12`/`LMEDEJ12`, `MEIKYOU`,
+  `NANDOKU1`-`NANDOKU4`, `NANMED19`, `NCOMP4`, `NGYK300K`, `nihonshi`,
+  `ROYALEGR`, `Saitoje`, `SAIYOREI`, and `YHOUGO3`. The new `repacker`
+  command parsed and re-emitted 251 catalog-declared `SSEDINFO`/plain
+  `SSEDDATA` files with byte-identical SHA-256 results. Four inert
+  `RIGHT.DIC` catalog declarations were missing from package copies and were
+  reported as missing declarations rather than unsupported component formats.
 
 ## Experimental / Active Reverse Engineering
 

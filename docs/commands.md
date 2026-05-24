@@ -60,7 +60,7 @@ Corpus-scale commands support `--jobs`:
 ```
 
 This applies to commands that operate across many dictionaries or resources:
-`scan`, `extract`, `entries`, `resources`, `panels`, `colscr`, `pcmdata`, `extras`, `rendererdb`, `hc-render`, `hc-render-entry`, `reader-demo`,
+`scan`, `extract`, `entries`, `resources`, `panels`, `colscr`, `pcmdata`, `extras`, `rendererdb`, `hc-render`, `hc-render-entry`, `reader-demo`, `repacker`,
 `spindex`, `audit-honmon`, `gaiji-report`, `gaiji-readiness`, `ga16`,
 `titles`, `indexes`, `menus`, `fulldb`, `profile`, `honmon-bytes`,
 `opcode-atlas`, `component-forensics`, `dump-ir`, `dump-package-models`, LVED
@@ -414,6 +414,36 @@ dictionaries do not declare `MENU.DIC`; some package copies declare `MENU.DIC`
 but do not include the file. In those cases the generated page can still prove
 Panel, entry-link, and PCMDATA behavior, but it cannot prove menu navigation
 for that package copy.
+
+### `repacker`
+
+Losslessly parse and re-emit existing SSED catalog/components:
+
+```bash
+logovista-tools repacker /path/to/LOGOVISTA_SSED_DICTS_WINDOWS \
+  --dict MEIKYOU --dict ARCHSIC3 \
+  --out-dir /path/to/reports/logovista-tools-repacker-v1
+```
+
+`repacker` is a model-proof command for existing packages. It reads the package
+`SSEDINFO` catalog, resolves each declared active component case-insensitively,
+parses plain `SSEDDATA` headers, chunk offsets, command counts, init bytes, and
+chunk payloads, then writes a repacked copy from that parsed structure. A file
+passes only when the repacked bytes have the same SHA-256 as the original.
+Because byte identity implies expansion identity, expanded-byte hashing is off
+by default; pass `--expanded-hash` when a slower explicit expanded SHA-256 is
+useful for a focused check.
+
+This is intentionally different from `write-plain`. `write-plain` authors new
+SSED packages and uses the toolkit compressor. `repacker` preserves the
+observed physical layout of an existing component and is therefore suitable for
+checking whether the toolkit understands old package containers byte-for-byte.
+
+Only catalog-declared SSED components are written. Loose files such as
+`Templates/`, `.INI`, `.dll`, `.chm`, and loose media/resource directories are
+reported as excluded loose files and are not copied into the repack output.
+Missing catalog-declared components are reported separately because some
+historical packages contain inert/missing declarations.
 
 ### `multiview`
 
