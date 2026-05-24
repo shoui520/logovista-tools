@@ -1,7 +1,16 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
-from logovista_tools.reader_demo import _RenderedEntry, _menu_html, _panels_html, _rewrite_local_asset_refs
+from logovista_tools.hcrender import HcTargetRenderResult
+from logovista_tools.reader_demo import (
+    _QueuedAddress,
+    _ReaderDemoBuilder,
+    _RenderedEntry,
+    _menu_html,
+    _panels_html,
+    _rewrite_local_asset_refs,
+)
 
 
 def test_rewrite_local_asset_refs_uses_copied_templates(tmp_path: Path) -> None:
@@ -25,6 +34,50 @@ def test_reader_demo_manifest_json_escape_is_script_safe() -> None:
 
     assert "</script>" not in script_text
     assert json.loads(script_text)[0]["html"] == '</script><img src="x.png">'
+
+
+def test_reader_demo_uses_dense_honmon_dereference_renderer(monkeypatch, tmp_path: Path) -> None:
+    calls: dict[str, object] = {}
+
+    def fake_render_hc_target_body(*args, **kwargs):
+        calls["target_offset"] = args[5]
+        return HcTargetRenderResult(
+            html='<div class="rendererdb-entry">gentile body</div>',
+            plain="gentile body\nvisible definition",
+            stats={},
+            links=(),
+            media=(),
+            audio=(),
+            private_directives=(),
+            named_behavior_gaps=(),
+            body_source="rendererdb_t_contents_data_id",
+            slice_start=100,
+            slice_end=132,
+            raw_media=(),
+            exact_rendererdb={"strategy": "rendererdb_t_contents_data_id"},
+            output_vertical=False,
+        )
+
+    monkeypatch.setattr("logovista_tools.reader_demo.target_needs_index_boundaries", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr("logovista_tools.reader_demo.render_hc_target_body", fake_render_hc_target_body)
+
+    builder = _ReaderDemoBuilder.__new__(_ReaderDemoBuilder)
+    builder.source = SimpleNamespace(honmon_start_block=2)
+    builder.out_dir = tmp_path
+    builder.reader = object()
+    builder.renderer_code = "015F"
+    builder.options = SimpleNamespace()
+    builder.args = SimpleNamespace(vertical=False, no_audio=True)
+    builder.boundary_offsets = None
+    builder.failures = []
+
+    entry = builder._render_address(_QueuedAddress(block=1565, offset=546, label="00100050", source="query:gentile"))
+
+    assert calls["target_offset"] == (1565 - 2) * 2048 + 546
+    assert entry is not None
+    assert entry.title == "gentile body"
+    assert entry.body_source == "rendererdb_t_contents_data_id"
+    assert "00100050" not in entry.html
 
 
 def test_panels_html_preserves_cell_hierarchy() -> None:

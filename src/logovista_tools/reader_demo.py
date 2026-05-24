@@ -7,7 +7,7 @@ import html
 import json
 import re
 from collections import deque
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -20,11 +20,10 @@ from .hcrender import (
     HcRenderOptions,
     _effective_renderer_code_for_source,
     _find_index_hits_for_source,
-    _hc_target_slice_reader,
     _make_colscr_image_resolver,
     _prepare_hc_render_assets,
     _renderer_for_source,
-    render_hc_body,
+    render_hc_target_body,
 )
 from .menus import MENU_LIKE_NAMES, MENU_LIKE_TYPES, build_menu_tree, parse_menu_stream, resolve_menu_record_destinations
 from .navigation import NavigationResolver, NavigationTarget, address_key
@@ -69,6 +68,7 @@ class _RenderedEntry:
     plain: str
     links: tuple[dict[str, Any], ...]
     audio: tuple[dict[str, Any], ...]
+    body_source: str = "raw_honmon_controls"
 
     def as_manifest(self) -> dict[str, Any]:
         return {
@@ -78,6 +78,7 @@ class _RenderedEntry:
             "label": self.label,
             "source": self.source,
             "title": self.title,
+            "body_source": self.body_source,
             "links": list(self.links),
             "audio": list(self.audio),
         }
@@ -321,13 +322,17 @@ class _ReaderDemoBuilder:
         target_offset = (address.block - self.source.honmon_start_block) * BLOCK_SIZE + address.offset
         if self.boundary_offsets is None and target_needs_index_boundaries(self.reader, target_offset):
             self.boundary_offsets = index_body_marker_boundaries_for_source(self.source, self.reader)
-        target_slice = _hc_target_slice_reader(
+        result = render_hc_target_body(
+            self.source,
+            self.out_dir,
             self.reader,
             self.renderer_code,
+            self.options,
             target_offset,
             boundary_offsets=self.boundary_offsets,
+            vertical=bool(self.args.vertical),
         )
-        if target_slice is None:
+        if result is None:
             self.failures.append(
                 {
                     "kind": "entry_slice_unresolved",
@@ -338,8 +343,6 @@ class _ReaderDemoBuilder:
                 }
             )
             return None
-        start, end = target_slice
-        result = render_hc_body(self.reader.read(start, end - start), replace(self.options, entry_start_offset=start))
         entry_html = _rewrite_local_asset_refs(result.html, self.out_dir)
         if not self.args.no_audio:
             entry_html = self._rewrite_audio(entry_html, result.audio)
@@ -356,6 +359,7 @@ class _ReaderDemoBuilder:
             plain=result.plain,
             links=tuple(result.links),
             audio=tuple(result.audio),
+            body_source=result.body_source,
         )
 
     def _rewrite_audio(self, fragment: str, audio_rows: Iterable[dict[str, Any]]) -> str:

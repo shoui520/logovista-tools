@@ -1138,6 +1138,26 @@ class HcRenderResult:
         return row
 
 
+@dataclass(frozen=True)
+class HcTargetRenderResult:
+    """Rendered HONMON target with exact sidecar dereferencing when available."""
+
+    html: str
+    plain: str
+    stats: dict[str, int]
+    links: tuple[dict[str, Any], ...]
+    media: tuple[dict[str, Any], ...]
+    audio: tuple[dict[str, Any], ...]
+    private_directives: tuple[dict[str, Any], ...]
+    named_behavior_gaps: tuple[str, ...]
+    body_source: str
+    slice_start: int
+    slice_end: int
+    raw_media: tuple[dict[str, Any], ...]
+    exact_rendererdb: dict[str, Any] | None
+    output_vertical: bool
+
+
 @dataclass
 class _Context:
     kind: str
@@ -19281,45 +19301,32 @@ def _write_hc_render_entry_file(
         _write_hc_html_footer(html_out)
 
 
-def _render_hc_index_hit(
+def render_hc_target_body(
     source: DictionarySource,
     dict_out: Path,
-    hit: HcIndexHit,
-    *,
-    renderer: HcRendererClassification | None,
+    reader: SsedRandomReader,
     renderer_code: str | None,
-    image_sources: dict[str, str],
-    html_templates: dict[str, str],
-    stylesheet: str | None,
-    renderer_assets: dict[str, str],
-    vertical: bool,
-    reader_style: str,
-    sequence: int,
+    options: HcRenderOptions,
+    target_offset: int,
+    *,
     boundary_offsets: Iterable[int] | None = None,
-) -> dict[str, Any]:
-    reader = SsedRandomReader(source.honmon)
-    target_offset = _target_relative_offset(source, hit)
+    vertical: bool = False,
+    reader_style: str = WINDOWS_READER_STYLE,
+) -> HcTargetRenderResult | None:
+    """Render a HONMON address, dereferencing rendererdb/dense sidecars first.
+
+    Dense HONMON dictionaries often store a numeric anchor in HONMON and keep
+    the visible entry body in a renderer sidecar.  This helper is the single
+    entry point for app-facing HC target rendering so navigation demos and
+    focused entry renders cannot accidentally expose the raw anchor as the body.
+    """
+
     target_slice = _hc_target_slice_reader(reader, renderer_code, target_offset, boundary_offsets=boundary_offsets)
     if target_slice is None:
-        return {
-            "query": hit.query,
-            "status": "unresolved_body_pointer",
-            "hit": hit.as_dict(),
-            "target_offset": target_offset,
-        }
+        return None
     start, end = target_slice
-    media_image_resolver = _make_colscr_image_resolver(source, dict_out)
-    options = HcRenderOptions(
-        gaiji_map=source.gaiji_map,
-        image_sources=image_sources,
-        html_templates=html_templates,
-        renderer_assets=renderer_assets,
-        renderer_code=renderer_code,
-        vertical=vertical,
-        media_image_resolver=media_image_resolver,
-        entry_start_offset=start,
-    )
-    raw_result = render_hc_body(reader.read(start, end - start), options)
+    raw_options = replace(options, entry_start_offset=start)
+    raw_result = render_hc_body(reader.read(start, end - start), raw_options)
     raw_record = {
         "html": raw_result.html,
         "media": raw_result.media,
@@ -19338,6 +19345,7 @@ def _render_hc_index_hit(
     output_vertical = vertical
     body_source = "raw_honmon_controls"
     body_html = raw_result.html
+    plain = raw_result.plain
     if exact_record is not None and isinstance(exact_record.get("html"), str) and exact_record.get("html"):
         output_vertical = _exact_rendererdb_vertical(renderer_code, vertical)
         body_html = _rewrite_exact_body_asset_refs(
@@ -19360,34 +19368,99 @@ def _render_hc_index_hit(
                 classes.append("lv-hc-blue-headword")
         body_html = f'<div class="{" ".join(classes)}">{body_html}</div>'
         body_source = str(exact_record.get("strategy") or "rendererdb")
+        plain = str(exact_record.get("plain") or html_to_plain(str(exact_record["html"])))
+    return HcTargetRenderResult(
+        html=body_html,
+        plain=plain,
+        stats=raw_result.stats,
+        links=raw_result.links,
+        media=raw_result.media,
+        audio=raw_result.audio,
+        private_directives=raw_result.private_directives,
+        named_behavior_gaps=raw_result.named_behavior_gaps,
+        body_source=body_source,
+        slice_start=start,
+        slice_end=end,
+        raw_media=raw_result.media,
+        exact_rendererdb=exact_record,
+        output_vertical=output_vertical,
+    )
+
+
+def _render_hc_index_hit(
+    source: DictionarySource,
+    dict_out: Path,
+    hit: HcIndexHit,
+    *,
+    renderer: HcRendererClassification | None,
+    renderer_code: str | None,
+    image_sources: dict[str, str],
+    html_templates: dict[str, str],
+    stylesheet: str | None,
+    renderer_assets: dict[str, str],
+    vertical: bool,
+    reader_style: str,
+    sequence: int,
+    boundary_offsets: Iterable[int] | None = None,
+) -> dict[str, Any]:
+    reader = SsedRandomReader(source.honmon)
+    target_offset = _target_relative_offset(source, hit)
+    media_image_resolver = _make_colscr_image_resolver(source, dict_out)
+    options = HcRenderOptions(
+        gaiji_map=source.gaiji_map,
+        image_sources=image_sources,
+        html_templates=html_templates,
+        renderer_assets=renderer_assets,
+        renderer_code=renderer_code,
+        vertical=vertical,
+        media_image_resolver=media_image_resolver,
+    )
+    rendered = render_hc_target_body(
+        source,
+        dict_out,
+        reader,
+        renderer_code,
+        options,
+        target_offset,
+        boundary_offsets=boundary_offsets,
+        vertical=vertical,
+        reader_style=reader_style,
+    )
+    if rendered is None:
+        return {
+            "query": hit.query,
+            "status": "unresolved_body_pointer",
+            "hit": hit.as_dict(),
+            "target_offset": target_offset,
+        }
     filename = f"{_query_filename_stem(hit.query)}_{sequence}.html"
     html_path = dict_out / filename
     metadata = {
         "dict_id": source.dict_id,
         "query": hit.query,
-        "body_source": body_source,
+        "body_source": rendered.body_source,
         "hit": hit.as_dict(),
         "target_offset": target_offset,
-        "slice": {"start": start, "end": end},
+        "slice": {"start": rendered.slice_start, "end": rendered.slice_end},
     }
     _write_hc_render_entry_file(
         html_path,
         stylesheet=stylesheet,
-        vertical=output_vertical,
-        body_html=body_html,
+        vertical=rendered.output_vertical,
+        body_html=rendered.html,
         metadata=metadata,
     )
     return {
         "query": hit.query,
         "status": "rendered",
         "html_path": str(html_path),
-        "body_source": body_source,
+        "body_source": rendered.body_source,
         "hit": hit.as_dict(),
         "target_offset": target_offset,
-        "slice": {"start": start, "end": end},
-        "raw_stats": dict(sorted(raw_result.stats.items())),
-        "raw_media": raw_result.media,
-        "exact_rendererdb": exact_record,
+        "slice": {"start": rendered.slice_start, "end": rendered.slice_end},
+        "raw_stats": dict(sorted(rendered.stats.items())),
+        "raw_media": rendered.raw_media,
+        "exact_rendererdb": rendered.exact_rendererdb,
     }
 
 
