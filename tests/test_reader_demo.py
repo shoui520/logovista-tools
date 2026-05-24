@@ -10,6 +10,9 @@ from logovista_tools.reader_demo import (
     _auxiliary_data,
     _decode_text_component_lines,
     _entries_html,
+    _hanrei_html,
+    _hanrei_chm_navigation_files,
+    _hanrei_links_from_file,
     _menu_html,
     _panels_html,
     _rewrite_local_asset_refs,
@@ -271,3 +274,56 @@ def test_auxiliary_data_includes_loose_right_dic(monkeypatch, tmp_path: Path) ->
         {"component": "RIGHT.DIC", "type": "loose", "lines": ["decoded:RIGHT.DIC"]}
     ]
     assert auxiliary["failures"] == []
+
+
+def test_hanrei_links_parse_chm_sitemap_objects(tmp_path: Path) -> None:
+    hhc = tmp_path / "HANREI.hhc"
+    hhc.write_text(
+        """
+        <html><body><ul>
+        <li><object type="text/sitemap">
+          <param name="Name" value="凡例について ">
+          <param name="Local" value="Source/contents/hanrei.html">
+        </object>
+        <li><object type="text/sitemap">
+          <param name="Name" value="外部">
+          <param name="Local" value="javascript:bad()">
+        </object>
+        </ul></body></html>
+        """,
+        encoding="cp932",
+    )
+
+    links = _hanrei_links_from_file(hhc, "hanrei/chm", 10)
+
+    assert links == [{"label": "凡例について", "href": "hanrei/chm/Source/contents/hanrei.html"}]
+
+
+def test_hanrei_html_sets_initial_iframe_src() -> None:
+    rendered = _hanrei_html(
+        {
+            "sources": [
+                {
+                    "kind": "chm",
+                    "source": "HANREI.chm",
+                    "entry": "hanrei/chm/Source/top.html",
+                    "links": [
+                        {"label": "凡例について", "href": "hanrei/chm/Source/contents/hanrei.html"}
+                    ],
+                }
+            ],
+            "failures": [],
+        }
+    )
+
+    assert 'data-hanrei-href="hanrei/chm/Source/contents/hanrei.html"' in rendered
+    assert 'iframe id="hanrei-frame" title="HANREI" src="hanrei/chm/Source/contents/hanrei.html"' in rendered
+
+
+def test_hanrei_chm_navigation_files_accept_product_named_hhc(tmp_path: Path) -> None:
+    source = tmp_path / "Source"
+    source.mkdir()
+    (source / "top.html").write_text("<html></html>", encoding="utf-8")
+    (tmp_path / "ZYAKUKOG.hhc").write_text("<html></html>", encoding="utf-8")
+
+    assert _hanrei_chm_navigation_files(tmp_path) == [tmp_path / "ZYAKUKOG.hhc"]

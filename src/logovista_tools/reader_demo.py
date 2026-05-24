@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import posixpath
 import re
 import shutil
 import subprocess
@@ -834,6 +835,35 @@ class _HanreiLinkParser(HTMLParser):
         self._parts = []
 
 
+class _HanreiSitemapParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.links: list[dict[str, str]] = []
+        self._current: dict[str, str] | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag_lower = tag.lower()
+        attrs_dict = {key.lower(): value for key, value in attrs}
+        if tag_lower == "object" and (attrs_dict.get("type") or "").lower() == "text/sitemap":
+            self._current = {}
+            return
+        if tag_lower != "param" or self._current is None:
+            return
+        name = (attrs_dict.get("name") or "").lower()
+        value = attrs_dict.get("value") or ""
+        if name in {"name", "local"}:
+            self._current[name] = value
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() != "object" or self._current is None:
+            return
+        local = self._current.get("local", "").strip()
+        label = " ".join(self._current.get("name", "").split()) or local
+        if local:
+            self.links.append({"href": local, "label": label})
+        self._current = None
+
+
 def _read_text_best_effort(path: Path) -> str:
     data = path.read_bytes()
     for encoding in ("utf-8", "cp932", "shift_jis", "euc_jp", "latin1"):
@@ -844,19 +874,62 @@ def _read_text_best_effort(path: Path) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+def _hanrei_local_href(rel_base: str, href: str) -> str | None:
+    href = html.unescape(href).replace("\\", "/").strip()
+    if not href:
+        return None
+    lower = href.lower()
+    if lower.startswith(("http:", "https:", "mailto:", "javascript:")):
+        return None
+    target, sep, fragment = href.partition("#")
+    normalized = posixpath.normpath(target.lstrip("/")) if target else ""
+    if normalized == ".":
+        normalized = ""
+    if normalized.startswith("../") or normalized == "..":
+        return None
+    joined = posixpath.normpath(f"{rel_base.rstrip('/')}/{normalized}") if normalized else rel_base.rstrip("/")
+    if fragment:
+        joined = f"{joined}{sep}{fragment}"
+    return joined
+
+
 def _hanrei_links_from_file(path: Path, rel_base: str, limit: int) -> list[dict[str, str]]:
+    text = _read_text_best_effort(path)
+    sitemap_parser = _HanreiSitemapParser()
+    sitemap_parser.feed(text)
     parser = _HanreiLinkParser()
-    parser.feed(_read_text_best_effort(path))
+    parser.feed(text)
     rows: list[dict[str, str]] = []
-    for row in parser.links:
-        href = row["href"].replace("\\", "/")
-        lower = href.lower()
-        if lower.startswith(("http:", "https:", "mailto:", "javascript:")):
+    for row in [*sitemap_parser.links, *parser.links]:
+        href = _hanrei_local_href(rel_base, row["href"])
+        if href is None:
             continue
-        rows.append({"label": row["label"], "href": f"{rel_base}/{href}".replace("//", "/")})
+        rows.append({"label": row["label"], "href": href})
         if len(rows) >= limit:
             break
     return rows
+
+
+def _append_hanrei_links(links: list[dict[str, str]], incoming: list[dict[str, str]], limit: int) -> None:
+    seen = {row["href"] for row in links}
+    for row in incoming:
+        href = row["href"]
+        if href in seen:
+            continue
+        links.append(row)
+        seen.add(href)
+        if len(links) >= limit:
+            break
+
+
+def _hanrei_chm_navigation_files(extracted_dir: Path) -> list[Path]:
+    files: list[Path] = []
+    for suffix in (".hhc", ".hhk"):
+        files.extend(path for path in extracted_dir.rglob(f"*{suffix}") if path.is_file())
+    if files:
+        return sorted(files, key=lambda path: path.relative_to(extracted_dir).as_posix().lower())
+    fallbacks = [extracted_dir / "index.html", extracted_dir / "Source/top.html"]
+    return [path for path in fallbacks if path.is_file()]
 
 
 def _hanrei_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
@@ -873,7 +946,7 @@ def _hanrei_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
         links: list[dict[str, str]] = []
         for candidate in candidates:
             if candidate.is_file():
-                links.extend(_hanrei_links_from_file(candidate, "hanrei/HANREI", limit - len(links)))
+                _append_hanrei_links(links, _hanrei_links_from_file(candidate, "hanrei/HANREI", limit - len(links)), limit)
             if len(links) >= limit:
                 break
         if not links:
@@ -881,7 +954,8 @@ def _hanrei_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
                 {"label": path.relative_to(target).as_posix(), "href": f"hanrei/HANREI/{path.relative_to(target).as_posix()}"}
                 for path in sorted(target.rglob("*.html"))[:limit]
             ]
-        rows.append({"kind": "html_directory", "source": "HANREI", "entry": "hanrei/HANREI/index.html", "links": links[:limit]})
+        entry = links[0]["href"] if links else "hanrei/HANREI/index.html"
+        rows.append({"kind": "html_directory", "source": "HANREI", "entry": entry, "links": links[:limit]})
     chm_path = resolve_case_insensitive_path(root, "HANREI.chm")
     if chm_path is not None and chm_path.is_file():
         out.mkdir(parents=True, exist_ok=True)
@@ -898,10 +972,8 @@ def _hanrei_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
                     stderr=subprocess.DEVNULL,
                     check=True,
                 )
-                for candidate_name in ("HANREI.hhc", "index.html", "Source/top.html"):
-                    candidate = extracted_dir / candidate_name
-                    if candidate.is_file():
-                        links.extend(_hanrei_links_from_file(candidate, "hanrei/chm", limit - len(links)))
+                for candidate in _hanrei_chm_navigation_files(extracted_dir):
+                    _append_hanrei_links(links, _hanrei_links_from_file(candidate, "hanrei/chm", limit - len(links)), limit)
                     if len(links) >= limit:
                         break
                 if not links:
@@ -911,7 +983,8 @@ def _hanrei_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
                     ]
             except Exception as exc:
                 failures.append({"source": "HANREI.chm", "reason": f"chm_extract_failed: {exc}"})
-        rows.append({"kind": "chm", "source": "HANREI.chm", "entry": "hanrei/HANREI.chm", "links": links[:limit]})
+        entry = links[0]["href"] if links else "hanrei/HANREI.chm"
+        rows.append({"kind": "chm", "source": "HANREI.chm", "entry": entry, "links": links[:limit]})
     return {"sources": rows, "failures": failures}
 
 
@@ -1143,11 +1216,17 @@ def _auxiliary_html(auxiliary: dict[str, Any], entries: dict[str, _RenderedEntry
 def _hanrei_html(hanrei: dict[str, Any]) -> str:
     parts = ["<section><h2>HANREI / 凡例</h2>"]
     sources = hanrei.get("sources") or []
+    initial_src = ""
     if not sources:
         parts.append('<p class="muted">No HANREI directory or HANREI.chm found.</p>')
     for source in sources:
         parts.append(f'<h3>{html.escape(str(source.get("source")))}: {html.escape(str(source.get("kind")))}</h3>')
         links = source.get("links") or []
+        if not initial_src:
+            if links:
+                initial_src = str(links[0].get("href") or "")
+            elif source.get("entry"):
+                initial_src = str(source.get("entry"))
         if links:
             parts.append('<div class="nav-list">')
             for row in links:
@@ -1162,7 +1241,8 @@ def _hanrei_html(hanrei: dict[str, Any]) -> str:
             href = str(source.get("entry"))
             parts.append(f'<p><a href="{html.escape(href, quote=True)}">{html.escape(href)}</a></p>')
     if sources:
-        parts.append('<iframe id="hanrei-frame" title="HANREI" style="width:100%;height:360px;border:1px solid #ccc;background:#fff"></iframe>')
+        src_attr = f' src="{html.escape(initial_src, quote=True)}"' if initial_src else ""
+        parts.append(f'<iframe id="hanrei-frame" title="HANREI"{src_attr} style="width:100%;height:360px;border:1px solid #ccc;background:#fff"></iframe>')
     failures = hanrei.get("failures") or []
     if failures:
         parts.append("<pre>" + html.escape(json.dumps(failures, ensure_ascii=False, indent=2)) + "</pre>")

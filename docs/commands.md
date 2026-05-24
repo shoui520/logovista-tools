@@ -389,7 +389,9 @@ The page contains:
   components do not need to be fully expanded for a sidebar preview;
 - `HANREI/` and `HANREI.chm` references where present. Loose HTML HANREI files
   are copied into the demo tree; CHM files are copied, and when `7z`/`7zz` is
-  available their HTML navigation files are extracted and linked in an iframe;
+  available their `.hhc` / `.hhk` sitemap files and HTML pages are extracted.
+  The demo sidebar uses the sitemap labels and opens the first resolved HANREI
+  page in an iframe immediately, rather than leaving the viewer blank;
 - `CCALTSTR.HA` / `CCALTSTR.FU` alternate-string tables where present. These
   tables are also available to gaiji resolution as lower-priority Unicode
   fallbacks behind `.uni` and plist mappings;
