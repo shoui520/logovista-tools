@@ -1560,7 +1560,7 @@ def cmd_reader_demo(args: argparse.Namespace) -> int:
 
 
 def cmd_repacker(args: argparse.Namespace) -> int:
-    status(args, "repacker: losslessly round-tripping SSED catalog/components")
+    status(args, "repacker: losslessly round-tripping LogoVista dictionary files")
     try:
         summaries = repack_sources(args)
     except Exception as exc:

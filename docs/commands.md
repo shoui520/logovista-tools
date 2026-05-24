@@ -417,12 +417,11 @@ for that package copy.
 
 ### `repacker`
 
-Losslessly parse and re-emit existing SSED catalog/components:
+Losslessly parse and re-emit existing LogoVista dictionary files:
 
 ```bash
 logovista-tools repacker /path/to/LOGOVISTA_SSED_DICTS_WINDOWS \
-  --dict MEIKYOU --dict ARCHSIC3 \
-  --out-dir /path/to/reports/logovista-tools-repacker-v1
+  --out-dir /path/to/reports/logovista-tools-repacker-v2
 ```
 
 `repacker` is a model-proof command for existing packages. It reads the package
@@ -434,16 +433,34 @@ Because byte identity implies expansion identity, expanded-byte hashing is off
 by default; pass `--expanded-hash` when a slower explicit expanded SHA-256 is
 useful for a focused check.
 
+The command also includes dictionary resource files that are not ordinary
+catalog-declared components but are part of the dictionary model:
+
+- encrypted `SSEDDATA` payloads are preserved byte-for-byte after decrypted
+  header validation;
+- `SPINDEX.DIC` is preserved byte-for-byte after standalone suffix-index
+  inspection;
+- eight-hex/numeric auxiliary `.idx` trees are preserved byte-for-byte after
+  CP932 text-index parsing;
+- `.uni` Unicode maps, `GA16HALF`/`GA16FULL`/`GAI16H*`/`GAI16F*` bitmap-gaiji
+  resources, `CCALTSTR.*`, and Panel `.bin` files are parsed and preserved
+  byte-for-byte;
+- plain and LogoFontCipher SQLite databases are preserved byte-for-byte after
+  SQLite/schema validation. SQLite byte identity is treated as physical
+  packaging proof, not a claim that rebuilding a database from SQL rows would
+  reproduce the same pages.
+
 This is intentionally different from `write-plain`. `write-plain` authors new
 SSED packages and uses the toolkit compressor. `repacker` preserves the
 observed physical layout of an existing component and is therefore suitable for
 checking whether the toolkit understands old package containers byte-for-byte.
 
-Only catalog-declared SSED components are written. Loose files such as
-`Templates/`, `.INI`, `.dll`, `.chm`, and loose media/resource directories are
-reported as excluded loose files and are not copied into the repack output.
-Missing catalog-declared components are reported separately because some
-historical packages contain inert/missing declarations.
+Viewer/front-end and loose media assets are intentionally excluded: `HC*.dll`,
+`.chm`, `HANREI`, HTML/CSS/JS/XML/DTD files, `.INI`, `Templates/`, `img/`,
+`images/`, gaiji-template image directories, `_Sound_files`, ordinary bitmap/
+audio assets, and the `vlpljbl.bin`/`vlpljbl.exe` decryptor binaries. Missing
+catalog-declared components are reported separately because some historical
+packages contain inert/missing declarations.
 
 ### `multiview`
 

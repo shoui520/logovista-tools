@@ -12,11 +12,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from .ccaltstr import parse_ccaltstr
 from .entries import DictionarySource, discover_dictionaries
+from .gaiji import is_bitmap_gaiji_resource_name, parse_ga16_resource, parse_uni_resource
+from .panels import parse_panel_bin
 from .ssed import (
     BLOCK_SIZE,
     SSEDINFO_MAGIC,
@@ -24,9 +28,19 @@ from .ssed import (
     be16,
     be32,
     find_case_insensitive,
+    parse_sseddata_header,
     parse_ssedinfo_with_layout,
+    read_file_prefix,
     ssed_chunk_offsets,
     sseddata_storage_for_file,
+)
+from .spindex import inspect_spindex
+from .windows import parse_aux_index_text
+from .windows import (
+    classify_sqlite_sidecar_file,
+    file_magic_kind,
+    is_vlpljbl_path,
+    sqlite_storage_for_path,
 )
 
 
@@ -37,6 +51,107 @@ def _sha256(data: bytes) -> str:
 def _write_json(path: Path, obj: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+
+
+EXCLUDED_SUFFIXES = frozenset(
+    {
+        ".chm",
+        ".css",
+        ".dll",
+        ".dtd",
+        ".gif",
+        ".htm",
+        ".html",
+        ".ini",
+        ".jpg",
+        ".jpeg",
+        ".js",
+        ".m4a",
+        ".mp3",
+        ".png",
+        ".svg",
+        ".wav",
+        ".xml",
+    }
+)
+EXCLUDED_DIRECTORY_NAMES = frozenset(
+    {
+        "_sound_files",
+        "gaijitemp",
+        "hanrei",
+        "html",
+        "htmls",
+        "image",
+        "images",
+        "img",
+        "sound_files",
+        "templates",
+    }
+)
+SQLITE_SUFFIXES = frozenset({".db", ".sqlite", ".sqlite3"})
+
+
+def _relpath(path: Path, root: Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.name
+
+
+def _has_excluded_directory(path: Path, root: Path) -> bool:
+    try:
+        parts = path.relative_to(root).parts[:-1]
+    except ValueError:
+        parts = path.parts[:-1]
+    return any(part.casefold() in EXCLUDED_DIRECTORY_NAMES for part in parts)
+
+
+def _is_frontend_or_loose_media(path: Path, root: Path) -> bool:
+    name = path.name.casefold()
+    if name in {"vlpljbl.bin", "vlpljbl.exe"}:
+        return True
+    if _has_excluded_directory(path, root):
+        return True
+    return path.suffix.casefold() in EXCLUDED_SUFFIXES
+
+
+def _looks_like_sqlite_database(path: Path) -> bool:
+    suffix = path.suffix.casefold()
+    if suffix in SQLITE_SUFFIXES:
+        return True
+    if is_vlpljbl_path(path) and path.name.casefold() not in {"vlpljbl.bin", "vlpljbl.exe"}:
+        return sqlite_storage_for_path(path) is not None
+    if suffix:
+        return False
+    return sqlite_storage_for_path(path) is not None
+
+
+def _is_panel_bin(path: Path, root: Path) -> bool:
+    if path.suffix.casefold() != ".bin":
+        return False
+    try:
+        parts = path.relative_to(root).parts[:-1]
+    except ValueError:
+        parts = path.parts[:-1]
+    return any(part.casefold().startswith("panel") for part in parts)
+
+
+def _is_requested_repack_file(path: Path, root: Path) -> bool:
+    if not path.is_file() or _is_frontend_or_loose_media(path, root):
+        return False
+    suffix = path.suffix.casefold()
+    name = path.name.casefold()
+    if suffix in {".dic", ".idx", ".uni"}:
+        return True
+    if is_bitmap_gaiji_resource_name(path):
+        return True
+    if name.startswith("ccaltstr"):
+        return True
+    if _is_panel_bin(path, root):
+        return True
+    if _looks_like_sqlite_database(path):
+        return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -361,10 +476,295 @@ def repack_data_file(
     )
 
 
+def repack_encrypted_data_file(path: Path, package_root: Path, out_path: Path, *, write: bool = True) -> RepackedFile:
+    header = parse_sseddata_header(path)
+    storage = str(header["storage"])
+    if storage == "plain":
+        raise ValueError("encrypted-data repacker called for plain SSEDDATA")
+    return _identity_repacked_file(
+        path,
+        package_root,
+        out_path,
+        kind="SSEDDATA",
+        storage=storage,
+        write=write,
+        details={
+            "kind": int(header["kind"]),
+            "chunks": int(header["n_chunk"]),
+            "start_block": int(header["start_block"]),
+            "end_block": int(header["end_block"]),
+            "physical_policy": "byte_preserving_encrypted_payload_with_decrypted_header_validation",
+        },
+    )
+
+
+def _write_repacked(out_path: Path, data: bytes, *, write: bool) -> None:
+    if not write:
+        return
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(data)
+
+
+def _identity_repacked_file(
+    path: Path,
+    package_root: Path,
+    out_path: Path,
+    *,
+    kind: str,
+    storage: str | None,
+    details: dict[str, Any],
+    write: bool = True,
+) -> RepackedFile:
+    original = path.read_bytes()
+    _write_repacked(out_path, original, write=write)
+    return _repacked_row(
+        source_path=path,
+        package_root=package_root,
+        kind=kind,
+        storage=storage,
+        original=original,
+        repacked=original,
+        expanded_sha256=None,
+        details=details,
+    )
+
+
+def repack_ccaltstr_file(path: Path, package_root: Path, out_path: Path, *, write: bool = True) -> RepackedFile:
+    original = path.read_bytes()
+    table = parse_ccaltstr(original)
+    out = bytearray()
+    out.extend(table.magic)
+    out.extend(table.version.to_bytes(2, "little"))
+    out.extend(table.start_code.to_bytes(2, "big"))
+    out.extend(table.record_count.to_bytes(2, "big"))
+    out.extend(table.reserved)
+    for record in table.records:
+        value = record.value_bytes
+        if len(value) > 60:
+            raise ValueError(f"CCALTSTR record {record.index} value exceeds 60 bytes")
+        out.extend(record.code.to_bytes(2, "big"))
+        out.extend(value.ljust(60, b"\x00"))
+    repacked = bytes(out)
+    _write_repacked(out_path, repacked, write=write)
+    return _repacked_row(
+        source_path=path,
+        package_root=package_root,
+        kind="CCALTSTR",
+        storage="plain",
+        original=original,
+        repacked=repacked,
+        expanded_sha256=None,
+        details={
+            "kind": table.kind,
+            "magic": table.magic.decode("ascii", errors="replace"),
+            "version": table.version,
+            "start_code": table.start_code_hex,
+            "record_count": table.record_count,
+            "nonempty_values": sum(1 for record in table.records if record.value_bytes),
+        },
+    )
+
+
+def repack_uni_file(path: Path, package_root: Path, out_path: Path, *, write: bool = True) -> RepackedFile:
+    resource = parse_uni_resource(path)
+    if resource is None:
+        raise ValueError("not a recognized LogoVista .uni resource")
+    return _identity_repacked_file(
+        path,
+        package_root,
+        out_path,
+        kind="UNI",
+        storage="plain",
+        write=write,
+        details={
+            "format": resource.format,
+            "half_count": resource.half_count,
+            "full_count": resource.full_count,
+            "parsed_records": len(resource.records),
+            "expected_size": resource.expected_size,
+            "trailing_bytes": resource.trailing_bytes,
+        },
+    )
+
+
+def repack_ga16_file(path: Path, package_root: Path, out_path: Path, *, write: bool = True) -> RepackedFile:
+    resource = parse_ga16_resource(path)
+    if resource is None:
+        raise ValueError("not a recognized GA16/GAI16 bitmap-gaiji resource")
+    data_size = path.stat().st_size
+    expected_min_size = resource.data_offset + resource.count * resource.glyph_bytes
+    if data_size < expected_min_size:
+        raise ValueError(f"GA16 resource truncated: expected at least {expected_min_size} bytes, actual {data_size}")
+    return _identity_repacked_file(
+        path,
+        package_root,
+        out_path,
+        kind="GA16",
+        storage="plain",
+        write=write,
+        details={
+            "width": resource.width,
+            "height": resource.height,
+            "start_code": f"{resource.start_code:04x}",
+            "count": resource.count,
+            "glyph_bytes": resource.glyph_bytes,
+            "data_offset": resource.data_offset,
+            "trailing_bytes": data_size - expected_min_size,
+        },
+    )
+
+
+def repack_panel_bin_file(path: Path, package_root: Path, out_path: Path, *, write: bool = True) -> RepackedFile:
+    data = path.read_bytes()
+    panel = parse_panel_bin(data)
+    _write_repacked(out_path, data, write=write)
+    return _repacked_row(
+        source_path=path,
+        package_root=package_root,
+        kind="Panel BIN",
+        storage="plain",
+        original=data,
+        repacked=data,
+        expanded_sha256=None,
+        details={
+            "format": panel.format,
+            "declared_record_count": panel.declared_record_count,
+            "actual_record_count": panel.actual_record_count,
+            "record_stride": panel.record_stride,
+            "text_width": panel.text_width,
+            "text_encoding": panel.text_encoding,
+        },
+    )
+
+
+def repack_spindex_file(path: Path, package_root: Path, out_path: Path, *, write: bool = True) -> RepackedFile:
+    summary = inspect_spindex(path)
+    details = dict(summary)
+    details.pop("path", None)
+    details.pop("rows_path", None)
+    return _identity_repacked_file(
+        path,
+        package_root,
+        out_path,
+        kind="SPINDEX",
+        storage=str(details.get("storage") or "plain"),
+        write=write,
+        details=details,
+    )
+
+
+def repack_aux_index_file(path: Path, package_root: Path, out_path: Path, *, write: bool = True) -> RepackedFile:
+    rows = parse_aux_index_text(path)
+    if not rows:
+        raise ValueError("not a recognized auxiliary text IDX")
+    return _identity_repacked_file(
+        path,
+        package_root,
+        out_path,
+        kind="auxiliary text IDX",
+        storage="cp932_text",
+        write=write,
+        details={
+            "rows": len(rows),
+            "max_depth": max(row.depth for row in rows),
+            "first_block": rows[0].block,
+            "last_block": rows[-1].block,
+        },
+    )
+
+
+def _plain_sqlite_details(path: Path) -> dict[str, Any]:
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        integrity = str(con.execute("pragma integrity_check").fetchone()[0])
+        page_size = int(con.execute("pragma page_size").fetchone()[0])
+        page_count = int(con.execute("pragma page_count").fetchone()[0])
+        user_version = int(con.execute("pragma user_version").fetchone()[0])
+        schema_version = int(con.execute("pragma schema_version").fetchone()[0])
+    finally:
+        con.close()
+    return {
+        "integrity_check": integrity,
+        "page_size": page_size,
+        "page_count": page_count,
+        "user_version": user_version,
+        "schema_version": schema_version,
+    }
+
+
+def repack_sqlite_file(path: Path, package_root: Path, out_path: Path, *, write: bool = True) -> RepackedFile:
+    classification = classify_sqlite_sidecar_file(path)
+    if classification.storage is None:
+        raise ValueError(f"not a recognized SQLite database: content_kind={classification.content_kind}")
+    details: dict[str, Any] = {
+        "role": classification.role,
+        "content_kind": classification.content_kind,
+        "tables": list(classification.tables),
+        "logical_rebuild": False,
+        "physical_policy": "byte_preserving_with_sqlite_validation",
+    }
+    if classification.storage == "plain":
+        details.update(_plain_sqlite_details(path))
+    return _identity_repacked_file(
+        path,
+        package_root,
+        out_path,
+        kind="SQLite",
+        storage=classification.storage,
+        write=write,
+        details=details,
+    )
+
+
+def _repack_requested_file(
+    path: Path,
+    package_root: Path,
+    out_path: Path,
+    *,
+    write: bool = True,
+    expanded_hash: bool = False,
+) -> RepackedFile:
+    prefix = read_file_prefix(path, BLOCK_SIZE)
+    suffix = path.suffix.casefold()
+    name = path.name.casefold()
+    if prefix.startswith(SSEDINFO_MAGIC):
+        return repack_catalog_file(path, package_root, out_path, write=write)
+    if name == "spindex.dic":
+        return repack_spindex_file(path, package_root, out_path, write=write)
+    ssed_storage = sseddata_storage_for_file(path)
+    if ssed_storage == "plain":
+        return repack_data_file(path, package_root, out_path, write=write, expanded_hash=expanded_hash)
+    if ssed_storage in {"logofont_cipher", "macos_logofont_cipher"}:
+        return repack_encrypted_data_file(path, package_root, out_path, write=write)
+    if name.startswith("ccaltstr"):
+        return repack_ccaltstr_file(path, package_root, out_path, write=write)
+    if suffix == ".uni":
+        return repack_uni_file(path, package_root, out_path, write=write)
+    if is_bitmap_gaiji_resource_name(path):
+        return repack_ga16_file(path, package_root, out_path, write=write)
+    if _is_panel_bin(path, package_root):
+        return repack_panel_bin_file(path, package_root, out_path, write=write)
+    if _looks_like_sqlite_database(path):
+        return repack_sqlite_file(path, package_root, out_path, write=write)
+    if suffix == ".idx":
+        return repack_aux_index_file(path, package_root, out_path, write=write)
+    magic_kind = file_magic_kind(prefix)
+    raise ValueError(f"no lossless repacker for requested file family; magic={magic_kind}")
+
+
+def _selected_extra_files(root: Path, selected: set[Path]) -> tuple[Path, ...]:
+    rows: list[Path] = []
+    for path in sorted(root.rglob("*"), key=lambda item: (_relpath(item, root).casefold(), _relpath(item, root))):
+        if path.resolve() in selected or not _is_requested_repack_file(path, root):
+            continue
+        rows.append(path)
+    return tuple(rows)
+
+
 def _excluded_loose_files(root: Path, selected: set[Path]) -> tuple[str, ...]:
     excluded: list[str] = []
     for path in sorted(root.iterdir(), key=lambda item: (item.name.casefold(), item.name)):
-        if path in selected:
+        if path.resolve() in selected:
             continue
         if path.is_dir():
             excluded.append(f"{path.name}/")
@@ -386,9 +786,9 @@ def repack_dictionary_source(
     files: list[RepackedFile] = []
     missing: list[str] = []
     unsupported: list[dict[str, Any]] = []
-    selected_paths: set[Path] = {source.idx}
+    selected_paths: set[Path] = {source.idx.resolve()}
 
-    files.append(repack_catalog_file(source.idx, package_root, dict_out / source.idx.name, write=write))
+    files.append(repack_catalog_file(source.idx, package_root, dict_out / _relpath(source.idx, package_root), write=write))
     for element in elements:
         if not element.start:
             continue
@@ -396,13 +796,13 @@ def repack_dictionary_source(
         if component_path is None:
             missing.append(element.filename)
             continue
-        selected_paths.add(component_path)
+        selected_paths.add(component_path.resolve())
         try:
             files.append(
-                repack_data_file(
+                _repack_requested_file(
                     component_path,
                     package_root,
-                    dict_out / component_path.name,
+                    dict_out / _relpath(component_path, package_root),
                     write=write,
                     expanded_hash=expanded_hash,
                 )
@@ -412,6 +812,28 @@ def repack_dictionary_source(
                 {
                     "filename": element.filename,
                     "type": f"{element.type:02x}",
+                    "reason": str(exc),
+                }
+            )
+
+    for extra_path in _selected_extra_files(package_root, selected_paths):
+        selected_paths.add(extra_path.resolve())
+        rel = _relpath(extra_path, package_root)
+        try:
+            files.append(
+                _repack_requested_file(
+                    extra_path,
+                    package_root,
+                    dict_out / rel,
+                    write=write,
+                    expanded_hash=expanded_hash,
+                )
+            )
+        except Exception as exc:
+            unsupported.append(
+                {
+                    "filename": rel,
+                    "type": "loose",
                     "reason": str(exc),
                 }
             )
@@ -441,8 +863,6 @@ def repack_sources(args: argparse.Namespace) -> list[dict[str, Any]]:
     )
     if not sources:
         raise ValueError("repacker: no SSED dictionaries found")
-    if len(sources) > 1 and not args.dict:
-        raise ValueError("repacker: multiple dictionaries found; pass --dict to select packages")
     args.out_dir.mkdir(parents=True, exist_ok=True)
     reports = [
         repack_dictionary_source(
@@ -460,8 +880,8 @@ def repack_sources(args: argparse.Namespace) -> list[dict[str, Any]]:
 def add_repacker_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("root", type=Path, help="Dictionary package directory, collection root, or direct .IDX path.")
     parser.add_argument("--dict", action="append", help="Dictionary id to repack. Repeat for multiple packages.")
-    parser.add_argument("--out-dir", type=Path, required=True, help="Reports/output directory for repacked SSED files.")
-    parser.add_argument("--check-only", action="store_true", help="Verify round-trip without writing repacked component files.")
+    parser.add_argument("--out-dir", type=Path, required=True, help="Reports/output directory for repacked dictionary files.")
+    parser.add_argument("--check-only", action="store_true", help="Verify round-trip without writing repacked dictionary files.")
     parser.add_argument(
         "--expanded-hash",
         action="store_true",

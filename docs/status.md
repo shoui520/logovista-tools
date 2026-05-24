@@ -223,14 +223,14 @@ and non-SSED reader status are tracked separately in
   preferred planning report for `read_existing`, `export_existing`,
   `author_core_ssed_v0`, and `lossless_repack_existing`; regenerate it after
   focused parser fixes before quoting aggregate readiness counts.
-- Focused lossless physical repacker proof for 22 older non-HC SSED packages:
-  `25IGAKU`, `ARCHSIC3`, `EJJE100`, `IGOSHO`, `ITALIAN`, `JOTSU05`,
-  `JSSAURUS`, `KATSUYOU`, `NMEDEJ12`/`LMEDEJ12`, `MEIKYOU`,
-  `NANDOKU1`-`NANDOKU4`, `NANMED19`, `NCOMP4`, `NGYK300K`, `nihonshi`,
-  `ROYALEGR`, `Saitoje`, `SAIYOREI`, and `YHOUGO3`. The new `repacker`
-  command parsed and re-emitted 251 catalog-declared `SSEDINFO`/plain
-  `SSEDDATA` files with byte-identical SHA-256 results. Four inert
-  `RIGHT.DIC` catalog declarations were missing from package copies and were
+- Full Windows SSED corpus lossless physical repacker proof for 161 packages.
+  The `repacker` command parsed or validated and re-emitted 2,515 dictionary
+  files with byte-identical SHA-256 results and no unsupported files: 1,140
+  `SSEDDATA` payloads (1,114 plain, 26 LogoFontCipher-preserved), 161
+  `SSEDINFO` catalogs, 103 standalone `SPINDEX.DIC` files, 88 CP932 auxiliary
+  text `.idx` trees, 122 `.uni` maps, 287 GA16/GAI16 bitmap-gaiji resources,
+  564 Panel `.bin` files, 45 SQLite databases (23 plain, 22 LogoFontCipher),
+  and 5 `CCALTSTR` tables. Forty inert/missing catalog declarations were
   reported as missing declarations rather than unsupported component formats.
 
 ## Experimental / Active Reverse Engineering
