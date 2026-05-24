@@ -9,7 +9,7 @@ from logovista_tools.menus import parse_menu_stream
 from logovista_tools.panels import iter_panel_cells, iter_panel_data_references, parse_panel_bin
 from logovista_tools.pcmdata import iter_pcm_references, parse_pcmdata_record
 from logovista_tools.repacker import repack_dictionary_source
-from logovista_tools.ssed import expand_sseddata_file, find_case_insensitive, parse_ssedinfo
+from logovista_tools.ssed import expand_sseddata_file, find_case_insensitive, parse_sseddata_header, parse_ssedinfo
 from logovista_tools.entries import DictionarySource
 
 
@@ -67,10 +67,25 @@ def test_synthetic_fixture_manifest_is_complete() -> None:
 
     assert names == EXPECTED_FIXTURES
     assert {path.name for path in FIXTURE_ROOT.iterdir() if path.is_dir()} == EXPECTED_FIXTURES
+    root_rows = {row["fixture"]: row for row in manifest["fixtures"]}
     for name in names:
         local = json.loads((fixture(name) / "manifest.json").read_text(encoding="utf-8"))
+        actual_files = sorted(
+            item.relative_to(fixture(name)).as_posix()
+            for item in fixture(name).rglob("*")
+            if item.is_file() and item.name != "manifest.json"
+        )
         assert local["fixture"] == name
-        assert local["files"]
+        assert local["files"] == actual_files
+        assert root_rows[name]["files"] == actual_files
+        assert root_rows[name]["features"] == local["features"]
+
+
+def test_synthetic_fixture_readme_keeps_corpus_as_source_of_truth() -> None:
+    readme = (FIXTURE_ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "The real LogoVista corpus remains the compatibility target." in readme
+    assert "Passing fixture tests is not evidence that a feature is corpus-complete." in readme
 
 
 def test_synthetic_catalog_fixtures_parse() -> None:
@@ -80,6 +95,40 @@ def test_synthetic_catalog_fixtures_parse() -> None:
             title, elements = parse_ssedinfo(idx)
             assert title
             assert elements
+
+
+def test_synthetic_catalog_components_match_sseddata_headers() -> None:
+    excluded = {"catalog_inactive_missing_component", "malformed_catalog_offsets"}
+    for name in sorted(EXPECTED_FIXTURES - excluded):
+        root = fixture(name)
+        for idx in sorted(root.glob("*.IDX")):
+            _title, elements = parse_ssedinfo(idx)
+            for element in elements:
+                path = find_case_insensitive(root, element.filename)
+                assert path is not None, f"{name}: missing catalog component {element.filename}"
+                header = parse_sseddata_header(path)
+                assert header["start_block"] == element.start
+                assert header["end_block"] == element.end
+                assert header["kind"] == element.type
+                expanded = expand_sseddata_file(path)
+                assert len(expanded) == (element.end - element.start + 1) * 2048
+
+
+def test_intentionally_broken_synthetic_fixtures_are_actually_broken() -> None:
+    inactive_root = fixture("catalog_inactive_missing_component")
+    _title, inactive_elements = parse_ssedinfo(inactive_root / "INACTIVE.IDX")
+    assert {element.filename for element in inactive_elements} == {"HONMON.DIC", "MISSING.DIC"}
+    assert find_case_insensitive(inactive_root, "HONMON.DIC") is not None
+    assert find_case_insensitive(inactive_root, "MISSING.DIC") is None
+
+    bad_root = fixture("malformed_catalog_offsets")
+    _title, elements = parse_ssedinfo(bad_root / "BAD.IDX")
+    assert len(elements) == 1
+    assert elements[0].filename == "HONMON.DIC"
+    assert elements[0].start > elements[0].end
+
+    truncated = expand_sseddata_file(fixture("truncated_sseddata_chunk") / "TRUNC.DIC")
+    assert len(truncated) % 2048 != 0
 
 
 def test_sseddata_roundtrip_fixture_expands_to_expected_payload() -> None:

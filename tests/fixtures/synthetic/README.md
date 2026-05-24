@@ -2,6 +2,14 @@
 
 These fixtures are generated, deterministic, and committed on purpose. They contain no private corpus text.
 
+Compatibility source of truth:
+
+- The real LogoVista corpus remains the compatibility target.
+- These fixtures are regression inputs for format structures already observed or intentionally modeled.
+- Passing fixture tests is not evidence that a feature is corpus-complete.
+- New reader/repacker behavior must still be validated against relevant real packages before it is treated as supported.
+- Fixtures should stay minimal and explicit; do not encode product-specific guesses here before they are understood from corpus evidence.
+
 Regenerate from the repository root with:
 
 ```bash

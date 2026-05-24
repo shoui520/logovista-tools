@@ -748,6 +748,12 @@ def write_readme() -> None:
     names = [func.__name__.replace("fixture_", "") for func in FIXTURES]
     text = "# Synthetic LogoVista/SSED Fixtures\n\n"
     text += "These fixtures are generated, deterministic, and committed on purpose. They contain no private corpus text.\n\n"
+    text += "Compatibility source of truth:\n\n"
+    text += "- The real LogoVista corpus remains the compatibility target.\n"
+    text += "- These fixtures are regression inputs for format structures already observed or intentionally modeled.\n"
+    text += "- Passing fixture tests is not evidence that a feature is corpus-complete.\n"
+    text += "- New reader/repacker behavior must still be validated against relevant real packages before it is treated as supported.\n"
+    text += "- Fixtures should stay minimal and explicit; do not encode product-specific guesses here before they are understood from corpus evidence.\n\n"
     text += "Regenerate from the repository root with:\n\n"
     text += "```bash\nPYTHONPATH=src python3 tools/generate_synthetic_fixtures.py\n```\n\n"
     text += "Fixtures:\n\n"
