@@ -1,7 +1,7 @@
 import pytest
 
 from logovista_tools.ccaltstr import CcAltStrParseError, parse_ccaltstr
-from logovista_tools.gaiji import gaiji_grid_code_for_index
+from logovista_tools.gaiji import gaiji_grid_code_for_index, load_gaiji_profile
 
 
 def _record(code: int, value: bytes = b"") -> bytes:
@@ -92,3 +92,42 @@ def test_parse_ccaltstr_rejects_sequence_mismatch() -> None:
 
     with pytest.raises(CcAltStrParseError, match="sequence mismatch"):
         parse_ccaltstr(data)
+
+
+def test_load_gaiji_profile_uses_ccaltstr_as_unicode_fallback(tmp_path) -> None:
+    idx = tmp_path / "TEST.IDX"
+    idx.write_bytes(b"")
+    (tmp_path / "CCALTSTR.HA").write_bytes(
+        b"SDICALTH"
+        + (1).to_bytes(2, "little")
+        + bytes.fromhex("a121")
+        + (1).to_bytes(2, "big")
+        + b"\x00\x00"
+        + _record(0xA121, b"ALT")
+    )
+
+    profile = load_gaiji_profile(idx)
+
+    assert profile.map["a121"] == "ALT"
+    assert profile.ccaltstr_entries == 1
+    assert profile.ccaltstr_paths == (tmp_path / "CCALTSTR.HA",)
+
+
+def test_load_gaiji_profile_prefers_uni_over_ccaltstr(tmp_path) -> None:
+    idx = tmp_path / "TEST.IDX"
+    idx.write_bytes(b"")
+    (tmp_path / "CCALTSTR.HA").write_bytes(
+        b"SDICALTH"
+        + (1).to_bytes(2, "little")
+        + bytes.fromhex("a121")
+        + (1).to_bytes(2, "big")
+        + b"\x00\x00"
+        + _record(0xA121, b"ALT")
+    )
+    uni_record = bytes.fromhex("a121") + b"\x00\x00" + "Ω".encode("utf-16-be") + b"\x00\x00" * 3
+    (tmp_path / "TEST.uni").write_bytes((1).to_bytes(4, "big") + uni_record)
+
+    profile = load_gaiji_profile(idx)
+
+    assert profile.map["a121"] == "Ω"
+    assert profile.ccaltstr_entries == 1

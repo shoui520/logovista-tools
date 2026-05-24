@@ -30,8 +30,10 @@ class GaijiProfile:
     map: dict[str, str]
     uni_entries: int
     plist_entries: int
+    ccaltstr_entries: int
     uni_paths: tuple[Path, ...]
     plist_paths: tuple[Path, ...]
+    ccaltstr_paths: tuple[Path, ...]
 
 
 @dataclass(frozen=True)
@@ -433,8 +435,9 @@ def load_plist_gaiji_map_from_paths(paths: list[Path]) -> tuple[dict[str, str], 
 def load_gaiji_profile(idx: Path) -> GaijiProfile:
     """Load a dictionary-specific gaiji profile.
 
-    Unicode mappings from .uni/UNI files are preferred. Plist mappings are kept
-    as fallbacks for codes missing from .uni.
+    Unicode mappings from .uni/UNI files are preferred. Plist mappings and
+    CCALTSTR alternate strings are kept as fallbacks for codes missing from
+    .uni.
     """
 
     uni_candidates, plist_candidates = candidate_gaiji_paths(idx)
@@ -457,14 +460,34 @@ def load_gaiji_profile(idx: Path) -> GaijiProfile:
     uni_entries = len(uni_map)
 
     plist_map, plist_paths = load_plist_gaiji_map_from_paths(plist_candidates)
-    merged = dict(plist_map)
+    ccaltstr_map: dict[str, str] = {}
+    ccaltstr_paths: list[Path] = []
+    try:
+        from .ccaltstr import parse_ccaltstr_file
+
+        for name in ("CCALTSTR.HA", "CCALTSTR.FU"):
+            path = resolve_case_insensitive_path(idx.parent, name)
+            if path is None or not path.is_file():
+                continue
+            table = parse_ccaltstr_file(path)
+            ccaltstr_paths.append(path)
+            for record in table.records:
+                if record.value:
+                    ccaltstr_map.setdefault(record.code_hex.lower(), record.value)
+    except Exception:
+        ccaltstr_map = {}
+        ccaltstr_paths = []
+    merged = dict(ccaltstr_map)
+    merged.update(plist_map)
     merged.update(uni_map)
     return GaijiProfile(
         map=merged,
         uni_entries=uni_entries,
         plist_entries=len(plist_map),
+        ccaltstr_entries=len(ccaltstr_map),
         uni_paths=tuple(uni_paths),
         plist_paths=plist_paths,
+        ccaltstr_paths=tuple(ccaltstr_paths),
     )
 
 

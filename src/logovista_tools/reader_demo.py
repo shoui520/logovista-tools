@@ -6,13 +6,17 @@ import argparse
 import html
 import json
 import re
+import shutil
+import subprocess
 from collections import deque
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Iterable
 
 from .body_boundaries import index_body_marker_boundaries_for_source, target_needs_index_boundaries
-from .entries import DictionarySource, discover_dictionaries
+from .ccaltstr import parse_ccaltstr_file
+from .entries import DictionarySource, decode_tokens, discover_dictionaries, tokens_to_text
 from .gaiji import load_gaiji_profile
 from .hcrender import (
     HC_RENDER_BASE_CSS,
@@ -25,7 +29,9 @@ from .hcrender import (
     _renderer_for_source,
     render_hc_target_body,
 )
+from .indexes import scan_index_component_reader
 from .menus import MENU_LIKE_NAMES, MENU_LIKE_TYPES, build_menu_tree, parse_menu_stream, resolve_menu_record_destinations
+from .multi import parse_multi_descriptor
 from .navigation import NavigationResolver, NavigationTarget, address_key
 from .panels import (
     PanelBinParseError,
@@ -91,6 +97,10 @@ def add_reader_demo_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--out-dir", type=Path, default=Path("logovista-reader-demo"))
     parser.add_argument("--panel-row-limit", type=int, default=80, help="Maximum external Panel body rows to include.")
     parser.add_argument("--menu-row-limit", type=int, default=120, help="Maximum MENU.DIC rows to include.")
+    parser.add_argument("--menu-preview-limit", type=int, default=80, help="Rows to show when a MENU row targets another MENU region.")
+    parser.add_argument("--index-row-limit", type=int, default=120, help="Rows to show from KW/MUL auxiliary indexes.")
+    parser.add_argument("--hanrei-page-limit", type=int, default=40, help="Maximum HANREI pages/links to include.")
+    parser.add_argument("--ccaltstr-row-limit", type=int, default=120, help="Maximum CCALTSTR alternate-string rows to include.")
     parser.add_argument("--link-depth", type=int, default=1, help="How many rounds of entry-internal links to pre-render.")
     parser.add_argument("--max-entries", type=int, default=80, help="Maximum entry bodies to embed in the page.")
     parser.add_argument("--no-audio", action="store_true", help="Do not extract PCMDATA audio files.")
@@ -425,10 +435,63 @@ def _query_seeds(builder: _ReaderDemoBuilder, queries: list[str]) -> list[dict[s
     return rows
 
 
+def _menu_target_for_record(record: Any) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    item = record.as_dict()
+    destination = item.get("destination")
+    target = destination.get("target") if isinstance(destination, dict) else None
+    if isinstance(destination, dict) and isinstance(target, dict):
+        return destination, target
+    return None
+
+
+def _menu_record_item(
+    builder: _ReaderDemoBuilder,
+    element_filename: str,
+    record: Any,
+    *,
+    all_records: list[Any],
+    selected_line_indexes: set[int],
+) -> tuple[dict[str, Any], int]:
+    item = record.as_dict()
+    item["component"] = element_filename
+    item["navigation_key"] = _nav_row_key(element_filename, record.line_index)
+    item["target_key"] = None
+    item["navigation_target_key"] = None
+    item["navigation_preview_key"] = None
+    seeded = 0
+    target_pair = _menu_target_for_record(record)
+    if target_pair is None:
+        return item, seeded
+    destination, target = target_pair
+    if target.get("kind") == "body":
+        try:
+            block = int(destination["block"])
+            offset = int(destination["offset"])
+            key = str(target.get("address_key") or _address_key(block, offset))
+            item["target_key"] = key
+            builder.enqueue(block, offset, label=record.label(), source="menu")
+            seeded += 1
+        except (KeyError, TypeError, ValueError):
+            pass
+    elif target.get("component") == element_filename:
+        try:
+            relative_offset = int(target["relative_offset"])
+        except (KeyError, TypeError, ValueError):
+            relative_offset = -1
+        target_record = _record_containing_component_offset(all_records, relative_offset)
+        if target_record is not None:
+            target_key = _nav_row_key(element_filename, target_record.line_index)
+            item["navigation_preview_key"] = target_key
+            if target_record.line_index in selected_line_indexes:
+                item["navigation_target_key"] = target_key
+    return item, seeded
+
+
 def _menu_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
     gaiji_profile = load_gaiji_profile(builder.source.idx)
     components: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
+    previews: list[dict[str, Any]] = []
     seeded = 0
     for element in builder.elements:
         if element.type not in MENU_LIKE_TYPES and element.filename.upper() not in MENU_LIKE_NAMES:
@@ -442,46 +505,68 @@ def _menu_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
         resolve_menu_record_destinations(parsed.records, builder.elements)
         limited_records = parsed.records[: builder.args.menu_row_limit]
         limited_line_indexes = {record.line_index for record in limited_records}
+        record_indexes = {record.line_index: index for index, record in enumerate(parsed.records)}
+        preview_targets: dict[str, Any] = {}
         for record in limited_records:
-            item = record.as_dict()
-            item["component"] = element.filename
-            item["navigation_key"] = _nav_row_key(element.filename, record.line_index)
-            item["target_key"] = None
-            item["navigation_target_key"] = None
-            destination = item.get("destination")
-            target = destination.get("target") if isinstance(destination, dict) else None
-            if isinstance(target, dict) and target.get("kind") == "body" and isinstance(destination, dict):
-                try:
-                    block = int(destination["block"])
-                    offset = int(destination["offset"])
-                    key = str(target.get("address_key") or _address_key(block, offset))
-                    item["target_key"] = key
-                    builder.enqueue(block, offset, label=record.label(), source="menu")
-                    seeded += 1
-                except (KeyError, TypeError, ValueError):
-                    pass
-            elif isinstance(target, dict) and target.get("component") == element.filename:
-                try:
-                    relative_offset = int(target["relative_offset"])
-                except (KeyError, TypeError, ValueError):
-                    relative_offset = -1
-                target_record = _record_containing_component_offset(limited_records, relative_offset)
-                if target_record is not None and target_record.line_index in limited_line_indexes:
-                    item["navigation_target_key"] = _nav_row_key(element.filename, target_record.line_index)
+            item, row_seeded = _menu_record_item(
+                builder,
+                element.filename,
+                record,
+                all_records=parsed.records,
+                selected_line_indexes=limited_line_indexes,
+            )
+            seeded += row_seeded
+            if item.get("navigation_preview_key"):
+                target_record = next(
+                    (
+                        candidate
+                        for candidate in parsed.records
+                        if _nav_row_key(element.filename, candidate.line_index) == item["navigation_preview_key"]
+                    ),
+                    None,
+                )
+                if target_record is not None:
+                    preview_targets.setdefault(str(item["navigation_preview_key"]), target_record)
             rows.append(item)
+        for preview_key, target_record in preview_targets.items():
+            start_index = record_indexes.get(target_record.line_index)
+            if start_index is None:
+                continue
+            preview_records = parsed.records[start_index : start_index + int(builder.args.menu_preview_limit)]
+            preview_rows: list[dict[str, Any]] = []
+            preview_line_indexes = {record.line_index for record in preview_records}
+            for preview_record in preview_records:
+                item, row_seeded = _menu_record_item(
+                    builder,
+                    element.filename,
+                    preview_record,
+                    all_records=parsed.records,
+                    selected_line_indexes=preview_line_indexes | limited_line_indexes,
+                )
+                seeded += row_seeded
+                preview_rows.append(item)
+            previews.append(
+                {
+                    "component": element.filename,
+                    "navigation_key": preview_key,
+                    "title": target_record.label(),
+                    "rows": preview_rows,
+                }
+            )
         components.append(
             {
                 "component": element.filename,
                 "status": "ok",
                 "records_total": len(parsed.records),
                 "records_in_demo": min(len(parsed.records), builder.args.menu_row_limit),
-                "tree": build_menu_tree(parsed.records[: builder.args.menu_row_limit]),
+                "tree_roots": len(build_menu_tree(limited_records)),
             }
         )
     return {
         "title": builder.catalog_title,
         "components": components,
         "rows": rows,
+        "previews": previews,
         "seeded_entries": seeded,
     }
 
@@ -589,6 +674,258 @@ def _panel_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
     }
 
 
+def _decode_text_component_lines(path: Path, gaiji_map: dict[str, str], limit: int) -> list[str]:
+    if limit <= 0:
+        return []
+    reader = SsedRandomReader(path)
+    read_size = min(reader.expanded_size, 128 * 1024)
+    max_preview_bytes = min(reader.expanded_size, 1024 * 1024)
+    while read_size <= max_preview_bytes:
+        data = reader.read(0, read_size)
+        tokens, _stats = decode_tokens(data, gaiji="unicode", gaiji_map=gaiji_map)
+        lines = [line.strip() for line in tokens_to_text(tokens).splitlines() if line.strip()]
+        if len(lines) >= limit or read_size == max_preview_bytes:
+            return lines[:limit]
+        read_size = min(max_preview_bytes, read_size * 2)
+    return []
+
+
+def _auxiliary_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
+    index_rows: list[dict[str, Any]] = []
+    title_streams: list[dict[str, Any]] = []
+    text_streams: list[dict[str, Any]] = []
+    multi_descriptors: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+    for element in builder.elements:
+        upper = element.filename.upper()
+        path = find_case_insensitive(builder.source.idx.parent, element.filename)
+        if path is None or not path.is_file():
+            continue
+        if element.type in {0x80, 0xA1}:
+            leaf_rows: list[dict[str, Any]] = []
+
+            def collect(row: dict[str, Any]) -> None:
+                if row.get("kind") != "leaf":
+                    return
+                item = dict(row)
+                body = row.get("body")
+                if isinstance(body, dict):
+                    try:
+                        block = int(body["block"])
+                        offset = int(body["offset"])
+                    except (KeyError, TypeError, ValueError):
+                        block = offset = -1
+                    if block >= 0 and offset >= 0:
+                        resolved = builder.navigation.resolve_body(block, offset)
+                        if resolved.target is not None and resolved.target.is_body:
+                            item["target_key"] = resolved.target.address_key
+                            builder.enqueue(block, offset, label=str(row.get("target_key") or row.get("key") or upper), source=upper.lower())
+                leaf_rows.append(item)
+
+            try:
+                result = scan_index_component_reader(
+                    element.filename,
+                    element.type,
+                    path,
+                    element.start,
+                    gaiji="unicode",
+                    gaiji_map=builder.source.gaiji_map,
+                    emit_internal=False,
+                    emit_row=collect,
+                    row_limit=int(builder.args.index_row_limit),
+                )
+                index_rows.append(
+                    {
+                        "component": element.filename,
+                        "type": f"{element.type:02x}",
+                        "rows": leaf_rows[: int(builder.args.index_row_limit)],
+                        "summary": {
+                            "leaf_rows": result.leaf_rows,
+                            "search_groups": result.search_groups,
+                            "unknown_leaf_bytes": result.unknown_leaf_bytes,
+                        },
+                    }
+                )
+            except Exception as exc:
+                failures.append({"component": element.filename, "reason": f"index_parse_failed: {exc}"})
+        elif upper.startswith("MULTI") or element.type == 0xFF:
+            try:
+                reader = SsedRandomReader(path)
+                descriptor = parse_multi_descriptor(reader.read(0, reader.expanded_size), gaiji="unicode", gaiji_map=builder.source.gaiji_map)
+                multi_descriptors.append({"component": element.filename, **descriptor.as_dict()})
+            except Exception as exc:
+                failures.append({"component": element.filename, "reason": f"multi_parse_failed: {exc}"})
+        elif upper == "KWTITLE.DIC" or (upper.startswith("MUL") and element.type == 0x0D):
+            try:
+                title_streams.append(
+                    {
+                        "component": element.filename,
+                        "type": f"{element.type:02x}",
+                        "lines": _decode_text_component_lines(path, builder.source.gaiji_map, 80),
+                    }
+                )
+            except Exception as exc:
+                failures.append({"component": element.filename, "reason": f"title_decode_failed: {exc}"})
+        elif upper in {"RIGHT.DIC", "IDXJUMP.DIC"} or element.type in {0x02, 0x28}:
+            try:
+                text_streams.append(
+                    {
+                        "component": element.filename,
+                        "type": f"{element.type:02x}",
+                        "lines": _decode_text_component_lines(path, builder.source.gaiji_map, 80),
+                    }
+                )
+            except Exception as exc:
+                failures.append({"component": element.filename, "reason": f"text_decode_failed: {exc}"})
+    return {
+        "index_rows": index_rows,
+        "title_streams": title_streams,
+        "text_streams": text_streams,
+        "multi_descriptors": multi_descriptors,
+        "failures": failures,
+    }
+
+
+class _HanreiLinkParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.links: list[dict[str, str]] = []
+        self._href: str | None = None
+        self._parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+        attrs_dict = {key.lower(): value for key, value in attrs}
+        href = attrs_dict.get("href")
+        if href:
+            self._href = href
+            self._parts = []
+
+    def handle_data(self, data: str) -> None:
+        if self._href is not None:
+            self._parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() != "a" or self._href is None:
+            return
+        label = " ".join("".join(self._parts).split())
+        self.links.append({"href": self._href, "label": label or self._href})
+        self._href = None
+        self._parts = []
+
+
+def _read_text_best_effort(path: Path) -> str:
+    data = path.read_bytes()
+    for encoding in ("utf-8", "cp932", "shift_jis", "euc_jp", "latin1"):
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
+def _hanrei_links_from_file(path: Path, rel_base: str, limit: int) -> list[dict[str, str]]:
+    parser = _HanreiLinkParser()
+    parser.feed(_read_text_best_effort(path))
+    rows: list[dict[str, str]] = []
+    for row in parser.links:
+        href = row["href"].replace("\\", "/")
+        lower = href.lower()
+        if lower.startswith(("http:", "https:", "mailto:", "javascript:")):
+            continue
+        rows.append({"label": row["label"], "href": f"{rel_base}/{href}".replace("//", "/")})
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def _hanrei_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
+    root = builder.source.idx.parent
+    out = builder.out_dir / "hanrei"
+    rows: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+    limit = int(builder.args.hanrei_page_limit)
+    hanrei_dir = resolve_case_insensitive_path(root, "HANREI")
+    if hanrei_dir is not None and hanrei_dir.is_dir():
+        target = out / "HANREI"
+        shutil.copytree(hanrei_dir, target, dirs_exist_ok=True)
+        candidates = [target / "menu.html", target / "index.html", target / "top.html"]
+        links: list[dict[str, str]] = []
+        for candidate in candidates:
+            if candidate.is_file():
+                links.extend(_hanrei_links_from_file(candidate, "hanrei/HANREI", limit - len(links)))
+            if len(links) >= limit:
+                break
+        if not links:
+            links = [
+                {"label": path.relative_to(target).as_posix(), "href": f"hanrei/HANREI/{path.relative_to(target).as_posix()}"}
+                for path in sorted(target.rglob("*.html"))[:limit]
+            ]
+        rows.append({"kind": "html_directory", "source": "HANREI", "entry": "hanrei/HANREI/index.html", "links": links[:limit]})
+    chm_path = resolve_case_insensitive_path(root, "HANREI.chm")
+    if chm_path is not None and chm_path.is_file():
+        out.mkdir(parents=True, exist_ok=True)
+        copied = out / "HANREI.chm"
+        shutil.copy2(chm_path, copied)
+        links: list[dict[str, str]] = []
+        extracted_dir = out / "chm"
+        seven_zip = shutil.which("7z") or shutil.which("7zz")
+        if seven_zip:
+            try:
+                subprocess.run(
+                    [seven_zip, "x", "-y", f"-o{extracted_dir}", str(chm_path)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=True,
+                )
+                for candidate_name in ("HANREI.hhc", "index.html", "Source/top.html"):
+                    candidate = extracted_dir / candidate_name
+                    if candidate.is_file():
+                        links.extend(_hanrei_links_from_file(candidate, "hanrei/chm", limit - len(links)))
+                    if len(links) >= limit:
+                        break
+                if not links:
+                    links = [
+                        {"label": path.relative_to(extracted_dir).as_posix(), "href": f"hanrei/chm/{path.relative_to(extracted_dir).as_posix()}"}
+                        for path in sorted(extracted_dir.rglob("*.html"))[:limit]
+                    ]
+            except Exception as exc:
+                failures.append({"source": "HANREI.chm", "reason": f"chm_extract_failed: {exc}"})
+        rows.append({"kind": "chm", "source": "HANREI.chm", "entry": "hanrei/HANREI.chm", "links": links[:limit]})
+    return {"sources": rows, "failures": failures}
+
+
+def _ccaltstr_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
+    tables: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+    for name in ("CCALTSTR.HA", "CCALTSTR.FU"):
+        path = resolve_case_insensitive_path(builder.source.idx.parent, name)
+        if path is None or not path.is_file():
+            continue
+        try:
+            table = parse_ccaltstr_file(path)
+        except Exception as exc:
+            failures.append({"component": name, "reason": str(exc)})
+            continue
+        records = [
+            {"code": record.code_hex, "value": record.value}
+            for record in table.records
+            if record.value
+        ][: int(builder.args.ccaltstr_row_limit)]
+        tables.append(
+            {
+                "component": path.name,
+                "kind": table.kind,
+                "start_code": table.start_code_hex,
+                "records_total": table.record_count,
+                "records_with_values": sum(1 for record in table.records if record.value),
+                "records": records,
+            }
+        )
+    return {"tables": tables, "failures": failures}
+
+
 def _entry_templates(entries: dict[str, _RenderedEntry]) -> str:
     parts = ['<div id="entry-store" hidden>']
     for key, entry in sorted(entries.items()):
@@ -617,6 +954,30 @@ def _navigation_button(label: str, target_key: str | None, row_key: str | None, 
     )
 
 
+def _menu_row_button(row: dict[str, Any], entries: dict[str, _RenderedEntry], css: str = "menu-link") -> str:
+    key = row.get("target_key")
+    nav_target_key = row.get("navigation_target_key")
+    nav_preview_key = row.get("navigation_preview_key")
+    nav_row_key = row.get("navigation_key")
+    label = " / ".join(row.get("path") or []) or row.get("text") or f"line {row.get('line_index')}"
+    if key:
+        return _button(str(label), str(key) if key in entries else None, css)
+    if nav_preview_key:
+        escaped = html.escape(str(label) or "(blank)")
+        row_attr = f' data-nav-row-key="{html.escape(str(nav_row_key), quote=True)}"' if nav_row_key else ""
+        target_attr = f' data-nav-target-key="{html.escape(str(nav_target_key), quote=True)}"' if nav_target_key else ""
+        return (
+            f'<button class="{css}"{row_attr}{target_attr} '
+            f'data-menu-preview-target="{html.escape(str(nav_preview_key), quote=True)}">{escaped}</button>'
+        )
+    return _navigation_button(
+        str(label),
+        str(nav_target_key) if nav_target_key else None,
+        str(nav_row_key) if nav_row_key else None,
+        css,
+    )
+
+
 def _menu_html(menu: dict[str, Any], entries: dict[str, _RenderedEntry]) -> str:
     parts = ["<section><h2>MENU.DIC</h2>"]
     components = menu.get("components") or []
@@ -631,22 +992,21 @@ def _menu_html(menu: dict[str, Any], entries: dict[str, _RenderedEntry]) -> str:
     if rows:
         parts.append('<div class="nav-list">')
         for row in rows:
-            key = row.get("target_key")
-            nav_target_key = row.get("navigation_target_key")
-            nav_row_key = row.get("navigation_key")
-            label = " / ".join(row.get("path") or []) or row.get("text") or f"line {row.get('line_index')}"
-            if key:
-                parts.append(_button(str(label), str(key) if key in entries else None, "menu-link"))
-            else:
-                parts.append(
-                    _navigation_button(
-                        str(label),
-                        str(nav_target_key) if nav_target_key else None,
-                        str(nav_row_key) if nav_row_key else None,
-                        "menu-link",
-                    )
-                )
+            parts.append(_menu_row_button(row, entries))
         parts.append("</div>")
+    previews = menu.get("previews") or []
+    if previews:
+        parts.append('<h3>MENU target previews</h3><p id="menu-status" class="muted">Choose a MENU item.</p>')
+        for preview in previews:
+            preview_key = str(preview.get("navigation_key") or "")
+            title = str(preview.get("title") or preview_key)
+            parts.append(
+                f'<div class="menu-preview" data-menu-preview-id="{html.escape(preview_key, quote=True)}">'
+            )
+            parts.append(f"<h4>{html.escape(title)}</h4><div class=\"nav-list\">")
+            for row in preview.get("rows") or []:
+                parts.append(_menu_row_button(row, entries, "menu-preview-link"))
+            parts.append("</div></div>")
     parts.append("</section>")
     return "\n".join(parts)
 
@@ -716,6 +1076,110 @@ def _entries_html(entries: dict[str, _RenderedEntry]) -> str:
     return "\n".join(parts)
 
 
+def _auxiliary_html(auxiliary: dict[str, Any], entries: dict[str, _RenderedEntry]) -> str:
+    parts = ["<section><h2>Auxiliary indexes/resources</h2>"]
+    for component in auxiliary.get("index_rows") or []:
+        rows = component.get("rows") or []
+        parts.append(
+            f'<h3>{html.escape(str(component.get("component")))} '
+            f'(type {html.escape(str(component.get("type")))})</h3>'
+        )
+        if component.get("summary"):
+            summary = component["summary"]
+            parts.append(
+                '<p class="muted">'
+                + ", ".join(f"{html.escape(str(k))}={html.escape(str(v))}" for k, v in summary.items())
+                + "</p>"
+            )
+        parts.append('<div class="nav-list">')
+        for row in rows:
+            label = str(row.get("target_key") or row.get("key") or "(blank)")
+            key = row.get("target_key")
+            parts.append(_button(label, str(key) if key in entries else None, "aux-index-link"))
+        parts.append("</div>")
+    for component in auxiliary.get("multi_descriptors") or []:
+        parts.append(f'<h3>{html.escape(str(component.get("component")))} selector</h3><div class="nav-list">')
+        for record in component.get("records") or []:
+            label = record.get("label") or f"record {record.get('index')}"
+            refs = ", ".join(ref.get("component_type", "") for ref in record.get("refs") or [])
+            parts.append(f'<button class="aux-static" disabled>{html.escape(str(label))} [{html.escape(refs)}]</button>')
+        parts.append("</div>")
+    for component in auxiliary.get("title_streams") or []:
+        parts.append(f'<h3>{html.escape(str(component.get("component")))} titles</h3><div class="nav-list">')
+        for line in component.get("lines") or []:
+            parts.append(f'<button class="aux-static" disabled>{html.escape(str(line))}</button>')
+        parts.append("</div>")
+    for component in auxiliary.get("text_streams") or []:
+        parts.append(f'<h3>{html.escape(str(component.get("component")))} text</h3>')
+        parts.append("<pre>" + html.escape("\n".join(component.get("lines") or [])) + "</pre>")
+    failures = auxiliary.get("failures") or []
+    if failures:
+        parts.append("<h3>Auxiliary parse failures</h3><pre>" + html.escape(json.dumps(failures, ensure_ascii=False, indent=2)) + "</pre>")
+    if len(parts) == 1:
+        parts.append('<p class="muted">No KW/MUL/RIGHT auxiliary components selected for this package.</p>')
+    parts.append("</section>")
+    return "\n".join(parts)
+
+
+def _hanrei_html(hanrei: dict[str, Any]) -> str:
+    parts = ["<section><h2>HANREI / 凡例</h2>"]
+    sources = hanrei.get("sources") or []
+    if not sources:
+        parts.append('<p class="muted">No HANREI directory or HANREI.chm found.</p>')
+    for source in sources:
+        parts.append(f'<h3>{html.escape(str(source.get("source")))}: {html.escape(str(source.get("kind")))}</h3>')
+        links = source.get("links") or []
+        if links:
+            parts.append('<div class="nav-list">')
+            for row in links:
+                href = str(row.get("href") or "")
+                label = str(row.get("label") or href)
+                parts.append(
+                    f'<button class="hanrei-link" data-hanrei-href="{html.escape(href, quote=True)}">'
+                    f"{html.escape(label)}</button>"
+                )
+            parts.append("</div>")
+        elif source.get("entry"):
+            href = str(source.get("entry"))
+            parts.append(f'<p><a href="{html.escape(href, quote=True)}">{html.escape(href)}</a></p>')
+    if sources:
+        parts.append('<iframe id="hanrei-frame" title="HANREI" style="width:100%;height:360px;border:1px solid #ccc;background:#fff"></iframe>')
+    failures = hanrei.get("failures") or []
+    if failures:
+        parts.append("<pre>" + html.escape(json.dumps(failures, ensure_ascii=False, indent=2)) + "</pre>")
+    parts.append("</section>")
+    return "\n".join(parts)
+
+
+def _ccaltstr_html(ccaltstr: dict[str, Any]) -> str:
+    parts = ["<section><h2>CCALTSTR alternate strings</h2>"]
+    tables = ccaltstr.get("tables") or []
+    if not tables:
+        parts.append('<p class="muted">No CCALTSTR.HA/FU table found.</p>')
+    for table in tables:
+        parts.append(
+            f'<h3>{html.escape(str(table.get("component")))} '
+            f'{html.escape(str(table.get("kind")))}</h3>'
+        )
+        parts.append(
+            f'<p class="muted">start={html.escape(str(table.get("start_code")))} '
+            f'total={html.escape(str(table.get("records_total")))} '
+            f'nonempty={html.escape(str(table.get("records_with_values")))}</p>'
+        )
+        parts.append('<div class="nav-list">')
+        for record in table.get("records") or []:
+            parts.append(
+                f'<button class="aux-static" disabled>{html.escape(str(record.get("code")))} '
+                f'→ {html.escape(str(record.get("value")))}</button>'
+            )
+        parts.append("</div>")
+    failures = ccaltstr.get("failures") or []
+    if failures:
+        parts.append("<pre>" + html.escape(json.dumps(failures, ensure_ascii=False, indent=2)) + "</pre>")
+    parts.append("</section>")
+    return "\n".join(parts)
+
+
 def _write_demo_page(
     source: DictionarySource,
     out_dir: Path,
@@ -724,6 +1188,9 @@ def _write_demo_page(
     query_rows: list[dict[str, Any]],
     menu: dict[str, Any],
     panels: dict[str, Any],
+    auxiliary: dict[str, Any],
+    hanrei: dict[str, Any],
+    ccaltstr: dict[str, Any],
 ) -> None:
     stylesheet = f'<link rel="stylesheet" href="{html.escape(builder.stylesheet, quote=True)}">' if builder.stylesheet else ""
     entries_json = json.dumps([entry.as_manifest() for entry in builder.entries.values()], ensure_ascii=False, sort_keys=True)
@@ -732,9 +1199,19 @@ def _write_demo_page(
         "entries": len(builder.entries),
         "audio_files": len(builder.audio_files),
         "menu_rows": len(menu.get("rows") or []),
+        "menu_previews": len(menu.get("previews") or []),
         "panel_rows": len(panels.get("rows") or []),
         "panel_cells": len(panels.get("inline_cells") or []),
-        "failures": len(builder.failures) + len(panels.get("failures") or []),
+        "aux_indexes": len(auxiliary.get("index_rows") or []),
+        "hanrei": len(hanrei.get("sources") or []),
+        "ccaltstr": len(ccaltstr.get("tables") or []),
+        "failures": (
+            len(builder.failures)
+            + len(panels.get("failures") or [])
+            + len(auxiliary.get("failures") or [])
+            + len(hanrei.get("failures") or [])
+            + len(ccaltstr.get("failures") or [])
+        ),
     }
     html_text = f"""<!doctype html>
 <html lang="ja">
@@ -765,10 +1242,10 @@ button.is-nav-target {{ border-color: #5da24c; background: #edf7eb; }}
 .entry-box {{ background: #fff; border: 1px solid #d0d0d0; padding: 18px; min-height: 60vh; }}
 .entry-meta {{ color: #666; font-size: 13px; margin-bottom: 10px; }}
 #audio-player {{ width: min(520px, 100%); margin: 12px 0; }}
-.panel-cell-group, .panel-group {{ display: none; }}
-.panel-cell-group.is-active, .panel-group.is-active {{ display: block; }}
-.panel-group {{ border-left: 3px solid #ddd; padding-left: 8px; margin: 8px 0; }}
-.panel-group.is-active {{ border-left-color: #5da24c; }}
+.panel-cell-group, .panel-group, .menu-preview {{ display: none; }}
+.panel-cell-group.is-active, .panel-group.is-active, .menu-preview.is-active {{ display: block; }}
+.panel-group, .menu-preview {{ border-left: 3px solid #ddd; padding-left: 8px; margin: 8px 0; }}
+.panel-group.is-active, .menu-preview.is-active {{ border-left-color: #5da24c; }}
 </style>
 </head>
 <body>
@@ -781,6 +1258,9 @@ button.is-nav-target {{ border-color: #5da24c; background: #edf7eb; }}
 {_entries_html(builder.entries)}
 {_menu_html(menu, builder.entries)}
 {_panels_html(panels, builder.entries)}
+{_auxiliary_html(auxiliary, builder.entries)}
+{_hanrei_html(hanrei)}
+{_ccaltstr_html(ccaltstr)}
 </aside>
 <main class="main">
 <div class="entry-box">
@@ -832,6 +1312,20 @@ function loadEntry(key) {{
   document.getElementById('entry-meta').textContent = `${{key}} — ${{entryTitles[key] || ''}}`;
   bindEntryLinks();
   return true;
+}}
+function activateMenuPreview(key) {{
+  const targetPreview = document.querySelector(`.menu-preview[data-menu-preview-id="${{CSS.escape(key)}}"]`);
+  document.querySelectorAll('.menu-preview').forEach(group => {{
+    group.classList.toggle('is-active', group === targetPreview);
+  }});
+  const status = document.getElementById('menu-status');
+  if (targetPreview) {{
+    if (status) status.textContent = targetPreview.querySelector('h4')?.textContent || key;
+    targetPreview.scrollIntoView({{block: 'nearest'}});
+    return true;
+  }}
+  if (status) status.textContent = `MENU target ${{key}} is referenced, but no preview is embedded.`;
+  return false;
 }}
 function setPanelStatus(text) {{
   const status = document.getElementById('panel-status');
@@ -885,8 +1379,17 @@ document.querySelectorAll('[data-nav-target-key]').forEach(btn => {{
     }}
   }});
 }});
+document.querySelectorAll('[data-menu-preview-target]').forEach(btn => {{
+  btn.addEventListener('click', () => activateMenuPreview(btn.getAttribute('data-menu-preview-target')));
+}});
 document.querySelectorAll('[data-panel-ref]').forEach(btn => {{
   btn.addEventListener('click', () => activatePanel(btn.getAttribute('data-panel-ref')));
+}});
+document.querySelectorAll('[data-hanrei-href]').forEach(btn => {{
+  btn.addEventListener('click', () => {{
+    const frame = document.getElementById('hanrei-frame');
+    if (frame) frame.src = btn.getAttribute('data-hanrei-href') || '';
+  }});
 }});
 activateInitialPanel();
 if (entryManifest.length) loadEntry(entryManifest[0].key);
@@ -904,8 +1407,21 @@ def generate_reader_demo_for_source(source: DictionarySource, out_dir: Path, arg
     query_rows = _query_seeds(builder, list(args.query or []))
     menu = _menu_data(builder)
     panels = _panel_data(builder)
+    auxiliary = _auxiliary_data(builder)
+    hanrei = _hanrei_data(builder)
+    ccaltstr = _ccaltstr_data(builder)
     builder.render_queued()
-    _write_demo_page(source, dict_out, builder=builder, query_rows=query_rows, menu=menu, panels=panels)
+    _write_demo_page(
+        source,
+        dict_out,
+        builder=builder,
+        query_rows=query_rows,
+        menu=menu,
+        panels=panels,
+        auxiliary=auxiliary,
+        hanrei=hanrei,
+        ccaltstr=ccaltstr,
+    )
     summary = {
         "schema": "logovista-reader-demo-summary-v1",
         "dict_id": source.dict_id,
@@ -915,6 +1431,7 @@ def generate_reader_demo_for_source(source: DictionarySource, out_dir: Path, arg
         "menu": {
             "components": menu.get("components", []),
             "rows": len(menu.get("rows") or []),
+            "previews": len(menu.get("previews") or []),
             "seeded_entries": menu.get("seeded_entries", 0),
         },
         "panels": {
@@ -923,6 +1440,21 @@ def generate_reader_demo_for_source(source: DictionarySource, out_dir: Path, arg
             "rows": len(panels.get("rows") or []),
             "seeded_entries": panels.get("seeded_entries", 0),
             "failures": panels.get("failures", []),
+        },
+        "auxiliary": {
+            "index_components": len(auxiliary.get("index_rows") or []),
+            "title_streams": len(auxiliary.get("title_streams") or []),
+            "text_streams": len(auxiliary.get("text_streams") or []),
+            "multi_descriptors": len(auxiliary.get("multi_descriptors") or []),
+            "failures": auxiliary.get("failures", []),
+        },
+        "hanrei": {
+            "sources": len(hanrei.get("sources") or []),
+            "failures": hanrei.get("failures", []),
+        },
+        "ccaltstr": {
+            "tables": len(ccaltstr.get("tables") or []),
+            "failures": ccaltstr.get("failures", []),
         },
         "entries": [entry.as_manifest() for entry in builder.entries.values()],
         "entry_count": len(builder.entries),

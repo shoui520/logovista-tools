@@ -7,6 +7,8 @@ from logovista_tools.reader_demo import (
     _QueuedAddress,
     _ReaderDemoBuilder,
     _RenderedEntry,
+    _decode_text_component_lines,
+    _entries_html,
     _menu_html,
     _panels_html,
     _rewrite_local_asset_refs,
@@ -78,6 +80,27 @@ def test_reader_demo_uses_dense_honmon_dereference_renderer(monkeypatch, tmp_pat
     assert entry.title == "gentile body"
     assert entry.body_source == "rendererdb_t_contents_data_id"
     assert "00100050" not in entry.html
+
+
+def test_entries_html_uses_resolved_title_not_dense_label() -> None:
+    entry = _RenderedEntry(
+        key="00001565:0546",
+        block=1565,
+        offset=546,
+        label="00100050",
+        source="query:gentile",
+        title="gentilé /ʒɑ~-ti-le/ 女（国・都市・地域の）住民名",
+        html="<p>body</p>",
+        plain="gentilé",
+        links=(),
+        audio=(),
+        body_source="rendererdb_t_contents_data_id",
+    )
+
+    rendered = _entries_html({"00001565:0546": entry})
+
+    assert "gentilé" in rendered
+    assert "00100050" not in rendered
 
 
 def test_panels_html_preserves_cell_hierarchy() -> None:
@@ -155,3 +178,72 @@ def test_menu_html_keeps_toc_navigation_buttons_clickable() -> None:
 
     assert 'data-nav-row-key="TOC.DIC:1" data-nav-target-key="TOC.DIC:2"' in rendered
     assert 'data-entry-key="00000002:0000">Root / Child</button>' in rendered
+
+
+def test_menu_html_embeds_menu_target_previews() -> None:
+    menu = {
+        "components": [{"component": "MENU.DIC", "status": "ok"}],
+        "rows": [
+            {
+                "path": ["Root"],
+                "text": "Root",
+                "navigation_key": "MENU.DIC:1",
+                "navigation_preview_key": "MENU.DIC:10",
+            },
+        ],
+        "previews": [
+            {
+                "navigation_key": "MENU.DIC:10",
+                "title": "Sub menu",
+                "rows": [
+                    {
+                        "path": ["Sub menu", "Child"],
+                        "text": "Child",
+                        "navigation_key": "MENU.DIC:11",
+                        "target_key": "00000002:0000",
+                    }
+                ],
+            }
+        ],
+    }
+    entry = _RenderedEntry(
+        key="00000002:0000",
+        block=2,
+        offset=0,
+        label="Child",
+        source="menu",
+        title="Child",
+        html="<p>Child</p>",
+        plain="Child",
+        links=(),
+        audio=(),
+    )
+
+    rendered = _menu_html(menu, {"00000002:0000": entry})
+
+    assert 'data-menu-preview-target="MENU.DIC:10"' in rendered
+    assert 'data-menu-preview-id="MENU.DIC:10"' in rendered
+    assert 'data-entry-key="00000002:0000">Sub menu / Child</button>' in rendered
+
+
+def test_decode_text_component_lines_reads_bounded_prefix(monkeypatch, tmp_path: Path) -> None:
+    reads: list[tuple[int, int]] = []
+
+    class FakeReader:
+        expanded_size = 32 * 1024 * 1024
+
+        def __init__(self, path: Path) -> None:
+            self.path = path
+
+        def read(self, offset: int, size: int) -> bytes:
+            reads.append((offset, size))
+            return b"first\nsecond\nthird\n"
+
+    monkeypatch.setattr("logovista_tools.reader_demo.SsedRandomReader", FakeReader)
+    monkeypatch.setattr("logovista_tools.reader_demo.decode_tokens", lambda data, **_kwargs: (data, {}))
+    monkeypatch.setattr("logovista_tools.reader_demo.tokens_to_text", lambda data: data.decode("ascii"))
+
+    lines = _decode_text_component_lines(tmp_path / "KWTITLE.DIC", {}, 2)
+
+    assert lines == ["first", "second"]
+    assert reads == [(0, 128 * 1024)]

@@ -363,9 +363,12 @@ logovista-tools reader-demo /path/to/_DCT_HAESPJPN --dict HAESPJPN \
 This command is intentionally a proof-of-concept integration surface, not a
 bulk extractor. It uses the HC entry renderer, native index lookup, decoded
 Panel rows/cells, decoded `MENU.DIC` and `TOC.DIC` rows when a package has
-those components, entry `lvaddr://` links, copied template/media assets, and
-resolved `PCMDATA.DIC` audio files to build one browser page under
-`<out-dir>/<DICT>/index.html`.
+those components, selected auxiliary indexes/resources, entry `lvaddr://`
+links, copied template/media assets, and resolved `PCMDATA.DIC` audio files to
+build one browser page under `<out-dir>/<DICT>/index.html`. Dense HONMON
+packages that render through schema-backed sidecars are dereferenced through
+the same HC rendering path as normal query renders; internal body IDs are not
+used as visible entry labels when a body/title can be resolved.
 
 The page contains:
 
@@ -376,13 +379,31 @@ The page contains:
   cells, child cells reveal decoded `.bin` rows, and row buttons load entries;
 - `MENU.DIC` / `TOC.DIC` navigation rows when the package declares and supplies
   those components. Body targets load entries; decoded non-body targets such as
-  TOC-to-TOC jumps scroll to the target navigation row when that row is embedded
-  in the sample;
+  TOC-to-TOC or MENU-to-MENU jumps either scroll to the embedded target row or
+  open a bounded preview of the target menu region;
+- selected `KWINDEX.DIC`, `KWTITLE.DIC`, `MUL*.DIC`, `MULTI*.DIC`,
+  `RIGHT.DIC`, and `IDXJUMP.DIC` auxiliary components where present. Auxiliary
+  text/title streams are sampled with bounded prefix reads so large title
+  components do not need to be fully expanded for a sidebar preview;
+- `HANREI/` and `HANREI.chm` references where present. Loose HTML HANREI files
+  are copied into the demo tree; CHM files are copied, and when `7z`/`7zz` is
+  available their HTML navigation files are extracted and linked in an iframe;
+- `CCALTSTR.HA` / `CCALTSTR.FU` alternate-string tables where present. These
+  tables are also available to gaiji resolution as lower-priority Unicode
+  fallbacks behind `.uni` and plist mappings;
 - in-entry `lvaddr://` links that route to embedded entries. Decimal
   `lvaddr://00000042/0016` and hex-derived `lvaddr://0000002a/0010` forms are
   normalized to the same internal address key;
 - PCMDATA sound links rewritten to local WAV/MP3 files and a page-level audio
   player.
+
+Useful sampling controls:
+
+- `--menu-row-limit` and `--menu-preview-limit` bound MENU/TOC rows and
+  menu-target preview rows.
+- `--index-row-limit` bounds KW/MUL auxiliary index rows.
+- `--hanrei-page-limit` bounds extracted/listed HANREI links.
+- `--ccaltstr-row-limit` bounds alternate-string rows shown in the sidebar.
 
 `reader-demo` reports missing menu components explicitly. Some Panel-capable
 dictionaries do not declare `MENU.DIC`; some package copies declare `MENU.DIC`
