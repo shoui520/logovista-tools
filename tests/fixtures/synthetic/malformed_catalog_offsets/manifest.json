@@ -1,0 +1,11 @@
+{
+  "features": [
+    "malformed_catalog_offsets"
+  ],
+  "files": [
+    "BAD.IDX",
+    "HONMON.DIC"
+  ],
+  "fixture": "malformed_catalog_offsets",
+  "schema": "logovista.synthetic_fixture.v1"
+}

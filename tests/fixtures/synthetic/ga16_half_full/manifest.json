@@ -1,0 +1,12 @@
+{
+  "features": [
+    "ga16_full",
+    "ga16_half"
+  ],
+  "files": [
+    "GA16FULL",
+    "GA16HALF"
+  ],
+  "fixture": "ga16_half_full",
+  "schema": "logovista.synthetic_fixture.v1"
+}

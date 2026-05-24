@@ -1,0 +1,13 @@
+{
+  "features": [
+    "HONMON.DIC",
+    "MENU.DIC"
+  ],
+  "files": [
+    "HONMON.DIC",
+    "MENU.DIC",
+    "MENUMENU.IDX"
+  ],
+  "fixture": "menu_menu_targets",
+  "schema": "logovista.synthetic_fixture.v1"
+}

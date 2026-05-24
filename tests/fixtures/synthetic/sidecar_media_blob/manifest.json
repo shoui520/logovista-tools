@@ -1,0 +1,14 @@
+{
+  "features": [
+    "media_blob",
+    "sidecar_media_blob",
+    "sqlite_sidecar"
+  ],
+  "files": [
+    "HONMON.DIC",
+    "MEDIADB.IDX",
+    "media.db"
+  ],
+  "fixture": "sidecar_media_blob",
+  "schema": "logovista.synthetic_fixture.v1"
+}

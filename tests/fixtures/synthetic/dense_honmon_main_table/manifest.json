@@ -1,0 +1,13 @@
+{
+  "features": [
+    "dense_honmon_main_table",
+    "sqlite_sidecar"
+  ],
+  "files": [
+    "DENSEMAIN",
+    "DENSEMAIN.IDX",
+    "HONMON.DIC"
+  ],
+  "fixture": "dense_honmon_main_table",
+  "schema": "logovista.synthetic_fixture.v1"
+}

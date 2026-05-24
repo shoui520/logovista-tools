@@ -1,0 +1,10 @@
+{
+  "features": [
+    "uni_gaiji_mapping"
+  ],
+  "files": [
+    "GAIJI.uni"
+  ],
+  "fixture": "uni_gaiji_mapping",
+  "schema": "logovista.synthetic_fixture.v1"
+}

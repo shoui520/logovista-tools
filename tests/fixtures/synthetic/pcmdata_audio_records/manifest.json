@@ -1,0 +1,13 @@
+{
+  "features": [
+    "HONMON.DIC",
+    "PCMDATA.DIC"
+  ],
+  "files": [
+    "HONMON.DIC",
+    "PCM.IDX",
+    "PCMDATA.DIC"
+  ],
+  "fixture": "pcmdata_audio_records",
+  "schema": "logovista.synthetic_fixture.v1"
+}

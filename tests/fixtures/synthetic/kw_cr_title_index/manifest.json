@@ -1,0 +1,27 @@
+{
+  "features": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "CRINDEX.DIC",
+    "CRTITLE.DIC",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "HONMON.DIC",
+    "KWINDEX.DIC",
+    "KWTITLE.DIC"
+  ],
+  "files": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "CRINDEX.DIC",
+    "CRTITLE.DIC",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "HONMON.DIC",
+    "KWCR.IDX",
+    "KWINDEX.DIC",
+    "KWTITLE.DIC"
+  ],
+  "fixture": "kw_cr_title_index",
+  "schema": "logovista.synthetic_fixture.v1"
+}

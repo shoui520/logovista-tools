@@ -1,0 +1,16 @@
+{
+  "features": [
+    "plain_honmon",
+    "title_index"
+  ],
+  "files": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "CTRL.IDX",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "HONMON.DIC"
+  ],
+  "fixture": "honmon_common_controls",
+  "schema": "logovista.synthetic_fixture.v1"
+}

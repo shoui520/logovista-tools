@@ -1,0 +1,11 @@
+{
+  "features": [
+    "HONMON.DIC"
+  ],
+  "files": [
+    "HONMON.DIC",
+    "MARKER.IDX"
+  ],
+  "fixture": "honmon_entry_marker_variants",
+  "schema": "logovista.synthetic_fixture.v1"
+}

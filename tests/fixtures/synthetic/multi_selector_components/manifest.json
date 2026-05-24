@@ -1,0 +1,23 @@
+{
+  "features": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "HONMON.DIC",
+    "MUL1_1_1.DIC",
+    "MUL1_1_2.DIC"
+  ],
+  "files": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "HONMON.DIC",
+    "MUL1_1_1.DIC",
+    "MUL1_1_2.DIC",
+    "MULTI.IDX"
+  ],
+  "fixture": "multi_selector_components",
+  "schema": "logovista.synthetic_fixture.v1"
+}

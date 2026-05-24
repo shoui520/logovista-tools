@@ -1,0 +1,21 @@
+{
+  "features": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "HONMON.DIC",
+    "MENU.DIC"
+  ],
+  "files": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "HONMON.DIC",
+    "MENU.DIC",
+    "MENUBODY.IDX"
+  ],
+  "fixture": "menu_body_targets",
+  "schema": "logovista.synthetic_fixture.v1"
+}

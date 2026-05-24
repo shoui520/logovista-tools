@@ -1,0 +1,12 @@
+{
+  "features": [
+    "chunk_roundtrip",
+    "compressed_sseddata"
+  ],
+  "files": [
+    "SAMPLE.DIC",
+    "expanded.bin"
+  ],
+  "fixture": "sseddata_chunk_roundtrip",
+  "schema": "logovista.synthetic_fixture.v1"
+}

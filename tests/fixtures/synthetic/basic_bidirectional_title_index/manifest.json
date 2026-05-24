@@ -1,0 +1,19 @@
+{
+  "features": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "HONMON.DIC"
+  ],
+  "files": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "BIDIR.IDX",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "HONMON.DIC"
+  ],
+  "fixture": "basic_bidirectional_title_index",
+  "schema": "logovista.synthetic_fixture.v1"
+}

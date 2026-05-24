@@ -1,0 +1,13 @@
+{
+  "features": [
+    "dense_honmon_t_contents",
+    "sqlite_sidecar"
+  ],
+  "files": [
+    "DENSETC.IDX",
+    "HONMON.DIC",
+    "vlpljblF"
+  ],
+  "fixture": "dense_honmon_t_contents",
+  "schema": "logovista.synthetic_fixture.v1"
+}

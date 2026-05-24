@@ -1,0 +1,19 @@
+{
+  "features": [
+    "nonliteral_gaiji_marker"
+  ],
+  "files": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "BKINDEX.DIC",
+    "BKTITLE.DIC",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "FKINDEX.DIC",
+    "FKTITLE.DIC",
+    "HONMON.DIC",
+    "NONGAIJI.IDX"
+  ],
+  "fixture": "nonliteral_gaiji_marker",
+  "schema": "logovista.synthetic_fixture.v1"
+}

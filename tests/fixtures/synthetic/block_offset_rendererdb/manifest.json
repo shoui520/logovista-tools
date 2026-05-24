@@ -1,0 +1,13 @@
+{
+  "features": [
+    "block_offset_rendererdb",
+    "sqlite_sidecar"
+  ],
+  "files": [
+    "BLOCKDB.IDX",
+    "HONMON.DIC",
+    "renderer.db"
+  ],
+  "fixture": "block_offset_rendererdb",
+  "schema": "logovista.synthetic_fixture.v1"
+}

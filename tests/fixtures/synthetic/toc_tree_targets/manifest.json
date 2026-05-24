@@ -1,0 +1,21 @@
+{
+  "features": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "HONMON.DIC",
+    "TOC.DIC"
+  ],
+  "files": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "HONMON.DIC",
+    "TOC.DIC",
+    "TOCTREE.IDX"
+  ],
+  "fixture": "toc_tree_targets",
+  "schema": "logovista.synthetic_fixture.v1"
+}

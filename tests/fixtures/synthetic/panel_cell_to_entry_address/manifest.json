@@ -1,0 +1,20 @@
+{
+  "features": [
+    "panel_bin_rows",
+    "panel_cell_to_entry_address",
+    "panel_xml_cells",
+    "title_index"
+  ],
+  "files": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "HONMON.DIC",
+    "PANELADR.IDX",
+    "Panel/kana.bin",
+    "Panels.xml"
+  ],
+  "fixture": "panel_cell_to_entry_address",
+  "schema": "logovista.synthetic_fixture.v1"
+}

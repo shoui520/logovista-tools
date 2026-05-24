@@ -1,0 +1,5 @@
+<!ELEMENT panels (panel*)>
+<!ELEMENT panel (title?,data?)>
+<!ELEMENT title (#PCDATA)>
+<!ELEMENT data (cell*)>
+<!ELEMENT cell (#PCDATA)>

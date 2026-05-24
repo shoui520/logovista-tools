@@ -1,0 +1,18 @@
+{
+  "features": [
+    "plain_honmon",
+    "title_index",
+    "ziptomedia_links"
+  ],
+  "files": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "HONMON.DIC",
+    "ZIPMEDIA.IDX",
+    "ziptomedia/sound001"
+  ],
+  "fixture": "ziptomedia_links",
+  "schema": "logovista.synthetic_fixture.v1"
+}

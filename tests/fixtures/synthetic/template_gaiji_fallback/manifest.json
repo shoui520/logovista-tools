@@ -1,0 +1,11 @@
+{
+  "features": [
+    "template_gaiji_fallback"
+  ],
+  "files": [
+    "Templates/b121.png",
+    "Templates/b121.svg"
+  ],
+  "fixture": "template_gaiji_fallback",
+  "schema": "logovista.synthetic_fixture.v1"
+}

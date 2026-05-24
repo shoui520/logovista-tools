@@ -1,0 +1,10 @@
+{
+  "features": [
+    "panel_bin_rows"
+  ],
+  "files": [
+    "Panel/kana.bin"
+  ],
+  "fixture": "panel_bin_rows",
+  "schema": "logovista.synthetic_fixture.v1"
+}

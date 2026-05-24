@@ -1,0 +1,13 @@
+{
+  "features": [
+    "panel_xml_cells"
+  ],
+  "files": [
+    "Cell.html",
+    "Panel.html",
+    "Panels.dtd",
+    "Panels.xml"
+  ],
+  "fixture": "panel_xml_cells",
+  "schema": "logovista.synthetic_fixture.v1"
+}

@@ -1,0 +1,19 @@
+{
+  "features": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "HONMON.DIC"
+  ],
+  "files": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "HONMON.DIC",
+    "SIMPLE.IDX"
+  ],
+  "fixture": "simple_index_leaf",
+  "schema": "logovista.synthetic_fixture.v1"
+}

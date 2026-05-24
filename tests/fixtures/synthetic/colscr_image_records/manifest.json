@@ -1,0 +1,13 @@
+{
+  "features": [
+    "COLSCR.DIC",
+    "HONMON.DIC"
+  ],
+  "files": [
+    "COLSCR.DIC",
+    "COLSCR.IDX",
+    "HONMON.DIC"
+  ],
+  "fixture": "colscr_image_records",
+  "schema": "logovista.synthetic_fixture.v1"
+}

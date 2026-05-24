@@ -1,0 +1,30 @@
+{
+  "features": [
+    "aux_idx",
+    "catalog",
+    "gaiji",
+    "lossless_repack_representative",
+    "panel",
+    "sqlite",
+    "sseddata"
+  ],
+  "files": [
+    "00000041.idx",
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "CCALTSTR.HA",
+    "FHINDEX.DIC",
+    "FHTITLE.DIC",
+    "GA16HALF",
+    "HONMON.DIC",
+    "KWINDEX.DIC",
+    "KWTITLE.DIC",
+    "Panel/bunya.bin",
+    "REPACK.IDX",
+    "REPACK.uni",
+    "SPINDEX.DIC",
+    "helper.db"
+  ],
+  "fixture": "lossless_repack_representative",
+  "schema": "logovista.synthetic_fixture.v1"
+}

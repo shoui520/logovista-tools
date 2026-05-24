@@ -1,0 +1,12 @@
+{
+  "features": [
+    "inactive_catalog_component",
+    "missing_component"
+  ],
+  "files": [
+    "HONMON.DIC",
+    "INACTIVE.IDX"
+  ],
+  "fixture": "catalog_inactive_missing_component",
+  "schema": "logovista.synthetic_fixture.v1"
+}

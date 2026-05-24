@@ -1,0 +1,10 @@
+{
+  "features": [
+    "truncated_sseddata_chunk"
+  ],
+  "files": [
+    "TRUNC.DIC"
+  ],
+  "fixture": "truncated_sseddata_chunk",
+  "schema": "logovista.synthetic_fixture.v1"
+}

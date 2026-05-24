@@ -1,0 +1,19 @@
+{
+  "features": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "fhindex.dic",
+    "fhtitle.dic",
+    "honmon.dic"
+  ],
+  "files": [
+    "BHINDEX.DIC",
+    "BHTITLE.DIC",
+    "CASE.IDX",
+    "fhindex.dic",
+    "fhtitle.dic",
+    "honmon.dic"
+  ],
+  "fixture": "case_insensitive_component_lookup",
+  "schema": "logovista.synthetic_fixture.v1"
+}

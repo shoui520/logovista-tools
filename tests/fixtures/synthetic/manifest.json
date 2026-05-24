@@ -1,0 +1,598 @@
+{
+  "fixtures": [
+    {
+      "features": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "BIDIR.IDX",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC"
+      ],
+      "fixture": "basic_bidirectional_title_index"
+    },
+    {
+      "features": [
+        "block_offset_rendererdb",
+        "sqlite_sidecar"
+      ],
+      "files": [
+        "BLOCKDB.IDX",
+        "HONMON.DIC",
+        "renderer.db"
+      ],
+      "fixture": "block_offset_rendererdb"
+    },
+    {
+      "features": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "fhindex.dic",
+        "fhtitle.dic",
+        "honmon.dic"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "CASE.IDX",
+        "fhindex.dic",
+        "fhtitle.dic",
+        "honmon.dic"
+      ],
+      "fixture": "case_insensitive_component_lookup"
+    },
+    {
+      "features": [
+        "plain_honmon",
+        "title_index"
+      ],
+      "files": [
+        "BASIC.IDX",
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC"
+      ],
+      "fixture": "catalog_basic"
+    },
+    {
+      "features": [
+        "inactive_catalog_component",
+        "missing_component"
+      ],
+      "files": [
+        "HONMON.DIC",
+        "INACTIVE.IDX"
+      ],
+      "fixture": "catalog_inactive_missing_component"
+    },
+    {
+      "features": [
+        "COLSCR.DIC",
+        "HONMON.DIC"
+      ],
+      "files": [
+        "COLSCR.DIC",
+        "COLSCR.IDX",
+        "HONMON.DIC"
+      ],
+      "fixture": "colscr_image_records"
+    },
+    {
+      "features": [
+        "dense_honmon_honbun",
+        "sqlite_sidecar"
+      ],
+      "files": [
+        "DENSEHB.IDX",
+        "HONMON.DIC",
+        "body.db"
+      ],
+      "fixture": "dense_honmon_honbun"
+    },
+    {
+      "features": [
+        "dense_honmon_main_table",
+        "sqlite_sidecar"
+      ],
+      "files": [
+        "DENSEMAIN",
+        "DENSEMAIN.IDX",
+        "HONMON.DIC"
+      ],
+      "fixture": "dense_honmon_main_table"
+    },
+    {
+      "features": [
+        "dense_honmon_t_contents",
+        "sqlite_sidecar"
+      ],
+      "files": [
+        "DENSETC.IDX",
+        "HONMON.DIC",
+        "vlpljblF"
+      ],
+      "fixture": "dense_honmon_t_contents"
+    },
+    {
+      "features": [
+        "ga16_full",
+        "ga16_half"
+      ],
+      "files": [
+        "GA16FULL",
+        "GA16HALF"
+      ],
+      "fixture": "ga16_half_full"
+    },
+    {
+      "features": [
+        "gai16_name_variants"
+      ],
+      "files": [
+        "GAI16F00",
+        "GAI16H00"
+      ],
+      "fixture": "gai16_name_variants"
+    },
+    {
+      "features": [
+        "plain_honmon",
+        "title_index"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "CTRL.IDX",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC"
+      ],
+      "fixture": "honmon_common_controls"
+    },
+    {
+      "features": [
+        "HONMON.DIC"
+      ],
+      "files": [
+        "HONMON.DIC",
+        "MARKER.IDX"
+      ],
+      "fixture": "honmon_entry_marker_variants"
+    },
+    {
+      "features": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "BOUND.IDX",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC"
+      ],
+      "fixture": "honmon_index_boundary_slicing"
+    },
+    {
+      "features": [
+        "plain_honmon",
+        "title_index"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC",
+        "LINKS.IDX"
+      ],
+      "fixture": "honmon_links"
+    },
+    {
+      "features": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "CRINDEX.DIC",
+        "CRTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC",
+        "KWINDEX.DIC",
+        "KWTITLE.DIC"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "CRINDEX.DIC",
+        "CRTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC",
+        "KWCR.IDX",
+        "KWINDEX.DIC",
+        "KWTITLE.DIC"
+      ],
+      "fixture": "kw_cr_title_index"
+    },
+    {
+      "features": [
+        "aux_idx",
+        "catalog",
+        "gaiji",
+        "lossless_repack_representative",
+        "panel",
+        "sqlite",
+        "sseddata"
+      ],
+      "files": [
+        "00000041.idx",
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "CCALTSTR.HA",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "GA16HALF",
+        "HONMON.DIC",
+        "KWINDEX.DIC",
+        "KWTITLE.DIC",
+        "Panel/bunya.bin",
+        "REPACK.IDX",
+        "REPACK.uni",
+        "SPINDEX.DIC",
+        "helper.db"
+      ],
+      "fixture": "lossless_repack_representative"
+    },
+    {
+      "features": [
+        "malformed_catalog_offsets"
+      ],
+      "files": [
+        "BAD.IDX",
+        "HONMON.DIC"
+      ],
+      "fixture": "malformed_catalog_offsets"
+    },
+    {
+      "features": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC",
+        "MENU.DIC"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC",
+        "MENU.DIC",
+        "MENUBODY.IDX"
+      ],
+      "fixture": "menu_body_targets"
+    },
+    {
+      "features": [
+        "HONMON.DIC",
+        "MENU.DIC"
+      ],
+      "files": [
+        "HONMON.DIC",
+        "MENU.DIC",
+        "MENUMENU.IDX"
+      ],
+      "fixture": "menu_menu_targets"
+    },
+    {
+      "features": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC",
+        "MUL1_1_1.DIC",
+        "MUL1_1_2.DIC"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC",
+        "MUL1_1_1.DIC",
+        "MUL1_1_2.DIC",
+        "MULTI.IDX"
+      ],
+      "fixture": "multi_selector_components"
+    },
+    {
+      "features": [
+        "nonliteral_gaiji_marker"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "BKINDEX.DIC",
+        "BKTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "FKINDEX.DIC",
+        "FKTITLE.DIC",
+        "HONMON.DIC",
+        "NONGAIJI.IDX"
+      ],
+      "fixture": "nonliteral_gaiji_marker"
+    },
+    {
+      "features": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "BKINDEX.DIC",
+        "BKTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "FKINDEX.DIC",
+        "FKTITLE.DIC",
+        "HONMON.DIC"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "BKINDEX.DIC",
+        "BKTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "FKINDEX.DIC",
+        "FKTITLE.DIC",
+        "HONMON.DIC",
+        "NORM.IDX"
+      ],
+      "fixture": "normalized_index_keys"
+    },
+    {
+      "features": [
+        "panel_bin_rows"
+      ],
+      "files": [
+        "Panel/kana.bin"
+      ],
+      "fixture": "panel_bin_rows"
+    },
+    {
+      "features": [
+        "panel_bin_rows",
+        "panel_cell_to_entry_address",
+        "panel_xml_cells",
+        "title_index"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC",
+        "PANELADR.IDX",
+        "Panel/kana.bin",
+        "Panels.xml"
+      ],
+      "fixture": "panel_cell_to_entry_address"
+    },
+    {
+      "features": [
+        "panel_xml_cells"
+      ],
+      "files": [
+        "Cell.html",
+        "Panel.html",
+        "Panels.dtd",
+        "Panels.xml"
+      ],
+      "fixture": "panel_xml_cells"
+    },
+    {
+      "features": [
+        "HONMON.DIC",
+        "PCMDATA.DIC"
+      ],
+      "files": [
+        "HONMON.DIC",
+        "PCM.IDX",
+        "PCMDATA.DIC"
+      ],
+      "fixture": "pcmdata_audio_records"
+    },
+    {
+      "features": [
+        "media_blob",
+        "sidecar_media_blob",
+        "sqlite_sidecar"
+      ],
+      "files": [
+        "HONMON.DIC",
+        "MEDIADB.IDX",
+        "media.db"
+      ],
+      "fixture": "sidecar_media_blob"
+    },
+    {
+      "features": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC",
+        "SIMPLE.IDX"
+      ],
+      "fixture": "simple_index_leaf"
+    },
+    {
+      "features": [
+        "chunk_roundtrip",
+        "compressed_sseddata"
+      ],
+      "files": [
+        "SAMPLE.DIC",
+        "expanded.bin"
+      ],
+      "fixture": "sseddata_chunk_roundtrip"
+    },
+    {
+      "features": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "BKINDEX.DIC",
+        "BKTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "FKINDEX.DIC",
+        "FKTITLE.DIC",
+        "HONMON.DIC"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "BKINDEX.DIC",
+        "BKTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "FKINDEX.DIC",
+        "FKTITLE.DIC",
+        "FOUR.IDX",
+        "HONMON.DIC"
+      ],
+      "fixture": "standard_four_title_index"
+    },
+    {
+      "features": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "BKINDEX.DIC",
+        "BKTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "FKINDEX.DIC",
+        "FKTITLE.DIC",
+        "HONMON.DIC"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "BKINDEX.DIC",
+        "BKTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "FKINDEX.DIC",
+        "FKTITLE.DIC",
+        "HONMON.DIC",
+        "TAGGED.IDX"
+      ],
+      "fixture": "tagged_index_leaf"
+    },
+    {
+      "features": [
+        "template_gaiji_fallback"
+      ],
+      "files": [
+        "Templates/b121.png",
+        "Templates/b121.svg"
+      ],
+      "fixture": "template_gaiji_fallback"
+    },
+    {
+      "features": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC",
+        "TITLEPTR.IDX"
+      ],
+      "fixture": "title_pointer_resolution"
+    },
+    {
+      "features": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC",
+        "TOC.DIC"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC",
+        "TOC.DIC",
+        "TOCTREE.IDX"
+      ],
+      "fixture": "toc_tree_targets"
+    },
+    {
+      "features": [
+        "truncated_sseddata_chunk"
+      ],
+      "files": [
+        "TRUNC.DIC"
+      ],
+      "fixture": "truncated_sseddata_chunk"
+    },
+    {
+      "features": [
+        "uni_gaiji_mapping"
+      ],
+      "files": [
+        "GAIJI.uni"
+      ],
+      "fixture": "uni_gaiji_mapping"
+    },
+    {
+      "features": [
+        "plain_honmon",
+        "title_index",
+        "ziptomedia_links"
+      ],
+      "files": [
+        "BHINDEX.DIC",
+        "BHTITLE.DIC",
+        "FHINDEX.DIC",
+        "FHTITLE.DIC",
+        "HONMON.DIC",
+        "ZIPMEDIA.IDX",
+        "ziptomedia/sound001"
+      ],
+      "fixture": "ziptomedia_links"
+    }
+  ],
+  "schema": "logovista.synthetic_fixtures.v1"
+}

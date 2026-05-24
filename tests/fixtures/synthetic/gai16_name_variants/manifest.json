@@ -1,0 +1,11 @@
+{
+  "features": [
+    "gai16_name_variants"
+  ],
+  "files": [
+    "GAI16F00",
+    "GAI16H00"
+  ],
+  "fixture": "gai16_name_variants",
+  "schema": "logovista.synthetic_fixture.v1"
+}

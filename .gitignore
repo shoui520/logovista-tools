@@ -27,3 +27,9 @@ logovista-raw-extract/
 logovista-raw-titles/
 logovista-*/
 *.jsonl
+
+# Committed synthetic format fixtures. These intentionally contain tiny
+# dictionary-like binary files that match the otherwise ignored LogoVista
+# filename families.
+!tests/fixtures/
+!tests/fixtures/**

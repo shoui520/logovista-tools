@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<panels version="1.0">
+  <panel index="01000000" paneltype="menu" count_x="2">
+    <title>Kana</title>
+    <data><cell action_verb="lved.panel:01010000" ref="01010000">あ</cell></data>
+  </panel>
+</panels>
