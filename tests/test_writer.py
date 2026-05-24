@@ -39,6 +39,7 @@ from logovista_tools.writer import (
     FULL_GAIJI_START,
     HALF_GAIJI_START,
     BitmapGaijiFontRenderer,
+    EmbeddedBitmapFontRenderer,
     FontFallbackFace,
     FontFallbackGlyphRenderer,
     WriterEntry,
@@ -542,6 +543,68 @@ def test_bitmap_gaiji_font_renderer_loads_uni_ga16_source(tmp_path) -> None:
     bitmap = BitmapGaijiFontRenderer.from_paths([tmp_path])
 
     assert bitmap("𰻞", 16, 16, "full") == assignment.glyph
+
+
+def test_embedded_bitmap_font_renderer_uses_getrow_bitmap_strikes() -> None:
+    class Metrics:
+        width = 15
+        height = 16
+
+    rows = [bytes([0x80 >> (y % 8), 0x00]) for y in range(16)]
+
+    class Bitmap:
+        metrics = Metrics()
+
+        def getRow(self, row: int, *, bitDepth: int = 1, metrics: object | None = None) -> bytes:
+            assert bitDepth == 1
+            return rows[row]
+
+    class CmapTable:
+        cmap = {ord("黃"): "uni9EC3"}
+
+        def isUnicode(self) -> bool:
+            return True
+
+    class Cmap:
+        tables = [CmapTable()]
+
+    class BitmapSizeTable:
+        bitDepth = 1
+        ppemY = 16
+
+    class Subtable:
+        names = ["uni9EC3"]
+        metrics = None
+
+    class Strike:
+        bitmapSizeTable = BitmapSizeTable()
+        indexSubTables = [Subtable()]
+
+    class Eblc:
+        strikes = [Strike()]
+
+    class Ebdt:
+        strikeData = [{"uni9EC3": Bitmap()}]
+
+    class Font:
+        def __contains__(self, key: str) -> bool:
+            return key in {"EBLC", "EBDT"}
+
+        def __getitem__(self, key: str):
+            return {"EBLC": Eblc(), "EBDT": Ebdt()}[key]
+
+        def get(self, key: str):
+            if key == "cmap":
+                return Cmap()
+            return None
+
+    renderer = EmbeddedBitmapFontRenderer(fonts=(Font(),))
+
+    glyph = renderer("黃", 16, 16, "full")
+
+    assert glyph
+    assert any(glyph)
+    assert glyph[0:2] == rows[0]
 
 
 def test_writer_spills_gaiji_overflow_to_colscr_media() -> None:

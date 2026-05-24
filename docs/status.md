@@ -202,7 +202,9 @@ and non-SSED reader status are tracked separately in
   GA16 bitmap glyphs only from LogoVista bitmap resources or embedded bitmap
   strikes in the bitmap-preference font list. This keeps Unicode-first
   rendering, Template resources, and GA16 fallback as separate artifacts and
-  prevents GA16 from silently using outline/vector rendering.
+  prevents GA16 from silently using outline/vector rendering. TTC/TTF fonts
+  such as MS Gothic and SimSun remain valid GA16 bitmap sources when their
+  embedded bitmap strike tables are used.
 - `verify-written-package` validates writer output as a package, not just as
   individual parseable components. It checks `SSEDINFO` ranges against
   `SSEDDATA` headers, expanded sizes, branch upper-bound rows, final `ff`

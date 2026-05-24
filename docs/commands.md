@@ -2020,7 +2020,9 @@ PNG/SVG gaiji are generated from the configured vector font preference list;
 GA16 bitmap resources are generated only from LogoVista bitmap resources or
 embedded bitmap strikes in the configured bitmap-preference fonts. The font
 families remain separate so the GA16 output does not silently fall through to
-the Template vector list.
+the Template vector list. TTC/TTF fonts such as MS Gothic and SimSun may still
+be valid GA16 bitmap sources when their embedded bitmap strike tables are used;
+their outline/vector data is not used for GA16.
 
 The writer separates display text from lookup aliases. Body and title text keep
 their display spelling, but index keys are generated from raw and normalized

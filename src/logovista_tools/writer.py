@@ -1832,15 +1832,14 @@ def _embedded_bitmap_glyph(font: object, codepoint: int, *, width: int, height: 
             source_height = int(getattr(metrics, "height", 0))
             if source_width <= 0 or source_height <= 0 or source_width > width or source_height > height:
                 continue
-            data = getattr(bitmap, "data", b"")
             source_row_size = ga16_row_size(source_width)
-            if len(data) < source_row_size * source_height:
+            rows = _embedded_bitmap_rows(bitmap, bit_depth=size.bitDepth, metrics=metrics, row_size=source_row_size, height=source_height)
+            if rows is None:
                 continue
             y_offset = max(0, (height - source_height) // 2)
             x_offset = max(0, (width - source_width) // 2)
             out = bytearray(target_row_size * height)
-            for y in range(source_height):
-                src_row = data[y * source_row_size : (y + 1) * source_row_size]
+            for y, src_row in enumerate(rows):
                 dst_y = y + y_offset
                 for x in range(source_width):
                     if src_row[x // 8] & (0x80 >> (x % 8)):
@@ -1848,6 +1847,37 @@ def _embedded_bitmap_glyph(font: object, codepoint: int, *, width: int, height: 
                         out[dst_y * target_row_size + dst_x // 8] |= 0x80 >> (dst_x % 8)
             return bytes(out)
     return None
+
+
+def _embedded_bitmap_rows(
+    bitmap: object,
+    *,
+    bit_depth: int,
+    metrics: object,
+    row_size: int,
+    height: int,
+) -> tuple[bytes, ...] | None:
+    if bit_depth != 1:
+        return None
+    get_row = getattr(bitmap, "getRow", None)
+    if get_row is not None:
+        rows: list[bytes] = []
+        try:
+            for y in range(height):
+                row = bytes(get_row(y, bitDepth=bit_depth, metrics=metrics))
+                if len(row) < row_size:
+                    row = row + b"\x00" * (row_size - len(row))
+                rows.append(row[:row_size])
+            return tuple(rows)
+        except Exception:
+            return None
+
+    data = getattr(bitmap, "data", b"")
+    if len(data) < row_size * height:
+        data = getattr(bitmap, "imageData", b"")
+    if len(data) < row_size * height:
+        return None
+    return tuple(data[y * row_size : (y + 1) * row_size] for y in range(height))
 
 
 def _bitmap_font_candidate_files(path: Path) -> tuple[list[Path], list[Path]]:
