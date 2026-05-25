@@ -21,6 +21,7 @@ from lvcore import (  # noqa: E402
     Address,
     Diagnostic,
     DiagnosticArea,
+    EntryTarget,
     EntryTargetKind,
     HomeSurfaceKind,
     Location,
@@ -1409,16 +1410,56 @@ def test_lvcore_reader_search_hit_carries_opaque_entry_target(tmp_path: Path) ->
     hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
     public = hit.to_dict()
     debug = hit.to_dict(debug=True)
+    restored = EntryTarget.from_dict(public["target"])
 
     assert hit.target.kind == EntryTargetKind.NATIVE_INDEX_HIT
     assert public["target"]["kind"] == "native_index_hit"
     assert public["target"]["label"] == "alpha"
+    assert public["target"]["token"]["kind"] == "native_index_hit"
     assert "address" not in public["target"]
+    assert restored == hit.target
     assert debug["target"]["address"]["component"] == "HONMON.DIC"
     assert debug["target"]["index_component"] == "FHINDEX.DIC"
     assert debug["target"]["index_page"] == 0
     assert debug["target"]["index_row"] == 1
     assert "payload" not in debug["target"]
+
+
+def test_lvcore_public_entry_target_round_trips_to_entry_view(tmp_path: Path) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+
+    public_hit = hit.to_dict()
+    restored = EntryTarget.from_dict(public_hit["target"])
+    restored_from_token = EntryTarget.from_token(public_hit["target"]["token"])
+    direct = package.entry_view_for_target(restored)
+    original = package.entry_view_for_hit(hit)
+
+    assert restored == restored_from_token
+    assert direct.target == original.target
+    assert direct.visual_body.kind == original.visual_body.kind
+    assert direct.semantic_document is not None
+    assert original.semantic_document is not None
+    assert render_text(direct.semantic_document) == render_text(original.semantic_document)
+    assert "address" not in public_hit["target"]
+    assert "title_address" not in public_hit["target"]
+
+
+def test_lvcore_public_home_surface_target_round_trips(tmp_path: Path) -> None:
+    make_reader_surface_package(tmp_path)
+    package = open_package(tmp_path)
+    menu_surface = package.home_surfaces()[0]
+
+    public = menu_surface.to_dict()
+    restored = EntryTarget.from_dict(public["target"])
+
+    assert menu_surface.kind == HomeSurfaceKind.MENU
+    assert restored.kind == EntryTargetKind.MENU_TARGET
+    assert restored.menu_id == "MENU.DIC"
+    assert restored.address is not None
+    assert "address" not in public["target"]
+    assert public["target"]["token"]["address"]["component"] == "MENU.DIC"
 
 
 def test_lvcore_reader_body_stream_entry_view_is_visual_deferred(tmp_path: Path) -> None:
@@ -1434,6 +1475,20 @@ def test_lvcore_reader_body_stream_entry_view_is_visual_deferred(tmp_path: Path)
     assert view.semantic_document is not None
     assert "first entry" in render_text(view.semantic_document)
     assert any(diagnostic.code == "visual_renderer_deferred" for diagnostic in view.diagnostics)
+
+
+def test_lvcore_plain_honmon_direct_address_target_stays_ssed_stream(tmp_path: Path) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+    target = EntryTarget.ssed_address(package_id=package.dict_id, address=hit.debug_info.body, label=hit.heading)
+
+    view = package.entry_view_for_target(EntryTarget.from_dict(target.to_dict()))
+
+    assert view.visual_body.kind == VisualBodyKind.SSED_STREAM
+    assert view.visual_body.status == ReaderStatus.DEFERRED
+    assert view.semantic_document is not None
+    assert "first entry" in render_text(view.semantic_document)
 
 
 def test_lvcore_home_surfaces_detect_reader_interfaces(tmp_path: Path) -> None:
@@ -2172,6 +2227,91 @@ def test_lvcore_dense_anchor_entry_view_preserves_exact_sidecar_html(tmp_path: P
     assert debug["semantic_document"]["schema"] == "lvcore.entry_document.v1"
 
 
+def test_lvcore_title_only_sidecar_does_not_stop_body_sidecar_discovery(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path, with_sidecar=True)
+    con = sqlite3.connect(tmp_path / "a_title_only.db")
+    try:
+        con.execute("create table t_contents (f_DataId integer primary key, f_Title text)")
+        con.execute("insert into t_contents values (?, ?)", (1, "alpha title only"))
+        con.commit()
+    finally:
+        con.close()
+
+    package = open_package(tmp_path)
+    source = package.body_source()
+    title_only = next(sidecar for sidecar in source.sidecars if sidecar.path.name == "a_title_only.db")
+    body_sidecar = next(sidecar for sidecar in source.sidecars if sidecar.path.name == "body.db")
+    hit = package.search("beta", profile=SearchProfile.EXACT).hits[0]
+    view = package.entry_view_for_hit(hit)
+
+    assert title_only.support_status.value != "body_resolver"
+    assert not title_only.html_column
+    assert not title_only.plain_column
+    assert body_sidecar.support_status.value == "body_resolver"
+    assert source.sidecar_paths == (tmp_path / "a_title_only.db", tmp_path / "body.db")
+    assert view.visual_body.kind == VisualBodyKind.PRESERVED_HTML
+    assert view.visual_body.html == "<div>beta sidecar html</div>"
+
+
+def test_lvcore_sidecar_body_decodes_utf8_and_cp932_byte_columns(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path)
+    con = sqlite3.connect(tmp_path / "body.db")
+    try:
+        con.execute("create table t_contents (f_DataId integer primary key, f_Title blob, f_Html blob, f_Plane blob)")
+        con.execute(
+            "insert into t_contents values (?, ?, ?, ?)",
+            (
+                1,
+                sqlite3.Binary("alpha".encode("utf-8")),
+                sqlite3.Binary("<div>alpha ✓ html</div>".encode("utf-8")),
+                sqlite3.Binary("alpha ✓ body".encode("utf-8")),
+            ),
+        )
+        con.execute(
+            "insert into t_contents values (?, ?, ?, ?)",
+            (
+                2,
+                sqlite3.Binary("ベータ".encode("cp932")),
+                sqlite3.Binary("<div>ベータ html</div>".encode("cp932")),
+                sqlite3.Binary("ベータ body".encode("cp932")),
+            ),
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    package = open_package(tmp_path)
+    alpha = package.entry_view_for_hit(package.search("alpha", profile=SearchProfile.EXACT).hits[0])
+    beta = package.entry_view_for_hit(package.search("beta", profile=SearchProfile.EXACT).hits[0])
+    alpha_text = render_text(alpha.semantic_document) if alpha.semantic_document else ""
+    beta_text = render_text(beta.semantic_document) if beta.semantic_document else ""
+
+    assert alpha.visual_body.html == "<div>alpha ✓ html</div>"
+    assert beta.visual_body.html == "<div>ベータ html</div>"
+    assert "alpha ✓ body" in alpha_text
+    assert "ベータ body" in beta_text
+    assert "b'" not in (alpha.visual_body.html or "")
+    assert "b'" not in (beta.visual_body.html or "")
+    assert "b'" not in alpha_text
+    assert "b'" not in beta_text
+
+
+def test_lvcore_dense_anchor_public_address_target_uses_sidecar_visual_body(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path, with_sidecar=True)
+    package = open_package(tmp_path)
+    hit = package.search("beta", profile=SearchProfile.EXACT).hits[0]
+    target = EntryTarget.ssed_address(package_id=package.dict_id, address=hit.debug_info.body, label=hit.heading)
+    restored = EntryTarget.from_dict(target.to_dict())
+
+    view = package.entry_view_for_target(restored)
+
+    assert view.target.kind == EntryTargetKind.DENSE_SIDECAR_ROW
+    assert view.visual_body.kind == VisualBodyKind.PRESERVED_HTML
+    assert view.visual_body.html == "<div>beta sidecar html</div>"
+    assert view.semantic_document is not None
+    assert "beta sidecar body" in render_text(view.semantic_document)
+
+
 def test_lvcore_dense_anchor_iter_entries_uses_sidecar_body_provider(tmp_path: Path) -> None:
     make_dense_anchor_package(tmp_path, with_sidecar=True)
     package = open_package(tmp_path)
@@ -2232,6 +2372,27 @@ def test_lvcore_dense_anchor_sidecar_missing_row_is_safe_and_debuggable(tmp_path
     report = validate_package(package, sample_entries=1, sample_search_hits=2)
     assert report["sidecar_resolution"]["resolved"] == 1
     assert report["sidecar_resolution"]["missing_row"] == 1
+
+
+def test_lvcore_dense_anchor_direct_target_missing_row_is_unsupported(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path)
+    con = sqlite3.connect(tmp_path / "body.db")
+    try:
+        con.execute("create table t_contents (f_DataId integer primary key, f_Title text, f_Html text, f_Plane text)")
+        con.execute("insert into t_contents values (?, ?, ?, ?)", (1, "alpha", "<div>alpha html</div>", "alpha body"))
+        con.commit()
+    finally:
+        con.close()
+
+    package = open_package(tmp_path)
+    hit = package.search("beta", profile=SearchProfile.EXACT).hits[0]
+    target = EntryTarget.ssed_address(package_id=package.dict_id, address=hit.debug_info.body, label=hit.heading)
+
+    view = package.entry_view_for_target(target)
+
+    assert view.visual_body.kind == VisualBodyKind.UNSUPPORTED
+    assert view.visual_body.status == ReaderStatus.UNSUPPORTED
+    assert any(diagnostic.code == "sidecar_body_not_found" for diagnostic in view.diagnostics)
 
 
 def test_lvcore_dense_anchor_with_unsupported_sqlite_sidecar_schema_is_precise(tmp_path: Path) -> None:

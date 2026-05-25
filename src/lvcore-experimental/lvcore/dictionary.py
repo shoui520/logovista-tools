@@ -12,7 +12,7 @@ from typing import Callable, Iterable, TYPE_CHECKING
 
 from .index import IndexParse
 from .model import Component, Entry, SearchProfile
-from .reader import EntryView, HomeSurface
+from .reader import EntryTarget, EntryView, HomeSurface
 from .render import HtmlProfile
 from .search import SearchHit, SearchResults
 
@@ -83,6 +83,9 @@ class Dictionary:
 
     def entry_view_for_hit(self, hit: SearchHit) -> EntryView:
         return self.entry_store.entry_view_for_hit(hit)
+
+    def entry_view_for_target(self, target: EntryTarget, *, max_bytes: int = 64 * 1024) -> EntryView:
+        return self.entry_store.entry_view_for_target(target, max_bytes=max_bytes)
 
     def entry_view_at(self, address, *, max_bytes: int = 64 * 1024) -> EntryView:
         return self.entry_store.entry_view_at(address, max_bytes=max_bytes)

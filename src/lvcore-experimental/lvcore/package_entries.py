@@ -30,10 +30,10 @@ from .json_types import JsonObject
 from .model import Address, Component, ComponentRole, Entry, PackageInfo, SearchProfile, Span
 from .package_services import EntryStoreDeps
 from .package_utils import ENTRY_MARKER
-from .reader import EntryTarget, EntryView
+from .reader import EntryTarget, EntryTargetKind, EntryView
 from .render import HtmlProfile
 from .scan import ScanBudget
-from .search import SearchHit
+from .search import SearchHit, SearchHitDebug
 from .sidecar_body import AnchorQueryValue, anchor_query_values, make_sidecar_body_entry, sidecar_body_from_row, sidecar_debug_details
 from .ssed import BLOCK_SIZE, CHUNK_SIZE, SsedData
 
@@ -600,9 +600,76 @@ class EntryStore:
         return entry
 
     def entry_view_at(self, address: Address, *, max_bytes: int = 64 * 1024) -> EntryView:
-        entry = self.entry_at(address, max_bytes=max_bytes)
-        target = EntryTarget.ssed_address(package_id=self.info.dict_id, address=entry.address, label=entry.headword)
-        return self.view_for_body_stream_entry(target, entry)
+        return self.entry_view_for_target(
+            EntryTarget.ssed_address(package_id=self.info.dict_id, address=self._qualified_address(address, role=ComponentRole.HONMON)),
+            max_bytes=max_bytes,
+        )
+
+    def _hit_from_target(self, target: EntryTarget) -> SearchHit:
+        body = target.address
+        if body is None:
+            body = Address(0, 0, None)
+        title = target.title_address or body
+        heading = target.label or ""
+        return SearchHit(
+            id=0,
+            query="",
+            normalized_query="",
+            search_profile=SearchProfile.NATIVE,
+            package_id=target.package_id or self.info.dict_id,
+            display_key=heading,
+            matched_key=heading,
+            target_key=None,
+            heading=heading,
+            heading_source="target_label" if heading else "unknown",
+            title_status="target",
+            tagged=False,
+            target=target,
+            debug_info=SearchHitDebug(
+                index_component=target.index_component or "",
+                body=body,
+                title=title,
+                page=target.index_page,
+                row=target.index_row,
+            ),
+        )
+
+    def entry_view_for_target(self, target: EntryTarget, *, max_bytes: int = 64 * 1024) -> EntryView:
+        if target.kind in {EntryTargetKind.SSED_ADDRESS, EntryTargetKind.NATIVE_INDEX_HIT} and target.address is not None:
+            return self.entry_view_for_hit(self._hit_from_target(target))
+        if target.kind == EntryTargetKind.DENSE_SIDECAR_ROW and target.address is not None:
+            hit = self._hit_from_target(target)
+            sidecar = next(
+                (
+                    item
+                    for item in self._body_sidecars(stop_after_body_resolver=False)
+                    if item.path.name == target.sidecar_name and (target.sidecar_table is None or item.table == target.sidecar_table)
+                ),
+                None,
+            )
+            if sidecar is not None and target.sidecar_row_id is not None:
+                body = self.fetch_sidecar_body(sidecar, target.sidecar_row_id)
+                if body is not None:
+                    return self.view_for_sidecar_body(hit, body, sidecar=sidecar, anchor_id=target.sidecar_row_id)
+                entry = self.placeholder_entry(
+                    target.address,
+                    headword=target.label or "",
+                    code="sidecar_body_not_found",
+                    message="sidecar target row could not be resolved",
+                    severity=Severity.ERROR,
+                    details=self.sidecar_debug_details(sidecar, target.sidecar_row_id),
+                )
+                return self.view_for_unsupported_entry(target, entry, source=sidecar.kind)
+        address = target.address or Address(0, 0, None)
+        entry = self.placeholder_entry(
+            address,
+            headword=target.label or "",
+            code="unsupported_body_source",
+            message="entry target is not resolvable as an entry body",
+            severity=Severity.ERROR,
+            details={"target_kind": target.kind.value},
+        )
+        return self.view_for_unsupported_entry(target, entry, source=target.kind.value)
 
     def inspect_body_pointer(self, address: Address) -> BodyPointerInspection:
         return inspect_body_pointer_for_package(self, address)

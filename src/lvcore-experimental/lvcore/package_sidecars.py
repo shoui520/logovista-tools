@@ -18,6 +18,7 @@ from .body_source import (
     SidecarTableInfo,
     classify_sqlite_table_role,
     classify_sqlite_sidecar_role,
+    is_renderable_body_sidecar,
     quote_sql_identifier,
     resolve_sqlite_sidecar_columns,
     sqlite_columns,
@@ -229,7 +230,7 @@ class SidecarRegistry:
             table_role = table_info.role.value if isinstance(table_info.role, SidecarRole) else str(table_info.role)
             if table_role != SidecarRole.BODY_CRITICAL.value:
                 continue
-            if not table_info.id_column or not (table_info.html_column or table_info.plain_column or table_info.title_column):
+            if not table_info.id_column or not (table_info.html_column or table_info.plain_column):
                 continue
             kind = self._body_sidecar_kind(table_info)
             info = SidecarInfo(
@@ -276,7 +277,7 @@ class SidecarRegistry:
             sidecar = self._inspect_sqlite_sidecar(path, include_row_counts=not stop_after_body_resolver)
             if sidecar is not None:
                 rows.append(sidecar)
-                if stop_after_body_resolver and sidecar.support_status == SidecarSupportStatus.BODY_RESOLVER:
+                if stop_after_body_resolver and is_renderable_body_sidecar(sidecar):
                     break
         self._body_sidecars_cache[cache_key] = tuple(rows)
         return self._body_sidecars_cache[cache_key]

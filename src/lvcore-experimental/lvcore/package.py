@@ -18,6 +18,7 @@ from .index import IndexParse, IndexRow
 from .json_types import JsonObject
 from .model import Address, Component, ComponentRole, Entry, PackageFamily, PackageInfo, SearchProfile
 from .reader import (
+    EntryTarget,
     EntryView,
     HomeSurface,
     UnsupportedReaderPackage,
@@ -395,6 +396,9 @@ class LogoVistaPackage:
 
     def entry_view_for_hit(self, hit: SearchHit) -> EntryView:
         return self.dictionary().entry_view_for_hit(hit)
+
+    def entry_view_for_target(self, target: EntryTarget, *, max_bytes: int = 64 * 1024) -> EntryView:
+        return self.dictionary().entry_view_for_target(target, max_bytes=max_bytes)
 
     def entry_view_at(self, address: Address, *, max_bytes: int = 64 * 1024) -> EntryView:
         return self.dictionary().entry_view_at(address, max_bytes=max_bytes)

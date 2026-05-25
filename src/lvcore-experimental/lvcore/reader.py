@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 
 ENTRY_TARGET_SCHEMA = "lvcore.entry_target.v1"
 ENTRY_TARGET_MODEL_VERSION = 1
+ENTRY_TARGET_TOKEN_SCHEMA = "lvcore.entry_target_token.v1"
+ENTRY_TARGET_TOKEN_MODEL_VERSION = 1
 VISUAL_BODY_SCHEMA = "lvcore.visual_body.v1"
 VISUAL_BODY_MODEL_VERSION = 1
 ENTRY_VIEW_SCHEMA = "lvcore.entry_view.v1"
@@ -100,6 +102,19 @@ def _stable_id(kind: EntryTargetKind, package_id: str | None, fields: JsonObject
     return hashlib.sha1(encoded).hexdigest()[:20]
 
 
+def _address_from_json(value: object) -> Address | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        block = int(value["block"])
+        offset = int(value.get("offset", 0))
+    except (KeyError, TypeError, ValueError):
+        return None
+    component_value = value.get("component")
+    component = str(component_value) if component_value is not None else None
+    return Address(block, offset, component)
+
+
 @dataclass(frozen=True)
 class EntryTarget:
     kind: EntryTargetKind
@@ -120,23 +135,7 @@ class EntryTarget:
 
     @property
     def target_id(self) -> str:
-        return _stable_id(
-            self.kind,
-            self.package_id,
-            {
-                "address": self.address,
-                "title_address": self.title_address,
-                "index_component": self.index_component,
-                "index_page": self.index_page,
-                "index_row": self.index_row,
-                "sidecar_name": self.sidecar_name,
-                "sidecar_table": self.sidecar_table,
-                "sidecar_row_id": self.sidecar_row_id,
-                "resource_name": self.resource_name,
-                "panel_id": self.panel_id,
-                "menu_id": self.menu_id,
-            },
-        )
+        return _stable_id(self.kind, self.package_id, self.to_token())
 
     @classmethod
     def native_index_hit(
@@ -181,6 +180,105 @@ class EntryTarget:
             diagnostics=self.diagnostics,
         )
 
+    def to_token(self) -> JsonObject:
+        token: JsonObject = {
+            "schema": ENTRY_TARGET_TOKEN_SCHEMA,
+            "model_version": ENTRY_TARGET_TOKEN_MODEL_VERSION,
+            "kind": self.kind.value,
+            "package_id": self.package_id,
+            "label": self.label,
+        }
+        if self.address is not None:
+            token["address"] = self.address.to_dict()
+        if self.title_address is not None:
+            token["title_address"] = self.title_address.to_dict()
+        if self.index_component is not None or self.index_page is not None or self.index_row is not None:
+            token["index"] = {
+                "component": self.index_component,
+                "page": self.index_page,
+                "row": self.index_row,
+            }
+        if self.sidecar_name is not None or self.sidecar_table is not None or self.sidecar_row_id is not None:
+            token["sidecar"] = {
+                "name": self.sidecar_name,
+                "table": self.sidecar_table,
+                "row_id": self.sidecar_row_id,
+            }
+        if self.resource_name is not None:
+            token["resource"] = {"name": self.resource_name}
+        if self.panel_id is not None:
+            token["panel"] = {"id": self.panel_id}
+        if self.menu_id is not None:
+            token["menu"] = {"id": self.menu_id}
+        return token
+
+    @classmethod
+    def from_token(cls, value: object) -> "EntryTarget":
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise ValueError("entry target token is not valid JSON") from exc
+        if not isinstance(value, dict):
+            raise ValueError("entry target token must be an object")
+        raw_kind = str(value.get("kind") or EntryTargetKind.UNKNOWN.value)
+        try:
+            kind = EntryTargetKind(raw_kind)
+        except ValueError:
+            kind = EntryTargetKind.UNKNOWN
+        index = value.get("index") if isinstance(value.get("index"), dict) else {}
+        sidecar = value.get("sidecar") if isinstance(value.get("sidecar"), dict) else {}
+        resource = value.get("resource") if isinstance(value.get("resource"), dict) else {}
+        panel = value.get("panel") if isinstance(value.get("panel"), dict) else {}
+        menu = value.get("menu") if isinstance(value.get("menu"), dict) else {}
+        package_id_value = value.get("package_id")
+        label_value = value.get("label")
+        return cls(
+            kind=kind,
+            package_id=str(package_id_value) if package_id_value is not None else None,
+            label=str(label_value) if label_value is not None else None,
+            address=_address_from_json(value.get("address")),
+            title_address=_address_from_json(value.get("title_address")),
+            index_component=str(index["component"]) if index.get("component") is not None else None,
+            index_page=int(index["page"]) if index.get("page") is not None else None,
+            index_row=int(index["row"]) if index.get("row") is not None else None,
+            sidecar_name=str(sidecar["name"]) if sidecar.get("name") is not None else None,
+            sidecar_table=str(sidecar["table"]) if sidecar.get("table") is not None else None,
+            sidecar_row_id=str(sidecar["row_id"]) if sidecar.get("row_id") is not None else None,
+            resource_name=str(resource["name"]) if resource.get("name") is not None else None,
+            panel_id=str(panel["id"]) if panel.get("id") is not None else None,
+            menu_id=str(menu["id"]) if menu.get("id") is not None else None,
+        )
+
+    @classmethod
+    def from_dict(cls, value: object) -> "EntryTarget":
+        if not isinstance(value, dict):
+            raise ValueError("entry target must be an object")
+        token = value.get("token")
+        if token is not None:
+            return cls.from_token(token)
+        # Compatibility for debug dictionaries emitted before public tokens.
+        try:
+            kind = EntryTargetKind(str(value.get("kind") or EntryTargetKind.UNKNOWN.value))
+        except ValueError:
+            kind = EntryTargetKind.UNKNOWN
+        return cls(
+            kind=kind,
+            package_id=str(value["package_id"]) if value.get("package_id") is not None else None,
+            label=str(value["label"]) if value.get("label") is not None else None,
+            address=_address_from_json(value.get("address")),
+            title_address=_address_from_json(value.get("title_address")),
+            index_component=str(value["index_component"]) if value.get("index_component") is not None else None,
+            index_page=int(value["index_page"]) if value.get("index_page") is not None else None,
+            index_row=int(value["index_row"]) if value.get("index_row") is not None else None,
+            sidecar_name=str(value["sidecar_name"]) if value.get("sidecar_name") is not None else None,
+            sidecar_table=str(value["sidecar_table"]) if value.get("sidecar_table") is not None else None,
+            sidecar_row_id=str(value["sidecar_row_id"]) if value.get("sidecar_row_id") is not None else None,
+            resource_name=str(value["resource_name"]) if value.get("resource_name") is not None else None,
+            panel_id=str(value["panel_id"]) if value.get("panel_id") is not None else None,
+            menu_id=str(value["menu_id"]) if value.get("menu_id") is not None else None,
+        )
+
     def to_dict(self, *, debug: bool = False) -> JsonObject:
         data: JsonObject = {
             "schema": ENTRY_TARGET_SCHEMA,
@@ -189,6 +287,7 @@ class EntryTarget:
             "kind": self.kind.value,
             "package_id": self.package_id,
             "label": self.label,
+            "token": self.to_token(),
             "diagnostics": [diagnostic.to_dict() for diagnostic in self.diagnostics],
         }
         if not debug:

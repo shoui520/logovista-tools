@@ -133,10 +133,23 @@ def sidecar_debug_details(sidecar: SidecarInfo, anchor_id: str) -> JsonObject:
     }
 
 
+def decode_sidecar_text_field(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        for encoding in ("utf-8", "cp932"):
+            try:
+                return value.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+        return ""
+    return str(value)
+
+
 def sidecar_body_from_row(sidecar: SidecarInfo, row: sqlite3.Row) -> SidecarBody | None:
-    title = str(row[sidecar.title_column]) if sidecar.title_column and row[sidecar.title_column] is not None else ""
-    html_value = str(row[sidecar.html_column]) if sidecar.html_column and row[sidecar.html_column] is not None else ""
-    plain_value = str(row[sidecar.plain_column]) if sidecar.plain_column and row[sidecar.plain_column] is not None else ""
+    title = decode_sidecar_text_field(row[sidecar.title_column]) if sidecar.title_column else ""
+    html_value = decode_sidecar_text_field(row[sidecar.html_column]) if sidecar.html_column else ""
+    plain_value = decode_sidecar_text_field(row[sidecar.plain_column]) if sidecar.plain_column else ""
     text = plain_value.strip() or strip_html(html_value) or title.strip()
     if not (text or html_value or title):
         return None
