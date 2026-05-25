@@ -4,11 +4,25 @@ import sqlite3
 from pathlib import Path
 
 from logovista_tools.colscr import parse_colscr_image_header
-from logovista_tools.entries import DictionarySource, decode_tokens, discover_dictionaries, normalize_fullwidth_ascii, tokens_to_text
+from logovista_tools.entries import (
+    DictionarySource,
+    decode_tokens,
+    discover_dictionaries,
+    iter_entry_slices_with_boundaries,
+    normalize_fullwidth_ascii,
+    tokens_to_text,
+)
 from logovista_tools.gaiji import parse_ga16_resource, parse_uni_resource
 from logovista_tools.indexes import scan_index_component
-from logovista_tools.menus import parse_menu_stream
-from logovista_tools.panels import iter_panel_cells, iter_panel_data_references, parse_panel_bin
+from logovista_tools.menus import parse_menu_stream, resolve_menu_record_destinations
+from logovista_tools.panels import (
+    iter_panel_cells,
+    iter_panel_data_references,
+    iter_panel_references,
+    panel_bin_navigation_rows,
+    panel_cell_navigation_row,
+    parse_panel_bin,
+)
 from logovista_tools.pcmdata import iter_pcm_references, parse_pcmdata_record
 from logovista_tools.repacker import repack_dictionary_source
 from logovista_tools.rendererdb import (
@@ -91,6 +105,24 @@ def rendererdb_args(**overrides) -> argparse.Namespace:
     }
     values.update(overrides)
     return argparse.Namespace(**values)
+
+
+def scan_fixture_index_component(fixture_name: str, component: str):
+    root = fixture(fixture_name)
+    idx = next(root.glob("*.IDX"))
+    _title, elements = parse_ssedinfo(idx)
+    element = next(row for row in elements if row.filename == component)
+    rows = []
+    result = scan_index_component(
+        component,
+        element.type,
+        expand_sseddata_file(root / component),
+        element.start,
+        gaiji="drop",
+        gaiji_map={},
+        emit_row=rows.append,
+    )
+    return result, rows, element
 
 
 def test_synthetic_fixture_manifest_is_complete() -> None:
@@ -230,6 +262,33 @@ def test_title_and_index_fixtures_resolve_body_and_title_pointers() -> None:
         assert leaf["title"]["block"] >= 2
 
 
+def test_simple_and_tagged_index_leaf_fixtures_decode_expected_row_shapes() -> None:
+    simple_result, simple_rows, _simple_element = scan_fixture_index_component("simple_index_leaf", "FHINDEX.DIC")
+    simple_leaves = [row for row in simple_rows if row.get("kind") == "leaf"]
+    assert simple_result.leaf_rows == 2
+    assert simple_result.search_groups == 0
+    assert simple_result.unknown_leaf_bytes == 0
+    assert [row["key"] for row in simple_leaves] == ["ALPHA", "BETA"]
+    assert all(row["tagged"] is False for row in simple_leaves)
+    assert [row["body"]["offset"] for row in simple_leaves] == [0, 52]
+    assert [row["title"]["offset"] for row in simple_leaves] == [0, 16]
+
+    tagged_result, tagged_rows, _tagged_element = scan_fixture_index_component("tagged_index_leaf", "FKINDEX.DIC")
+    tagged_leaves = [row for row in tagged_rows if row.get("kind") == "leaf"]
+    assert tagged_result.leaf_rows == 2
+    assert tagged_result.search_groups == 2
+    assert tagged_result.unknown_leaf_bytes == 0
+    assert [row["key"] for row in tagged_leaves] == ["ALPHA", "BETA"]
+    assert all(row["tagged"] is True for row in tagged_leaves)
+    assert [row["target_count_hint"] for row in tagged_leaves] == [1, 1]
+
+    backward_result, backward_rows, _backward_element = scan_fixture_index_component("tagged_index_leaf", "BKINDEX.DIC")
+    backward_leaves = [row for row in backward_rows if row.get("kind") == "leaf"]
+    assert backward_result.search_groups == 2
+    assert [row["key"] for row in backward_leaves] == ["AHPLA", "ATEB"]
+    assert all(row["tagged"] is True for row in backward_leaves)
+
+
 def test_honmon_control_link_and_section_fixtures_decode_through_body_model() -> None:
     controls = expand_sseddata_file(fixture("honmon_common_controls") / "HONMON.DIC")
     tokens, stats = decode_tokens(controls, preserve_sections=True)
@@ -249,18 +308,64 @@ def test_honmon_control_link_and_section_fixtures_decode_through_body_model() ->
     assert link_stats["links"] == 1
 
 
+def test_honmon_index_boundary_fixture_keeps_non_entry_sections_inside_parent() -> None:
+    root = fixture("honmon_index_boundary_slicing")
+    honmon = expand_sseddata_file(root / "HONMON.DIC")
+    _result, rows, _element = scan_fixture_index_component("honmon_index_boundary_slicing", "FHINDEX.DIC")
+    boundary_offsets = [
+        (row["body"]["block"] - 2) * 2048 + row["body"]["offset"]
+        for row in rows
+        if row.get("kind") == "leaf"
+    ]
+
+    slices = list(iter_entry_slices_with_boundaries(honmon, boundary_offsets))
+    rendered = []
+    for start, end in slices:
+        tokens, _stats = decode_tokens(honmon[start:end], preserve_sections=True)
+        rendered.append(tokens_to_text(tokens))
+
+    assert len(slices) == 2
+    assert rendered[0].startswith("<section:0001>parent")
+    assert "<section:0002>child section" in rendered[0]
+    assert rendered[1].startswith("<section:0001>next")
+
+
+def test_nonliteral_gaiji_marker_fixture_is_available_as_marker_not_text() -> None:
+    data = expand_sseddata_file(fixture("nonliteral_gaiji_marker") / "HONMON.DIC")
+
+    placeholder_tokens, placeholder_stats = decode_tokens(data, gaiji="placeholder", preserve_sections=True)
+    assert placeholder_stats["gaiji"] == 1
+    assert "<zB162>" in tokens_to_text(placeholder_tokens)
+
+    user_tokens, user_stats = decode_tokens(data, gaiji="h-placeholder", preserve_sections=True)
+    assert user_stats["gaiji"] == 1
+    assert tokens_to_text(user_tokens) == "<section:0001>marker\nbeforeafter"
+
+
 def test_menu_and_toc_navigation_fixtures_decode() -> None:
     menu_root = fixture("menu_body_targets")
     _title, elements = parse_ssedinfo(menu_root / "MENUBODY.IDX")
-    menu = next(row for row in elements if row.filename == "MENU.DIC")
     parsed = parse_menu_stream(expand_sseddata_file(menu_root / "MENU.DIC"))
     assert parsed.stats["destinations"] == 1
     assert parsed.records[0].links[0].destination.block == 2
+    assert resolve_menu_record_destinations(parsed.records, elements) == 1
+    assert parsed.records[0].destination.target.kind == "body"
+
+    menu_menu_root = fixture("menu_menu_targets")
+    _menu_title, menu_elements = parse_ssedinfo(menu_menu_root / "MENUMENU.IDX")
+    menu_to_menu = parse_menu_stream(expand_sseddata_file(menu_menu_root / "MENU.DIC"))
+    assert menu_to_menu.records[0].label() == "submenu"
+    assert resolve_menu_record_destinations(menu_to_menu.records, menu_elements) == 1
+    assert menu_to_menu.records[0].destination.target.kind == "menu"
+    assert menu_to_menu.records[0].destination.target.component == "MENU.DIC"
 
     toc_root = fixture("toc_tree_targets")
-    toc = expand_sseddata_file(toc_root / "TOC.DIC")
-    assert b"\x1f\x49" in toc
-    assert b"\x1f\x69" in toc
+    _toc_title, toc_elements = parse_ssedinfo(toc_root / "TOCTREE.IDX")
+    toc = parse_menu_stream(expand_sseddata_file(toc_root / "TOC.DIC"))
+    assert toc.records[0].links[0].control == "1f49"
+    assert toc.records[0].links[0].destination.encoding == "toc-big-endian"
+    assert resolve_menu_record_destinations(toc.records, toc_elements) == 1
+    assert toc.records[0].destination.target.kind == "body"
 
 
 def test_gaiji_fixture_families_parse() -> None:
@@ -298,6 +403,9 @@ def test_media_fixtures_decode() -> None:
 def test_panel_fixtures_decode() -> None:
     cells = list(iter_panel_cells(fixture("panel_xml_cells") / "Panels.xml"))
     assert cells and cells[0].label == "あ"
+    cell_row = panel_cell_navigation_row(cells[0])
+    assert cell_row.target_kind == "panel"
+    assert cell_row.ref == "01010000"
 
     refs = list(iter_panel_data_references(fixture("panel_cell_to_entry_address") / "Panels.xml"))
     assert refs and refs[0].filename == "Panel\\kana.bin"
@@ -305,6 +413,26 @@ def test_panel_fixtures_decode() -> None:
     panel = parse_panel_bin((fixture("panel_bin_rows") / "Panel" / "kana.bin").read_bytes())
     assert panel.format == "address_label"
     assert [record.text for record in panel.records] == ["あ", "い"]
+
+    panel_root = fixture("panel_cell_to_entry_address")
+    _title, elements = parse_ssedinfo(panel_root / "PANELADR.IDX")
+    inline_cells = list(iter_panel_cells(panel_root / "Panels.xml"))
+    inline_row = panel_cell_navigation_row(inline_cells[0], elements=elements)
+    assert inline_row.label == "alpha"
+    assert inline_row.target_kind == "body"
+    assert inline_row.target.component == "HONMON.DIC"
+
+    external_refs = list(iter_panel_references(panel_root / "Panels.xml"))
+    external_panel = parse_panel_bin((panel_root / "Panel" / "kana.bin").read_bytes())
+    navigation_rows = panel_bin_navigation_rows(
+        external_refs[0],
+        external_panel,
+        resolved_path=panel_root / "Panel" / "kana.bin",
+        elements=elements,
+    )
+    assert navigation_rows[0].label == "alpha"
+    assert navigation_rows[0].target_kind == "body"
+    assert navigation_rows[0].target.component == "HONMON.DIC"
 
 
 def test_dense_and_sidecar_sqlite_fixtures_have_expected_tables() -> None:

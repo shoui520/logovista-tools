@@ -649,7 +649,7 @@ def fixture_panel_cell_to_entry_address() -> None:
         """<?xml version="1.0" encoding="utf-8"?>
 <panels version="1.0">
   <panel index="04000000" paneltype="menu" count_x="1">
-    <data><cell action_verb="lved.addr:00000002:0000">alpha</cell></data>
+    <data><cell action_verb="lved.addr00000002:0000">alpha</cell></data>
   </panel>
   <panel index="01010000" paneltype="contents" datatype="external">
     <data type="bin" filename="Panel\\kana.bin" />
