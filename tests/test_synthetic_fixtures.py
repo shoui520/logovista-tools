@@ -230,6 +230,21 @@ def test_kw_cr_multi_index_fixtures_have_decodable_rows() -> None:
         assert any(str(row["key"]).casefold() == expected_key for row in rows)
 
 
+def test_kw_index_synthetic_fixtures_use_grouped_keyword_rows() -> None:
+    for fixture_name in ("kw_cr_title_index", "lossless_repack_representative"):
+        result, rows, _element = scan_fixture_index_component(fixture_name, "KWINDEX.DIC")
+        leaves = [row for row in rows if row.get("kind") == "leaf"]
+
+        assert result.unknown_leaf_bytes == 0
+        assert result.search_groups == 1
+        assert result.leaf_rows == 2
+        assert [row["key"] for row in leaves] == ["KEYWORD", "KEYWORD"]
+        assert all(row["tagged"] is True for row in leaves)
+        assert all(row["target_count_hint"] == 2 for row in leaves)
+        assert {row["title"]["offset"] for row in leaves} == {0}
+        assert [row["body"]["offset"] for row in leaves] == [0, 52]
+
+
 def test_title_and_index_fixtures_resolve_body_and_title_pointers() -> None:
     cases = {
         "basic_bidirectional_title_index": ("FHINDEX.DIC", "alpha"),

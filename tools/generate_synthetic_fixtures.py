@@ -23,6 +23,7 @@ from logovista_tools.writer import (
     GaijiAllocator,
     IndexPointer,
     IndexTarget,
+    KeywordIndexGroup,
     SsedInfoComponent,
     WriterEntry,
     WriterMenuItem,
@@ -36,7 +37,7 @@ from logovista_tools.writer import (
     encode_ccaltstr_table,
     encode_ga16_resource,
     encode_honmon_stream,
-    encode_keyword_index_pages,
+    encode_grouped_keyword_index_pages,
     encode_menu_stream,
     encode_panel_bin,
     encode_search_key,
@@ -220,10 +221,20 @@ def package_with_indexes(
         )
     if kw:
         kwtitle_start = cursor
-        kwtitle, kw_offsets = encode_title_stream(["keyword alpha"], gaiji)
+        kwtitle, kw_offsets = encode_title_stream(["keyword alpha", "keyword beta"], gaiji)
         cursor += logical_block_count(kwtitle)
         kwindex_start = cursor
-        kwindex = encode_keyword_index_pages([IndexTarget("keyword", body_ptrs[0], IndexPointer(kwtitle_start, kw_offsets[0]))], start_block=kwindex_start, gaiji=gaiji)
+        kwindex = encode_grouped_keyword_index_pages(
+            [
+                KeywordIndexGroup(
+                    "keyword",
+                    IndexPointer(kwtitle_start, kw_offsets[0]),
+                    tuple(body_ptrs[:2]),
+                )
+            ],
+            start_block=kwindex_start,
+            gaiji=gaiji,
+        )
         cursor += logical_block_count(kwindex)
         components.extend([Component("KWTITLE.DIC", 0x03, kwtitle, kwtitle_start), Component("KWINDEX.DIC", 0x80, kwindex, kwindex_start)])
     if cr:
