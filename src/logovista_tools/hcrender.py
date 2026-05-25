@@ -8,6 +8,7 @@ they are not treated as exact renderer parity.
 from __future__ import annotations
 
 import argparse
+import filecmp
 import html
 import json
 import os
@@ -6934,15 +6935,42 @@ def _copy_package_asset(source: DictionarySource, value: str, out_dir: Path) -> 
     source_path = _resolve_package_relative(source, value)
     if source_path is None:
         return False
-    target_path = out_dir / relative
+    target_path = out_dir / _package_output_relative(source, relative, source_path)
+    return _copy_file_if_changed(source_path, target_path)
+
+
+def _package_output_relative(source: DictionarySource, requested: Path, source_path: Path) -> Path:
+    """Return the output-relative path, preserving actual package filename case."""
+
+    source_resolved = source_path.resolve()
+    if requested.parts and requested.parts[0].casefold() == "templates":
+        for root in candidate_package_roots(source.idx):
+            for template_dir in companion_template_dirs(root):
+                try:
+                    suffix = source_resolved.relative_to(template_dir.resolve())
+                except ValueError:
+                    continue
+                return Path("Templates") / suffix
+    for root in candidate_package_roots(source.idx):
+        try:
+            return source_resolved.relative_to(root.resolve())
+        except ValueError:
+            continue
+    return requested
+
+
+def _copy_file_if_changed(source_path: Path, target_path: Path) -> bool:
+    """Copy a file when missing or byte-different; return true only on writes."""
+
     target_path.parent.mkdir(parents=True, exist_ok=True)
     source_stat = source_path.stat()
     if not target_path.exists():
         shutil.copy2(source_path, target_path)
-    else:
-        target_stat = target_path.stat()
-        if source_stat.st_size != target_stat.st_size or source_stat.st_mtime_ns != target_stat.st_mtime_ns:
-            shutil.copy2(source_path, target_path)
+        return True
+    target_stat = target_path.stat()
+    if source_stat.st_size == target_stat.st_size and filecmp.cmp(source_path, target_path, shallow=False):
+        return False
+    shutil.copy2(source_path, target_path)
     return True
 
 
@@ -6956,16 +6984,8 @@ def _copy_package_directory_assets(source: DictionarySource, dirname: str, out_d
         if _is_viewer_navigation_image_ref(rel.as_posix()):
             continue
         target_path = out_dir / rel
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        source_stat = path.stat()
-        if not target_path.exists():
-            shutil.copy2(path, target_path)
+        if _copy_file_if_changed(path, target_path):
             copied += 1
-        else:
-            target_stat = target_path.stat()
-            if source_stat.st_size != target_stat.st_size or source_stat.st_mtime_ns != target_stat.st_mtime_ns:
-                shutil.copy2(path, target_path)
-                copied += 1
     return copied
 
 
@@ -8196,19 +8216,32 @@ def _rewrite_exact_body_asset_refs(
 ) -> str:
     """Rewrite bare renderer-sidecar asset names to copied package assets."""
 
+    def output_path_for_relative(relative: Path) -> Path | None:
+        case_match = resolve_case_insensitive_path(dict_out, relative)
+        if case_match is not None and case_match.is_file():
+            return case_match
+        direct = dict_out / relative
+        if direct.is_file():
+            return direct
+        return None
+
     def horizontal_variant(path: Path) -> Path | None:
         if not prefer_horizontal_assets:
             return None
         horizontal_name = _horizontal_asset_name(path.name)
         if horizontal_name is None:
             return None
-        candidate = path.with_name(horizontal_name)
-        if candidate.is_file():
-            return candidate
-        case_match = find_case_insensitive(path.parent, horizontal_name)
-        if case_match is not None and case_match.is_file():
-            return case_match
-        return None
+        try:
+            relative = path.relative_to(dict_out).with_name(horizontal_name)
+        except ValueError:
+            case_match = find_case_insensitive(path.parent, horizontal_name)
+            if case_match is not None and case_match.is_file():
+                return case_match
+            candidate = path.with_name(horizontal_name)
+            if candidate.is_file():
+                return candidate
+            return None
+        return output_path_for_relative(relative)
 
     def mapped_asset(src: str) -> str | None:
         lower = src.lower()
@@ -8225,23 +8258,24 @@ def _rewrite_exact_body_asset_refs(
             if index < len(placeholder_media_sources):
                 return placeholder_media_sources[index]
         if "/" in src:
-            direct = dict_out / src
+            relative = Path(src)
+            direct = dict_out / relative
             horizontal = horizontal_variant(direct)
             if horizontal is not None:
                 return _relative_browser_path(horizontal, dict_out)
-            if direct.is_file():
-                return src
-            case_match = resolve_case_insensitive_path(dict_out, Path(src))
-            if case_match is not None and case_match.is_file():
+            case_match = output_path_for_relative(relative)
+            if case_match is not None:
                 horizontal = horizontal_variant(case_match)
                 return _relative_browser_path(horizontal or case_match, dict_out)
             return None
-        direct = dict_out / src
+        relative = Path(src)
+        direct = dict_out / relative
         horizontal = horizontal_variant(direct)
         if horizontal is not None:
             return _relative_browser_path(horizontal, dict_out)
-        if direct.is_file():
-            return src
+        case_match = output_path_for_relative(relative)
+        if case_match is not None:
+            return _relative_browser_path(case_match, dict_out)
         for dirname in (
             "Templates",
             "HANREI/img",
@@ -8253,13 +8287,12 @@ def _rewrite_exact_body_asset_refs(
             f"rendererdb/{dict_out.name}/media",
             "rendererdb/media",
         ):
-            candidate = dict_out / dirname / src
+            relative = Path(dirname) / src
+            candidate = dict_out / relative
             horizontal = horizontal_variant(candidate)
             if horizontal is not None:
                 return _relative_browser_path(horizontal, dict_out)
-            if candidate.is_file():
-                return _relative_browser_path(candidate, dict_out)
-            case_match = find_case_insensitive(dict_out / dirname, src)
+            case_match = output_path_for_relative(relative)
             if case_match is not None and case_match.is_file():
                 horizontal = horizontal_variant(case_match)
                 return _relative_browser_path(horizontal or case_match, dict_out)
