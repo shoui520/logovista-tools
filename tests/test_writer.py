@@ -75,7 +75,7 @@ from logovista_tools.writer_import import (
     normalize_lookup_key,
     structured_content_to_body_markup,
 )
-from logovista_tools.writer_jmdict import build_jmdict_writer_package
+from logovista_tools.writer_jmdict import LOGOVISTA_DUMMY_GIF, build_jmdict_writer_package
 from logovista_tools.writer_verify import verify_written_package
 
 
@@ -1330,6 +1330,7 @@ def test_jmdict_writer_emits_navigation_panels_templates_and_ccaltstr(tmp_path) 
     }
     assert (75, 150) in template_png_sizes
     assert (150, 150) in template_png_sizes
+    assert (package / "Templates" / "dummy.gif").read_bytes() == LOGOVISTA_DUMMY_GIF
     assert (package / "CCALTSTR.FU").is_file() or (package / "CCALTSTR.HA").is_file()
     assert (tmp_path / "showcase" / "index.html").is_file()
     uni = parse_uni_resource(package / "JMDICT.uni")

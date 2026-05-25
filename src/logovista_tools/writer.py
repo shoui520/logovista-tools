@@ -1269,16 +1269,14 @@ def encode_keyword_index_pages(
     leading row tag.
     """
 
-    encoded_targets: list[tuple[bytes, IndexTarget]] = []
+    records: list[tuple[bytes, bytes]] = []
     for target in targets:
         key_bytes = _try_encode_search_key(target.key, gaiji)
         if key_bytes is None:
             continue
-        encoded_targets.append((key_bytes, target))
-    sorted_targets = sorted(encoded_targets, key=lambda row: row[0])
-    records: list[tuple[bytes, bytes]] = []
-    for key_bytes, target in sorted_targets:
-        records.append((b"\x00" + bytes([len(key_bytes)]) + key_bytes + pointer_pair(target.body, target.title), key_bytes))
+        row = b"\x00" + bytes([len(key_bytes)]) + key_bytes + pointer_pair(target.body, target.title)
+        records.append((row, key_bytes))
+    records.sort(key=lambda row: row[1])
     return _encode_index_tree(records, start_block=start_block)
 
 

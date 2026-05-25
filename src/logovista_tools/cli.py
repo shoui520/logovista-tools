@@ -2983,7 +2983,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_write_plain.add_argument(
         "--jmdict-english-keywords-per-entry",
         type=int,
-        default=4,
+        default=2,
         help="Maximum English gloss keyword tokens to add per JMdict entry to KWINDEX.DIC.",
     )
     p_write_plain.add_argument("--showcase-out-dir", type=Path, help="Write a standalone JMdict feature showcase HTML directory.")

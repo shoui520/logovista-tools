@@ -85,6 +85,9 @@ BITMAP_FONT_PREFERENCES = (
     "chinese/simsunb.ttf",
     "chinese/SimsunExtG.ttf",
 )
+LOGOVISTA_DUMMY_GIF = bytes.fromhex(
+    "47494638396101000100800000ffffff00000021f90401000000002c00000000010001000002024401003b"
+)
 
 SEARCH_IGNORABLE = {
     " ",
@@ -592,21 +595,10 @@ def _ascii_fallback(text: str) -> str:
 
 
 def _keywords_for_record(record: JmdictRecord, *, english_limit: int) -> tuple[str, ...]:
-    keys: list[str] = []
-    if record.has_examples:
-        keys.append("entries with examples")
-    if record.priorities:
-        keys.append("common words")
-        keys.extend(record.priorities[:4])
+    glosses: list[str] = []
     for sense in record.senses:
-        keys.extend(sense.pos)
-        keys.extend(sense.fields)
-        keys.extend(sense.misc)
-        keys.extend(sense.dialects)
-        for source in sense.sources:
-            keys.append("source languages")
-            keys.append(source.split(":", 1)[0])
-        keys.extend(_english_keywords(sense.glosses, limit=english_limit))
+        glosses.extend(sense.glosses)
+    keys = list(_english_keywords(glosses, limit=english_limit))
     return tuple(dict.fromkeys(_clean(key) for key in keys if _clean(key)))
 
 
@@ -823,22 +815,25 @@ def _encode_component(
     raise ValueError(f"unknown compression mode: {compression}")
 
 
-def _make_keyword_targets(
+def _iter_keyword_targets(
     result: JmdictImportResult,
     encoded_entries: tuple[Any, ...],
     *,
     kwtitle_start: int,
     kwtitle_offsets: list[int],
-) -> list[IndexTarget]:
-    targets: list[IndexTarget] = []
+) -> Iterable[IndexTarget]:
     for index, keywords in enumerate(result.keyword_keys):
         if index >= len(encoded_entries):
             break
         encoded = encoded_entries[index]
         title = component_offset_to_pointer(kwtitle_start, kwtitle_offsets[index])
         for key in keywords:
-            targets.append(IndexTarget(key=key, body=encoded.body_pointer, title=title))
-    return targets
+            yield IndexTarget(key=key, body=encoded.body_pointer, title=title)
+
+
+def _keyword_target_count(result: JmdictImportResult, encoded_entries: tuple[Any, ...]) -> int:
+    limit = min(len(result.keyword_keys), len(encoded_entries))
+    return sum(len(result.keyword_keys[index]) for index in range(limit))
 
 
 def _pointer_by_headword(package: PlainPackage) -> dict[str, IndexPointer]:
@@ -1169,8 +1164,16 @@ def augment_jmdict_package(
     cursor += kwtitle_blocks
 
     kwindex_start = cursor
-    keyword_targets = _make_keyword_targets(result, package.encoded_entries, kwtitle_start=kwtitle_start, kwtitle_offsets=kwtitle_offsets)
-    kwindex_expanded = encode_keyword_index_pages(keyword_targets, start_block=kwindex_start, gaiji=package.gaiji_allocator)
+    keyword_target_count = _keyword_target_count(result, package.encoded_entries)
+    if progress:
+        progress(f"KWINDEX targets: {keyword_target_count}")
+    kwindex_expanded = encode_keyword_index_pages(
+        _iter_keyword_targets(result, package.encoded_entries, kwtitle_start=kwtitle_start, kwtitle_offsets=kwtitle_offsets),
+        start_block=kwindex_start,
+        gaiji=package.gaiji_allocator,
+    )
+    if progress:
+        progress(f"KWINDEX expanded: {len(kwindex_expanded)} bytes")
     kwindex_blocks = logical_block_count(kwindex_expanded)
     cursor += kwindex_blocks
 
@@ -1234,6 +1237,8 @@ def augment_jmdict_package(
         svg = _template_svg(assignment.text, vector_fonts, space=assignment.space)
         if svg:
             files[base + ".svg"] = svg
+    if any(name.startswith("Templates/") for name in files):
+        files.setdefault("Templates/dummy.gif", LOGOVISTA_DUMMY_GIF)
 
     ccaltstr_counts: dict[str, int] = {}
     half_values = _ccaltstr_values(package.gaiji_allocator.half_assignments)
@@ -1260,7 +1265,7 @@ def augment_jmdict_package(
         panels_xml_bytes=len(files["Panels.xml"]),
         template_gaiji=template_count,
         ccaltstr=ccaltstr_counts,
-        kwindex_targets=len(keyword_targets),
+        kwindex_targets=keyword_target_count,
         menu_items=len(menu_items),
     )
     return updated, report
@@ -1420,7 +1425,7 @@ def build_jmdict_writer_package(args: Any) -> dict[str, Any]:
         progress_every=args.progress_every,
         license_html=getattr(args, "jmdict_license_html", None),
         project_html=getattr(args, "jmdict_project_html", None),
-        english_keyword_limit=getattr(args, "jmdict_english_keywords_per_entry", 4),
+        english_keyword_limit=getattr(args, "jmdict_english_keywords_per_entry", 2),
     )
     if not result.entries:
         raise ValueError("no JMdict entries were imported")
