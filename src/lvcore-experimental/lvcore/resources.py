@@ -105,61 +105,41 @@ class ResourceLocation:
         data["container_kind"] = self.container_kind
         locator = self.locator
         if isinstance(locator, GaijiLocator):
-            data.update(
-                {
-                    "code": locator.code,
-                    "source": locator.source,
-                    "glyph_index": locator.glyph_index,
-                    "glyph_width": locator.glyph_width,
-                    "glyph_height": locator.glyph_height,
-                    "glyph_bytes": locator.glyph_bytes,
-                    "source_path": locator.source_path,
-                    "image_path": locator.image_path,
-                    "display_status": locator.display_status,
-                    "display_text": locator.display_text,
-                    "fallback_text": locator.fallback_text,
-                }
-            )  # type: ignore[arg-type]
+            data["code"] = locator.code
+            data["source"] = locator.source
+            data["glyph_index"] = locator.glyph_index
+            data["glyph_width"] = locator.glyph_width
+            data["glyph_height"] = locator.glyph_height
+            data["glyph_bytes"] = locator.glyph_bytes
+            data["source_path"] = locator.source_path
+            data["image_path"] = locator.image_path
+            data["display_status"] = locator.display_status
+            data["display_text"] = locator.display_text
+            data["fallback_text"] = locator.fallback_text
         elif isinstance(locator, ColscrLocator):
-            data.update(
-                {
-                    "source_component": locator.component,
-                    "record_offset": locator.record_offset,
-                    "record_length": locator.record_length,
-                    "payload_offset": locator.payload_offset,
-                    "payload_length": locator.payload_length,
-                    "target_address": locator.target.to_dict() if locator.target else None,
-                }
-            )  # type: ignore[arg-type]
+            data["source_component"] = locator.component
+            data["record_offset"] = locator.record_offset
+            data["record_length"] = locator.record_length
+            data["payload_offset"] = locator.payload_offset
+            data["payload_length"] = locator.payload_length
+            data["target_address"] = locator.target.to_dict() if locator.target else None
         elif isinstance(locator, PcmRangeLocator):
-            data.update(
-                {
-                    "source_component": locator.component,
-                    "range_start_offset": locator.range_start,
-                    "range_end_offset": locator.range_end,
-                    "payload_offset": locator.payload_offset,
-                    "payload_length": locator.payload_length,
-                    "range_start": locator.start_address.to_dict() if locator.start_address else None,
-                    "range_end": locator.end_address.to_dict() if locator.end_address else None,
-                }
-            )  # type: ignore[arg-type]
+            data["source_component"] = locator.component
+            data["range_start_offset"] = locator.range_start
+            data["range_end_offset"] = locator.range_end
+            data["payload_offset"] = locator.payload_offset
+            data["payload_length"] = locator.payload_length
+            data["range_start"] = locator.start_address.to_dict() if locator.start_address else None
+            data["range_end"] = locator.end_address.to_dict() if locator.end_address else None
         elif isinstance(locator, SidecarBlobLocator):
-            data.update(
-                {
-                    "sidecar": locator.sidecar_name,
-                    "source_table": locator.table,
-                    "source_row_id": locator.row_id,
-                    "blob_column": locator.blob_column,
-                    "payload_length": locator.byte_length,
-                }
-            )  # type: ignore[arg-type]
+            data["sidecar"] = locator.sidecar_name
+            data["source_table"] = locator.table
+            data["source_row_id"] = locator.row_id
+            data["blob_column"] = locator.blob_column
+            data["payload_length"] = locator.byte_length
         elif isinstance(locator, UnresolvedAddress):
-            data.update(
-                {
-                    "unresolved_reason": locator.reason,
-                    "target_address": locator.target.to_dict() if locator.target else None,
-                    "range_start": locator.range_start.to_dict() if locator.range_start else None,
-                    "range_end": locator.range_end.to_dict() if locator.range_end else None,
-                }
-            )  # type: ignore[arg-type]
+            data["unresolved_reason"] = locator.reason
+            data["target_address"] = locator.target.to_dict() if locator.target else None
+            data["range_start"] = locator.range_start.to_dict() if locator.range_start else None
+            data["range_end"] = locator.range_end.to_dict() if locator.range_end else None
         return data

@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Callable, Iterable
 
 from .body_source import (
-    SsedBodySourceKind,
-    select_body_sidecar,
+    BodySourceInfo,
 )
 from .diagnostics import Diagnostic, DiagnosticArea, DiagnosticCode, Severity
-from .errors import FormatError
 from .index import (
     BODY_ONLY_SIMPLE_TYPES,
     BODY_ONLY_TAGGED_TYPES,
@@ -28,7 +25,8 @@ from .index import (
     parse_simple_leaf,
     parse_tagged_leaf,
 )
-from .model import Address, Component, ComponentRole, Entry, SearchProfile, Span
+from .model import Address, Component, ComponentRole, SearchProfile
+from .package_services import IndexStoreDeps
 from .package_utils import (
     EXACT_INDEX_PROBE_PAGES,
     _fold_small_kana_for_index_seek,
@@ -36,117 +34,62 @@ from .package_utils import (
     _jis_symbol_index_query_bytes,
     _title_surface_query_bytes,
 )
-from .render import HtmlProfile
+from .reader import EntryTarget
 from .scan import ScanBudget
 from .search import SearchHit, SearchHitDebug, SearchResults, TitleResolution, natural_backward_key, normalize_query, query_candidates
 from .ssed import BLOCK_SIZE, CHUNK_SIZE
 
 
-class BodyProvider:
-    """Ordered entry body resolver used by the pre-Rust provider registry."""
-
-    def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
-        raise NotImplementedError
-
-
-class BodyStreamProvider(BodyProvider):
-    def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
-        honmon = package.honmon_component()
-        if not inspection.anchor_id and honmon is not None and honmon.path is not None:
-            return package._entry_from_body_stream_pointer(hit)
-        source = source_getter()
-        if source.ssed_kind == SsedBodySourceKind.BODY_STREAM:
-            return package._entry_from_body_stream_pointer(hit)
-        return None
-
-
-class DenseAnchorSidecarBodyProvider(BodyProvider):
-    """Resolve a dense-anchor body through one supported sidecar schema."""
-
-    SUPPORTED = {
-        SsedBodySourceKind.DENSE_ANCHOR_TABLE,
-        SsedBodySourceKind.DENSE_MARKER_TABLE,
-        SsedBodySourceKind.DENSE_ANCHOR_WITH_SIDECAR,
-        SsedBodySourceKind.RENDERER_SQLITE_SIDECAR,
-        SsedBodySourceKind.DICTFULLDB_SIDECAR,
-        SsedBodySourceKind.HONBUN_SIDECAR,
-        SsedBodySourceKind.VLPLJBL_SIDECAR,
-        SsedBodySourceKind.SIDECAR_UNKNOWN,
-    }
-    kind: str
-
-    def __init__(self, kind: str) -> None:
-        self.kind = kind
-
-    def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
-        source = source_getter()
-        if source.ssed_kind not in self.SUPPORTED:
-            return None
-        sidecar = select_body_sidecar(source.sidecars, kind=self.kind)
-        if sidecar is not None:
-            return package._entry_from_sidecar(hit, sidecar, inspection)
-        return None
-
-
-class DeferredDenseSidecarProvider(BodyProvider):
-    SUPPORTED = DenseAnchorSidecarBodyProvider.SUPPORTED
-
-    def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
-        source = source_getter()
-        if source.ssed_kind not in self.SUPPORTED:
-            return None
-        return package._placeholder_entry(
-            hit.debug_info.body,
-            headword=hit.heading,
-            code="unsupported_body_source",
-            message="SSED dense HONMON body source is not renderable without a supported sidecar",
-            severity=Severity.ERROR,
-            details={"body_source": source.ssed_kind.value},
-        )
-
-
-class MissingBodyComponentProvider(BodyProvider):
-    def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
-        source = source_getter()
-        if source.ssed_kind != SsedBodySourceKind.MISSING_BODY_COMPONENT:
-            return None
-        return package._placeholder_entry(
-            hit.debug_info.body,
-            headword=hit.heading,
-            code="missing_body_component",
-            message="local SSED package declares no readable HONMON component for entry bodies",
-            severity=Severity.WARNING,
-            details={"body_source": source.ssed_kind.value, "missing_component": "HONMON.DIC"},
-        )
-
-
-class UnsupportedBodyProvider(BodyProvider):
-    def resolve(self, package: "PackageSearchMixin", hit: SearchHit, inspection, source_getter) -> Entry | None:
-        source = source_getter()
-        return package._placeholder_entry(
-            hit.debug_info.body,
-            headword=hit.heading,
-            code="unsupported_body_source",
-            message="entry body source is not supported by lvcore",
-            severity=Severity.ERROR,
-            details={"body_source": source.ssed_kind.value},
-        )
-
-
-BODY_PROVIDERS: tuple[BodyProvider, ...] = (
-    BodyStreamProvider(),
-    DenseAnchorSidecarBodyProvider("t_contents"),
-    DenseAnchorSidecarBodyProvider("honbun"),
-    DenseAnchorSidecarBodyProvider("main_wordlist"),
-    DenseAnchorSidecarBodyProvider("sqlite_body"),
-    DeferredDenseSidecarProvider(),
-    MissingBodyComponentProvider(),
-    UnsupportedBodyProvider(),
-)
-
-
-class PackageSearchMixin:
+class IndexStore:
     """Title/index/search methods for LogoVistaPackage."""
+
+    def __init__(self, deps: IndexStoreDeps) -> None:
+        self._deps = deps
+        self._index_cache: dict[str, IndexParse] = {}
+
+    def clear(self) -> None:
+        self._index_cache.clear()
+
+    @property
+    def info(self):
+        return self._deps.info
+
+    @property
+    def gaiji_mapping(self) -> dict[str, str]:
+        return self._deps.gaiji_mapping()
+
+    def component(self, name: str) -> Component | None:
+        return self._deps.component(name)
+
+    def components_by_role(self, role: ComponentRole) -> tuple[Component, ...]:
+        return self._deps.components_by_role(role)
+
+    def component_for_address(self, address: Address, *, role: ComponentRole | None = None) -> Component | None:
+        return self._deps.component_for_address(address, role)
+
+    def data(self, component: str | Component):
+        return self._deps.data(component)
+
+    def expanded(self, component: str | Component) -> bytes:
+        return self._deps.expanded(component)
+
+    def _relative_offset(self, component: Component, address: Address) -> int:
+        return self._deps.relative_offset(component, address)
+
+    def _qualified_address(self, address: Address, *, role: ComponentRole | None = None) -> Address:
+        return self._deps.qualified_address(address, role)
+
+    def _location_for_address(self, address: Address, *, role: ComponentRole | None = None):
+        return self._deps.location_for_address(address, role)
+
+    def decode_component(self, component: str | Component):
+        return self._deps.decode_component(component)
+
+    def _decode_text_stream(self, data: bytes, *, renderer_entry_backed: bool = False):
+        return self._deps.decode_text_stream(data, renderer_entry_backed)
+
+    def body_source(self, *, debug: bool = False) -> BodySourceInfo:
+        return self._deps.body_source(debug)
 
     @staticmethod
     def _scan_budget_diagnostics(budget: ScanBudget) -> tuple[Diagnostic, ...]:
@@ -321,7 +264,7 @@ class PackageSearchMixin:
                 continue
             key = item.name.casefold()
             if key not in self._index_cache:
-                self._index_cache[key] = parse_index(self.expanded(item), item.start_block, item.type, self.gaiji.mapping)
+                self._index_cache[key] = parse_index(self.expanded(item), item.start_block, item.type, self.gaiji_mapping)
             out[item.name] = self._index_cache[key]
         return out
 
@@ -334,6 +277,8 @@ class PackageSearchMixin:
             return name.startswith(("FK", "FH", "KW"))
         if profile == SearchProfile.BACKWARD:
             return name.startswith(("BK", "BH"))
+        if profile == SearchProfile.SEQUENTIAL:
+            return not name.startswith(("BK", "BH"))
         return True
 
     @staticmethod
@@ -396,6 +341,12 @@ class PackageSearchMixin:
         if profile == SearchProfile.FORWARD:
             for value, normalized_value in zip(natural_values, natural_normalized):
                 if normalized_value.startswith(normalized_query) or any(value.startswith(candidate) for candidate in raw_candidates):
+                    return value
+            return None
+
+        if profile == SearchProfile.SEQUENTIAL:
+            for value, normalized_value in zip(natural_values, natural_normalized):
+                if normalized_query in normalized_value or any(candidate and candidate in value for candidate in raw_candidates):
                     return value
             return None
 
@@ -486,7 +437,7 @@ class PackageSearchMixin:
             word = int.from_bytes(page[:2], "big")
             if is_leaf(word):
                 return page_index
-            rows = parse_internal_page(page, page_index, self.gaiji.mapping)
+            rows = parse_internal_page(page, page_index, self.gaiji_mapping)
             if not rows:
                 return page_index
             chosen = rows[-1]
@@ -516,7 +467,7 @@ class PackageSearchMixin:
             word = int.from_bytes(page[:2], "big")
             if is_leaf(word):
                 return page_index
-            rows = parse_internal_page(page, page_index, self.gaiji.mapping)
+            rows = parse_internal_page(page, page_index, self.gaiji_mapping)
             if not rows:
                 return page_index
             chosen = rows[0]
@@ -552,7 +503,7 @@ class PackageSearchMixin:
             word = int.from_bytes(page[:2], "big")
             if is_leaf(word):
                 return page_index
-            rows = parse_internal_page(page, page_index, self.gaiji.mapping)
+            rows = parse_internal_page(page, page_index, self.gaiji_mapping)
             if not rows:
                 return page_index
             chosen = rows[-1]
@@ -600,6 +551,8 @@ class PackageSearchMixin:
         )
         if exact_requires_full_scan or not query:
             start_pages = (0,)
+        elif profile == SearchProfile.SEQUENTIAL:
+            start_pages = (0,)
         elif query_key_byte_candidates:
             pages: list[int] = []
             for candidate in query_key_byte_candidates:
@@ -612,7 +565,7 @@ class PackageSearchMixin:
             start_pages = tuple(dict.fromkeys(pages))
         else:
             start_pages = (self._seek_index_leaf_page(component, query, backward=backward),)
-        max_pages = total_pages if exact_requires_full_scan else (EXACT_INDEX_PROBE_PAGES if query and profile == SearchProfile.EXACT else total_pages)
+        max_pages = total_pages if exact_requires_full_scan or profile == SearchProfile.SEQUENTIAL else (EXACT_INDEX_PROBE_PAGES if query and profile == SearchProfile.EXACT else total_pages)
         seen_rows: set[tuple[int, int, int, int, int, int, str, str | None]] = set()
         tagged_component = component_type in TAGGED_TYPES | BODY_ONLY_TAGGED_TYPES | KEYWORD_TYPES | CROSS_REFERENCE_TYPES | MULTI_SELECTOR_TYPES
         for start_page in start_pages:
@@ -622,7 +575,7 @@ class PackageSearchMixin:
                     return
                 previous = reader.read((start_page - 1) * BLOCK_SIZE, BLOCK_SIZE)
                 if len(previous) == BLOCK_SIZE and is_leaf(int.from_bytes(previous[:2], "big")):
-                    seeded = parse_tagged_leaf(previous, start_page - 1, self.gaiji.mapping, component_type=component_type, context=None)
+                    seeded = parse_tagged_leaf(previous, start_page - 1, self.gaiji_mapping, component_type=component_type, context=None)
                     context = seeded.context
             for page_index in range(start_page, min(total_pages, start_page + max_pages)):
                 pos = page_index * BLOCK_SIZE
@@ -634,11 +587,11 @@ class PackageSearchMixin:
                         break
                     continue
                 if component_type in SIMPLE_TYPES:
-                    parsed = parse_simple_leaf(page, page_index, self.gaiji.mapping)
+                    parsed = parse_simple_leaf(page, page_index, self.gaiji_mapping)
                 elif component_type in BODY_ONLY_SIMPLE_TYPES:
-                    parsed = parse_simple_leaf(page, page_index, self.gaiji.mapping, body_only=True)
+                    parsed = parse_simple_leaf(page, page_index, self.gaiji_mapping, body_only=True)
                 elif tagged_component:
-                    parsed = parse_tagged_leaf(page, page_index, self.gaiji.mapping, component_type=component_type, context=context)
+                    parsed = parse_tagged_leaf(page, page_index, self.gaiji_mapping, component_type=component_type, context=context)
                     context = parsed.context
                 else:
                     continue
@@ -805,6 +758,15 @@ class PackageSearchMixin:
             body_source=self.body_source(debug=True) if debug else None,
             title_resolution=title_resolution,
         )
+        target = EntryTarget.native_index_hit(
+            package_id=self.info.dict_id,
+            label=heading,
+            body=body,
+            title=title,
+            index_component=component_name,
+            page=row.page,
+            row=row.row,
+        )
         return SearchHit(
             id=hit_id,
             query=query,
@@ -818,15 +780,12 @@ class PackageSearchMixin:
             heading_source=heading_source,
             title_status=title_status,
             tagged=row.tagged,
+            target=target,
             debug_info=debug_info,
             title_diagnostic_code=title_diagnostic_code,
             title_reason=title_reason,
             diagnostics=diagnostics,
         )
-
-    @staticmethod
-    def _entry_with_hit_headword(entry: Entry, hit: SearchHit) -> Entry:
-        return replace(entry, headword=hit.heading or hit.display_key or entry.headword)
 
     def search(
         self,
@@ -907,64 +866,3 @@ class PackageSearchMixin:
             if len(hits) >= limit:
                 return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits), diagnostics=self._scan_budget_diagnostics(budget))
         return SearchResults(query=query, normalized_query=normalized_query, profile=profile, hits=tuple(hits), diagnostics=self._scan_budget_diagnostics(budget))
-
-    def search_entries(
-        self,
-        term: str,
-        *,
-        limit: int = 20,
-        profile: SearchProfile | str = SearchProfile.NATIVE,
-    ) -> list[Entry]:
-        return [self.entry_for_hit(hit) for hit in self.search(term, limit=limit, profile=profile).hits]
-
-    def _entry_from_body_stream_pointer(self, hit: SearchHit) -> Entry:
-        try:
-            return self._entry_or_empty_body_placeholder(
-                self._entry_with_hit_headword(self.entry_at(hit.debug_info.body), hit),
-                hit,
-            )
-        except (FormatError, KeyError, ValueError, OSError) as exc:
-            return self._placeholder_entry(
-                hit.debug_info.body,
-                headword=hit.heading,
-                code="body_pointer_unresolved",
-                message="body pointer could not be resolved to a readable HONMON entry",
-                severity=Severity.ERROR,
-                details={
-                    "body": hit.debug_info.body.to_dict(),
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                },
-            )
-
-    def entry_for_hit(self, hit: SearchHit) -> Entry:
-        inspection = self.inspect_body_pointer(hit.debug_info.body)
-        source_cache = None
-
-        def source_getter():
-            nonlocal source_cache
-            if source_cache is None:
-                source_cache = self.body_source()
-            return source_cache
-
-        for provider in BODY_PROVIDERS:
-            entry = provider.resolve(self, hit, inspection, source_getter)
-            if entry is not None:
-                return entry
-        raise AssertionError("body provider registry did not return an entry")
-
-    def render_hit_html(
-        self,
-        hit: SearchHit,
-        *,
-        profile: HtmlProfile | str = HtmlProfile.FRIENDLY,
-        include_diagnostics: bool = False,
-    ) -> str:
-        return self.render_entry_html(
-            self.entry_for_hit(hit),
-            profile=profile,
-            include_diagnostics=include_diagnostics,
-        )
-
-    def render_hit_text(self, hit: SearchHit) -> str:
-        return self.render_entry_text(self.entry_for_hit(hit))

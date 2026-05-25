@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from typing import Callable
 
 from .document import ResourceKind, ResourceRef, ResourceStatus
 from .gaiji import (
@@ -28,13 +29,44 @@ from .gaiji_resolution import (
     UnresolvedGaijiBacking,
 )
 from .json_types import JsonObject
-from .model import Component, ComponentRole, Span
+from .model import Component, ComponentRole, PackageInfo, Span
 from .package_utils import _media_mime_and_format
+from .resource_probe import media_info_base
+from .ssed import Catalog
 from .text import DecodeResult, decode_text_stream
 
 
-class PackageGaijiMixin:
+class GaijiRegistry:
     """Gaiji mapping and resource methods for LogoVistaPackage."""
+
+    def __init__(
+        self,
+        *,
+        info: PackageInfo,
+        catalog: Catalog,
+        components: tuple[Component, ...],
+        expanded: Callable[[str | Component], bytes],
+        ensure_open: Callable[[], None],
+    ) -> None:
+        self.info = info
+        self.catalog = catalog
+        self.components = components
+        self._expanded = expanded
+        self._ensure_open = ensure_open
+        self._gaiji: GaijiMap | None = None
+        self._gaiji_sources: GaijiSources | None = None
+        self._ga16: tuple[Ga16Resource, ...] | None = None
+        self._gaiji_images: tuple[ImageGaijiResource, ...] | None = None
+        self._gaiji_image_by_code_cache: dict[str, ImageGaijiResource] | None = None
+        self._gaiji_image_info_cache: dict[str, JsonObject | None] = {}
+        self._gaiji_glyph_info_cache: dict[tuple[str, bool], JsonObject | None] = {}
+
+    def clear(self) -> None:
+        self._gaiji_image_info_cache.clear()
+        self._gaiji_glyph_info_cache.clear()
+
+    def expanded(self, component: str | Component) -> bytes:
+        return self._expanded(component)
 
     @staticmethod
     def _load_ga16_resources(sources: GaijiSources) -> tuple[Ga16Resource, ...]:
@@ -360,7 +392,7 @@ class PackageGaijiMixin:
             resource_id = self._gaiji_resource_id(code)
             details = {}
         code = code.lower()
-        info: JsonObject = self._media_info_base(resource_id, ResourceKind.GAIJI.value)
+        info: JsonObject = media_info_base(resource_id, ResourceKind.GAIJI.value)
         info["code"] = code
         if len(code) != 4:
             info["status"] = "malformed"

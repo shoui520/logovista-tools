@@ -5,10 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 import unicodedata
 
+from .body_source import BodySourceInfo
 from .diagnostics import Diagnostic
 from .index import IndexRow
 from .json_types import JsonObject
 from .model import Address, SearchProfile
+from .reader import EntryTarget
 
 SEARCH_HIT_SCHEMA = "lvcore.search_hit.v1"
 SEARCH_HIT_MODEL_VERSION = 1
@@ -91,19 +93,15 @@ class TitleResolution:
             "diagnostic_code": self.title_diagnostic_code,
         }
         if debug:
-            data.update(
-                {
-                    "title": self.title.to_dict(),
-                    "body": self.body.to_dict(),
-                    "raw_title": self.raw_title.to_dict(),
-                    "raw_body": self.raw_body.to_dict(),
-                    "row_title_equals_body": self.row_title_equals_body,
-                    "fallback_heading_source": self.fallback_heading_source,
-                    "raw_title_component": self.raw_title_component,
-                    "raw_title_component_role": self.raw_title_component_role,
-                    "raw_title_component_type": self.raw_title_component_type,
-                }
-            )  # type: ignore[arg-type]
+            data["title"] = self.title.to_dict()
+            data["body"] = self.body.to_dict()
+            data["raw_title"] = self.raw_title.to_dict()
+            data["raw_body"] = self.raw_body.to_dict()
+            data["row_title_equals_body"] = self.row_title_equals_body
+            data["fallback_heading_source"] = self.fallback_heading_source
+            data["raw_title_component"] = self.raw_title_component
+            data["raw_title_component_role"] = self.raw_title_component_role
+            data["raw_title_component_type"] = self.raw_title_component_type
         return data
 
 
@@ -115,7 +113,7 @@ class SearchHitDebug:
     page: int | None = None
     row: int | None = None
     raw_row: IndexRow | None = None
-    body_source: object | None = None
+    body_source: BodySourceInfo | None = None
     title_resolution: TitleResolution | None = None
 
     def to_dict(self) -> JsonObject:
@@ -126,7 +124,7 @@ class SearchHitDebug:
             "page": self.page,
             "row": self.row,
             "raw_row": self.raw_row.to_dict() if self.raw_row else None,
-            "body_source": self.body_source.to_dict(debug=True) if hasattr(self.body_source, "to_dict") else None,
+            "body_source": self.body_source.to_dict(debug=True) if self.body_source else None,
             "title_resolution": self.title_resolution.to_dict(debug=True) if self.title_resolution else None,
         }
 
@@ -145,6 +143,7 @@ class SearchHit:
     heading_source: str
     title_status: str
     tagged: bool
+    target: EntryTarget
     debug_info: SearchHitDebug
     title_diagnostic_code: str | None = None
     title_reason: str | None = None
@@ -167,6 +166,7 @@ class SearchHit:
             "display_key": self.display_key,
             "matched_key": self.matched_key,
             "target_key": self.target_key,
+            "target": self.target.to_dict(debug=debug),
             "tagged": self.tagged,
             "diagnostics": [diagnostic.to_dict() for diagnostic in self.diagnostics],
         }
@@ -174,7 +174,15 @@ class SearchHit:
             data["query"] = self.query
             data["normalized_query"] = self.normalized_query
             data["title_reason"] = self.title_reason
-            data.update(self.debug_info.to_dict())  # type: ignore[arg-type]
+            debug_info = self.debug_info.to_dict()
+            data["index_component"] = debug_info["index_component"]
+            data["body"] = debug_info["body"]
+            data["title"] = debug_info["title"]
+            data["page"] = debug_info["page"]
+            data["row"] = debug_info["row"]
+            data["raw_row"] = debug_info["raw_row"]
+            data["body_source"] = debug_info["body_source"]
+            data["title_resolution"] = debug_info["title_resolution"]
         return data
 
 

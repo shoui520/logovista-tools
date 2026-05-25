@@ -7,6 +7,7 @@ import hashlib
 from pathlib import Path
 import sqlite3
 import tempfile
+from typing import Callable
 
 from .body_source import (
     SQLITE_MAGIC,
@@ -23,13 +24,39 @@ from .body_source import (
 )
 from .crypto import decrypt_logofont_file_to_path, decrypt_logofont_prefix
 from .document import ResourceKind, ResourceRef
-from .model import Address
+from .model import Address, PackageInfo
 from .package_utils import _media_mime_and_format
 from .ssed import is_metadata_noise_path, read_file_prefix
 
 
-class PackageSidecarMixin:
+class SidecarRegistry:
     """Sidecar discovery and supplemental resource methods for LogoVistaPackage."""
+
+    def __init__(self, *, info: PackageInfo, ensure_open: Callable[[], None]) -> None:
+        self.info = info
+        self._ensure_open = ensure_open
+        self._sqlite_sidecar_cache: dict[str, Path] = {}
+        self._sqlite_connection_cache: dict[tuple[str, str], object] = {}
+        self._sqlite_schema_cache: dict[str, SidecarInfo | None] = {}
+        self._sidecar_file_candidates_cache: list[Path] | None = None
+        self._body_sidecars_cache: dict[tuple[bool, bool], tuple[SidecarInfo, ...]] = {}
+        self._tempdir: tempfile.TemporaryDirectory[str] | None = None
+
+    def close(self) -> None:
+        for connection in self._sqlite_connection_cache.values():
+            try:
+                connection.close()
+            except Exception:
+                pass
+        self._sqlite_connection_cache.clear()
+        self._sqlite_sidecar_cache.clear()
+        self._sqlite_schema_cache.clear()
+        self._sidecar_file_candidates_cache = None
+        self._body_sidecars_cache.clear()
+        tempdir = self._tempdir
+        self._tempdir = None
+        if tempdir is not None:
+            tempdir.cleanup()
 
     def _sidecar_file_candidates(self) -> list[Path]:
         self._ensure_open()
@@ -304,11 +331,10 @@ class PackageSidecarMixin:
                     f"substr({quote_sql_identifier(table.blob_column)}, 1, 1024) as __blob_prefix "
                     f"from {quote_sql_identifier(table.table)} order by rowid"
                 )
+                params: tuple[int, ...] = ()
                 if limit is not None:
                     sql += " limit ?"
-                    params: tuple[object, ...] = (max(0, limit - len(resources)),)
-                else:
-                    params = ()
+                    params = (max(0, limit - len(resources)),)
                 try:
                     rows = con.execute(sql, params).fetchall()
                 except sqlite3.DatabaseError:

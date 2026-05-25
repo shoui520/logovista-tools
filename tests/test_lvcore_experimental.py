@@ -17,7 +17,26 @@ LVCORE_AUDIT_SRC = Path(__file__).resolve().parents[1] / "src" / "lvcore-audit"
 sys.path.insert(0, str(LVCORE_SRC))
 sys.path.insert(0, str(LVCORE_AUDIT_SRC))
 
-from lvcore import Address, Diagnostic, DiagnosticArea, Location, PackageFamily, SearchHit, SearchProfile, SearchResults, Severity, SsedBodySourceKind, detect_family, normalize_query, open_package  # noqa: E402
+from lvcore import (  # noqa: E402
+    Address,
+    Diagnostic,
+    DiagnosticArea,
+    EntryTargetKind,
+    HomeSurfaceKind,
+    Location,
+    PackageFamily,
+    ReaderStatus,
+    SearchHit,
+    SearchProfile,
+    SearchResults,
+    Severity,
+    SsedBodySourceKind,
+    VisualBodyKind,
+    detect_family,
+    normalize_query,
+    open_package,
+    open_reader_package,
+)
 from lvcore.body_source import SidecarInfo, SidecarRole, classify_sqlite_sidecar_role, quote_sql_identifier, sqlite_columns  # noqa: E402
 from lvcore.crypto import decrypt_logofont, decrypt_logofont_file_to_path, logofont_key_iv, macos_logofont_key_iv  # noqa: E402
 from lvcore.document import BlockKind, BlockNode, EntryDocument, InlineKind, InlineNode, LinkTargetKind, ResourceKind, ResourceRef, ResourceStatus, build_entry_document  # noqa: E402
@@ -27,7 +46,7 @@ from lvcore.index import IndexRow, parse_index  # noqa: E402
 from lvcore.inspect import InspectorRenderer  # noqa: E402
 from lvcore.model import Component, ComponentRole, Entry, Span  # noqa: E402
 from lvcore.opcodes import OpcodeCategory, behavior_for  # noqa: E402
-from lvcore.package_entries import PackageEntryMixin  # noqa: E402
+from lvcore.package_entries import EntryStore  # noqa: E402
 from lvcore.render import GaijiPolicy, HtmlProfile, render_html, render_text  # noqa: E402
 from lvcore.resources import ColscrLocator, PcmRangeLocator, SidecarBlobLocator  # noqa: E402
 from lvcore.ssed import BLOCK_SIZE, CHUNK_SIZE, CaseFoldedDirectory, SsedData, expand_sseddata, parse_catalog  # noqa: E402
@@ -71,13 +90,25 @@ def test_lvcore_top_level_exports_reader_facing_api_only() -> None:
     raw_exports = {
         "Component",
         "ComponentRole",
+        "BlockKind",
+        "BlockNode",
+        "EntryDocument",
+        "GaijiPolicy",
+        "HtmlProfile",
         "IndexRow",
+        "InlineKind",
+        "InlineNode",
         "InspectorRenderer",
+        "LinkTarget",
+        "LinkTargetKind",
+        "LinkTargetStatus",
         "OpcodeBehavior",
         "OpcodeCategory",
         "Span",
         "SpanDebug",
         "behavior_for",
+        "render_html",
+        "render_text",
         "ColscrLocator",
         "PcmRangeLocator",
         "SidecarBlobLocator",
@@ -85,6 +116,186 @@ def test_lvcore_top_level_exports_reader_facing_api_only() -> None:
     }
 
     assert raw_exports.isdisjoint(set(lvcore.__all__))
+
+
+def test_lvcore_body_provider_registry_is_explicit_and_ordered() -> None:
+    from lvcore.body_provider import BODY_PROVIDERS
+
+    providers = [(provider.__class__.__name__, getattr(provider, "kind", None)) for provider in BODY_PROVIDERS]
+    assert providers == [
+        ("BodyStreamProvider", None),
+        ("DenseAnchorSidecarBodyProvider", "t_contents"),
+        ("DenseAnchorSidecarBodyProvider", "honbun"),
+        ("DenseAnchorSidecarBodyProvider", "main_wordlist"),
+        ("DenseAnchorSidecarBodyProvider", "sqlite_body"),
+        ("DeferredDenseSidecarProvider", None),
+        ("MissingBodyComponentProvider", None),
+        ("UnsupportedBodyProvider", None),
+    ]
+
+
+def test_lvcore_body_provider_host_uses_explicit_trait_methods() -> None:
+    source = (LVCORE_SRC / "lvcore" / "body_provider.py").read_text(encoding="utf-8")
+
+    assert "package._" not in source
+    assert "def _entry_" not in source
+    assert "def _placeholder_entry" not in source
+    assert "def _fetch_sidecar_body" not in source
+    assert "def _sidecar_debug_details" not in source
+
+
+def test_lvcore_search_module_does_not_own_visual_body_construction() -> None:
+    source = (LVCORE_SRC / "lvcore" / "package_search.py").read_text(encoding="utf-8")
+    assert "VisualBody(" not in source
+    assert "VisualBodyKind." not in source
+    assert "ReaderStatus." not in source
+    assert "PRESERVED_HTML" not in source
+    assert "BODY_PROVIDERS" not in source
+    assert "def entry_for_hit(" not in source
+    assert "def entry_view_for_hit(" not in source
+
+
+def test_lvcore_package_resources_does_not_construct_resource_locations_inline() -> None:
+    source = (LVCORE_SRC / "lvcore" / "package_resources.py").read_text(encoding="utf-8")
+    assert "ResourceLocation(locator=" not in source
+    assert "UnresolvedAddress(" not in source
+    assert "BitmapGaijiBacking" not in source
+    assert "ImageGaijiBacking" not in source
+
+
+def test_lvcore_package_resources_does_not_probe_media_inline() -> None:
+    source = (LVCORE_SRC / "lvcore" / "package_resources.py").read_text(encoding="utf-8")
+    assert "_media_mime_and_format" not in source
+    assert "ComponentRole.MEDIA" not in source
+    assert "record_magic" not in source
+    assert "range_end_semantics" not in source
+
+
+def test_lvcore_package_entries_does_not_parse_sidecar_html_inline() -> None:
+    source = (LVCORE_SRC / "lvcore" / "package_entries.py").read_text(encoding="utf-8")
+    assert "HTMLParser" not in source
+    assert "_SidecarHtmlSpanParser" not in source
+    assert "strip_html" not in source
+    assert "sidecar_body_resolved" not in source
+
+
+def test_lvcore_package_entries_delegates_body_source_classification() -> None:
+    package_entries = (LVCORE_SRC / "lvcore" / "package_entries.py").read_text(encoding="utf-8")
+    classifier = (LVCORE_SRC / "lvcore" / "body_source_classifier.py").read_text(encoding="utf-8")
+
+    assert "numeric_ratio =" not in package_entries
+    assert "dense_record_size =" not in package_entries
+    assert "body_source_kind_for_sidecar" not in package_entries
+    assert "def classify_body_source(" in classifier
+    assert "numeric_ratio =" in classifier
+    assert "dense_record_size =" in classifier
+
+
+def test_lvcore_entry_store_is_concrete_service_not_mixin() -> None:
+    package_entries = (LVCORE_SRC / "lvcore" / "package_entries.py").read_text(encoding="utf-8")
+    package_services = (LVCORE_SRC / "lvcore" / "package_services.py").read_text(encoding="utf-8")
+    package = (LVCORE_SRC / "lvcore" / "package.py").read_text(encoding="utf-8")
+
+    assert "class PackageEntryMixin" not in package_entries
+    assert "class EntryStore:" in package_entries
+    assert "EntryStoreDeps" in package_entries
+    assert "class EntryStoreDeps:" in package_services
+    assert "PackageEntryMixin" not in package
+    assert "_PackageServiceBase" not in package
+
+
+def test_lvcore_resource_resolver_is_concrete_service_not_mixin() -> None:
+    package_resources = (LVCORE_SRC / "lvcore" / "package_resources.py").read_text(encoding="utf-8")
+    package = (LVCORE_SRC / "lvcore" / "package.py").read_text(encoding="utf-8")
+
+    assert "class PackageResourceMixin" not in package_resources
+    assert "from .package_services import PackageServiceBase" not in package_resources
+    assert "class ResourceResolver:" in package_resources
+    assert "self._package" not in package_resources
+    assert "component_for_address:" in package_resources
+    assert "body_sidecars:" in package_resources
+    assert "sqlite_connection_for_sidecar:" in package_resources
+    assert "PackageResourceMixin" not in package
+    assert "class ResourceResolver(" not in package
+
+
+def test_lvcore_index_store_is_concrete_service_not_mixin() -> None:
+    package_search = (LVCORE_SRC / "lvcore" / "package_search.py").read_text(encoding="utf-8")
+    package_services = (LVCORE_SRC / "lvcore" / "package_services.py").read_text(encoding="utf-8")
+    package = (LVCORE_SRC / "lvcore" / "package.py").read_text(encoding="utf-8")
+
+    assert "class PackageSearchMixin" not in package_search
+    assert "class IndexStore:" in package_search
+    assert "IndexStoreDeps" in package_search
+    assert "class IndexStoreDeps:" in package_services
+    assert "PackageSearchMixin" not in package
+    assert "class IndexStore(" not in package
+
+
+def test_lvcore_sidecar_registry_is_concrete_service_not_mixin() -> None:
+    package_sidecars = (LVCORE_SRC / "lvcore" / "package_sidecars.py").read_text(encoding="utf-8")
+    package = (LVCORE_SRC / "lvcore" / "package.py").read_text(encoding="utf-8")
+
+    assert "class PackageSidecarMixin" not in package_sidecars
+    assert "from .package_services import PackageServiceBase" not in package_sidecars
+    assert "class SidecarRegistry:" in package_sidecars
+    assert "self._package" not in package_sidecars
+    assert "info: PackageInfo" in package_sidecars
+    assert "ensure_open: Callable[[], None]" in package_sidecars
+    assert "PackageSidecarMixin" not in package
+    assert "class SidecarRegistry(" not in package
+
+
+def test_lvcore_gaiji_registry_is_concrete_service_not_mixin() -> None:
+    package_gaiji = (LVCORE_SRC / "lvcore" / "package_gaiji.py").read_text(encoding="utf-8")
+    package = (LVCORE_SRC / "lvcore" / "package.py").read_text(encoding="utf-8")
+
+    assert "class PackageGaijiMixin" not in package_gaiji
+    assert "from .package_services import PackageServiceBase" not in package_gaiji
+    assert "class GaijiRegistry:" in package_gaiji
+    assert "self._package" not in package_gaiji
+    assert "info: PackageInfo" in package_gaiji
+    assert "components: tuple[Component, ...]" in package_gaiji
+    assert "expanded: Callable[[str | Component], bytes]" in package_gaiji
+    assert "PackageGaijiMixin" not in package
+    assert "class GaijiRegistry(" not in package
+
+
+def test_lvcore_uses_typed_dependency_records_instead_of_package_service_base() -> None:
+    offenders = []
+    for path in (LVCORE_SRC / "lvcore").glob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        if "from .package_services import PackageServiceBase" in source:
+            offenders.append(path.name)
+
+    package_services = (LVCORE_SRC / "lvcore" / "package_services.py").read_text(encoding="utf-8")
+    assert sorted(offenders) == []
+    assert "class PackageServiceBase" not in package_services
+    assert "self._package" not in package_services
+
+
+def test_lvcore_dictionary_uses_explicit_services_not_package_private_fields() -> None:
+    source = (LVCORE_SRC / "lvcore" / "dictionary.py").read_text(encoding="utf-8")
+
+    assert "from .package import LogoVistaPackage" not in source
+    assert "package:" not in source
+    assert "package._entry_store" not in source
+    assert "package._index_store" not in source
+    assert "callback" not in source
+    assert "entry_store:" in source
+    assert "index_store:" in source
+    assert "surface_store:" in source
+
+
+def test_lvcore_package_service_wiring_is_split_into_named_builders() -> None:
+    source = (LVCORE_SRC / "lvcore" / "package.py").read_text(encoding="utf-8")
+
+    assert "def _make_gaiji_registry(" in source
+    assert "def _make_sidecar_registry(" in source
+    assert "def _make_resource_resolver(" in source
+    assert "def _entry_store_deps(" in source
+    assert "def _index_store_deps(" in source
+    assert "def _make_surface_store(" in source
 
 
 def test_lvcore_sidecar_role_classification_is_structural() -> None:
@@ -577,6 +788,32 @@ def make_reader_workflow_package(root: Path) -> None:
     (root / "BHTITLE.DIC").write_bytes(literal_sseddata(bhtitle, start_block=bhtitle_start, kind=7))
     (root / "FHINDEX.DIC").write_bytes(literal_sseddata(simple_index(forward_rows), start_block=fhindex_start, kind=0x91))
     (root / "BHINDEX.DIC").write_bytes(literal_sseddata(simple_index(backward_rows), start_block=bhindex_start, kind=0x71))
+
+
+def make_reader_surface_package(root: Path) -> None:
+    honmon_start = 2
+    title_start = 3
+    index_start = 4
+    menu_start = 5
+    body = body_text("alpha") + b"\x1f\x0a" + body_text("surface body") + b"\x1f\x0a"
+    title = body_text("alpha") + b"\x1f\x0a"
+    index = simple_index([("alpha", honmon_start, 0, title_start, 0)])
+    menu = body_text("Main menu") + b"\x1f\x0a"
+    components = [
+        ("HONMON.DIC", 0x00, honmon_start, honmon_start, b"\x02\x00\x00\x00"),
+        ("FHTITLE.DIC", 0x05, title_start, title_start, b"\x01\x00\x00\x00"),
+        ("FHINDEX.DIC", 0x91, index_start, index_start, b"\x02\x01\x55\x40"),
+        ("MENU.DIC", 0x08, menu_start, menu_start, b"\x01\x00\x00\x00"),
+    ]
+    root.mkdir(exist_ok=True)
+    (root / "SURFACE.IDX").write_bytes(ssedinfo("Reader Surfaces", components))
+    (root / "HONMON.DIC").write_bytes(literal_sseddata(body, start_block=honmon_start, kind=0))
+    (root / "FHTITLE.DIC").write_bytes(literal_sseddata(title, start_block=title_start, kind=5))
+    (root / "FHINDEX.DIC").write_bytes(literal_sseddata(index, start_block=index_start, kind=0x91))
+    (root / "MENU.DIC").write_bytes(literal_sseddata(menu, start_block=menu_start, kind=8))
+    (root / "Panels.xml").write_text("<Panels><Panel id=\"kana\"/></Panels>", encoding="utf-8")
+    (root / "Panel").mkdir()
+    (root / "HANREI.chm").write_bytes(b"synthetic chm placeholder")
 
 
 def make_backward_only_package(root: Path) -> None:
@@ -1079,7 +1316,7 @@ def test_lvcore_decode_telemetry_is_reported_once_by_validation(tmp_path: Path) 
 def test_lvcore_honbun_sidecar_anchor_queries_include_integer_key() -> None:
     sidecar = SidecarInfo(path=Path("body.db"), kind="honbun", storage="plain")
 
-    assert PackageEntryMixin._anchor_query_values("00000123", sidecar) == ("00000123", "123", 123)
+    assert EntryStore._anchor_query_values("00000123", sidecar) == ("00000123", "123", 123)
 
 
 def test_lvcore_detects_and_reads_synthetic_ssed(tmp_path: Path) -> None:
@@ -1144,9 +1381,10 @@ def test_lvcore_casefolded_lookup_preserves_disk_casing_on_case_insensitive_moun
 
 
 def test_lvcore_casefolded_lookup_reports_ambiguous_collisions(tmp_path: Path) -> None:
-    (tmp_path / "HONMON.DIC").write_bytes(b"upper")
-    (tmp_path / "honmon.dic").write_bytes(b"lower")
-    lookup = CaseFoldedDirectory.from_path(tmp_path)
+    lookup = CaseFoldedDirectory(
+        root=tmp_path,
+        entries_by_key={"honmon.dic": (tmp_path / "HONMON.DIC", tmp_path / "honmon.dic")},
+    )
 
     assert lookup.find("HONMON.DIC") is None
     assert lookup.collisions() == {"honmon.dic": ("HONMON.DIC", "honmon.dic")}
@@ -1162,6 +1400,99 @@ def test_lvcore_titles_limit_streams_without_full_component_decode(tmp_path: Pat
     monkeypatch.setattr(package, "decode_component", fail_full_decode)
 
     assert package.titles(limit=2) == ["alpha", "alpine"]
+
+
+def test_lvcore_reader_search_hit_carries_opaque_entry_target(tmp_path: Path) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+    public = hit.to_dict()
+    debug = hit.to_dict(debug=True)
+
+    assert hit.target.kind == EntryTargetKind.NATIVE_INDEX_HIT
+    assert public["target"]["kind"] == "native_index_hit"
+    assert public["target"]["label"] == "alpha"
+    assert "address" not in public["target"]
+    assert debug["target"]["address"]["component"] == "HONMON.DIC"
+    assert debug["target"]["index_component"] == "FHINDEX.DIC"
+    assert debug["target"]["index_page"] == 0
+    assert debug["target"]["index_row"] == 1
+    assert "payload" not in debug["target"]
+
+
+def test_lvcore_reader_body_stream_entry_view_is_visual_deferred(tmp_path: Path) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+
+    view = package.entry_view_for_hit(hit)
+
+    assert view.target == hit.target
+    assert view.visual_body.kind == VisualBodyKind.SSED_STREAM
+    assert view.visual_body.status == ReaderStatus.DEFERRED
+    assert view.semantic_document is not None
+    assert "first entry" in render_text(view.semantic_document)
+    assert any(diagnostic.code == "visual_renderer_deferred" for diagnostic in view.diagnostics)
+
+
+def test_lvcore_home_surfaces_detect_reader_interfaces(tmp_path: Path) -> None:
+    make_reader_surface_package(tmp_path)
+    package = open_package(tmp_path)
+
+    detected = package.home_surfaces()
+    assert [surface.kind for surface in detected] == [
+        HomeSurfaceKind.MENU,
+        HomeSurfaceKind.PANELS,
+        HomeSurfaceKind.HANREI,
+        HomeSurfaceKind.NATIVE_SEARCH,
+        HomeSurfaceKind.TITLE_INDEX,
+        HomeSurfaceKind.FALLBACK_SEARCH,
+    ]
+    surfaces = {surface.kind: surface for surface in detected}
+
+    assert surfaces[HomeSurfaceKind.MENU].status == ReaderStatus.AVAILABLE
+    assert surfaces[HomeSurfaceKind.MENU].target is not None
+    assert surfaces[HomeSurfaceKind.MENU].target.kind == EntryTargetKind.MENU_TARGET
+    assert surfaces[HomeSurfaceKind.PANELS].status == ReaderStatus.DEFERRED
+    assert surfaces[HomeSurfaceKind.PANELS].target is not None
+    assert surfaces[HomeSurfaceKind.PANELS].target.kind == EntryTargetKind.PANEL_TARGET
+    assert surfaces[HomeSurfaceKind.HANREI].status == ReaderStatus.UNSUPPORTED
+    assert surfaces[HomeSurfaceKind.NATIVE_SEARCH].status == ReaderStatus.AVAILABLE
+    assert surfaces[HomeSurfaceKind.TITLE_INDEX].status == ReaderStatus.AVAILABLE
+    assert surfaces[HomeSurfaceKind.FALLBACK_SEARCH].status == ReaderStatus.DEFERRED
+
+
+def test_lvcore_reader_package_boundary_keeps_future_families_unsupported(tmp_path: Path) -> None:
+    lved = tmp_path / "lved"
+    lved.mkdir()
+    (lved / "main.data").write_bytes(b"SQLite format 3\x00")
+    lved_package = open_reader_package(lved)
+    assert lved_package.package_family() == PackageFamily.LVED
+    assert lved_package.to_dict()["schema"] == "lvcore.reader_package.v1"
+    lved_surface = lved_package.home_surfaces()[0]
+    assert lved_surface.kind == HomeSurfaceKind.UNSUPPORTED_PACKAGE
+    assert lved_surface.status == ReaderStatus.UNSUPPORTED
+
+    multiview = tmp_path / "multiview"
+    multiview.mkdir()
+    (multiview / "vlpljbl.bin").write_bytes(b"loader")
+    (multiview / "blvdat").write_bytes(b"payload")
+    multiview_package = open_reader_package(multiview)
+    assert multiview_package.package_family() == PackageFamily.LVLMULTI
+    multiview_surface = multiview_package.home_surfaces()[0]
+    assert multiview_surface.kind == HomeSurfaceKind.UNSUPPORTED_PACKAGE
+    assert multiview_surface.status == ReaderStatus.UNSUPPORTED
+
+
+def test_lvcore_reader_resource_api_has_no_export_primary_surface(tmp_path: Path) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+
+    assert not hasattr(package, "export_resource")
+    assert not hasattr(package, "copy_resource")
+    assert callable(package.resource_info)
+    assert callable(package.resource_bytes)
 
 
 def test_lvcore_entries_limit_uses_index_boundaries_when_markers_are_absent(tmp_path: Path) -> None:
@@ -1593,6 +1924,19 @@ def test_lvcore_query_normalization_boundaries() -> None:
     assert normalize_query("alpha*") == "ALPHA*"
 
 
+def test_lvcore_sequential_search_is_explicit_native_index_scan(tmp_path: Path) -> None:
+    make_reader_workflow_package(tmp_path)
+    package = open_package(tmp_path)
+
+    results = package.search("pin", profile=SearchProfile.SEQUENTIAL)
+    alphabet = package.search("phab", profile=SearchProfile.SEQUENTIAL)
+
+    assert [hit.display_key for hit in results.hits] == ["alpine"]
+    assert [hit.search_profile for hit in results.hits] == [SearchProfile.SEQUENTIAL]
+    assert [hit.matched_key for hit in alphabet.hits] == ["alphabet"]
+    assert [hit.heading for hit in alphabet.hits] == ["alpha"]
+
+
 def test_lvcore_search_hit_dicts_are_friendly_unless_debug(tmp_path: Path) -> None:
     make_reader_workflow_package(tmp_path)
     package = open_package(tmp_path)
@@ -1774,6 +2118,20 @@ def test_lvcore_dense_anchor_without_sidecar_is_deferred_and_safe(tmp_path: Path
     assert hit.to_dict(debug=True)["body_source"]["ssed_kind"] == "dense_anchor_table"
 
 
+def test_lvcore_dense_anchor_without_sidecar_entry_view_is_unsupported(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path)
+    package = open_package(tmp_path)
+    hit = package.search("alpha", profile=SearchProfile.EXACT).hits[0]
+
+    view = package.entry_view_for_hit(hit)
+
+    assert view.visual_body.kind == VisualBodyKind.UNSUPPORTED
+    assert view.visual_body.status == ReaderStatus.UNSUPPORTED
+    assert view.semantic_document is not None
+    assert "Entry body is not yet supported" in render_text(view.semantic_document)
+    assert any(diagnostic.code == "unsupported_body_source" for diagnostic in view.diagnostics)
+
+
 def test_lvcore_dense_anchor_with_sqlite_sidecar_renders_body(tmp_path: Path) -> None:
     make_dense_anchor_package(tmp_path, with_sidecar=True)
     package = open_package(tmp_path)
@@ -1791,6 +2149,27 @@ def test_lvcore_dense_anchor_with_sqlite_sidecar_renders_body(tmp_path: Path) ->
     assert "lv-lvlike-sidecar-html" not in html
     assert "<div>beta sidecar html</div>" not in html
     assert any(diagnostic.code == "sidecar_body_resolved" for diagnostic in entry.diagnostics())
+
+
+def test_lvcore_dense_anchor_entry_view_preserves_exact_sidecar_html(tmp_path: Path) -> None:
+    make_dense_anchor_package(tmp_path, with_sidecar=True)
+    package = open_package(tmp_path)
+    hit = package.search("beta", profile=SearchProfile.EXACT).hits[0]
+
+    view = package.entry_view_for_hit(hit)
+
+    assert view.target.kind == EntryTargetKind.DENSE_SIDECAR_ROW
+    assert view.visual_body.kind == VisualBodyKind.PRESERVED_HTML
+    assert view.visual_body.status == ReaderStatus.AVAILABLE
+    assert view.visual_body.html == "<div>beta sidecar html</div>"
+    assert view.semantic_document is not None
+    assert "beta sidecar body" in render_text(view.semantic_document)
+    public = view.to_dict()
+    debug = view.to_dict(debug=True, include_semantic=True)
+    assert public["visual_body"]["html"] == "<div>beta sidecar html</div>"
+    assert "address" not in public["target"]
+    assert debug["target"]["sidecar_name"] == "body.db"
+    assert debug["semantic_document"]["schema"] == "lvcore.entry_document.v1"
 
 
 def test_lvcore_dense_anchor_iter_entries_uses_sidecar_body_provider(tmp_path: Path) -> None:

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 import tempfile
 from typing import Callable
 
 from .body_source import BodyPointerInspection, BodySourceInfo, SidecarAddressMatch, SidecarInfo
+from .component_store import ComponentStore
 from .detect import detect_family
-from .diagnostics import Location, Severity
+from .diagnostics import Diagnostic, Location, Severity
 from .document import ResourceRef
 from .dictionary import Dictionary
 from .errors import UnsupportedPackageError
@@ -17,15 +17,22 @@ from .gaiji import Ga16Resource, GaijiMap, GaijiSources, ImageGaijiResource
 from .index import IndexParse, IndexRow
 from .json_types import JsonObject
 from .model import Address, Component, ComponentRole, Entry, PackageFamily, PackageInfo, SearchProfile
+from .reader import (
+    EntryView,
+    HomeSurface,
+    UnsupportedReaderPackage,
+)
 from .render import HtmlProfile
 from .resources import ResourceLocation
 from .search import SearchHit, SearchResults
-from .ssed import BLOCK_SIZE, Catalog, SsedData, find_file_case_insensitive, parse_catalog
-from .package_entries import PackageEntryMixin
-from .package_gaiji import PackageGaijiMixin
-from .package_resources import PackageResourceMixin
-from .package_search import PackageSearchMixin
-from .package_sidecars import PackageSidecarMixin
+from .ssed import Catalog, SsedData, parse_catalog
+from .surfaces import SurfaceStore, SurfaceStoreDeps
+from .package_entries import EntryStore
+from .package_gaiji import GaijiRegistry
+from .package_resources import ResourceResolver
+from .package_search import IndexStore
+from .package_services import EntryStoreDeps, IndexStoreDeps
+from .package_sidecars import SidecarRegistry
 
 
 def open_package(path: str | Path) -> "LogoVistaPackage":
@@ -37,299 +44,11 @@ def open_package(path: str | Path) -> "LogoVistaPackage":
     return LogoVistaPackage(info.idx_path)
 
 
-class _PackageServiceBase:
-    """Base class for explicit package services.
-
-    Services own their own caches and call across sibling services through
-    concrete methods below. This keeps the Python proof-of-concept close to
-    Rust's package-with-substores shape without relying on dynamic
-    ``__getattr__`` dispatch.
-    """
-
-    def __init__(self, package: "LogoVistaPackage") -> None:
-        self._package = package
-
-    @property
-    def catalog(self) -> Catalog:
-        return self._package.catalog
-
-    @property
-    def info(self) -> PackageInfo:
-        return self._package.info
-
-    @property
-    def components(self) -> tuple[Component, ...]:
-        return self._package.components
-
-    def _ensure_open(self) -> None:
-        self._package._ensure_open()
-
-    def component(self, name: str) -> Component | None:
-        return self._package.component(name)
-
-    def components_by_role(self, role: ComponentRole) -> tuple[Component, ...]:
-        return self._package.components_by_role(role)
-
-    def component_for_address(self, address: Address, *, role: ComponentRole | None = None) -> Component | None:
-        return self._package.component_for_address(address, role=role)
-
-    def data(self, component: str | Component) -> SsedData:
-        return self._package.data(component)
-
-    def expanded(self, component: str | Component) -> bytes:
-        return self._package.expanded(component)
-
-    def read_address(self, address: Address, size: int, *, role: ComponentRole | None = None) -> bytes:
-        return self._package.read_address(address, size, role=role)
-
-    def _relative_offset(self, component: Component, address: Address) -> int:
-        return self._package._relative_offset(component, address)
-
-    def _qualified_address(self, address: Address, *, role: ComponentRole | None = None) -> Address:
-        return self._package._qualified_address(address, role=role)
-
-    def _location_for_address(self, address: Address, *, role: ComponentRole | None = None) -> Location:
-        return self._package._location_for_address(address, role=role)
-
-    def honmon_component(self) -> Component | None:
-        return self._package.honmon_component()
-
-    @property
-    def gaiji_sources(self) -> GaijiSources:
-        return self._package._gaiji_registry.gaiji_sources
-
-    @property
-    def gaiji(self) -> GaijiMap:
-        return self._package._gaiji_registry.gaiji
-
-    @property
-    def ga16(self) -> tuple[Ga16Resource, ...]:
-        return self._package._gaiji_registry.ga16
-
-    @property
-    def gaiji_images(self) -> tuple[ImageGaijiResource, ...]:
-        return self._package._gaiji_registry.gaiji_images
-
-    @property
-    def _gaiji_image_by_code(self) -> dict[str, ImageGaijiResource]:
-        return self._package._gaiji_registry._gaiji_image_by_code
-
-    def decode_component(self, component: str | Component):
-        return self._package._gaiji_registry.decode_component(component)
-
-    def _decode_text_stream(self, data: bytes, *, renderer_entry_backed: bool = False):
-        return self._package._gaiji_registry._decode_text_stream(data, renderer_entry_backed=renderer_entry_backed)
-
-    def _annotate_gaiji_spans(self, spans, *, renderer_entry_backed: bool = False):
-        return self._package._gaiji_registry._annotate_gaiji_spans(spans, renderer_entry_backed=renderer_entry_backed)
-
-    def gaiji_info(self, code_or_resource):
-        return self._package._gaiji_registry.gaiji_info(code_or_resource)
-
-    def gaiji_resources(self, *, limit: int | None = None) -> tuple[ResourceRef, ...]:
-        return self._package._gaiji_registry.gaiji_resources(limit=limit)
-
-    def _body_sidecars(self, *, stop_after_body_resolver: bool = False, allow_expensive: bool = True) -> tuple[SidecarInfo, ...]:
-        return self._package._sidecar_registry._body_sidecars(
-            stop_after_body_resolver=stop_after_body_resolver,
-            allow_expensive=allow_expensive,
-        )
-
-    def _sidecar_file_candidates(self) -> list[Path]:
-        return self._package._sidecar_registry._sidecar_file_candidates()
-
-    def _sqlite_connection_for_sidecar(self, path: Path, storage: str):
-        return self._package._sidecar_registry._sqlite_connection_for_sidecar(path, storage)
-
-    def sidecar_media_resources(self, *, limit: int | None = None) -> tuple[ResourceRef, ...]:
-        return self._package._sidecar_registry.sidecar_media_resources(limit=limit)
-
-    def sidecar_address_matches(self, address: Address, *, limit: int = 32) -> tuple[SidecarAddressMatch, ...]:
-        return self._package._sidecar_registry.sidecar_address_matches(address, limit=limit)
-
-    def body_source(self, *, debug: bool = False) -> BodySourceInfo:
-        return self._package._entry_store.body_source(debug=debug)
-
-    def inspect_body_pointer(self, address: Address) -> BodyPointerInspection:
-        return self._package._entry_store.inspect_body_pointer(address)
-
-    def entry_at(self, address: Address, *, max_bytes: int = 64 * 1024) -> Entry:
-        return self._package._entry_store.entry_at(address, max_bytes=max_bytes)
-
-    def _entry_from_sidecar(self, hit: SearchHit, sidecar: SidecarInfo, inspection: BodyPointerInspection) -> Entry:
-        return self._package._entry_store._entry_from_sidecar(hit, sidecar, inspection)
-
-    def _entry_or_empty_body_placeholder(self, entry: Entry, hit: SearchHit) -> Entry:
-        return self._package._entry_store._entry_or_empty_body_placeholder(entry, hit)
-
-    def _placeholder_entry(
-        self,
-        address: Address,
-        *,
-        headword: str,
-        code: str,
-        message: str,
-        severity: Severity = Severity.WARNING,
-        details: JsonObject | None = None,
-        placeholder_text: str = "Entry body is not yet supported for this LogoVista body source.",
-    ) -> Entry:
-        return self._package._entry_store._placeholder_entry(
-            address,
-            headword=headword,
-            code=code,
-            message=message,
-            severity=severity,
-            details=details,
-            placeholder_text=placeholder_text,
-        )
-
-    def render_entry_html(
-        self,
-        entry: Entry,
-        *,
-        profile: HtmlProfile | str = HtmlProfile.FRIENDLY,
-        include_diagnostics: bool = False,
-    ) -> str:
-        return self._package._resource_resolver.render_entry_html(
-            entry,
-            profile=profile,
-            include_diagnostics=include_diagnostics,
-        )
-
-    def render_entry_text(self, entry: Entry) -> str:
-        return self._package._resource_resolver.render_entry_text(entry)
-
-    def indexes(self, component: str | Component | None = None) -> dict[str, IndexParse]:
-        return self._package._index_store.indexes(component=component)
-
-    def titles(self, component: str | Component | None = None, *, limit: int | None = None) -> list[str]:
-        return self._package._index_store.titles(component=component, limit=limit)
-
-    def _body_pointer_offsets_fast(self, component: Component, *, max_bytes: int | None = None, cancel: Callable[[], bool] | None = None) -> list[int]:
-        return self._package._entry_store._body_pointer_offsets_fast(component, max_bytes=max_bytes, cancel=cancel)
-
-    def _body_pointer_offsets(self, component: Component) -> list[int]:
-        return self._package._entry_store._body_pointer_offsets(component)
-
-    def _iter_index_rows_fast(
-        self,
-        component: Component,
-        *,
-        query: str | None = None,
-        profile: SearchProfile | None = None,
-        budget=None,
-        max_bytes: int | None = None,
-        cancel: Callable[[], bool] | None = None,
-    ):
-        return self._package._index_store._iter_index_rows_fast(
-            component,
-            query=query,
-            profile=profile,
-            budget=budget,
-            max_bytes=max_bytes,
-            cancel=cancel,
-        )
-
-    def _make_hit(self, **kwargs) -> SearchHit:
-        return self._package._index_store._make_hit(**kwargs)
-
-    def _row_display_key(self, row: IndexRow, *, backward: bool = False) -> str:
-        return self._package._index_store._row_display_key(row, backward=backward)
-
-    def _row_dedupe_key(self, row: IndexRow) -> tuple[int, int, int, int]:
-        return self._package._index_store._row_dedupe_key(row)
-
-    def _is_backward_index(self, component_name: str) -> bool:
-        return self._package._index_store._is_backward_index(component_name)
-
-    def resolve_title(self, address: Address, *, max_bytes: int = 4096):
-        return self._package._index_store.resolve_title(address, max_bytes=max_bytes)
-
-    def _media_info_base(self, resource_id: str, kind: str) -> JsonObject:
-        return self._package._resource_resolver._media_info_base(resource_id, kind)
-
-    def resource_info(self, resource) -> ResourceLocation:
-        return self._package._resource_resolver.resource_info(resource)
-
-    def resource_bytes(self, resource) -> bytes | None:
-        return self._package._resource_resolver.resource_bytes(resource)
-
-
-class GaijiRegistry(PackageGaijiMixin, _PackageServiceBase):
-    """Gaiji mapping and resource discovery service."""
-
-    def __init__(self, package: "LogoVistaPackage") -> None:
-        super().__init__(package)
-        self._gaiji: GaijiMap | None = None
-        self._gaiji_sources: GaijiSources | None = None
-        self._ga16: tuple[Ga16Resource, ...] | None = None
-        self._gaiji_images: tuple[ImageGaijiResource, ...] | None = None
-        self._gaiji_image_by_code_cache: dict[str, ImageGaijiResource] | None = None
-        self._gaiji_image_info_cache: dict[str, JsonObject | None] = {}
-        self._gaiji_glyph_info_cache: dict[tuple[str, bool], JsonObject | None] = {}
-
-    def clear(self) -> None:
-        self._gaiji_image_info_cache.clear()
-        self._gaiji_glyph_info_cache.clear()
-
-
-class SidecarRegistry(PackageSidecarMixin, _PackageServiceBase):
-    """SQLite sidecar discovery/classification service."""
-
-    def __init__(self, package: "LogoVistaPackage") -> None:
-        super().__init__(package)
-        self._sqlite_sidecar_cache: dict[str, Path] = {}
-        self._sqlite_connection_cache: dict[tuple[str, str], object] = {}
-        self._sqlite_schema_cache: dict[str, SidecarInfo | None] = {}
-        self._sidecar_file_candidates_cache: list[Path] | None = None
-        self._body_sidecars_cache: dict[tuple[bool, bool], tuple[SidecarInfo, ...]] = {}
-        self._tempdir: tempfile.TemporaryDirectory[str] | None = None
-
-    def close(self) -> None:
-        for connection in self._sqlite_connection_cache.values():
-            try:
-                connection.close()
-            except Exception:
-                pass
-        self._sqlite_connection_cache.clear()
-        self._sqlite_sidecar_cache.clear()
-        self._sqlite_schema_cache.clear()
-        self._sidecar_file_candidates_cache = None
-        self._body_sidecars_cache.clear()
-        tempdir = self._tempdir
-        self._tempdir = None
-        if tempdir is not None:
-            tempdir.cleanup()
-
-
-class EntryStore(PackageEntryMixin, _PackageServiceBase):
-    """Entry slicing, dense-HONMON inspection, and body resolution service."""
-
-    def __init__(self, package: "LogoVistaPackage") -> None:
-        super().__init__(package)
-        self._marker_cache: dict[str, list[int]] = {}
-        self._body_pointer_cache: dict[str, list[int]] = {}
-        self._body_source_cache: dict[bool, BodySourceInfo] = {}
-
-    def clear(self) -> None:
-        self._marker_cache.clear()
-        self._body_pointer_cache.clear()
-        self._body_source_cache.clear()
-
-
-class IndexStore(PackageSearchMixin, _PackageServiceBase):
-    """Title/index/search service."""
-
-    def __init__(self, package: "LogoVistaPackage") -> None:
-        super().__init__(package)
-        self._index_cache: dict[str, IndexParse] = {}
-
-    def clear(self) -> None:
-        self._index_cache.clear()
-
-
-class ResourceResolver(PackageResourceMixin, _PackageServiceBase):
-    """Document rendering and explicit resource resolution service."""
+def open_reader_package(path: str | Path) -> "LogoVistaPackage | UnsupportedReaderPackage":
+    info = detect_family(Path(path))
+    if info.family == PackageFamily.SSED and info.idx_path is not None:
+        return LogoVistaPackage(info.idx_path)
+    return UnsupportedReaderPackage(info)
 
 
 class LogoVistaPackage:
@@ -344,19 +63,118 @@ class LogoVistaPackage:
             dict_id=idx_path.stem,
             title=self.catalog.title,
         )
-        self.components: tuple[Component, ...] = tuple(
-            replace(component, path=find_file_case_insensitive(idx_path.parent, component.name))
-            for component in self.catalog.components
-        )
-        self._component_by_name = {component.name.casefold(): component for component in self.components}
-        self._data_cache: dict[str, SsedData] = {}
+        self._component_store = ComponentStore(idx_path, self.catalog)
         self._closed = False
-        self._gaiji_registry = GaijiRegistry(self)
-        self._sidecar_registry = SidecarRegistry(self)
-        self._entry_store = EntryStore(self)
-        self._index_store = IndexStore(self)
-        self._resource_resolver = ResourceResolver(self)
+        self._gaiji_registry = self._make_gaiji_registry()
+        self._sidecar_registry = self._make_sidecar_registry()
+        self._resource_resolver = self._make_resource_resolver()
+        self._entry_store = EntryStore(self._entry_store_deps())
+        self._index_store = IndexStore(self._index_store_deps())
+        self._surface_store = self._make_surface_store()
         self._dictionaries: tuple[Dictionary, ...] | None = None
+
+    def _make_gaiji_registry(self) -> GaijiRegistry:
+        return GaijiRegistry(
+            info=self.info,
+            catalog=self.catalog,
+            components=self.components,
+            expanded=self.expanded,
+            ensure_open=self._ensure_open,
+        )
+
+    def _make_sidecar_registry(self) -> SidecarRegistry:
+        return SidecarRegistry(info=self.info, ensure_open=self._ensure_open)
+
+    def _make_resource_resolver(self) -> ResourceResolver:
+        return ResourceResolver(
+            component_for_address=lambda address, role: self.component_for_address(address, role=role),
+            relative_offset=self._relative_offset,
+            data=self.data,
+            body_sidecars=lambda: self._sidecar_registry._body_sidecars(),
+            sqlite_connection_for_sidecar=self._sidecar_registry._sqlite_connection_for_sidecar,
+            gaiji_info=self._gaiji_registry.gaiji_info,
+            ga16=lambda: self._gaiji_registry.ga16,
+        )
+
+    def _entry_store_deps(self) -> EntryStoreDeps:
+        return EntryStoreDeps(
+            info=self.info,
+            components_by_role=self.components_by_role,
+            component_for_address=lambda address, role: self.component_for_address(address, role=role),
+            data=self.data,
+            relative_offset=self._relative_offset,
+            qualified_address=lambda address, role: self._qualified_address(address, role=role),
+            location_for_address=lambda address, role: self._location_for_address(address, role=role),
+            honmon_component=self.honmon_component,
+            decode_text_stream=lambda data, renderer_entry_backed: self._gaiji_registry._decode_text_stream(
+                data,
+                renderer_entry_backed=renderer_entry_backed,
+            ),
+            gaiji_mapping=lambda: self._gaiji_registry.gaiji.mapping,
+            sidecar_file_candidates=self._sidecar_registry._sidecar_file_candidates,
+            body_sidecars=lambda stop_after_body_resolver, allow_expensive: self._sidecar_registry._body_sidecars(
+                stop_after_body_resolver=stop_after_body_resolver,
+                allow_expensive=allow_expensive,
+            ),
+            sqlite_connection_for_sidecar=self._sidecar_registry._sqlite_connection_for_sidecar,
+            indexes=lambda component=None: self._index_store.indexes(component=component),
+            iter_index_rows_fast=lambda component, query, profile, budget, max_bytes, cancel: self._index_store._iter_index_rows_fast(
+                component,
+                query=query,
+                profile=profile,
+                budget=budget,
+                max_bytes=max_bytes,
+                cancel=cancel,
+            ),
+            make_hit=lambda hit_id, query, normalized_query, profile, component_name, row, matched_key, debug: self._index_store._make_hit(
+                hit_id=hit_id,
+                query=query,
+                normalized_query=normalized_query,
+                profile=profile,
+                component_name=component_name,
+                row=row,
+                matched_key=matched_key,
+                debug=debug,
+            ),
+            row_display_key=lambda row, backward: self._index_store._row_display_key(row, backward=backward),
+            row_dedupe_key=lambda row: self._index_store._row_dedupe_key(row),
+            is_backward_index=lambda component_name: self._index_store._is_backward_index(component_name),
+            render_entry_html=lambda entry, profile, include_diagnostics: self._resource_resolver.render_entry_html(
+                entry,
+                profile=profile,
+                include_diagnostics=include_diagnostics,
+            ),
+            render_entry_text=lambda entry: self._resource_resolver.render_entry_text(entry),
+        )
+
+    def _index_store_deps(self) -> IndexStoreDeps:
+        return IndexStoreDeps(
+            info=self.info,
+            component=self.component,
+            components_by_role=self.components_by_role,
+            component_for_address=lambda address, role: self.component_for_address(address, role=role),
+            data=self.data,
+            expanded=self.expanded,
+            relative_offset=self._relative_offset,
+            qualified_address=lambda address, role: self._qualified_address(address, role=role),
+            location_for_address=lambda address, role: self._location_for_address(address, role=role),
+            gaiji_mapping=lambda: self._gaiji_registry.gaiji.mapping,
+            decode_component=self._gaiji_registry.decode_component,
+            decode_text_stream=lambda data, renderer_entry_backed: self._gaiji_registry._decode_text_stream(
+                data,
+                renderer_entry_backed=renderer_entry_backed,
+            ),
+            body_source=lambda debug: self._entry_store.body_source(debug=debug),
+        )
+
+    def _make_surface_store(self) -> SurfaceStore:
+        return SurfaceStore(
+            SurfaceStoreDeps(
+                info=self.info,
+                component=self.component,
+                components_by_role=self.components_by_role,
+            )
+        )
 
     def __enter__(self) -> "LogoVistaPackage":
         self._ensure_open()
@@ -368,7 +186,7 @@ class LogoVistaPackage:
     def close(self) -> None:
         if self._closed:
             return
-        self._data_cache.clear()
+        self._component_store.clear()
         self._index_store.clear()
         self._entry_store.clear()
         self._gaiji_registry.clear()
@@ -390,68 +208,49 @@ class LogoVistaPackage:
     def package_family(self) -> PackageFamily:
         return self.info.family
 
+    @property
+    def components(self) -> tuple[Component, ...]:
+        return self._component_store.components
+
     def component(self, name: str) -> Component | None:
         self._ensure_open()
-        return self._component_by_name.get(name.casefold())
+        return self._component_store.component(name)
 
     def components_by_role(self, role: ComponentRole) -> tuple[Component, ...]:
         self._ensure_open()
-        return tuple(component for component in self.components if component.role == role)
+        return self._component_store.components_by_role(role)
 
     def component_for_address(self, address: Address, *, role: ComponentRole | None = None) -> Component | None:
-        if address.component:
-            component = self.component(address.component)
-            if component is not None:
-                return component
-        candidates = self.components_by_role(role) if role is not None else self.components
-        for component in candidates:
-            if component.start_block <= address.block <= component.end_block:
-                return component
-        return None
+        self._ensure_open()
+        return self._component_store.component_for_address(address, role=role)
 
     def data(self, component: str | Component) -> SsedData:
         self._ensure_open()
-        name = component.name if isinstance(component, Component) else component
-        key = name.casefold()
-        if key not in self._data_cache:
-            item = self.component(name)
-            if item is None:
-                raise KeyError(name)
-            if item.path is None:
-                raise FileNotFoundError(name)
-            self._data_cache[key] = SsedData(item.path)
-        return self._data_cache[key]
+        return self._component_store.data(component)
 
     def expanded(self, component: str | Component) -> bytes:
         self._ensure_open()
-        return self.data(component).expand()
+        return self._component_store.expanded(component)
 
     def read_address(self, address: Address, size: int, *, role: ComponentRole | None = None) -> bytes:
-        component = self.component_for_address(address, role=role)
-        if component is None:
-            raise KeyError(f"no component contains address {address}")
-        offset = (address.block - component.start_block) * BLOCK_SIZE + address.offset
-        return self.data(component).read(offset, size)
+        self._ensure_open()
+        return self._component_store.read_address(address, size, role=role)
 
     @staticmethod
     def _relative_offset(component: Component, address: Address) -> int:
-        return (address.block - component.start_block) * BLOCK_SIZE + address.offset
+        return ComponentStore.relative_offset(component, address)
 
     def _qualified_address(self, address: Address, *, role: ComponentRole | None = None) -> Address:
-        if address.component:
-            return address
-        component = self.component_for_address(address, role=role)
-        if component is None:
-            return address
-        return Address(address.block, address.offset, component.name)
+        self._ensure_open()
+        return self._component_store.qualified_address(address, role=role)
 
     def _location_for_address(self, address: Address, *, role: ComponentRole | None = None) -> Location:
-        qualified = self._qualified_address(address, role=role)
-        return Location(component=qualified.component, block=qualified.block, offset=qualified.offset)
+        self._ensure_open()
+        return self._component_store.location_for_address(address, role=role)
 
     def honmon_component(self) -> Component | None:
-        candidates = self.components_by_role(ComponentRole.HONMON)
-        return candidates[0] if candidates else None
+        self._ensure_open()
+        return self._component_store.honmon_component()
 
     @property
     def gaiji_sources(self) -> GaijiSources:
@@ -517,7 +316,7 @@ class LogoVistaPackage:
     def entry_document(self, entry: Entry):
         return self._resource_resolver.entry_document(entry)
 
-    def entry_diagnostics(self, entry: Entry) -> tuple[object, ...]:
+    def entry_diagnostics(self, entry: Entry) -> tuple[Diagnostic, ...]:
         return self._resource_resolver.entry_diagnostics(entry)
 
     def resource_info(self, resource: ResourceRef | JsonObject | ResourceLocation) -> ResourceLocation:
@@ -544,9 +343,11 @@ class LogoVistaPackage:
         if self._dictionaries is None:
             self._dictionaries = (
                 Dictionary(
-                    package=self,
                     dictionary_id=self.info.dict_id or self.catalog.dict_id,
                     title=self.info.title or self.catalog.title,
+                    entry_store=self._entry_store,
+                    index_store=self._index_store,
+                    surface_store=self._surface_store,
                 ),
             )
         return self._dictionaries
@@ -592,6 +393,12 @@ class LogoVistaPackage:
     def entry_for_hit(self, hit: SearchHit) -> Entry:
         return self.dictionary().entry_for_hit(hit)
 
+    def entry_view_for_hit(self, hit: SearchHit) -> EntryView:
+        return self.dictionary().entry_view_for_hit(hit)
+
+    def entry_view_at(self, address: Address, *, max_bytes: int = 64 * 1024) -> EntryView:
+        return self.dictionary().entry_view_at(address, max_bytes=max_bytes)
+
     def render_hit_html(
         self,
         hit: SearchHit,
@@ -608,6 +415,9 @@ class LogoVistaPackage:
     def render_hit_text(self, hit: SearchHit) -> str:
         return self.render_entry_text(self.entry_for_hit(hit))
 
+    def home_surfaces(self) -> tuple[HomeSurface, ...]:
+        return self._surface_store.home_surfaces()
+
     def iter_index_rows(self, component: Component, *, max_bytes: int | None = None, cancel: Callable[[], bool] | None = None):
         """Iterate parsed native index rows from one component."""
 
@@ -616,8 +426,28 @@ class LogoVistaPackage:
     def _iter_index_rows_fast(self, component: Component, *, max_bytes: int | None = None, cancel: Callable[[], bool] | None = None):
         yield from self._index_store._iter_index_rows_fast(component, max_bytes=max_bytes, cancel=cancel)
 
-    def _make_hit(self, **kwargs) -> SearchHit:
-        return self._index_store._make_hit(**kwargs)
+    def _make_hit(
+        self,
+        *,
+        hit_id: int,
+        query: str,
+        normalized_query: str,
+        profile: SearchProfile,
+        component_name: str,
+        row: IndexRow,
+        matched_key: str,
+        debug: bool = False,
+    ) -> SearchHit:
+        return self._index_store._make_hit(
+            hit_id=hit_id,
+            query=query,
+            normalized_query=normalized_query,
+            profile=profile,
+            component_name=component_name,
+            row=row,
+            matched_key=matched_key,
+            debug=debug,
+        )
 
     def _row_display_key(self, row: IndexRow, *, backward: bool = False) -> str:
         return self._index_store._row_display_key(row, backward=backward)
@@ -641,10 +471,10 @@ class LogoVistaPackage:
         return self._sidecar_registry._sidecar_file_candidates()
 
     def _entry_from_body_stream_pointer(self, hit: SearchHit) -> Entry:
-        return self._index_store._entry_from_body_stream_pointer(hit)
+        return self._entry_store.body_stream_entry_for_hit(hit)
 
     def _entry_from_sidecar(self, hit: SearchHit, sidecar: SidecarInfo, inspection: BodyPointerInspection) -> Entry:
-        return self._entry_store._entry_from_sidecar(hit, sidecar, inspection)
+        return self._entry_store.sidecar_entry_for_hit(hit, sidecar, inspection)
 
     def _placeholder_entry(
         self,
@@ -657,7 +487,7 @@ class LogoVistaPackage:
         details: JsonObject | None = None,
         placeholder_text: str = "Entry body is not yet supported for this LogoVista body source.",
     ) -> Entry:
-        return self._entry_store._placeholder_entry(
+        return self._entry_store.placeholder_entry(
             address,
             headword=headword,
             code=code,

@@ -6,7 +6,8 @@ from pathlib import Path
 
 from test_lvcore_experimental import ga16_file, make_gaiji_package
 
-from lvcore import GaijiPolicy, open_package, render_html
+from lvcore import open_package
+from lvcore.render import GaijiPolicy, render_html
 
 
 FORBIDDEN_FRIENDLY_KEYS = (

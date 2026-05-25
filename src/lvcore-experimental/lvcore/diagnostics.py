@@ -64,7 +64,9 @@ class DiagnosticCode(str, Enum):
     UNRESOLVED_MEDIA_REF = "unresolved_media_ref"
     UNSUPPORTED_BODY_SOURCE = "unsupported_body_source"
     UNSUPPORTED_COMPONENT_TYPE = "unsupported_component_type"
+    UNSUPPORTED_PACKAGE_FAMILY = "unsupported_package_family"
     UNSUPPORTED_SIDECAR_SCHEMA = "unsupported_sidecar_schema"
+    VISUAL_RENDERER_DEFERRED = "visual_renderer_deferred"
 
 
 def diagnostic_code(value: DiagnosticCode | str) -> DiagnosticCode:

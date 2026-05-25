@@ -4,27 +4,21 @@ from __future__ import annotations
 
 from lvcore import (
     Address,
-    BlockNode,
     Diagnostic,
     DiagnosticArea,
     DiagnosticCode,
     Entry,
     GaijiDisplayStatus,
-    InlineKind,
-    InlineNode,
-    ResourceKind,
-    ResourceRef,
-    ResourceStatus,
     SearchProfile,
     SidecarRole,
     SsedBodySourceKind,
     Severity,
     normalize_query,
-    render_html,
-    render_text,
 )
+from lvcore.document import BlockNode, InlineKind, InlineNode, ResourceKind, ResourceRef, ResourceStatus
 from lvcore.index import IndexRow
 from lvcore.model import ComponentRole
+from lvcore.render import render_html, render_text
 
 TEXT_LIKE_INDEX_OUTLIER_TYPES = {0x27}
 

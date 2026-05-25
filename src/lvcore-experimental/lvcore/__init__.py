@@ -10,14 +10,6 @@ from .body_source import BodySourceInfo, BodySourceSupport, Confidence, SidecarR
 from .diagnostics import Diagnostic, DiagnosticArea, DiagnosticCode, Location, Severity
 from .dictionary import Dictionary
 from .document import (
-    BlockKind,
-    BlockNode,
-    EntryDocument,
-    InlineKind,
-    InlineNode,
-    LinkTarget,
-    LinkTargetKind,
-    LinkTargetStatus,
     ResourceKind,
     ResourceRef,
     ResourceStatus,
@@ -25,15 +17,23 @@ from .document import (
 from .gaiji import GaijiDisplayStatus
 from .gaiji_resolution import GaijiResolution
 from .model import Address, Entry, PackageFamily, PackageInfo, SearchProfile
-from .package import LogoVistaPackage, open_package
-from .render import GaijiPolicy, HtmlProfile, render_html, render_text
+from .package import LogoVistaPackage, open_package, open_reader_package
+from .reader import (
+    EntryTarget,
+    EntryTargetKind,
+    EntryView,
+    HomeSurface,
+    HomeSurfaceKind,
+    ReaderStatus,
+    UnsupportedReaderPackage,
+    VisualBody,
+    VisualBodyKind,
+)
 from .resources import ResourceLocation
 from .search import SearchHit, SearchResults, TitleResolution, normalize_query
 
 __all__ = [
     "Address",
-    "BlockKind",
-    "BlockNode",
     "BodySourceInfo",
     "BodySourceSupport",
     "Confidence",
@@ -42,16 +42,13 @@ __all__ = [
     "DiagnosticCode",
     "Dictionary",
     "Entry",
-    "EntryDocument",
+    "EntryTarget",
+    "EntryTargetKind",
+    "EntryView",
     "GaijiDisplayStatus",
     "GaijiResolution",
-    "GaijiPolicy",
-    "HtmlProfile",
-    "InlineKind",
-    "InlineNode",
-    "LinkTarget",
-    "LinkTargetKind",
-    "LinkTargetStatus",
+    "HomeSurface",
+    "HomeSurfaceKind",
     "LogoVistaPackage",
     "Location",
     "PackageFamily",
@@ -60,6 +57,7 @@ __all__ = [
     "ResourceKind",
     "ResourceLocation",
     "ResourceStatus",
+    "ReaderStatus",
     "SearchProfile",
     "SearchHit",
     "SearchResults",
@@ -67,9 +65,11 @@ __all__ = [
     "SsedBodySourceKind",
     "Severity",
     "TitleResolution",
+    "UnsupportedReaderPackage",
+    "VisualBody",
+    "VisualBodyKind",
     "detect_family",
     "normalize_query",
     "open_package",
-    "render_html",
-    "render_text",
+    "open_reader_package",
 ]

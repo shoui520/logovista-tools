@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 import hashlib
 from pathlib import Path
-from typing import Any
 
+from .diagnostics import Diagnostic
 from .json_types import JsonObject
 
 SPAN_SCHEMA = "lvcore.span.v1"
@@ -41,6 +41,7 @@ class SearchProfile(str, Enum):
     EXACT = "exact"
     FORWARD = "forward"
     BACKWARD = "backward"
+    SEQUENTIAL = "sequential"
 
 
 @dataclass(frozen=True, order=True)
@@ -238,7 +239,7 @@ class Entry:
     headword: str | None
     text: str
     spans: tuple[Span, ...]
-    entry_diagnostics: tuple[Any, ...] = ()
+    entry_diagnostics: tuple[Diagnostic, ...] = ()
     decode_unknown_controls: int = 0
     decode_unknown_bytes: int = 0
     decode_invalid_jis_pairs: int = 0
@@ -276,10 +277,7 @@ class Entry:
             "decode_unknown_bytes": self.decode_unknown_bytes,
             "decode_invalid_jis_pairs": self.decode_invalid_jis_pairs,
             "span_summaries": [span.to_debug_summary() for span in self.spans],
-            "diagnostics": [
-                diagnostic.to_dict() if hasattr(diagnostic, "to_dict") else diagnostic
-                for diagnostic in self.entry_diagnostics
-            ],
+            "diagnostics": [diagnostic.to_dict() for diagnostic in self.entry_diagnostics],
         }
 
     def to_dict(self, *, debug: bool = False) -> JsonObject:
@@ -288,10 +286,7 @@ class Entry:
             "model_version": ENTRY_MODEL_VERSION,
             "headword": self.headword,
             "text": self.text,
-            "diagnostics": [
-                diagnostic.to_dict() if hasattr(diagnostic, "to_dict") else diagnostic
-                for diagnostic in self.entry_diagnostics
-            ],
+            "diagnostics": [diagnostic.to_dict() for diagnostic in self.entry_diagnostics],
         }
         if not debug:
             return data

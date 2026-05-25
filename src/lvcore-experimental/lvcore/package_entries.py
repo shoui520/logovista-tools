@@ -1,9 +1,7 @@
-"""Entry slicing, body-source classification, dense HONMON, and sidecar bodies."""
+"""Entry slicing and sidecar-backed entry bodies."""
 
 from __future__ import annotations
 
-import hashlib
-from html.parser import HTMLParser
 import sqlite3
 from typing import Callable, Iterable
 
@@ -11,124 +9,143 @@ from .body_source import (
     BodyPointerInspection,
     BodySourceInfo,
     BodySourceSupport,
-    Confidence,
     SidecarBody,
     SidecarInfo,
     SsedBodySourceKind,
-    body_source_kind_for_sidecar,
     quote_sql_identifier,
     select_body_sidecar,
-    strip_html,
 )
+from .body_source_classifier import (
+    classify_body_source,
+    decode_anchor_at,
+    dense_anchor_evidence,
+    dense_anchor_marker_sample,
+    inspect_body_pointer as inspect_body_pointer_for_package,
+)
+from .body_provider import BODY_PROVIDERS, BodyResolveContext
 from .diagnostics import Diagnostic, DiagnosticArea, Severity
+from .entry_views import body_stream_entry_view, semantic_entry_view, sidecar_body_entry_view, unsupported_entry_view
+from .errors import FormatError
 from .json_types import JsonObject
-from .model import Address, Component, ComponentRole, Entry, SearchProfile, Span
+from .model import Address, Component, ComponentRole, Entry, PackageInfo, SearchProfile, Span
+from .package_services import EntryStoreDeps
 from .package_utils import ENTRY_MARKER
+from .reader import EntryTarget, EntryView
+from .render import HtmlProfile
 from .scan import ScanBudget
 from .search import SearchHit
+from .sidecar_body import AnchorQueryValue, anchor_query_values, make_sidecar_body_entry, sidecar_body_from_row, sidecar_debug_details
 from .ssed import BLOCK_SIZE, CHUNK_SIZE, SsedData
-from .text import decode_text_stream
-
-
-_SIDECAR_BLOCK_TAGS = {
-    "address",
-    "article",
-    "blockquote",
-    "dd",
-    "div",
-    "dl",
-    "dt",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "li",
-    "ol",
-    "p",
-    "section",
-    "table",
-    "td",
-    "th",
-    "tr",
-    "ul",
-}
-
-_SIDECAR_STYLE_TAGS = {
-    "b": ("bold", 0x06, 0x07),
-    "strong": ("bold", 0x06, 0x07),
-    "i": ("italic", 0x0E, 0x0F),
-    "em": ("em", 0x10, 0x11),
-}
-
-
-class _SidecarHtmlSpanParser(HTMLParser):
-    """Convert supported sidecar HTML into normal text/control spans."""
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.spans: list[Span] = []
-        self._offset = 0
-
-    def _append(self, span: Span) -> None:
-        self.spans.append(span)
-
-    def _break(self) -> None:
-        if not self.spans or self.spans[-1].kind == "break":
-            return
-        self._append(Span(kind="break", offset=self._offset, length=0))
-
-    def _control(self, tag: str, op: int) -> None:
-        self._append(Span(kind="control", offset=self._offset, length=0, op=op, attrs={"tag": tag}))
-
-    def handle_starttag(self, tag: str, attrs) -> None:
-        lower = tag.lower()
-        if lower == "br":
-            self._break()
-            return
-        if lower in _SIDECAR_BLOCK_TAGS:
-            self._break()
-        style = _SIDECAR_STYLE_TAGS.get(lower)
-        if style is not None:
-            logical_tag, start_op, _end_op = style
-            self._control(logical_tag, start_op)
-
-    def handle_endtag(self, tag: str) -> None:
-        lower = tag.lower()
-        style = _SIDECAR_STYLE_TAGS.get(lower)
-        if style is not None:
-            logical_tag, _start_op, end_op = style
-            self._control(logical_tag, end_op)
-        if lower in _SIDECAR_BLOCK_TAGS:
-            self._break()
-
-    def handle_data(self, data: str) -> None:
-        if not data:
-            return
-        self._append(Span(kind="text", text=data, offset=self._offset, length=len(data)))
-        self._offset += len(data)
-
-
-def _sidecar_html_to_spans(value: str, *, fallback_text: str) -> tuple[Span, ...]:
-    parser = _SidecarHtmlSpanParser()
-    try:
-        parser.feed(value)
-        parser.close()
-    except Exception:
-        return (Span(kind="text", text=fallback_text),)
-    spans = tuple(span for span in parser.spans if not (span.kind == "break" and span is parser.spans[-1]))
-    if any(span.kind == "text" and span.text for span in spans):
-        return spans
-    return (Span(kind="text", text=fallback_text),)
 
 
 ENTRY_STOP_OPS = {0x09, 0x41}
 ENTRY_STOP_MARKER_LENGTH = 4
 
 
-class PackageEntryMixin:
-    """Entry/body-source methods for LogoVistaPackage."""
+class EntryStore:
+    """Entry slicing, dense-HONMON inspection, and body resolution service."""
+
+    def __init__(self, deps: EntryStoreDeps) -> None:
+        self._deps = deps
+        self._marker_cache: dict[str, list[int]] = {}
+        self._body_pointer_cache: dict[str, list[int]] = {}
+        self._body_source_cache: dict[bool, BodySourceInfo] = {}
+
+    def clear(self) -> None:
+        self._marker_cache.clear()
+        self._body_pointer_cache.clear()
+        self._body_source_cache.clear()
+
+    @property
+    def info(self) -> PackageInfo:
+        return self._deps.info
+
+    @property
+    def gaiji_mapping(self) -> dict[str, str]:
+        return self._deps.gaiji_mapping()
+
+    def components_by_role(self, role: ComponentRole) -> tuple[Component, ...]:
+        return self._deps.components_by_role(role)
+
+    def component_for_address(self, address: Address, *, role: ComponentRole | None = None) -> Component | None:
+        return self._deps.component_for_address(address, role)
+
+    def data(self, component: str | Component) -> SsedData:
+        return self._deps.data(component)
+
+    def _relative_offset(self, component: Component, address: Address) -> int:
+        return self._deps.relative_offset(component, address)
+
+    def _qualified_address(self, address: Address, *, role: ComponentRole | None = None) -> Address:
+        return self._deps.qualified_address(address, role)
+
+    def _location_for_address(self, address: Address, *, role: ComponentRole | None = None):
+        return self._deps.location_for_address(address, role)
+
+    def honmon_component(self) -> Component | None:
+        return self._deps.honmon_component()
+
+    def _decode_text_stream(self, data: bytes, *, renderer_entry_backed: bool = False):
+        return self._deps.decode_text_stream(data, renderer_entry_backed)
+
+    def _sidecar_file_candidates(self) -> list:
+        return self._deps.sidecar_file_candidates()
+
+    def _body_sidecars(self, *, stop_after_body_resolver: bool = False, allow_expensive: bool = True) -> tuple[SidecarInfo, ...]:
+        return self._deps.body_sidecars(stop_after_body_resolver, allow_expensive)
+
+    def _sqlite_connection_for_sidecar(self, path, storage: str):
+        return self._deps.sqlite_connection_for_sidecar(path, storage)
+
+    def indexes(self, component: str | Component | None = None):
+        return self._deps.indexes(component)
+
+    def _iter_index_rows_fast(
+        self,
+        component: Component,
+        *,
+        query: str | None = None,
+        profile: SearchProfile | None = None,
+        budget: ScanBudget | None = None,
+        max_bytes: int | None = None,
+        cancel: Callable[[], bool] | None = None,
+    ):
+        return self._deps.iter_index_rows_fast(component, query, profile, budget, max_bytes, cancel)
+
+    def _make_hit(
+        self,
+        *,
+        hit_id: int,
+        query: str,
+        normalized_query: str,
+        profile: SearchProfile,
+        component_name: str,
+        row,
+        matched_key: str,
+        debug: bool = False,
+    ) -> SearchHit:
+        return self._deps.make_hit(hit_id, query, normalized_query, profile, component_name, row, matched_key, debug)
+
+    def _row_display_key(self, row, *, backward: bool = False) -> str:
+        return self._deps.row_display_key(row, backward)
+
+    def _row_dedupe_key(self, row) -> tuple[int, int, int, int]:
+        return self._deps.row_dedupe_key(row)
+
+    def _is_backward_index(self, component_name: str) -> bool:
+        return self._deps.is_backward_index(component_name)
+
+    def render_entry_html(
+        self,
+        entry: Entry,
+        *,
+        profile: HtmlProfile | str = HtmlProfile.FRIENDLY,
+        include_diagnostics: bool = False,
+    ) -> str:
+        return self._deps.render_entry_html(entry, profile, include_diagnostics)
+
+    def render_entry_text(self, entry: Entry) -> str:
+        return self._deps.render_entry_text(entry)
 
     @staticmethod
     def _learn_entry_stop_markers(reader: SsedData, *, max_scan_bytes: int = CHUNK_SIZE) -> tuple[bytes, ...]:
@@ -141,7 +158,7 @@ class PackageEntryMixin:
     @staticmethod
     def _marker_offsets(reader: SsedData, *, limit: int | None = None, budget: ScanBudget | None = None) -> list[int]:
         offsets: list[int] = []
-        markers = PackageEntryMixin._learn_entry_stop_markers(reader)
+        markers = EntryStore._learn_entry_stop_markers(reader)
         tail = b""
         tail_base = 0
         budget = budget or ScanBudget()
@@ -449,153 +466,18 @@ class PackageEntryMixin:
         return self._body_pointer_cache[key]
 
     def _decode_anchor_at(self, component: Component, start: int, *, max_bytes: int = 96) -> tuple[str, int]:
-        # Observed dense HONMON sidecar packages expose short decimal anchor
-        # identifiers in the raw HONMON record. Non-numeric records are left
-        # unresolved instead of guessed; a future provider can add another
-        # anchor scheme when corpus evidence is strong enough.
-        reader = self.data(component)
-        data = reader.read(start, min(max_bytes, max(reader.expanded_size - start, 0)))
-        next_marker = data.find(ENTRY_MARKER, 1)
-        if next_marker > 0:
-            data = data[:next_marker]
-        decoded = decode_text_stream(data, self.gaiji.mapping)
-        compact = "".join(ch for ch in decoded.text if not ch.isspace() and ch != "\x00")
-        if compact.isdigit() and 4 <= len(compact) <= 16:
-            return compact, len(data)
-        return "", len(data)
+        return decode_anchor_at(self, component, start, max_bytes=max_bytes)
 
     def _dense_anchor_evidence(self, component: Component, *, use_index_pointers: bool = True) -> JsonObject:
-        if use_index_pointers:
-            pointer_offsets = self._body_pointer_offsets(component)
-        else:
-            pointer_offsets = self._body_pointer_offsets_fast(component, limit=4, preserve_order=True)
-        sample_offsets = pointer_offsets[:64]
-        if not sample_offsets:
-            marker_offsets = self._markers_for_component(component, limit=256)[:256]
-            sample_offsets = self._dense_anchor_marker_sample(component, marker_offsets)
-        ids: list[str] = []
-        lengths: list[int] = []
-        for offset in sample_offsets:
-            anchor_id, size = self._decode_anchor_at(component, offset)
-            if anchor_id:
-                ids.append(anchor_id)
-            lengths.append(size)
-        numeric_ratio = len(ids) / len(sample_offsets) if sample_offsets else 0.0
-        common_gap = None
-        unique_offsets = sorted(set((pointer_offsets or sample_offsets)[:4096]))
-        gaps = [b - a for a, b in zip(unique_offsets, unique_offsets[1:]) if b > a]
-        if gaps:
-            counts: dict[int, int] = {}
-            for gap in gaps:
-                counts[gap] = counts.get(gap, 0) + 1
-            common_gap = max(counts.items(), key=lambda item: (item[1], -item[0]))[0]
-        dense_record_size = common_gap if common_gap in {16, 32, 40, 48, 64, 80, 96, 112, 128, 160, 320} else None
-        if dense_record_size is None and lengths:
-            median = int(sorted(lengths)[len(lengths) // 2])
-            if median <= 160:
-                dense_record_size = median
-        return {
-            "anchor_ids": ids,
-            "numeric_ratio": numeric_ratio,
-            "sample_count": len(sample_offsets),
-            "common_gap": common_gap,
-            "dense_record_size": dense_record_size,
-        }
+        return dense_anchor_evidence(self, component, use_index_pointers=use_index_pointers)
 
     def _dense_anchor_marker_sample(self, component: Component, marker_offsets: list[int]) -> list[int]:
-        if not marker_offsets:
-            return []
-        best_offsets = marker_offsets[:64]
-        best_ratio = -1.0
-        best_count = 0
-        max_stride = min(8, len(marker_offsets))
-        for stride in range(1, max_stride + 1):
-            for phase in range(stride):
-                candidates = marker_offsets[phase::stride][:64]
-                if len(candidates) < 4:
-                    continue
-                numeric = 0
-                for offset in candidates:
-                    anchor_id, _size = self._decode_anchor_at(component, offset)
-                    if anchor_id:
-                        numeric += 1
-                ratio = numeric / len(candidates)
-                if (ratio, numeric) > (best_ratio, best_count):
-                    best_ratio = ratio
-                    best_count = numeric
-                    best_offsets = candidates
-        return best_offsets
+        return dense_anchor_marker_sample(self, component, marker_offsets)
 
     def body_source(self, *, debug: bool = False) -> BodySourceInfo:
         if debug in self._body_source_cache:
             return self._body_source_cache[debug]
-        honmon = self.honmon_component()
-        if honmon is None or honmon.path is None:
-            self._body_source_cache[debug] = BodySourceInfo(
-                package_family=self.info.family,
-                ssed_kind=SsedBodySourceKind.MISSING_BODY_COMPONENT,
-                support=BodySourceSupport.UNSUPPORTED,
-                confidence=Confidence.PROVEN,
-                notes=("missing HONMON component",),
-            )
-            return self._body_source_cache[debug]
-        reader = self.data(honmon)
-        marker_limit = 2000000 if debug else 16
-        marker_count = len(self._markers_for_component(honmon, limit=marker_limit))
-        marker_density = marker_count / max(reader.expanded_size, 1)
-        sidecar_paths = tuple(self._sidecar_file_candidates())
-        evidence = self._dense_anchor_evidence(honmon, use_index_pointers=debug)
-        numeric_ratio = float(evidence["numeric_ratio"])
-        is_dense = numeric_ratio >= 0.6 and int(evidence["sample_count"]) >= 4
-        sidecars = self._body_sidecars(stop_after_body_resolver=not debug) if is_dense else ()
-        chosen_sidecar = select_body_sidecar(sidecars)
-
-        if is_dense:
-            if chosen_sidecar is not None:
-                kind = body_source_kind_for_sidecar(chosen_sidecar)
-                support = BodySourceSupport.PARTIALLY_RENDERABLE
-                provider = "sqlite_sidecar"
-                sidecar_kind = chosen_sidecar.kind
-                notes = ("HONMON body pointers resolve to short numeric anchor records; selected SQLite sidecar body provider",)
-            elif sidecars:
-                kind = SsedBodySourceKind.SIDECAR_UNKNOWN
-                support = BodySourceSupport.DEFERRED
-                provider = "sqlite_sidecar_deferred"
-                sidecar_kind = ",".join(dict.fromkeys(sidecar.kind for sidecar in sidecars))
-                notes = ("HONMON body pointers resolve to short numeric anchor records; sidecar files were found but no supported body table schema was identified",)
-            else:
-                kind = SsedBodySourceKind.DENSE_ANCHOR_TABLE
-                support = BodySourceSupport.DEFERRED
-                provider = "dense_anchor_deferred"
-                sidecar_kind = None
-                notes = ("HONMON body pointers resolve to short numeric anchor records; no supported body sidecar found",)
-        else:
-            kind = SsedBodySourceKind.BODY_STREAM
-            support = BodySourceSupport.RENDERABLE
-            provider = "honmon_body_stream"
-            sidecar_kind = None
-            notes = ("HONMON body pointers resolve directly into readable body-stream data",)
-
-        if not debug:
-            notes = (*notes, "fast body-source classification; run with --debug for index-pointer evidence")
-
-        self._body_source_cache[debug] = BodySourceInfo(
-            package_family=self.info.family,
-            ssed_kind=kind,
-            support=support,
-            confidence=Confidence.INFERRED if is_dense else Confidence.PROVEN,
-            honmon_component=honmon.name,
-            expanded_size=reader.expanded_size,
-            marker_count=marker_count,
-            marker_density=round(marker_density, 8),
-            dense_record_size=evidence.get("dense_record_size") if is_dense else None,
-            anchor_count=len(evidence.get("anchor_ids") or ()) if is_dense else None,
-            sidecar_paths=sidecar_paths,
-            sidecar_kind=sidecar_kind,
-            render_provider=provider,
-            notes=notes,
-            sidecars=sidecars,
-        )
+        self._body_source_cache[debug] = classify_body_source(self, debug=debug)
         return self._body_source_cache[debug]
 
     def validate_body_source(self) -> BodySourceInfo:
@@ -717,53 +599,25 @@ class PackageEntryMixin:
         )
         return entry
 
+    def entry_view_at(self, address: Address, *, max_bytes: int = 64 * 1024) -> EntryView:
+        entry = self.entry_at(address, max_bytes=max_bytes)
+        target = EntryTarget.ssed_address(package_id=self.info.dict_id, address=entry.address, label=entry.headword)
+        return self.view_for_body_stream_entry(target, entry)
+
     def inspect_body_pointer(self, address: Address) -> BodyPointerInspection:
-        honmon = self.component_for_address(address, role=ComponentRole.HONMON)
-        if honmon is None or honmon.path is None:
-            return BodyPointerInspection(
-                diagnostics=(
-                    Diagnostic(
-                        severity=Severity.ERROR,
-                        area=DiagnosticArea.BODY,
-                        code="body_pointer_outside_honmon",
-                        message="body pointer does not resolve to a HONMON component",
-                        location=self._location_for_address(address, role=ComponentRole.HONMON),
-                    ),
-                )
-            )
-        start = self._relative_offset(honmon, address)
-        anchor_id, length = self._decode_anchor_at(honmon, start)
-        raw_text_hash = hashlib.sha256(anchor_id.encode("utf-8")).hexdigest()[:16] if anchor_id else None
-        return BodyPointerInspection(anchor_id=anchor_id or None, raw_text_hash=raw_text_hash, raw_text_length=len(anchor_id), record_offset=start, record_length=length)
+        return inspect_body_pointer_for_package(self, address)
 
     @staticmethod
-    def _anchor_query_values(anchor_id: str, sidecar: SidecarInfo) -> tuple[object, ...]:
-        values: list[object] = [anchor_id]
-        stripped = anchor_id.lstrip("0") or "0"
-        if stripped != anchor_id:
-            values.append(stripped)
-        try:
-            values.append(int(stripped))
-        except ValueError:
-            pass
-        return tuple(dict.fromkeys(values))
+    def _anchor_query_values(anchor_id: str, sidecar: SidecarInfo) -> tuple[AnchorQueryValue, ...]:
+        return anchor_query_values(anchor_id)
+
+    def sidecar_debug_details(self, sidecar: SidecarInfo, anchor_id: str) -> JsonObject:
+        return sidecar_debug_details(sidecar, anchor_id)
 
     def _sidecar_debug_details(self, sidecar: SidecarInfo, anchor_id: str) -> JsonObject:
-        query_values = [str(value) for value in self._anchor_query_values(anchor_id, sidecar)]
-        return {
-            "anchor_id": anchor_id,
-            "query_values": query_values,
-            "sidecar": sidecar.path.name,
-            "sidecar_kind": sidecar.kind,
-            "storage": sidecar.storage,
-            "table": sidecar.table,
-            "id_column": sidecar.id_column,
-            "title_column": sidecar.title_column,
-            "html_column": sidecar.html_column,
-            "plain_column": sidecar.plain_column,
-        }
+        return self.sidecar_debug_details(sidecar, anchor_id)
 
-    def _fetch_sidecar_body(self, sidecar: SidecarInfo, anchor_id: str) -> SidecarBody | None:
+    def fetch_sidecar_body(self, sidecar: SidecarInfo, anchor_id: str) -> SidecarBody | None:
         if not sidecar.table or not sidecar.id_column:
             return None
         try:
@@ -791,15 +645,12 @@ class PackageEntryMixin:
         except sqlite3.DatabaseError:
             return None
 
+    def _fetch_sidecar_body(self, sidecar: SidecarInfo, anchor_id: str) -> SidecarBody | None:
+        return self.fetch_sidecar_body(sidecar, anchor_id)
+
     @staticmethod
     def _sidecar_body_from_row(sidecar: SidecarInfo, row: sqlite3.Row) -> SidecarBody | None:
-        title = str(row[sidecar.title_column]) if sidecar.title_column and row[sidecar.title_column] is not None else ""
-        html_value = str(row[sidecar.html_column]) if sidecar.html_column and row[sidecar.html_column] is not None else ""
-        plain_value = str(row[sidecar.plain_column]) if sidecar.plain_column and row[sidecar.plain_column] is not None else ""
-        text = plain_value.strip() or strip_html(html_value) or title.strip()
-        if not (text or html_value or title):
-            return None
-        return SidecarBody(title=strip_html(title), text=text, html=html_value or None, source=sidecar)
+        return sidecar_body_from_row(sidecar, row)
 
     def _fetch_sidecar_bodies(self, sidecar: SidecarInfo, anchor_ids: tuple[str, ...]) -> dict[str, SidecarBody]:
         if not sidecar.table or not sidecar.id_column or not anchor_ids:
@@ -857,28 +708,13 @@ class PackageEntryMixin:
         anchor_id: str,
         headword_hint: str,
     ) -> Entry:
-        note = Diagnostic(
-            severity=Severity.INFO,
-            area=DiagnosticArea.BODY,
-            code="sidecar_body_resolved",
-            message="entry body resolved from SSED sidecar database",
+        return make_sidecar_body_entry(
+            address,
+            body,
+            sidecar=sidecar,
+            anchor_id=anchor_id,
+            headword_hint=headword_hint,
             location=self._location_for_address(address, role=ComponentRole.HONMON),
-            details=self._sidecar_debug_details(sidecar, anchor_id),
-        )
-        text = body.text or body.title or headword_hint
-        html_fallback_text = strip_html(body.html) if body.html else ""
-        spans = (
-            _sidecar_html_to_spans(body.html, fallback_text=text)
-            if body.html and (not body.text or body.text == html_fallback_text)
-            else (Span(kind="text", text=text),)
-        )
-        return Entry(
-            address=address,
-            end_address=address,
-            headword=body.title or headword_hint,
-            text=text,
-            spans=spans,
-            entry_diagnostics=(note,),
         )
 
     def _entry_from_sidecar_body(
@@ -897,7 +733,7 @@ class PackageEntryMixin:
             headword_hint=hit.heading,
         )
 
-    def _placeholder_entry(
+    def placeholder_entry(
         self,
         address: Address,
         *,
@@ -926,6 +762,27 @@ class PackageEntryMixin:
             entry_diagnostics=(diagnostic,),
         )
 
+    def _placeholder_entry(
+        self,
+        address: Address,
+        *,
+        headword: str,
+        code: str,
+        message: str,
+        severity: Severity = Severity.WARNING,
+        details: JsonObject | None = None,
+        placeholder_text: str = "Entry body is not yet supported for this LogoVista body source.",
+    ) -> Entry:
+        return self.placeholder_entry(
+            address,
+            headword=headword,
+            code=code,
+            message=message,
+            severity=severity,
+            details=details,
+            placeholder_text=placeholder_text,
+        )
+
     def _entry_or_empty_body_placeholder(self, entry: Entry, hit: SearchHit) -> Entry:
         if entry.text.strip() or any(span.text for span in entry.spans if span.kind == "text"):
             return entry
@@ -938,24 +795,131 @@ class PackageEntryMixin:
             placeholder_text="Entry body pointer decoded to no displayable text.",
         )
 
-    def _entry_from_sidecar(self, hit: SearchHit, sidecar: SidecarInfo, inspection: BodyPointerInspection) -> Entry:
+    def sidecar_entry_for_hit(self, hit: SearchHit, sidecar: SidecarInfo, inspection: BodyPointerInspection) -> Entry:
         anchor_id = inspection.anchor_id
         if not anchor_id:
-            return self._placeholder_entry(
+            return self.placeholder_entry(
                 hit.debug_info.body,
                 headword=hit.heading,
                 code="dense_anchor_missing_id",
                 message="dense HONMON record did not expose a numeric anchor id",
                 severity=Severity.ERROR,
             )
-        body = self._fetch_sidecar_body(sidecar, anchor_id)
+        body = self.fetch_sidecar_body(sidecar, anchor_id)
         if body is None:
-            return self._placeholder_entry(
+            return self.placeholder_entry(
                 hit.debug_info.body,
                 headword=hit.heading,
                 code="sidecar_body_not_found",
                 message="body sidecar did not contain a row for the dense HONMON anchor",
                 severity=Severity.ERROR,
-                details=self._sidecar_debug_details(sidecar, anchor_id),
+                details=self.sidecar_debug_details(sidecar, anchor_id),
             )
         return self._entry_from_sidecar_body(hit, body, sidecar=sidecar, anchor_id=anchor_id)
+
+    def _entry_from_sidecar(self, hit: SearchHit, sidecar: SidecarInfo, inspection: BodyPointerInspection) -> Entry:
+        return self.sidecar_entry_for_hit(hit, sidecar, inspection)
+
+    @staticmethod
+    def _entry_with_hit_headword(entry: Entry, hit: SearchHit) -> Entry:
+        from dataclasses import replace
+
+        return replace(entry, headword=hit.heading or hit.display_key or entry.headword)
+
+    def body_stream_entry_for_hit(self, hit: SearchHit) -> Entry:
+        try:
+            return self._entry_or_empty_body_placeholder(
+                self._entry_with_hit_headword(self.entry_at(hit.debug_info.body), hit),
+                hit,
+            )
+        except (FormatError, KeyError, ValueError, OSError) as exc:
+            return self.placeholder_entry(
+                hit.debug_info.body,
+                headword=hit.heading,
+                code="body_pointer_unresolved",
+                message="body pointer could not be resolved to a readable HONMON entry",
+                severity=Severity.ERROR,
+                details={
+                    "body": hit.debug_info.body.to_dict(),
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
+
+    def _entry_from_body_stream_pointer(self, hit: SearchHit) -> Entry:
+        return self.body_stream_entry_for_hit(hit)
+
+    def view_for_semantic_entry(self, target: EntryTarget, entry: Entry, *, source: str | None = None) -> EntryView:
+        return semantic_entry_view(target, entry, source=source)
+
+    def _entry_view_from_semantic_entry(self, target: EntryTarget, entry: Entry, *, source: str | None = None) -> EntryView:
+        return self.view_for_semantic_entry(target, entry, source=source)
+
+    def view_for_body_stream_entry(self, target: EntryTarget, entry: Entry) -> EntryView:
+        return body_stream_entry_view(
+            target,
+            entry,
+            location=self._location_for_address(entry.address, role=ComponentRole.HONMON),
+        )
+
+    def _entry_view_from_body_stream(self, target: EntryTarget, entry: Entry) -> EntryView:
+        return self.view_for_body_stream_entry(target, entry)
+
+    def view_for_unsupported_entry(self, target: EntryTarget, entry: Entry, *, source: str | None = None) -> EntryView:
+        return unsupported_entry_view(target, entry, source=source)
+
+    def _entry_view_from_unsupported_entry(self, target: EntryTarget, entry: Entry, *, source: str | None = None) -> EntryView:
+        return self.view_for_unsupported_entry(target, entry, source=source)
+
+    def view_for_sidecar_body(self, hit: SearchHit, body: SidecarBody, *, sidecar: SidecarInfo, anchor_id: str) -> EntryView:
+        entry = self._entry_from_sidecar_body(hit, body, sidecar=sidecar, anchor_id=anchor_id)
+        return sidecar_body_entry_view(hit, entry, body, sidecar=sidecar, anchor_id=anchor_id)
+
+    def _entry_view_from_sidecar_body(self, hit: SearchHit, body: SidecarBody, *, sidecar: SidecarInfo, anchor_id: str) -> EntryView:
+        return self.view_for_sidecar_body(hit, body, sidecar=sidecar, anchor_id=anchor_id)
+
+    def _body_resolve_context(self, hit: SearchHit) -> BodyResolveContext:
+        inspection = self.inspect_body_pointer(hit.debug_info.body)
+        source_cache = None
+
+        def source_getter() -> BodySourceInfo:
+            nonlocal source_cache
+            if source_cache is None:
+                source_cache = self.body_source()
+            return source_cache
+
+        return BodyResolveContext(hit=hit, inspection=inspection, source_getter=source_getter)
+
+    def entry_for_hit(self, hit: SearchHit) -> Entry:
+        context = self._body_resolve_context(hit)
+
+        for provider in BODY_PROVIDERS:
+            entry = provider.resolve(self, context)
+            if entry is not None:
+                return entry
+        raise AssertionError("body provider registry did not return an entry")
+
+    def entry_view_for_hit(self, hit: SearchHit) -> EntryView:
+        context = self._body_resolve_context(hit)
+
+        for provider in BODY_PROVIDERS:
+            view = provider.resolve_view(self, context)
+            if view is not None:
+                return view
+        raise AssertionError("body provider registry did not return an entry view")
+
+    def render_hit_html(
+        self,
+        hit: SearchHit,
+        *,
+        profile: HtmlProfile | str = HtmlProfile.FRIENDLY,
+        include_diagnostics: bool = False,
+    ) -> str:
+        return self.render_entry_html(
+            self.entry_for_hit(hit),
+            profile=profile,
+            include_diagnostics=include_diagnostics,
+        )
+
+    def render_hit_text(self, hit: SearchHit) -> str:
+        return self.render_entry_text(self.entry_for_hit(hit))

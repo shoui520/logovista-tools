@@ -8,7 +8,6 @@ import html
 import re
 import sqlite3
 from pathlib import Path
-from typing import Any
 
 from .diagnostics import Diagnostic
 from .json_types import JsonObject
@@ -330,13 +329,6 @@ class SidecarBody:
     html: str | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
     source: SidecarInfo | None = None
-
-
-@dataclass(frozen=True)
-class BodyResolution:
-    entry: Any
-    inspection: BodyPointerInspection | None = None
-    diagnostics: tuple[Diagnostic, ...] = ()
 
 
 SQLITE_MAGIC = b"SQLite format 3\x00"

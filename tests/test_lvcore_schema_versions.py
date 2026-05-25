@@ -4,7 +4,7 @@ from pathlib import Path
 
 from test_lvcore_experimental import ga16_file, make_gaiji_package
 
-from lvcore import Diagnostic, DiagnosticArea, Severity, open_package
+from lvcore import Diagnostic, DiagnosticArea, HomeSurface, Severity, open_package
 
 
 def _assert_schema(value: dict[str, object], schema: str) -> None:
@@ -31,6 +31,11 @@ def test_reader_public_dicts_include_schema_versions(tmp_path: Path) -> None:
     _assert_schema(document.to_dict(), "lvcore.entry_document.v1")
     _assert_schema(results.to_dict(), "lvcore.search_results.v1")
     _assert_schema(hit.to_dict(), "lvcore.search_hit.v1")
+    _assert_schema(hit.target.to_dict(), "lvcore.entry_target.v1")
+    _assert_schema(package.entry_view_for_hit(hit).to_dict(), "lvcore.entry_view.v1")
+    _assert_schema(package.entry_view_for_hit(hit).visual_body.to_dict(), "lvcore.visual_body.v1")
+    surface = next(iter(package.home_surfaces()))
+    _assert_schema(HomeSurface(kind=surface.kind, status=surface.status, label="synthetic").to_dict(), "lvcore.home_surface.v1")
     _assert_schema(package.resource_info(resource).to_dict(), "lvcore.resource_location.v1")
     _assert_schema(package.gaiji_info(resource).to_dict(), "lvcore.gaiji_resolution.v1")
     _assert_schema(package.body_source().to_dict(), "lvcore.body_source.v1")
