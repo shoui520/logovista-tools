@@ -312,6 +312,8 @@ def test_toolkit_casefolded_lookup_preserves_disk_casing_on_case_insensitive_mou
 def test_toolkit_casefolded_lookup_reports_collision(tmp_path) -> None:
     (tmp_path / "HONMON.DIC").write_bytes(b"upper")
     (tmp_path / "honmon.dic").write_bytes(b"lower")
+    if len([path for path in tmp_path.iterdir() if path.name.casefold() == "honmon.dic"]) < 2:
+        pytest.skip("case-insensitive filesystem cannot materialize a casing collision")
     lookup = CaseFoldedDirectory.from_path(tmp_path)
 
     assert lookup.find("HONMON.DIC") is None

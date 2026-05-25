@@ -535,9 +535,10 @@ def fixture_pcmdata_audio_records() -> None:
 def dense_honmon_bytes(ids: Iterable[int]) -> bytes:
     out = bytearray()
     for value in ids:
-        out.extend(b"\x1f\x09\x00\x01")
-        out.extend(f"{value:06d}".encode("ascii"))
-        out.extend(b"\x1f\x0a")
+        digits = b"".join(bytes((0x23, ord(ch))) for ch in f"{value:08d}")
+        record = b"\x1f\x09\x00\x01" + b"\x1f\x41\x00\x00" + b"\x1f\x04" + digits + b"\x1f\x05\x1f\x61\x1f\x0a"
+        assert len(record) == 32
+        out.extend(record)
     return bytes(out)
 
 
@@ -566,9 +567,10 @@ def fixture_dense_honmon_honbun() -> None:
 def fixture_dense_honmon_main_table() -> None:
     path = ROOT / "dense_honmon_main_table"
     write_package(path, dict_id="DENSEMAIN", title="Dense main table", components=[Component("HONMON.DIC", 0x00, dense_honmon_bytes([1, 2]), 2)])
+    (path / "EXINFO.INI").write_text("[GENERAL]\nHTMLDLL=HC0156.dll\nROSQLNAME=DENSEMAIN\n", encoding="cp932")
     con = sqlite3.connect(path / "DENSEMAIN")
-    con.execute("create table DENSEMAIN (id integer primary key, body text)")
-    con.execute("insert into DENSEMAIN values (1, '<p>main table body</p>')")
+    con.execute("create table main (ID integer primary key, Class text, C_text text, J_text text, Pinyin text)")
+    con.execute("insert into main values (1, 'U', 'main table head', 'main table body', 'synthetic')")
     con.commit()
     con.close()
     refresh_manifest(path, features=["dense_honmon_main_table", "sqlite_sidecar"])
@@ -589,8 +591,8 @@ def fixture_sidecar_media_blob() -> None:
     path = ROOT / "sidecar_media_blob"
     write_package(path, dict_id="MEDIADB", title="Media DB", components=[Component("HONMON.DIC", 0x00, dense_honmon_bytes([1]), 2)])
     con = sqlite3.connect(path / "media.db")
-    con.execute("create table media (name text primary key, data blob, mime text)")
-    con.execute("insert into media values ('pixel.png', ?, 'image/png')", (media_payload_png(),))
+    con.execute("create table media (No integer primary key, f_name text, f_type integer, f_main blob)")
+    con.execute("insert into media values (1, 'pixel.png', 2, ?)", (media_payload_png(),))
     con.commit()
     con.close()
     refresh_manifest(path, features=["sidecar_media_blob", "sqlite_sidecar", "media_blob"])
@@ -598,11 +600,15 @@ def fixture_sidecar_media_blob() -> None:
 
 def fixture_ziptomedia_links() -> None:
     path = ROOT / "ziptomedia_links"
-    entries = [WriterEntry("zip", '<a href="lved.ziptomedia:sound001">sound</a>')]
-    write_plain_fixture(path, dict_id="ZIPMEDIA", entries=entries)
-    (path / "ziptomedia").mkdir(exist_ok=True)
-    (path / "ziptomedia" / "sound001").write_bytes(b"synthetic encrypted-ish media placeholder")
-    refresh_manifest(path, features=["plain_honmon", "title_index", "ziptomedia_links"])
+    write_package(path, dict_id="ZIPMEDIA", title="Ziptomedia", components=[Component("HONMON.DIC", 0x00, dense_honmon_bytes([1]), 2)])
+    con = sqlite3.connect(path / "vlpljblF")
+    con.execute("create table t_contents (f_DataId integer primary key, f_Title text, f_Html text)")
+    con.execute("insert into t_contents values (1, 'zip', '<a href=\"lved.ziptomedia:sound001.wav\">sound</a>')")
+    con.commit()
+    con.close()
+    (path / "Sound_Files").mkdir(exist_ok=True)
+    (path / "Sound_Files" / "sound001").write_bytes(b"synthetic encrypted-ish media placeholder")
+    refresh_manifest(path, features=["dense_honmon_t_contents", "sqlite_sidecar", "ziptomedia_links"])
 
 
 def fixture_panel_xml_cells() -> None:

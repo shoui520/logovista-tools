@@ -1,16 +1,27 @@
+import argparse
 import json
 import sqlite3
 from pathlib import Path
 
 from logovista_tools.colscr import parse_colscr_image_header
+from logovista_tools.entries import DictionarySource, decode_tokens, discover_dictionaries, normalize_fullwidth_ascii, tokens_to_text
 from logovista_tools.gaiji import parse_ga16_resource, parse_uni_resource
 from logovista_tools.indexes import scan_index_component
 from logovista_tools.menus import parse_menu_stream
 from logovista_tools.panels import iter_panel_cells, iter_panel_data_references, parse_panel_bin
 from logovista_tools.pcmdata import iter_pcm_references, parse_pcmdata_record
 from logovista_tools.repacker import repack_dictionary_source
+from logovista_tools.rendererdb import (
+    extract_rendererdb_dictionary,
+    iter_honmon_id_records,
+    media_column_names,
+    media_table_name,
+    summarize_ziptomedia_refs,
+    write_media_records,
+)
+from logovista_tools.resources import load_image_resource_profile, relative_image_source
 from logovista_tools.ssed import expand_sseddata_file, find_case_insensitive, parse_sseddata_header, parse_ssedinfo
-from logovista_tools.entries import DictionarySource
+from logovista_tools.windows import discover_renderer_sidecars, load_exinfo_for_idx, sqlite_role_for_tables, sqlite_table_schema_summaries
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "synthetic"
@@ -59,6 +70,27 @@ EXPECTED_FIXTURES = {
 
 def fixture(name: str) -> Path:
     return FIXTURE_ROOT / name
+
+
+def fixture_source(name: str) -> DictionarySource:
+    sources = discover_dictionaries([fixture(name)], jobs=1, include_gaiji=True, include_images=True)
+    assert len(sources) == 1
+    return sources[0]
+
+
+def rendererdb_args(**overrides) -> argparse.Namespace:
+    values = {
+        "decrypted_db": None,
+        "include_html": True,
+        "limit": None,
+        "media_limit": None,
+        "vertical": False,
+        "write_media": False,
+        "write_ziptomedia": False,
+        "ziptomedia_limit": None,
+    }
+    values.update(overrides)
+    return argparse.Namespace(**values)
 
 
 def test_synthetic_fixture_manifest_is_complete() -> None:
@@ -166,6 +198,57 @@ def test_kw_cr_multi_index_fixtures_have_decodable_rows() -> None:
         assert any(str(row["key"]).casefold() == expected_key for row in rows)
 
 
+def test_title_and_index_fixtures_resolve_body_and_title_pointers() -> None:
+    cases = {
+        "basic_bidirectional_title_index": ("FHINDEX.DIC", "alpha"),
+        "standard_four_title_index": ("FKINDEX.DIC", "alpha"),
+        "kw_cr_title_index": ("KWINDEX.DIC", "keyword"),
+        "title_pointer_resolution": ("FHINDEX.DIC", "alpha"),
+        "normalized_index_keys": ("FHINDEX.DIC", "mixed case"),
+    }
+    for fixture_name, (component, expected_key) in cases.items():
+        root = fixture(fixture_name)
+        idx = next(root.glob("*.IDX"))
+        _title, elements = parse_ssedinfo(idx)
+        element = next(row for row in elements if row.filename == component)
+        rows = []
+        result = scan_index_component(
+            component,
+            element.type,
+            expand_sseddata_file(root / component),
+            element.start,
+            gaiji="drop",
+            gaiji_map={},
+            emit_row=rows.append,
+        )
+        leaf = next(row for row in rows if row.get("kind") == "leaf")
+        assert result.unknown_leaf_bytes == 0
+        assert str(leaf["key"]).casefold() == expected_key.casefold()
+        if fixture_name == "normalized_index_keys":
+            assert normalize_fullwidth_ascii("Ｍｉｘｅｄ Ｃａｓｅ").casefold() == str(leaf["key"]).casefold()
+        assert leaf["body"]["block"] >= 2
+        assert leaf["title"]["block"] >= 2
+
+
+def test_honmon_control_link_and_section_fixtures_decode_through_body_model() -> None:
+    controls = expand_sseddata_file(fixture("honmon_common_controls") / "HONMON.DIC")
+    tokens, stats = decode_tokens(controls, preserve_sections=True)
+    text = tokens_to_text(tokens)
+    assert "fullwidth ABC ruby overbase" in text
+    assert stats["controls"] >= 6
+
+    markers = expand_sseddata_file(fixture("honmon_entry_marker_variants") / "HONMON.DIC")
+    marker_tokens, marker_stats = decode_tokens(markers, preserve_sections=True)
+    marker_text = tokens_to_text(marker_tokens)
+    assert "<section:0008>" in marker_text
+    assert "<section:1001>" in marker_text
+    assert marker_stats["sections"] == 2
+
+    links = expand_sseddata_file(fixture("honmon_links") / "HONMON.DIC")
+    _link_tokens, link_stats = decode_tokens(links)
+    assert link_stats["links"] == 1
+
+
 def test_menu_and_toc_navigation_fixtures_decode() -> None:
     menu_root = fixture("menu_body_targets")
     _title, elements = parse_ssedinfo(menu_root / "MENUBODY.IDX")
@@ -189,7 +272,12 @@ def test_gaiji_fixture_families_parse() -> None:
     assert parse_ga16_resource(fixture("ga16_half_full") / "GA16FULL") is not None
     assert parse_ga16_resource(fixture("gai16_name_variants") / "GAI16H00") is not None
     assert parse_ga16_resource(fixture("gai16_name_variants") / "GAI16F00") is not None
-    assert (fixture("template_gaiji_fallback") / "Templates" / "b121.png").read_bytes().startswith(b"\x89PNG")
+
+    template_root = fixture("template_gaiji_fallback")
+    profile = load_image_resource_profile(template_root)
+    assert "b121" in profile.gaiji_image_keys
+    png = next(path for path in profile.resources["b121"].files if path.suffix == ".png")
+    assert relative_image_source(png, template_root) == "Templates/b121.png"
 
 
 def test_media_fixtures_decode() -> None:
@@ -223,7 +311,7 @@ def test_dense_and_sidecar_sqlite_fixtures_have_expected_tables() -> None:
     cases = {
         "dense_honmon_t_contents": ("vlpljblF", "t_contents"),
         "dense_honmon_honbun": ("body.db", "HONBUN"),
-        "dense_honmon_main_table": ("DENSEMAIN", "DENSEMAIN"),
+        "dense_honmon_main_table": ("DENSEMAIN", "main"),
         "block_offset_rendererdb": ("renderer.db", "body"),
         "sidecar_media_blob": ("media.db", "media"),
     }
@@ -234,6 +322,75 @@ def test_dense_and_sidecar_sqlite_fixtures_have_expected_tables() -> None:
         finally:
             con.close()
         assert table in names
+
+
+def test_dense_honmon_fixtures_use_real_fixed_width_anchor_records() -> None:
+    for fixture_name, expected_ids in {
+        "dense_honmon_t_contents": [1, 2],
+        "dense_honmon_honbun": [1, 2],
+        "dense_honmon_main_table": [1, 2],
+        "block_offset_rendererdb": [1],
+        "ziptomedia_links": [1],
+    }.items():
+        source = fixture_source(fixture_name)
+        expanded = expand_sseddata_file(source.honmon)
+        records = list(iter_honmon_id_records(expanded, honmon_start_block=source.honmon_start_block))
+        assert [record.data_id for record in records] == expected_ids
+        assert all(record.record_offset % 32 == 0 for record in records)
+
+
+def test_rendererdb_dense_sidecar_fixtures_resolve_to_body_rows(tmp_path: Path) -> None:
+    expected = {
+        "dense_honmon_t_contents": ("ok", "alpha body"),
+        "dense_honmon_honbun": ("ok_honbun_ordered", "alpha box"),
+        "dense_honmon_main_table": ("ok_main_id_text_body", "main table body"),
+        "block_offset_rendererdb": ("ok_block_offset_body", "block body"),
+    }
+    for fixture_name, (status, expected_text) in expected.items():
+        summary = extract_rendererdb_dictionary(fixture_source(fixture_name), tmp_path / fixture_name, rendererdb_args())
+        assert summary["status"] == status
+        assert summary["entries_matched_to_raw_honmon"] == 1
+        assert summary["entries_emitted"] == 1
+        first = json.loads(Path(summary["entries_path"]).read_text(encoding="utf-8").splitlines()[0])
+        assert expected_text in first["plain"]
+        assert first["raw_honmon"]
+
+
+def test_dense_main_table_fixture_is_discovered_through_exinfo_rosqlname() -> None:
+    source = fixture_source("dense_honmon_main_table")
+    exinfo = load_exinfo_for_idx(source.idx)
+    assert exinfo is not None
+    assert exinfo.general["ROSQLNAME"] == "DENSEMAIN"
+    sidecars = discover_renderer_sidecars(source.idx, exinfo)
+    assert [sidecar.path.name for sidecar in sidecars] == ["DENSEMAIN"]
+
+
+def test_sidecar_media_blob_fixture_uses_supported_media_schema(tmp_path: Path) -> None:
+    db = fixture("sidecar_media_blob") / "media.db"
+    role = sqlite_role_for_tables(sqlite_table_schema_summaries(db))
+    assert role == "sqlite_media_store"
+    con = sqlite3.connect(db)
+    try:
+        assert media_table_name(con) == "media"
+        assert media_column_names(con) is not None
+        summary = write_media_records(con, tmp_path / "media")
+    finally:
+        con.close()
+    assert summary["media_rows"] == 1
+    assert summary["media_written"] == 1
+    assert (tmp_path / "media" / "pixel.png").read_bytes().startswith(b"\x89PNG")
+
+
+def test_ziptomedia_fixture_resolves_referenced_sound_file(tmp_path: Path) -> None:
+    source = fixture_source("ziptomedia_links")
+    summary = extract_rendererdb_dictionary(source, tmp_path / "zipmedia", rendererdb_args())
+    assert summary["status"] == "ok"
+    assert summary["ziptomedia_distinct_references"] == 1
+    assert summary["ziptomedia_files_available"] == 1
+    assert summary["ziptomedia_missing_references"] == 0
+
+    refs = summarize_ziptomedia_refs(source.idx, {"sound001.wav": 1})
+    assert refs["ziptomedia_files_available"] == 1
 
 
 def test_lossless_repack_representative_fixture_roundtrips(tmp_path: Path) -> None:

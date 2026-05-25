@@ -6,6 +6,7 @@
   "files": [
     "DENSEMAIN",
     "DENSEMAIN.IDX",
+    "EXINFO.INI",
     "HONMON.DIC"
   ],
   "fixture": "dense_honmon_main_table",
