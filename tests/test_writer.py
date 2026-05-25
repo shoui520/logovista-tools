@@ -45,10 +45,11 @@ from logovista_tools.writer import (
     FontFallbackGlyphRenderer,
     WriterEntry,
     IndexTarget,
+    KeywordIndexGroup,
     build_plain_honmon_package,
     encode_body_text,
     encode_ga16_resource,
-    encode_keyword_index_pages,
+    encode_grouped_keyword_index_pages,
     encode_jis_cell,
     encode_menu_stream,
     encode_panel_bin,
@@ -940,9 +941,9 @@ def test_plain_honmon_package_writer_is_readable_by_existing_parsers(tmp_path) -
         gaiji_map=gaiji_map,
         emit_row=fk_rows.append,
     )
-    assert fk_result.search_groups == 4
-    assert fk_result.leaf_rows == 4
-    assert {row["key"] for row in fk_rows if row["kind"] == "leaf"} == {"ALPHA", "裏", "BIANG", "𰻞"}
+    assert fk_result.search_groups == 3
+    assert fk_result.leaf_rows == 3
+    assert {row["key"] for row in fk_rows if row["kind"] == "leaf"} == {"ALPHA", "裏", "BIANG"}
     assert {row["target_key"] for row in fk_rows if row["kind"] == "leaf"} == {"ALPHA", "裏", "BIANG"}
 
     bk_rows = []
@@ -956,8 +957,8 @@ def test_plain_honmon_package_writer_is_readable_by_existing_parsers(tmp_path) -
         gaiji_map=gaiji_map,
         emit_row=bk_rows.append,
     )
-    assert bk_result.search_groups == 4
-    assert bk_result.leaf_rows == 4
+    assert bk_result.search_groups == 3
+    assert bk_result.leaf_rows == 3
     assert {row["title"]["block"] for row in bk_rows if row["kind"] == "leaf"} == {
         next(element.start for element in elements if element.filename == "BKTITLE.DIC")
     }
@@ -1178,14 +1179,14 @@ def test_pcm_reference_scan_can_stop_before_full_honmon(tmp_path) -> None:
     assert complete is False
 
 
-def test_keyword_index_writer_emits_kw_direct_rows() -> None:
-    target = IndexTarget(
+def test_keyword_index_writer_emits_grouped_kw_rows() -> None:
+    group = KeywordIndexGroup(
         key="example",
-        body=IndexPointer(10, 20),
         title=IndexPointer(30, 40),
+        bodies=(IndexPointer(10, 20), IndexPointer(11, 22)),
     )
 
-    pages = encode_keyword_index_pages([target], start_block=100)
+    pages = encode_grouped_keyword_index_pages([group], start_block=100)
     rows, _key, _title, _hint, groups, unknown = parse_kw_leaf_page(
         "KWINDEX.DIC",
         pages[:BLOCK_SIZE],
@@ -1199,10 +1200,41 @@ def test_keyword_index_writer_emits_kw_direct_rows() -> None:
     )
 
     assert unknown == 0
-    assert groups == 0
+    assert groups == 1
+    assert len(rows) == 2
     assert rows[0].key == "EXAMPLE"
     assert rows[0].body == IndexPointer(10, 20)
     assert rows[0].title == IndexPointer(30, 40)
+    assert rows[1].body == IndexPointer(11, 22)
+    assert rows[1].title == IndexPointer(30, 40)
+
+
+def test_grouped_keyword_index_writer_continues_large_groups_across_pages() -> None:
+    bodies = tuple(IndexPointer(200 + index, index % 2048) for index in range(500))
+    pages = encode_grouped_keyword_index_pages(
+        [KeywordIndexGroup(key="shared keyword", title=IndexPointer(30, 40), bodies=bodies)],
+        start_block=100,
+    )
+    rows: list[dict[str, object]] = []
+    result = scan_index_component(
+        "KWINDEX.DIC",
+        0x80,
+        pages,
+        100,
+        gaiji="h-placeholder",
+        gaiji_map={},
+        emit_row=rows.append,
+    )
+
+    leaf_rows = [row for row in rows if row["kind"] == "leaf"]
+    assert result.search_groups == 1
+    assert result.leaf_rows == len(bodies)
+    assert result.unknown_leaf_bytes == 0
+    assert {row["key"] for row in leaf_rows} == {"SHARED KEYWORD"}
+    assert leaf_rows[0]["body"] == {"block": 200, "offset": 0}
+    assert leaf_rows[-1]["body"] == {"block": 699, "offset": 499}
+    assert {row["title"]["block"] for row in leaf_rows} == {30}
+    assert {row["title"]["offset"] for row in leaf_rows} == {40}
 
 
 def test_menu_and_panel_writer_primitives_roundtrip() -> None:

@@ -973,6 +973,13 @@ class IndexTarget:
 
 
 @dataclass(frozen=True)
+class KeywordIndexGroup:
+    key: str
+    title: IndexPointer
+    bodies: tuple[IndexPointer, ...]
+
+
+@dataclass(frozen=True)
 class WriterMenuItem:
     label: str
     body: IndexPointer
@@ -1278,6 +1285,100 @@ def encode_keyword_index_pages(
         records.append((row, key_bytes))
     records.sort(key=lambda row: row[1])
     return _encode_index_tree(records, start_block=start_block)
+
+
+def _split_keyword_record_pages(groups: list[tuple[bytes, bytes, list[bytes]]]) -> list[tuple[bytes, list[bytes]]]:
+    pages: list[tuple[bytes, list[bytes]]] = []
+    current_records: list[bytes] = []
+    current_branch_key = b""
+    current_size = 4
+
+    def flush() -> None:
+        nonlocal current_records, current_branch_key, current_size
+        if current_records:
+            pages.append((current_branch_key, current_records))
+        current_records = []
+        current_branch_key = b""
+        current_size = 4
+
+    def add_record(record: bytes, branch_key: bytes) -> None:
+        nonlocal current_branch_key, current_size
+        if len(record) + 4 > BLOCK_SIZE:
+            raise ValueError(f"single keyword index record exceeds page size: {branch_key.hex()}")
+        current_branch_key = branch_key
+        current_records.append(record)
+        current_size += len(record)
+
+    def add_group(key_bytes: bytes, header: bytes, targets: list[bytes]) -> None:
+        first_target_size = len(targets[0]) if targets else 0
+        if len(header) + first_target_size + 4 > BLOCK_SIZE:
+            raise ValueError(f"single keyword index key header plus target exceeds page size: {key_bytes.hex()}")
+        if current_records and current_size + len(header) + first_target_size > BLOCK_SIZE:
+            flush()
+        add_record(header, key_bytes)
+        for target in targets:
+            if current_size + len(target) > BLOCK_SIZE:
+                flush()
+            add_record(target, key_bytes)
+
+    branch_prefix_len = min(max((len(key_bytes) for key_bytes, _header, _targets in groups), default=0), _branch_key_len_cap(1)) or 0
+    prefix_groups: list[list[tuple[bytes, bytes, list[bytes]]]] = []
+    current_group: list[tuple[bytes, bytes, list[bytes]]] = []
+    current_prefix: bytes | None = None
+    for group in groups:
+        key_bytes = group[0]
+        prefix = _branch_prefix(key_bytes, branch_prefix_len) if branch_prefix_len else key_bytes
+        if current_group and prefix != current_prefix:
+            prefix_groups.append(current_group)
+            current_group = []
+        current_prefix = prefix
+        current_group.append(group)
+    if current_group:
+        prefix_groups.append(current_group)
+
+    for prefix_group in prefix_groups:
+        total_size = sum(len(header) + sum(len(target) for target in targets) for _key_bytes, header, targets in prefix_group)
+        if total_size + 4 <= BLOCK_SIZE:
+            if current_records and current_size + total_size > BLOCK_SIZE:
+                flush()
+            for key_bytes, header, targets in prefix_group:
+                add_record(header, key_bytes)
+                for target in targets:
+                    add_record(target, key_bytes)
+            continue
+
+        for key_bytes, header, targets in prefix_group:
+            add_group(key_bytes, header, targets)
+    flush()
+    return pages
+
+
+def encode_grouped_keyword_index_pages(
+    groups: Iterable[KeywordIndexGroup],
+    *,
+    start_block: int,
+    gaiji: GaijiAllocator | None = None,
+) -> bytes:
+    encoded_groups: list[tuple[bytes, bytes, list[bytes]]] = []
+    for group in groups:
+        if not group.bodies:
+            continue
+        key_bytes = _try_encode_search_key(group.key, gaiji)
+        if key_bytes is None:
+            continue
+        header = (
+            b"\x80"
+            + bytes([len(key_bytes)])
+            + be32(len(group.bodies))
+            + key_bytes
+            + be32(group.title.block)
+            + be16(group.title.offset)
+        )
+        targets = [b"\xc0" + be32(body.block) + be16(body.offset) for body in group.bodies]
+        encoded_groups.append((key_bytes, header, targets))
+    encoded_groups.sort(key=lambda row: row[0])
+    leaves = _build_leaf_nodes_from_pages(_split_keyword_record_pages(encoded_groups), tagged_leaf=True)
+    return _encode_index_tree_from_leaf_nodes(leaves, start_block=start_block, tagged_leaf=True)
 
 
 def encode_tagged_index_pages(
@@ -2103,6 +2204,16 @@ def build_plain_honmon_package(
         for encoded in encoded_entries
         for key in encoded.keys
     ]
+    exact_targets = [
+        IndexTarget(
+            key=encoded.keys[0],
+            target_key=encoded.entry.headword,
+            body=encoded.body_pointer,
+            title=title_pointer(fktitle_start, encoded.title_offset) if fktitle_start is not None else encoded.title_pointer,
+        )
+        for encoded in encoded_entries
+        if encoded.keys
+    ]
 
     fkindex_expanded: bytes | None = None
     bkindex_expanded: bytes | None = None
@@ -2113,28 +2224,8 @@ def build_plain_honmon_package(
 
     if include_tagged_indexes:
         assert fktitle_start is not None and bktitle_start is not None
-        tagged_forward_targets = [
-            IndexTarget(
-                key=key,
-                target_key=encoded.entry.headword,
-                body=encoded.body_pointer,
-                title=title_pointer(fktitle_start, encoded.title_offset),
-            )
-            for encoded in encoded_entries
-            for key in encoded.keys
-        ]
-        tagged_backward_targets = [
-            IndexTarget(
-                key=key,
-                target_key=encoded.entry.headword,
-                body=encoded.body_pointer,
-                title=title_pointer(bktitle_start, encoded.title_offset),
-            )
-            for encoded in encoded_entries
-            for key in encoded.keys
-        ]
         fkindex_start = cursor
-        fkindex_expanded = encode_tagged_index_pages(tagged_forward_targets, start_block=fkindex_start, gaiji=gaiji)
+        fkindex_expanded = encode_tagged_index_pages(exact_targets, start_block=fkindex_start, gaiji=gaiji)
         fkindex_blocks = logical_block_count(fkindex_expanded)
         cursor += fkindex_blocks
         if progress:
@@ -2151,18 +2242,18 @@ def build_plain_honmon_package(
         assert bkindex_start is None and bktitle_start is not None
         bkindex_start = cursor
         assert bkindex_expanded is None
-        tagged_backward_targets = [
+        exact_backward_targets = [
             IndexTarget(
-                key=key,
+                key=encoded.keys[0],
                 target_key=encoded.entry.headword,
                 body=encoded.body_pointer,
                 title=title_pointer(bktitle_start, encoded.title_offset),
             )
             for encoded in encoded_entries
-            for key in encoded.keys
+            if encoded.keys
         ]
         bkindex_expanded = encode_tagged_index_pages(
-            tagged_backward_targets,
+            exact_backward_targets,
             start_block=bkindex_start,
             gaiji=gaiji,
             reverse_keys=True,

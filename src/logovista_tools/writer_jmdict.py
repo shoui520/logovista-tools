@@ -37,7 +37,7 @@ from .writer import (
     FontFallbackGlyphRenderer,
     GaijiAssignment,
     GaijiAllocator,
-    IndexTarget,
+    KeywordIndexGroup,
     PlainPackage,
     SsedInfoComponent,
     WriterEntry,
@@ -47,7 +47,7 @@ from .writer import (
     component_offset_to_pointer,
     default_catalog_data,
     encode_ccaltstr_table,
-    encode_keyword_index_pages,
+    encode_grouped_keyword_index_pages,
     encode_menu_stream,
     encode_panel_bin,
     encode_search_key,
@@ -815,25 +815,44 @@ def _encode_component(
     raise ValueError(f"unknown compression mode: {compression}")
 
 
-def _iter_keyword_targets(
+@dataclass(frozen=True)
+class _KeywordGroupBuild:
+    key: str
+    bodies: tuple[IndexPointer, ...]
+    title_start_index: int
+
+
+def _keyword_title_rows_and_groups(
     result: JmdictImportResult,
     encoded_entries: tuple[Any, ...],
     *,
-    kwtitle_start: int,
-    kwtitle_offsets: list[int],
-) -> Iterable[IndexTarget]:
-    for index, keywords in enumerate(result.keyword_keys):
-        if index >= len(encoded_entries):
-            break
-        encoded = encoded_entries[index]
-        title = component_offset_to_pointer(kwtitle_start, kwtitle_offsets[index])
-        for key in keywords:
-            yield IndexTarget(key=key, body=encoded.body_pointer, title=title)
-
-
-def _keyword_target_count(result: JmdictImportResult, encoded_entries: tuple[Any, ...]) -> int:
+    gaiji: GaijiAllocator,
+) -> tuple[list[str], list[_KeywordGroupBuild], int]:
+    buckets: dict[str, list[int]] = defaultdict(list)
     limit = min(len(result.keyword_keys), len(encoded_entries))
-    return sum(len(result.keyword_keys[index]) for index in range(limit))
+    for index in range(limit):
+        for key in result.keyword_keys[index]:
+            buckets[key].append(index)
+
+    encoded_keys: list[tuple[bytes, str]] = []
+    dropped = 0
+    for key in buckets:
+        try:
+            encoded_keys.append((encode_search_key(key, gaiji), key))
+        except (UnicodeEncodeError, ValueError):
+            dropped += len(buckets[key])
+            gaiji.index_key_drops += len(buckets[key])
+    encoded_keys.sort(key=lambda row: row[0])
+
+    titles: list[str] = []
+    groups: list[_KeywordGroupBuild] = []
+    for _encoded_key, key in encoded_keys:
+        title_start_index = len(titles)
+        indexes = buckets[key]
+        bodies = tuple(encoded_entries[index].body_pointer for index in indexes)
+        titles.extend(encoded_entries[index].entry.headword for index in indexes)
+        groups.append(_KeywordGroupBuild(key=key, bodies=bodies, title_start_index=title_start_index))
+    return titles, groups, dropped
 
 
 def _pointer_by_headword(package: PlainPackage) -> dict[str, IndexPointer]:
@@ -1159,16 +1178,29 @@ def augment_jmdict_package(
     cursor = max(row.end_block for row in catalog if row.start_block or row.end_block) + 1
 
     kwtitle_start = cursor
-    kwtitle_expanded, kwtitle_offsets = encode_title_stream([row.entry.headword for row in package.encoded_entries], package.gaiji_allocator)
+    kwtitle_rows, keyword_groups, keyword_drops = _keyword_title_rows_and_groups(
+        result,
+        package.encoded_entries,
+        gaiji=package.gaiji_allocator,
+    )
+    kwtitle_expanded, kwtitle_offsets = encode_title_stream(kwtitle_rows, package.gaiji_allocator)
     kwtitle_blocks = logical_block_count(kwtitle_expanded)
     cursor += kwtitle_blocks
 
     kwindex_start = cursor
-    keyword_target_count = _keyword_target_count(result, package.encoded_entries)
+    keyword_target_count = sum(len(group.bodies) for group in keyword_groups)
     if progress:
-        progress(f"KWINDEX targets: {keyword_target_count}")
-    kwindex_expanded = encode_keyword_index_pages(
-        _iter_keyword_targets(result, package.encoded_entries, kwtitle_start=kwtitle_start, kwtitle_offsets=kwtitle_offsets),
+        progress(f"KWINDEX targets: {keyword_target_count}; groups={len(keyword_groups)}; drops={keyword_drops}")
+    kwindex_groups = [
+        KeywordIndexGroup(
+            key=group.key,
+            title=component_offset_to_pointer(kwtitle_start, kwtitle_offsets[group.title_start_index]),
+            bodies=group.bodies,
+        )
+        for group in keyword_groups
+    ]
+    kwindex_expanded = encode_grouped_keyword_index_pages(
+        kwindex_groups,
         start_block=kwindex_start,
         gaiji=package.gaiji_allocator,
     )
