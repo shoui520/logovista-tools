@@ -351,6 +351,26 @@ Each output dictionary directory contains one HTML file per rendered hit plus
 query, for example `et_1.html` or `crocodile_1.html`. Use `--limit` only when
 the requested term legitimately has multiple matching entries.
 
+### `hc-render-lock`
+
+Render only dictionaries that have confirmed HC visual-parity locks and check
+the generated reference HTML for regression hazards:
+
+```bash
+logovista-tools hc-render-lock /path/to/LOGOVISTA_SSED_DICTS_WINDOWS \
+  --out-dir reports/hc-render-lock --jobs 12
+```
+
+The command uses the reviewed reference-entry list in
+`logovista_tools.hc_regression`, writes all generated HTML and JSON under
+`reports/`, and exits nonzero when a guardrail fails. It checks that local
+`img`/`object`/stylesheet/script references exist with exact on-disk casing,
+that previous/next Windows reader chrome (`backH`, `forwardH`, `backV`,
+`forwardV`) is absent, that table markup is balanced enough to avoid
+browser-hostile nested-table explosions, and that known visual invariants such
+as green hyperlink CSS, blue headword CSS for known Windows-reader profiles,
+and text-scale inline SVG/image assets remain present.
+
 ### `reader-demo`
 
 Generate a static web-reader proof page for one SSED dictionary package:

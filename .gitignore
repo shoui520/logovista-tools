@@ -26,6 +26,7 @@ Gaiji*.plist
 logovista-raw-extract/
 logovista-raw-titles/
 logovista-*/
+reports/
 *.jsonl
 
 # Committed synthetic format fixtures. These intentionally contain tiny

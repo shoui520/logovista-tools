@@ -66,6 +66,7 @@ from .hcrender import (
     extract_hc_render_entries_for_sources,
     extract_hc_render_for_sources,
 )
+from .hc_regression import add_hc_render_lock_args, print_hc_render_lock_rows, run_hc_render_lock_for_args
 from .indexes import extract_indexes_for_idx
 from .ir import extract_ir_for_args
 from .lved import (
@@ -1541,6 +1542,15 @@ def cmd_hc_render_entry(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_hc_render_lock(args: argparse.Namespace) -> int:
+    status(args, "hc-render-lock: rendering confirmed parity references and checking guardrails")
+    rows = run_hc_render_lock_for_args(args)
+    print_hc_render_lock_rows(rows)
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_reader_demo(args: argparse.Namespace) -> int:
     status(args, "reader-demo: generating static reader proof page")
     summaries = generate_reader_demo(args)
@@ -2500,6 +2510,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_hc_render_entry_args(p_hc_render_entry)
     add_jobs_argument(p_hc_render_entry)
     p_hc_render_entry.set_defaults(func=cmd_hc_render_entry)
+
+    p_hc_render_lock = sub.add_parser(
+        "hc-render-lock",
+        help="Render confirmed HC reference entries and check regression guardrails.",
+    )
+    add_hc_render_lock_args(p_hc_render_lock)
+    add_jobs_argument(p_hc_render_lock)
+    p_hc_render_lock.set_defaults(func=cmd_hc_render_lock)
 
     p_reader_demo = sub.add_parser(
         "reader-demo",
