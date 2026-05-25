@@ -998,31 +998,56 @@ def _cell_html() -> bytes:
 """
 
 
-def _render_template_gaiji_png(text: str, font_paths: list[Path], *, size: int = 32) -> bytes:
+def _template_gaiji_dimensions(space: str) -> tuple[int, int]:
+    if space == "half":
+        return 75, 150
+    return 150, 150
+
+
+def _template_codepoints(text: str) -> frozenset[int]:
+    return frozenset(
+        ord(ch)
+        for ch in text
+        if not unicodedata.combining(ch) and unicodedata.category(ch) != "Cf"
+    )
+
+
+def _font_faces_covering_text(text: str, font_paths: list[Path]) -> Iterable[tuple[Path, int]]:
+    required_codepoints = _template_codepoints(text)
+    for path in font_paths:
+        coverages = _font_face_coverages(str(path))
+        if not coverages:
+            continue
+        for face_index, coverage in coverages:
+            if required_codepoints and coverage and not required_codepoints.issubset(coverage):
+                continue
+            yield path, face_index
+
+
+def _render_template_gaiji_png(text: str, font_paths: list[Path], *, width: int, height: int) -> bytes:
     from io import BytesIO
 
     from PIL import Image, ImageDraw, ImageFont
 
-    required_codepoints = {
-        ord(ch)
-        for ch in text
-        if not unicodedata.combining(ch) and unicodedata.category(ch) != "Cf"
-    }
-    for path in font_paths:
-        coverages = _font_face_coverages(str(path)) or ((0, frozenset()),)
-        for face_index, coverage in coverages:
-            if required_codepoints and coverage and not required_codepoints.issubset(coverage):
-                continue
+    for path, face_index in _font_faces_covering_text(text, font_paths):
+        for font_size in range(max(height - 8, 1), 3, -2):
             try:
-                font = ImageFont.truetype(str(path), size=size - 4, index=face_index)
+                font = ImageFont.truetype(str(path), size=font_size, index=face_index)
             except Exception:
-                continue
-            image = Image.new("RGBA", (size, size), (255, 255, 255, 0))
+                break
+            image = Image.new("RGBA", (width, height), (255, 255, 255, 0))
             draw = ImageDraw.Draw(image)
             bbox = draw.textbbox((0, 0), text, font=font)
-            width = max(1, bbox[2] - bbox[0])
-            height = max(1, bbox[3] - bbox[1])
-            draw.text(((size - width) / 2 - bbox[0], (size - height) / 2 - bbox[1]), text, font=font, fill=(0, 0, 0, 255))
+            glyph_width = max(1, bbox[2] - bbox[0])
+            glyph_height = max(1, bbox[3] - bbox[1])
+            if glyph_width > width - 8 or glyph_height > height - 8:
+                continue
+            draw.text(
+                ((width - glyph_width) / 2 - bbox[0], (height - glyph_height) / 2 - bbox[1]),
+                text,
+                font=font,
+                fill=(0, 0, 0, 255),
+            )
             alpha = image.getchannel("A")
             if alpha.getbbox():
                 out = BytesIO()
@@ -1031,13 +1056,89 @@ def _render_template_gaiji_png(text: str, font_paths: list[Path], *, size: int =
     return b""
 
 
-def _template_svg(text: str) -> bytes:
-    escaped = html.escape(text)
-    return (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">'
-        '<text x="16" y="23" text-anchor="middle" font-size="24" font-family="serif">'
-        f"{escaped}</text></svg>"
-    ).encode("utf-8")
+def _svg_path_for_font_text(text: str, path: Path, face_index: int, *, width: int, height: int) -> str | None:
+    try:
+        from fontTools.misc.transform import Transform
+        from fontTools.pens.boundsPen import BoundsPen
+        from fontTools.pens.svgPathPen import SVGPathPen
+        from fontTools.pens.transformPen import TransformPen
+        from fontTools.ttLib import TTFont
+    except ImportError:
+        return None
+
+    font = None
+    try:
+        font = TTFont(str(path), fontNumber=face_index, lazy=False)
+        glyph_set = font.getGlyphSet()
+        cmap = font.getBestCmap() or {}
+        glyph_names: list[str] = []
+        for ch in text:
+            if unicodedata.combining(ch) or unicodedata.category(ch) == "Cf":
+                continue
+            glyph_name = cmap.get(ord(ch))
+            if glyph_name is None or str(glyph_name).lower() in {".notdef", "glyph0", "glyph00000"}:
+                return None
+            glyph_names.append(str(glyph_name))
+        if not glyph_names:
+            return None
+
+        hmtx = font.get("hmtx")
+        advances = [
+            int(hmtx.metrics.get(name, (0, 0))[0]) if hmtx is not None else 0
+            for name in glyph_names
+        ]
+        x_cursor = 0
+        bounds_pen = BoundsPen(glyph_set)
+        for name, advance in zip(glyph_names, advances):
+            glyph_set[name].draw(TransformPen(bounds_pen, Transform(1, 0, 0, 1, x_cursor, 0)))
+            x_cursor += advance or 1000
+        if bounds_pen.bounds is None:
+            return None
+
+        x_min, y_min, x_max, y_max = bounds_pen.bounds
+        glyph_width = max(1.0, x_max - x_min)
+        glyph_height = max(1.0, y_max - y_min)
+        margin_x = max(width * 0.06, 2.0)
+        margin_y = max(height * 0.06, 2.0)
+        scale = min((width - margin_x * 2) / glyph_width, (height - margin_y * 2) / glyph_height)
+        if scale <= 0:
+            return None
+        extra_x = (width - glyph_width * scale) / 2
+        extra_y = (height - glyph_height * scale) / 2
+        translate_x = extra_x - x_min * scale
+        translate_y = extra_y + y_max * scale
+
+        svg_pen = SVGPathPen(glyph_set)
+        x_cursor = 0
+        for name, advance in zip(glyph_names, advances):
+            transform = Transform(scale, 0, 0, -scale, translate_x + x_cursor * scale, translate_y)
+            glyph_set[name].draw(TransformPen(svg_pen, transform))
+            x_cursor += advance or 1000
+        path_data = svg_pen.getCommands()
+        return path_data or None
+    except Exception:
+        return None
+    finally:
+        if font is not None:
+            close = getattr(font, "close", None)
+            if close is not None:
+                close()
+
+
+def _template_svg(text: str, font_paths: list[Path], *, space: str) -> bytes:
+    width, height = _template_gaiji_dimensions(space)
+    for path, face_index in _font_faces_covering_text(text, font_paths):
+        path_data = _svg_path_for_font_text(text, path, face_index, width=width, height=height)
+        if path_data:
+            title = html.escape(text)
+            return (
+                '<?xml version="1.0" encoding="utf-8"?>\n'
+                f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}">'
+                f"<title>{title}</title>"
+                f'<path d="{path_data}"/>'
+                "</svg>\n"
+            ).encode("utf-8")
+    return b""
 
 
 def _ccaltstr_values(assignments: Iterable[GaijiAssignment]) -> dict[str, str]:
@@ -1124,12 +1225,15 @@ def augment_jmdict_package(
 
     template_count = 0
     for assignment in package.gaiji_allocator.assignments.values():
-        png = _render_template_gaiji_png(assignment.text, vector_fonts)
+        width, height = _template_gaiji_dimensions(assignment.space)
+        png = _render_template_gaiji_png(assignment.text, vector_fonts, width=width, height=height)
         base = f"Templates/{assignment.key.lower()}"
         if png:
             files[base + ".png"] = png
             template_count += 1
-        files[base + ".svg"] = _template_svg(assignment.text)
+        svg = _template_svg(assignment.text, vector_fonts, space=assignment.space)
+        if svg:
+            files[base + ".svg"] = svg
 
     ccaltstr_counts: dict[str, int] = {}
     half_values = _ccaltstr_values(package.gaiji_allocator.half_assignments)

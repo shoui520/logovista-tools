@@ -3,6 +3,7 @@ import gzip
 import json
 import zipfile
 from argparse import Namespace
+from pathlib import Path
 
 from logovista_tools.entries import (
     decode_tokens,
@@ -88,6 +89,16 @@ def _raw_branch_key(data: bytes, page_index: int, row_index: int) -> bytes:
     slot = (word & 0xFF) + 4
     pos = 4 + ((row_index - 1) * slot)
     return page[pos : pos + slot - 4]
+
+
+def _test_outline_font() -> str:
+    for candidate in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    ):
+        if Path(candidate).is_file():
+            return candidate
+    pytest.skip("no outline font available for JMdict template gaiji test")
 
 
 def _lookup_simple_index(data: bytes, start_block: int, key: bytes) -> list[str]:
@@ -1241,7 +1252,7 @@ def test_jmdict_writer_emits_navigation_panels_templates_and_ccaltstr(tmp_path) 
 <JMdict>
 <entry>
   <ent_seq>1</ent_seq>
-  <k_ele><keb>試験ō</keb><ke_pri>news1</ke_pri></k_ele>
+  <k_ele><keb>試験ōə</keb><ke_pri>news1</ke_pri></k_ele>
   <r_ele><reb>しけん</reb></r_ele>
   <sense>
     <pos>noun (common) (futsuumeishi)</pos>
@@ -1277,9 +1288,9 @@ def test_jmdict_writer_emits_navigation_panels_templates_and_ccaltstr(tmp_path) 
         compression="literal",
         jobs=1,
         gaiji_font=None,
-        gaiji_vector_font=None,
+        gaiji_vector_font=[_test_outline_font()],
         gaiji_bitmap_font=None,
-        font_root=tmp_path / "no-fonts",
+        font_root=None,
         font_face_index=0,
         font_threshold=220,
         jmdict_license_html=license_html,
@@ -1305,7 +1316,20 @@ def test_jmdict_writer_emits_navigation_panels_templates_and_ccaltstr(tmp_path) 
     assert (package / "Cell.html").is_file()
     assert not (package / "Panel" / "Panels.xml").exists()
     assert any((package / "Panel").glob("*.bin"))
-    assert any((package / "Templates").glob("*.svg"))
+    template_svgs = sorted((package / "Templates").glob("*.svg"))
+    assert template_svgs
+    for svg_path in template_svgs:
+        svg = svg_path.read_text(encoding="utf-8")
+        assert "<path " in svg
+        assert "<text" not in svg
+    from PIL import Image
+
+    template_png_sizes = {
+        Image.open(path).size
+        for path in (package / "Templates").glob("*.png")
+    }
+    assert (75, 150) in template_png_sizes
+    assert (150, 150) in template_png_sizes
     assert (package / "CCALTSTR.FU").is_file() or (package / "CCALTSTR.HA").is_file()
     assert (tmp_path / "showcase" / "index.html").is_file()
     uni = parse_uni_resource(package / "JMDICT.uni")
