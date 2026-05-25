@@ -1,7 +1,12 @@
-# LVED SQLCipher Packages
+# Modern LogoVista SQLCipher Packages
 
-Modern LVED/WebView2 packages are a separate dictionary family from the
-SSED/HONMON dictionaries documented elsewhere in this repository.
+Modern LogoVista SQLCipher packages are a separate dictionary family from the
+SSED/HONMON dictionaries documented elsewhere in this repository. This project
+still uses `lved` as the command/module shorthand because the recovered viewer
+and older reports use LVED-related names, but LogoVista also reused `lved`
+internally for older SSED-era viewers. In this document, the useful format
+claim is therefore the storage model: SQLCipher `main.data` / `*.dbc`
+dictionary payloads, not the viewer executable name.
 
 Observed examples:
 
@@ -27,6 +32,11 @@ stream. The observed files have these traits:
 
 SSED/HONMON-oriented readers cannot recover body text from this package family
 because there is no SSED/HONMON body stream to compose.
+
+Some packages in this family may still carry retained SSED-style components or
+indexes beside the SQLCipher payload. Reader architecture must treat those as
+shared feature providers when present, not gate SSED component parsers away from
+SQLCipher packages.
 
 ## Viewer Access Path
 
@@ -128,16 +138,23 @@ is an FTS table backing lookup.
 
 ## Toolkit Support
 
-The `lved` command classifies payloads, validates derived or explicit local
-keys, optionally tests key candidates recovered from a local memory dump, and
-can write a plaintext SQLite copy for local analysis:
+The `lved` command classifies payloads, validates local `.key` files beside
+payloads, validates derived or explicit keys, optionally tests key candidates
+recovered from a local memory dump, and can write a plaintext SQLite copy for
+local analysis:
 
 ```bash
+logovista-tools lved /path/to/SQLCIPHER_CORPUS --json
 logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 --json
 logovista-tools lved /path/to/OXFPEU4 --memory-dump viewer-memory.dmp --json
 logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 \
   --write-decrypted /tmp/oxfpeu4.sqlite
 ```
+
+When a payload has a sibling `DICTCODE.key`, `main.data.key`, payload-stem key,
+or exactly one `.key` file in the payload directory, the command uses it
+automatically for validation and `--write-decrypted`. Reports include only the
+key file name/match rule, never the key text.
 
 Reports deliberately do not print recovered, derived, or explicit keys.
 Memory-dump candidates are counted and can be used for validation, but key

@@ -1,4 +1,9 @@
-"""Inspection helpers for LVED/WebView2 SQLCipher dictionary packages."""
+"""Inspection helpers for modern LogoVista SQLCipher dictionary packages.
+
+``lved`` is kept as the command/module name because the recovered viewer and
+older reports use that shorthand.  The payload family itself is modeled as a
+SQLCipher package family, not as a variant of SSED.
+"""
 
 from __future__ import annotations
 
@@ -30,6 +35,12 @@ class LvedPayload:
     header_hex: str
     classification: str
     inferred_dict_code: str | None
+
+
+@dataclass(frozen=True)
+class LvedKeyFile:
+    path: Path
+    match: str
 
 
 def sha256_file(path: Path) -> str:
@@ -98,6 +109,46 @@ def infer_lved_dict_code(path: Path) -> str | None:
         if re.fullmatch(r"[A-Z0-9]{4,16}", upper) and upper not in {"DIC", "DATA"}:
             return upper
     return None
+
+
+def discover_lved_key_file(path: Path) -> LvedKeyFile | None:
+    """Return the best local ``.key`` file for a SQLCipher payload.
+
+    These files are local analysis artifacts, not dictionary resources.  The
+    key text is consumed for validation/decryption but is never emitted in
+    reports.
+    """
+
+    parent = path.parent
+    candidates: list[tuple[Path, str]] = []
+    dict_code = infer_lved_dict_code(path)
+    if dict_code:
+        candidates.append((parent / f"{dict_code}.key", "inferred_dict_code"))
+        candidates.append((parent / f"{dict_code.lower()}.key", "inferred_dict_code_lower"))
+    if path.suffix:
+        candidates.append((path.with_suffix(path.suffix + ".key"), "payload_name"))
+    candidates.append((parent / f"{path.stem}.key", "payload_stem"))
+
+    seen: set[Path] = set()
+    for candidate, match in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            resolved = candidate
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if candidate.is_file():
+            return LvedKeyFile(path=candidate, match=match)
+
+    key_files = sorted(parent.glob("*.key"), key=lambda item: item.name.casefold())
+    if len(key_files) == 1:
+        return LvedKeyFile(path=key_files[0], match="single_key_in_payload_dir")
+    return None
+
+
+def read_lved_key_file(path: Path) -> str:
+    return path.read_text(encoding="utf-8").strip()
 
 
 def classify_lved_payload(path: Path) -> str:
@@ -282,6 +333,16 @@ def _inspect_lved_payload_task(
     validation_keys: list[tuple[str, str]] = []
     if explicit_key:
         validation_keys.append(("explicit_key", explicit_key))
+    key_file = discover_lved_key_file(path)
+    if key_file is not None:
+        row["key_file"] = {
+            "detected": True,
+            "name": key_file.path.name,
+            "match": key_file.match,
+        }
+        validation_keys.append(("local_key_file", read_lved_key_file(key_file.path)))
+    else:
+        row["key_file"] = {"detected": False}
     if dict_id is not None:
         code = dict_code or inspected.inferred_dict_code
         if code:

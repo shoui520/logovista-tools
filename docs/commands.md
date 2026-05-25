@@ -567,10 +567,13 @@ file.
 
 ### `lved`
 
-Inspect modern LVED/WebView2 packages whose body data lives in SQLCipher
-`main.data` or `.dbc` payloads rather than SSED/HONMON.
+Inspect modern LogoVista SQLCipher packages whose body data lives in
+SQLCipher `main.data` or `.dbc` payloads rather than SSED/HONMON. The command
+keeps the historical `lved` name, but the format distinction is the SQLCipher
+payload family rather than the viewer executable name.
 
 ```bash
+logovista-tools lved /path/to/LOGOVISTA_SQLCIPHER_DICTS_WINDOWS --json
 logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 --json
 logovista-tools lved /path/to/KQCMPROS --dict-id 751 --json
 ```
@@ -586,8 +589,13 @@ Useful options:
 --json                              emit machine-readable JSON
 ```
 
-`--write-decrypted` requires exactly one discovered payload and either
-`--dict-id` or `--key-file`. Memory dumps can validate candidates, but the
+If a payload has a sibling `DICTCODE.key`, `main.data.key`, payload-stem key,
+or exactly one `.key` file in the payload directory, the command uses that key
+automatically for validation and `--write-decrypted`. Reports include only the
+key file name/match rule, never the key text.
+
+`--write-decrypted` requires exactly one discovered payload and a local `.key`,
+`--dict-id`, or `--key-file`. Memory dumps can validate candidates, but the
 command does not use memory-dump-only recovery to write decrypted output.
 
 Report fields include payload classification, size, SHA-256, sampled entropy,

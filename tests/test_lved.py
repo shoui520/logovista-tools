@@ -2,8 +2,10 @@ import json
 from argparse import Namespace
 from pathlib import Path
 
+from logovista_tools.cli import cmd_lved
 from logovista_tools.decoded_model import dump_package_model_for_path
 from logovista_tools.lved import (
+    discover_lved_key_file,
     derive_lved_sqlcipher_key,
     infer_lved_dict_code,
     inspect_lved_roots,
@@ -23,6 +25,68 @@ def test_infer_lved_dict_code() -> None:
     assert infer_lved_dict_code(Path("_DCT_OXFPEU4/main.data")) == "OXFPEU4"
     assert infer_lved_dict_code(Path("DIC/OXFPEU4/main.data")) == "OXFPEU4"
     assert infer_lved_dict_code(Path("OXFPEU4.dbc")) == "OXFPEU4"
+
+
+def test_lved_key_file_detection_prefers_inferred_dict_code(tmp_path) -> None:
+    package = tmp_path / "_DCT_OXFPEU4"
+    package.mkdir()
+    payload = package / "main.data"
+    payload.write_bytes(b"x" * 4096)
+    key_file = package / "OXFPEU4.key"
+    key_file.write_text("secret-key\n", encoding="utf-8")
+
+    detected = discover_lved_key_file(payload)
+
+    assert detected is not None
+    assert detected.path == key_file
+    assert detected.match == "inferred_dict_code"
+
+
+def test_lved_inspection_uses_local_key_file_without_emitting_key(tmp_path) -> None:
+    package = tmp_path / "_DCT_OXFPEU4"
+    package.mkdir()
+    (package / "main.data").write_bytes(bytes(range(256)) * 16)
+    (package / "OXFPEU4.key").write_text("local-secret-key\n", encoding="utf-8")
+
+    report = inspect_lved_roots([package], jobs=1)
+    rendered = json.dumps(report)
+
+    row = report["payloads"][0]
+    assert row["key_file"] == {
+        "detected": True,
+        "name": "OXFPEU4.key",
+        "match": "inferred_dict_code",
+    }
+    assert row["validation"][0]["source"] == "local_key_file"
+    assert "local-secret-key" not in rendered
+
+
+def test_lved_cli_uses_local_key_file_without_status_shadow_crash(tmp_path, capsys) -> None:
+    package = tmp_path / "_DCT_OXFPEU4"
+    package.mkdir()
+    (package / "main.data").write_bytes(bytes(range(256)) * 16)
+    (package / "OXFPEU4.key").write_text("local-secret-key\n", encoding="utf-8")
+
+    code = cmd_lved(
+        Namespace(
+            root=[package],
+            dict_id=None,
+            dict_code=None,
+            key_file=None,
+            memory_dump=None,
+            write_decrypted=None,
+            json=False,
+            jobs=1,
+            verbose=False,
+            debug=False,
+        )
+    )
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "key_file: OXFPEU4.key" in out
+    assert "validation[local_key_file]:" in out
+    assert "local-secret-key" not in out
 
 
 def test_lved_key_derivation_metadata_shape() -> None:

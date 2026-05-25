@@ -73,8 +73,10 @@ from .lved import (
     classify_lved_payload,
     decrypt_lved_sqlcipher4_to_path,
     derive_lved_sqlcipher_key,
+    discover_lved_key_file,
     infer_lved_dict_code,
     inspect_lved_roots,
+    read_lved_key_file,
 )
 from .lvcrypto import decrypt_logofont_cipher_auto_file_to_path
 from .loose_media import (
@@ -382,14 +384,18 @@ def cmd_lved(args: argparse.Namespace) -> int:
             return 1
         decrypt_key = key
         if decrypt_key is None:
-            if args.dict_id is None:
-                print("--write-decrypted requires --dict-id or --key-file", file=sys.stderr)
-                return 1
-            code = args.dict_code or payloads[0].get("inferred_dict_code")
-            if not code:
-                print("--write-decrypted requires --dict-code when it cannot be inferred", file=sys.stderr)
-                return 1
-            decrypt_key = derive_lved_sqlcipher_key(args.dict_id, code)
+            local_key = discover_lved_key_file(Path(payloads[0]["path"]))
+            if local_key is not None:
+                decrypt_key = read_lved_key_file(local_key.path)
+            else:
+                if args.dict_id is None:
+                    print("--write-decrypted requires --dict-id, --key-file, or a local .key beside the payload", file=sys.stderr)
+                    return 1
+                code = args.dict_code or payloads[0].get("inferred_dict_code")
+                if not code:
+                    print("--write-decrypted requires --dict-code when it cannot be inferred", file=sys.stderr)
+                    return 1
+                decrypt_key = derive_lved_sqlcipher_key(args.dict_id, code)
         written = decrypt_lved_sqlcipher4_to_path(
             Path(payloads[0]["path"]),
             args.write_decrypted,
@@ -419,12 +425,15 @@ def cmd_lved(args: argparse.Namespace) -> int:
         )
         print(f"  path: {row['path']}")
         print(f"  sha256: {row['sha256']}")
+        key_file = row.get("key_file") or {}
+        if key_file.get("detected"):
+            print(f"  key_file: {key_file.get('name')} match={key_file.get('match')}")
         for validation in row["validation"]:
-            status = "valid" if validation.get("valid") else "invalid"
+            validation_status = "valid" if validation.get("valid") else "invalid"
             source = validation.get("source", "unknown")
             reason = validation.get("reason")
             suffix = f" reason={reason}" if reason else ""
-            print(f"  validation[{source}]: {status}{suffix}")
+            print(f"  validation[{source}]: {validation_status}{suffix}")
     if args.write_decrypted and "decrypted_output" in report:
         out = report["decrypted_output"]
         print(f"decrypted: {out['path']} bytes={out['bytes']}")
@@ -2326,7 +2335,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_decrypt.add_argument("out", type=Path)
     p_decrypt.set_defaults(func=cmd_decrypt)
 
-    p_lved = sub.add_parser("lved", help="Inspect LVED/WebView2 SQLCipher main.data/.dbc packages.")
+    p_lved = sub.add_parser("lved", help="Inspect modern LogoVista SQLCipher main.data/.dbc packages.")
     p_lved.add_argument("root", type=Path, nargs="*", help="Package root, payload file, or collection root.")
     p_lved.add_argument("--dict-id", type=int, help="Numeric dictionary id used by the observed LVED key derivation.")
     p_lved.add_argument("--dict-code", help="Dictionary/product code, e.g. OXFPEU4.")
@@ -2343,7 +2352,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_lved.add_argument(
         "--write-decrypted",
         type=Path,
-        help="Write a plaintext SQLite copy for one payload. Requires --dict-id or --key-file.",
+        help="Write a plaintext SQLite copy for one payload. Uses a local .key, --dict-id, or --key-file.",
     )
     p_lved.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     add_jobs_argument(p_lved)
