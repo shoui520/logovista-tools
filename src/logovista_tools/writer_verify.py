@@ -31,10 +31,11 @@ from .ssed import (
 )
 
 
-WRITER_INDEX_TYPES = {0x70, 0x71, 0x90, 0x91}
+WRITER_INDEX_TYPES = {0x70, 0x71, 0x80, 0x90, 0x91}
 TAGGED_INDEX_TYPES = {0x70, 0x90}
+KEYWORD_INDEX_TYPES = {0x80}
 SIMPLE_INDEX_TYPES = {0x71, 0x91}
-TITLE_TYPES = {0x04, 0x05, 0x06, 0x07}
+TITLE_TYPES = {0x03, 0x04, 0x05, 0x06, 0x07}
 
 
 @dataclass(frozen=True)
@@ -197,6 +198,59 @@ def _tagged_leaf_keys(page: bytes, current_key: bytes | None) -> tuple[list[byte
     return keys, current_key, page_high_key
 
 
+def _keyword_leaf_keys(page: bytes, current_key: bytes | None) -> tuple[list[bytes], bytes | None, bytes | None]:
+    count = _be16(page, 2)
+    pos = 4
+    keys: list[bytes] = []
+    page_high_key: bytes | None = None
+    subrecord = 0
+    while subrecord < count and pos < len(page):
+        tag = page[pos]
+        if tag == 0 and (pos + 1 >= len(page) or page[pos + 1] == 0):
+            break
+
+        if tag == 0x00:
+            if pos + 2 > len(page):
+                break
+            key_len = page[pos + 1]
+            pos += 2
+            if pos + key_len + 12 > len(page):
+                break
+            key = page[pos : pos + key_len]
+            keys.append(key)
+            page_high_key = key
+            pos += key_len + 12
+            subrecord += 1
+            continue
+
+        if tag == 0x80:
+            if pos + 6 > len(page):
+                break
+            key_len = page[pos + 1]
+            if pos + 6 + key_len + 6 > len(page):
+                break
+            current_key = page[pos + 6 : pos + 6 + key_len]
+            page_high_key = current_key
+            pos += 6 + key_len + 6
+            subrecord += 1
+            continue
+
+        if tag in (0xB0, 0xC0):
+            if pos + 7 > len(page):
+                break
+            if current_key is not None:
+                keys.append(current_key)
+                page_high_key = current_key
+            pos += 7
+            subrecord += 1
+            continue
+
+        break
+    if page_high_key is None and keys:
+        page_high_key = current_key or keys[-1]
+    return keys, current_key, page_high_key
+
+
 def _branch_rows(page: bytes, component_start: int) -> list[BranchRow]:
     word = _be16(page, 0)
     count = _be16(page, 2)
@@ -265,6 +319,7 @@ def _resolve_branch_high_keys(pages: dict[int, PageInfo]) -> None:
 def index_page_infos(data: bytes, component_type: int, component_start: int) -> dict[int, PageInfo]:
     pages: dict[int, PageInfo] = {}
     current_tagged_key: bytes | None = None
+    current_keyword_key: bytes | None = None
     for page_index in range(len(data) // BLOCK_SIZE):
         page = data[page_index * BLOCK_SIZE : (page_index + 1) * BLOCK_SIZE]
         word = _be16(page, 0)
@@ -283,6 +338,8 @@ def index_page_infos(data: bytes, component_type: int, component_start: int) -> 
 
         if component_type in TAGGED_INDEX_TYPES:
             keys, current_tagged_key, page_high_key = _tagged_leaf_keys(page, current_tagged_key)
+        elif component_type in KEYWORD_INDEX_TYPES:
+            keys, current_keyword_key, page_high_key = _keyword_leaf_keys(page, current_keyword_key)
         elif component_type in SIMPLE_INDEX_TYPES:
             keys = _simple_leaf_keys(page)
             page_high_key = keys[-1] if keys else b""

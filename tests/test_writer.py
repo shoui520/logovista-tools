@@ -1375,3 +1375,7 @@ def test_jmdict_writer_emits_navigation_panels_templates_and_ccaltstr(tmp_path) 
 
     verify = verify_written_package(package)
     assert verify.ok is True
+    assert "KWTITLE.DIC" in verify.metrics["titles"]
+    assert "KWINDEX.DIC" in verify.metrics["indexes"]
+    assert verify.metrics["indexes"]["KWINDEX.DIC"]["leaf_rows"] == report["jmdict_features"]["kwindex_targets"]
+    assert verify.metrics["indexes"]["KWINDEX.DIC"]["search_groups"] > 0
