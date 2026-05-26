@@ -120,6 +120,9 @@ and non-SSED reader status are tracked separately in
   local `.key` validation, and full local corpus schema/feature inspection for
   73 SQLCipher payloads. Toolkit support treats `LVED_SQLITE3` as a separate
   SQLite-backed family rather than a failed SSED/HONMON package.
+- Retained `LVED_SQLITE3` resource decoding for all observed `res/tree.idx`,
+  `res/*.idx`, and `*INDEX.DIC` side files: 22 SQLite content navigation trees,
+  one GENIUS53 auxiliary hex tree, and two GENIUS53 compressed SSED indexes.
 - LVLMultiView package-family classification for observed ESPRANT2/YROPPO/MOROKU
   packages, including SSEDINFO facade parsing, LogoFontCipher SQLite payload
   roles, `menuData.xml` href resolution, static HTML/viewer-file reporting,

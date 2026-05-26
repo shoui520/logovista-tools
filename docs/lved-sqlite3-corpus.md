@@ -178,10 +178,37 @@ separate package families.
 
 ## Loose Resources And Retained SSED-Like Files
 
-49 payload directories contain a `res/` resource directory. Observed loose
-resource extensions include PNG, GIF, JPG, SVG, WebP, OTF, and TTF.
+49 payload directories contain a `res/` resource directory. The strict
+loose-resource parser inspected 4,481 non-payload, non-key, non-retained
+resource files across 40 payloads. Observed decoded kinds include:
 
-25 SSED-like or index-like files are present beside SQLCipher payloads:
+| Kind | Files | Notes |
+|---|---:|---|
+| PNG | 2,343 | Mostly glyph/image resources; 2,220 are 150x150 and 33 are 75x150. |
+| GIF | 1,726 | Mostly 48x48 button/icon resources. |
+| JPG | 206 | Photo/figure resources with normal JPEG dimensions. |
+| WebP | 76 | Figure resources in modern biology/science payloads. |
+| SVG | 103 | Vector icons/glyphs; counted as loose resources by signature. |
+| Fonts | 25 | OTF/TTF resources. |
+| Web/runtime text | 2 | Loose runtime text resources; contents are not emitted. |
+
+The private loose-resource summary is written under
+`reports/lved-sqlite3-retained-v2/`.
+
+25 SSED-like or index-like files are present beside SQLCipher payloads. The
+dedicated retained-resource pass decodes all 25:
+
+| Decoded kind | Files | Role |
+|---|---:|---|
+| UTF-8 text tree | 22 | SQLite content navigation tree. First field is a decimal `content.id`, sometimes with a query suffix such as `?key=...`; negative values are non-entry sentinel/category rows. |
+| CP932 auxiliary hex tree | 1 | GENIUS53 rank/filter auxiliary tree. Its two hexadecimal fields do not map to SQLite content ids. |
+| SSEDATA index stream | 2 | GENIUS53 retained compressed SSED indexes with normal block/offset leaf targets. |
+
+The 22 decoded text trees all correlate primarily to SQLite `content.id` and
+`list.refid`, so they are not opaque blobs. They are navigation/category trees
+over the SQLite content store. The parser does not emit decoded labels in
+normal reports; it reports row counts, depth counts, target forms, and target
+correlation.
 
 ```text
 DAIJIRN4     res/tree.idx
@@ -210,6 +237,9 @@ This confirms the reader architecture must not gate SSED/index parsers behind
 the SSED package family. SQLCipher packages can expose retained SSED-style
 indexes or trees as package-local feature providers.
 
+The private retained decode report is written under
+`reports/lved-sqlite3-retained-v2/`.
+
 ## Reader Architecture Implications
 
 `LVED_SQLITE3` should be a first-class package driver with shared providers:
@@ -225,7 +255,10 @@ indexes or trees as package-local feature providers.
 - `OptionalMetadataProviders`: `exam`, `genre`, `bunya`, `kanji`, `kwit`,
   `joken`, `sakuin`, `item`, and conversion tables.
 - `RetainedSsedProvider`: parse retained `.idx` / `*INDEX.DIC` / tree files
-  when present, without treating the whole package as SSED.
+  when present, without treating the whole package as SSED. For decoded text
+  trees, route tree targets to SQLite `content.id` / `list.refid`; for retained
+  SSEDATA indexes, keep block/offset targets explicit until a product-specific
+  bridge is proven.
 
 The frontend should see package capabilities, not package-family restrictions.
 For example, a SQLCipher dictionary with `BHINDEX.DIC` should be allowed to
@@ -241,7 +274,10 @@ end-user behavior. Still open:
   `info`;
 - exact semantics of `advanced*`, `filter`, and dictionary-specific metadata
   tables;
-- how `tree.idx` and other retained `.idx` files map to the modern UI;
+- exact UI placement and interaction model for decoded text trees in each
+  product;
+- whether GENIUS53 retained SSEDATA index block/offset targets have a bridge to
+  modern SQLite rows or are only legacy/search compatibility data;
 - complete rendering/resource rules for every HTML/link pattern;
 - whether all `info` rows should be home surfaces, help/HANREI pages, hidden
   metadata, or product-specific UI panels.

@@ -372,6 +372,8 @@ def cmd_lved(args: argparse.Namespace) -> int:
         key=key,
         memory_dump=args.memory_dump,
         inspect_sqlite=args.inspect_sqlite,
+        inspect_retained=args.inspect_retained,
+        inspect_loose_resources=args.inspect_loose_resources,
         jobs=args.jobs,
     )
 
@@ -440,6 +442,14 @@ def cmd_lved(args: argparse.Namespace) -> int:
             role_counts = sqlite_report.get("role_counts") or {}
             roles = ", ".join(f"{key}={value}" for key, value in sorted(role_counts.items()))
             print(f"  sqlite: {sqlite_report.get('status')} objects={sqlite_report.get('object_count', 0)} roles=[{roles}]")
+        retained = row.get("retained_resources") or {}
+        if retained:
+            roles = ", ".join(f"{key}={value}" for key, value in sorted((retained.get("role_counts") or {}).items()))
+            print(f"  retained: {retained.get('status')} files={retained.get('file_count', 0)} roles=[{roles}]")
+        loose = row.get("loose_resources") or {}
+        if loose:
+            kinds = ", ".join(f"{key}={value}" for key, value in sorted((loose.get("kind_counts") or {}).items()))
+            print(f"  loose_resources: {loose.get('status')} files={loose.get('file_count', 0)} kinds=[{kinds}]")
     if args.write_decrypted and "decrypted_output" in report:
         out = report["decrypted_output"]
         print(f"decrypted: {out['path']} bytes={out['bytes']}")
@@ -2364,6 +2374,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--inspect-sqlite",
         action="store_true",
         help="Decrypt with local/explicit keys and inspect SQLite schema, roles, and feature signals without emitting row text.",
+    )
+    p_lved.add_argument(
+        "--inspect-retained",
+        action="store_true",
+        help="Parse retained SSED-like resources such as res/tree.idx, res/*.idx, and *INDEX.DIC; pair with --inspect-sqlite to correlate targets.",
+    )
+    p_lved.add_argument(
+        "--inspect-loose-resources",
+        action="store_true",
+        help="Inspect loose image/font/runtime resources by signature, dimensions, and type without emitting resource text.",
     )
     p_lved.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     add_jobs_argument(p_lved)

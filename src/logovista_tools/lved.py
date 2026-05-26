@@ -17,7 +17,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Iterable
 
+from .colscr import parse_jpeg_dimensions
+from .indexes import scan_index_component
 from .parallel import parallel_map_ordered
+from .ssed import expand_sseddata_file, parse_sseddata_header
 
 
 LVED_SQLCIPHER_PAGE_SIZE = 4096
@@ -43,6 +46,13 @@ _SQLITE_TEXT_SIGNAL_PATTERNS: tuple[tuple[str, str], ...] = (
     ("http_link", "%http://%"),
     ("https_link", "%https://%"),
 )
+
+_RETAINED_RESOURCE_NAMES = {"ga16half", "ga16full"}
+_RETAINED_RESOURCE_SUFFIXES = (".dic", ".idx", ".uni")
+_LOOSE_IMAGE_SUFFIXES = {".png", ".gif", ".jpg", ".jpeg", ".webp", ".bmp", ".svg"}
+_LOOSE_FONT_SUFFIXES = {".otf", ".ttf", ".ttc", ".woff", ".woff2"}
+_LOOSE_WEB_TEXT_SUFFIXES = {".css", ".htm", ".html", ".js", ".json", ".md", ".txt", ".yaml", ".yml"}
+_PAYLOAD_NAMES = {"main.data"}
 
 
 @dataclass(frozen=True)
@@ -284,6 +294,67 @@ def _sqlite_value_distribution(con: sqlite3.Connection, table: str, column: str,
     ]
 
 
+def _sqlite_table_exists(con: sqlite3.Connection, table: str) -> bool:
+    try:
+        row = con.execute("select 1 from sqlite_master where type = 'table' and name = ? limit 1", (table,)).fetchone()
+    except sqlite3.Error:
+        return False
+    return row is not None
+
+
+def _sqlite_distinct_matches(con: sqlite3.Connection, table: str, column: str, values: set[int]) -> dict[str, int]:
+    if not values or not _sqlite_table_exists(con, table):
+        return {"matched_values": 0, "row_matches": 0}
+    matched_values: set[int] = set()
+    row_matches = 0
+    ordered = sorted(values)
+    quoted_table = _quote_identifier(table)
+    quoted_column = _quote_identifier(column)
+    for start in range(0, len(ordered), 500):
+        chunk = ordered[start : start + 500]
+        placeholders = ",".join("?" for _ in chunk)
+        try:
+            rows = con.execute(
+                f"select {quoted_column}, count(*) from {quoted_table} "
+                f"where {quoted_column} in ({placeholders}) group by {quoted_column}",
+                chunk,
+            )
+        except sqlite3.Error:
+            continue
+        for value, count in rows:
+            try:
+                matched_values.add(int(value))
+            except (TypeError, ValueError):
+                continue
+            row_matches += int(count)
+    return {"matched_values": len(matched_values), "row_matches": row_matches}
+
+
+def _sqlite_anchor_matches(con: sqlite3.Connection, values: set[int]) -> dict[str, int]:
+    if not values or not _sqlite_table_exists(con, "list"):
+        return {"matched_values": 0, "row_matches": 0}
+    anchors = {f"{value:08d}": value for value in values if 0 <= value <= 99999999}
+    matched_values: set[int] = set()
+    row_matches = 0
+    ordered = sorted(anchors)
+    for start in range(0, len(ordered), 500):
+        chunk = ordered[start : start + 500]
+        placeholders = ",".join("?" for _ in chunk)
+        try:
+            rows = con.execute(
+                f"select anchor, count(*) from list where anchor in ({placeholders}) group by anchor",
+                chunk,
+            )
+        except sqlite3.Error:
+            continue
+        for anchor, count in rows:
+            value = anchors.get(str(anchor))
+            if value is not None:
+                matched_values.add(value)
+                row_matches += int(count)
+    return {"matched_values": len(matched_values), "row_matches": row_matches}
+
+
 def _sqlite_table_features(name: str, columns: list[str]) -> list[str]:
     lower = name.casefold()
     colset = {column.casefold() for column in columns}
@@ -419,6 +490,516 @@ def inspect_lved_sqlite_database(path: Path, *, sample_rows: int = 1024) -> dict
         con.close()
 
 
+def _decode_retained_text(data: bytes) -> tuple[str, str] | None:
+    for encoding in ("utf-8-sig", "cp932"):
+        try:
+            return encoding, data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return None
+
+
+def _int_token(value: str) -> int | None:
+    stripped = value.strip()
+    if re.fullmatch(r"-?\d+", stripped):
+        return int(stripped, 10)
+    return None
+
+
+def _hex_token(value: str) -> int | None:
+    stripped = value.strip()
+    if re.fullmatch(r"[0-9A-Fa-f]{8}", stripped):
+        return int(stripped, 16)
+    return None
+
+
+def _tree_target_int_token(value: str) -> tuple[int | None, bool]:
+    stripped = value.strip()
+    if "?" in stripped:
+        prefix, _query = stripped.split("?", 1)
+        return _int_token(prefix), True
+    return _int_token(stripped), False
+
+
+def _retained_resource_paths(payload_path: Path) -> list[Path]:
+    root = payload_path.parent
+    paths: list[Path] = []
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix().casefold()):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root).as_posix()
+        if ":zone.identifier" in rel.casefold():
+            continue
+        name = path.name.casefold()
+        if name.endswith(_RETAINED_RESOURCE_SUFFIXES) or name in _RETAINED_RESOURCE_NAMES:
+            paths.append(path)
+    return paths
+
+
+def _is_retained_resource_file(path: Path) -> bool:
+    name = path.name.casefold()
+    return name.endswith(_RETAINED_RESOURCE_SUFFIXES) or name in _RETAINED_RESOURCE_NAMES
+
+
+def _is_lved_payload_file(path: Path) -> bool:
+    name = path.name.casefold()
+    return name in _PAYLOAD_NAMES or path.suffix.casefold() == ".dbc"
+
+
+def _loose_resource_paths(payload_path: Path) -> list[Path]:
+    root = payload_path.parent
+    paths: list[Path] = []
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix().casefold()):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root).as_posix()
+        lower_rel = rel.casefold()
+        if ":zone.identifier" in lower_rel:
+            continue
+        name = path.name.casefold()
+        if _is_lved_payload_file(path) or _is_retained_resource_file(path) or name.endswith(".key"):
+            continue
+        paths.append(path)
+    return paths
+
+
+def _png_profile(data: bytes) -> dict[str, Any] | None:
+    if len(data) < 29 or not data.startswith(b"\x89PNG\r\n\x1a\n") or data[12:16] != b"IHDR":
+        return None
+    return {
+        "media_type": "png",
+        "width": int.from_bytes(data[16:20], "big"),
+        "height": int.from_bytes(data[20:24], "big"),
+        "bit_depth": data[24],
+        "color_type": data[25],
+    }
+
+
+def _gif_profile(data: bytes) -> dict[str, Any] | None:
+    if len(data) < 10 or not data.startswith((b"GIF87a", b"GIF89a")):
+        return None
+    return {
+        "media_type": "gif",
+        "version": data[:6].decode("ascii", errors="replace"),
+        "width": int.from_bytes(data[6:8], "little"),
+        "height": int.from_bytes(data[8:10], "little"),
+    }
+
+
+def _bmp_profile(data: bytes) -> dict[str, Any] | None:
+    if len(data) < 54 or not data.startswith(b"BM"):
+        return None
+    dib_size = int.from_bytes(data[14:18], "little")
+    if dib_size < 40:
+        return None
+    width = int.from_bytes(data[18:22], "little", signed=True)
+    height = int.from_bytes(data[22:26], "little", signed=True)
+    bits_per_pixel = int.from_bytes(data[28:30], "little")
+    compression = int.from_bytes(data[30:34], "little")
+    return {
+        "media_type": "bmp",
+        "width": abs(width),
+        "height": abs(height),
+        "bits_per_pixel": bits_per_pixel,
+        "compression": compression,
+    }
+
+
+def _webp_profile(data: bytes) -> dict[str, Any] | None:
+    if len(data) < 30 or not (data.startswith(b"RIFF") and data[8:12] == b"WEBP"):
+        return None
+    chunk = data[12:16]
+    if chunk == b"VP8X" and len(data) >= 30:
+        width = int.from_bytes(data[24:27], "little") + 1
+        height = int.from_bytes(data[27:30], "little") + 1
+        return {"media_type": "webp", "profile": "VP8X", "width": width, "height": height}
+    if chunk == b"VP8 " and len(data) >= 30 and data[23:26] == b"\x9d\x01\x2a":
+        width = int.from_bytes(data[26:28], "little") & 0x3FFF
+        height = int.from_bytes(data[28:30], "little") & 0x3FFF
+        return {"media_type": "webp", "profile": "VP8", "width": width, "height": height}
+    if chunk == b"VP8L" and len(data) >= 25 and data[20] == 0x2F:
+        bits = int.from_bytes(data[21:25], "little")
+        width = (bits & 0x3FFF) + 1
+        height = ((bits >> 14) & 0x3FFF) + 1
+        return {"media_type": "webp", "profile": "VP8L", "width": width, "height": height}
+    return {"media_type": "webp", "profile": "unknown", "width": None, "height": None}
+
+
+def _svg_profile(data: bytes) -> dict[str, Any] | None:
+    stripped = data.lstrip()[:8192]
+    lower = stripped.lower()
+    if not (lower.startswith(b"<svg") or (lower.startswith(b"<?xml") and b"<svg" in lower[:512])):
+        return None
+    text = stripped.decode("utf-8", errors="ignore")
+    width = None
+    height = None
+    viewbox = re.search(r"\bviewBox\s*=\s*['\"]([^'\"]+)['\"]", text)
+    if viewbox:
+        parts = viewbox.group(1).replace(",", " ").split()
+        if len(parts) == 4:
+            try:
+                width = float(parts[2])
+                height = float(parts[3])
+            except ValueError:
+                width = height = None
+    if width is None or height is None:
+        width_attr = re.search(r"\bwidth\s*=\s*['\"]([0-9.]+)", text)
+        height_attr = re.search(r"\bheight\s*=\s*['\"]([0-9.]+)", text)
+        if width_attr and height_attr:
+            try:
+                width = float(width_attr.group(1))
+                height = float(height_attr.group(1))
+            except ValueError:
+                width = height = None
+    return {"media_type": "svg", "width": width, "height": height}
+
+
+def _image_profile(data: bytes) -> dict[str, Any]:
+    for parser in (_png_profile, _gif_profile, _webp_profile, _bmp_profile, _svg_profile):
+        profile = parser(data)
+        if profile is not None:
+            return profile
+    dimensions = parse_jpeg_dimensions(data)
+    if dimensions is not None:
+        width, height = dimensions
+        return {"media_type": "jpeg", "width": width, "height": height}
+    if data.startswith(b"\xff\xd8\xff"):
+        return {"media_type": "jpeg", "width": None, "height": None}
+    return {"media_type": "unknown_image", "width": None, "height": None}
+
+
+def _font_profile(data: bytes, suffix: str) -> dict[str, Any]:
+    if data.startswith(b"OTTO"):
+        return {"font_type": "opentype_cff"}
+    if data.startswith(b"\x00\x01\x00\x00") or data.startswith(b"true"):
+        return {"font_type": "truetype"}
+    if data.startswith(b"ttcf"):
+        faces = int.from_bytes(data[8:12], "big") if len(data) >= 12 else None
+        return {"font_type": "truetype_collection", "faces": faces}
+    if data.startswith(b"wOFF"):
+        return {"font_type": "woff"}
+    if data.startswith(b"wOF2"):
+        return {"font_type": "woff2"}
+    return {"font_type": suffix.removeprefix(".") or "unknown"}
+
+
+def _decode_loose_resource(path: Path, root: Path) -> dict[str, Any]:
+    suffix = path.suffix.casefold()
+    data = path.read_bytes()
+    item: dict[str, Any] = {
+        "path": path.relative_to(root).as_posix(),
+        "size": len(data),
+        "suffix": suffix or "<none>",
+    }
+    if suffix in _LOOSE_IMAGE_SUFFIXES:
+        item["kind"] = "image"
+        item.update(_image_profile(data[: max(8192, min(len(data), 65536))]))
+    elif suffix in _LOOSE_FONT_SUFFIXES:
+        item["kind"] = "font"
+        item.update(_font_profile(data[:64], suffix))
+    elif suffix == ".pdf" or data.startswith(b"%PDF-"):
+        item["kind"] = "pdf"
+        item["signature"] = "pdf"
+    elif path.name.casefold() in {"thumbs.db", ".ds_store", "desktop.ini"}:
+        item["kind"] = "desktop_metadata"
+    elif suffix in _LOOSE_WEB_TEXT_SUFFIXES:
+        decoded = _decode_retained_text(data[:65536])
+        item["kind"] = "web_runtime_text"
+        item["encoding"] = decoded[0] if decoded else "unknown"
+        if suffix in {".html", ".htm"}:
+            item["contains_html"] = True
+        elif suffix == ".js":
+            item["contains_javascript"] = True
+        elif suffix == ".css":
+            item["contains_css"] = True
+    else:
+        item["kind"] = "other"
+    return item
+
+
+def inspect_lved_loose_resources(payload_path: Path) -> dict[str, Any]:
+    root = payload_path.parent
+    files: list[dict[str, Any]] = []
+    kind_counts: Counter[str] = Counter()
+    suffix_counts: Counter[str] = Counter()
+    media_counts: Counter[str] = Counter()
+    dimension_counts: Counter[str] = Counter()
+    font_counts: Counter[str] = Counter()
+    for path in _loose_resource_paths(payload_path):
+        try:
+            item = _decode_loose_resource(path, root)
+        except Exception as exc:
+            item = {
+                "path": path.relative_to(root).as_posix(),
+                "size": path.stat().st_size,
+                "suffix": path.suffix.casefold() or "<none>",
+                "kind": "inspect_error",
+                "reason": f"{type(exc).__name__}: {exc}",
+            }
+        kind = str(item.get("kind", "other"))
+        suffix = str(item.get("suffix", "<none>"))
+        kind_counts[kind] += 1
+        suffix_counts[suffix] += 1
+        if kind == "image":
+            media_type = str(item.get("media_type", "unknown_image"))
+            media_counts[media_type] += 1
+            width = item.get("width")
+            height = item.get("height")
+            if isinstance(width, (int, float)) and isinstance(height, (int, float)):
+                dimension_counts[f"{media_type}:{width:g}x{height:g}"] += 1
+        if kind == "font":
+            font_counts[str(item.get("font_type", "unknown"))] += 1
+        files.append(item)
+    return {
+        "status": "inspected",
+        "file_count": len(files),
+        "kind_counts": dict(sorted(kind_counts.items())),
+        "suffix_counts": dict(sorted(suffix_counts.items())),
+        "media_counts": dict(sorted(media_counts.items())),
+        "dimension_counts": dict(sorted(dimension_counts.items())),
+        "font_counts": dict(sorted(font_counts.items())),
+        "files": files,
+    }
+
+
+def _sqlite_correlate_tree_targets(con: sqlite3.Connection | None, values: set[int]) -> dict[str, Any]:
+    if con is None:
+        return {"status": "not_attempted"}
+    positive = {value for value in values if value > 0}
+    correlations = {
+        "content_id": _sqlite_distinct_matches(con, "content", "id", positive),
+        "list_refid": _sqlite_distinct_matches(con, "list", "refid", positive),
+        "list_id": _sqlite_distinct_matches(con, "list", "id", positive),
+        "list_anchor_padded_decimal": _sqlite_anchor_matches(con, positive),
+        "info_id": _sqlite_distinct_matches(con, "info", "id", positive),
+        "media_id": _sqlite_distinct_matches(con, "media", "id", positive),
+    }
+    best_name = "none"
+    best_count = 0
+    for name, result in correlations.items():
+        count = int(result.get("matched_values", 0))
+        if count > best_count:
+            best_name = name
+            best_count = count
+    status = "matched" if best_count else "unmatched"
+    return {
+        "status": status,
+        "distinct_positive_targets": len(positive),
+        "best_match": best_name,
+        "best_matched_values": best_count,
+        "matches": correlations,
+    }
+
+
+def _inspect_lved_text_tree(path: Path, text: str, encoding: str, con: sqlite3.Connection | None) -> dict[str, Any]:
+    rows = 0
+    blank_labels = 0
+    max_depth = 0
+    target_values: set[int] = set()
+    target_forms: Counter[str] = Counter()
+    depth_counts: Counter[str] = Counter()
+    sentinel_rows = 0
+    zero_rows = 0
+    unresolved_rows = 0
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        parts = line.rstrip("\r\n").split("\t")
+        if len(parts) < 3:
+            unresolved_rows += 1
+            continue
+        depth_value = _int_token(parts[1])
+        if depth_value is None:
+            unresolved_rows += 1
+            continue
+        target_token = parts[0].strip()
+        label = "\t".join(parts[2:]).strip()
+        rows += 1
+        max_depth = max(max_depth, depth_value)
+        depth_counts[str(depth_value)] += 1
+        if not label:
+            blank_labels += 1
+        target_value, has_query = _tree_target_int_token(target_token)
+        if target_value is None:
+            hex_value = _hex_token(target_token)
+            if hex_value is not None:
+                target_forms["hex"] += 1
+                target_values.add(hex_value)
+            else:
+                target_forms["other"] += 1
+            continue
+        target_values.add(target_value)
+        if has_query:
+            target_forms["decimal_with_query"] += 1
+        elif target_value < 0:
+            target_forms["negative_sentinel"] += 1
+            sentinel_rows += 1
+        elif target_value == 0:
+            target_forms["zero_root_or_sentinel"] += 1
+            zero_rows += 1
+        elif target_token.startswith("0") and len(target_token) > 1:
+            target_forms["decimal_with_leading_zero"] += 1
+        else:
+            target_forms["decimal"] += 1
+    correlation = _sqlite_correlate_tree_targets(con, target_values)
+    role = "lved_text_navigation_tree"
+    if correlation.get("best_match") in {"content_id", "list_refid", "list_anchor_padded_decimal"}:
+        role = "sqlite_content_navigation_tree"
+    elif rows and int(correlation.get("best_matched_values", 0) or 0) == 0:
+        role = "unmatched_text_navigation_tree"
+    return {
+        "kind": "text_tree",
+        "role": role,
+        "encoding": encoding,
+        "rows": rows,
+        "unparsed_lines": unresolved_rows,
+        "blank_label_rows": blank_labels,
+        "max_depth": max_depth,
+        "sentinel_rows": sentinel_rows,
+        "zero_target_rows": zero_rows,
+        "target_forms": dict(sorted(target_forms.items())),
+        "depth_counts": dict(sorted(depth_counts.items(), key=lambda item: int(item[0]))),
+        "target_correlation": correlation,
+    }
+
+
+def _inspect_lved_aux_text_tree(path: Path, text: str, encoding: str, con: sqlite3.Connection | None) -> dict[str, Any]:
+    rows = 0
+    blank_labels = 0
+    max_depth = 0
+    first_values: set[int] = set()
+    second_values: set[int] = set()
+    second_sentinel_rows = 0
+    depth_counts: Counter[str] = Counter()
+    unparsed = 0
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        parts = line.rstrip("\r\n").split("\t")
+        if len(parts) < 3:
+            unparsed += 1
+            continue
+        first = _hex_token(parts[0])
+        second = _hex_token(parts[1])
+        if first is None or second is None:
+            unparsed += 1
+            continue
+        label_index = None
+        label = ""
+        for index, part in enumerate(parts[2:], start=1):
+            if part:
+                label_index = index
+                label = part
+        if label_index is None:
+            blank_labels += 1
+            label_index = 1
+        rows += 1
+        first_values.add(first)
+        second_values.add(second)
+        if second == 0xFFFF:
+            second_sentinel_rows += 1
+        max_depth = max(max_depth, label_index)
+        depth_counts[str(label_index)] += 1
+    # These auxiliary trees use two fixed-width hexadecimal fields rather than
+    # direct decimal content ids. Try the first field against SQLite anyway so
+    # the report can prove whether it is a content target or a filter/rank key.
+    correlation = _sqlite_correlate_tree_targets(con, first_values)
+    role = "auxiliary_hex_text_tree"
+    if int(correlation.get("best_matched_values", 0) or 0):
+        role = "auxiliary_hex_tree_with_sqlite_targets"
+    return {
+        "kind": "aux_text_tree",
+        "role": role,
+        "encoding": encoding,
+        "rows": rows,
+        "unparsed_lines": unparsed,
+        "blank_label_rows": blank_labels,
+        "max_depth": max_depth,
+        "second_field_sentinel_rows": second_sentinel_rows,
+        "distinct_first_values": len(first_values),
+        "distinct_second_values": len(second_values),
+        "depth_counts": dict(sorted(depth_counts.items(), key=lambda item: int(item[0]))),
+        "target_correlation": correlation,
+    }
+
+
+def _inspect_lved_ssed_index(path: Path) -> dict[str, Any]:
+    header = parse_sseddata_header(path)
+    component_type = int(header["kind"])
+    expanded = expand_sseddata_file(path)
+    result = scan_index_component(
+        path.name,
+        component_type,
+        expanded,
+        int(header["start_block"]),
+        gaiji="h-placeholder",
+        gaiji_map={},
+    )
+    return {
+        "kind": "ssed_index",
+        "role": "retained_ssed_index",
+        "storage": str(header["storage"]),
+        "component_type": f"{component_type:02x}",
+        "start_block": int(header["start_block"]),
+        "end_block": int(header["end_block"]),
+        "expanded_bytes": len(expanded),
+        "index_summary": result.as_dict(),
+        "target_correlation": {
+            "status": "not_applicable",
+            "reason": "SSED index leaf targets are block/offset pointers, not SQLite content ids.",
+        },
+    }
+
+
+def inspect_lved_retained_resources(payload_path: Path, sqlite_path: Path | None = None) -> dict[str, Any]:
+    con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True) if sqlite_path is not None else None
+    if con is not None:
+        con.row_factory = sqlite3.Row
+    files: list[dict[str, Any]] = []
+    kind_counts: Counter[str] = Counter()
+    role_counts: Counter[str] = Counter()
+    try:
+        for path in _retained_resource_paths(payload_path):
+            rel = path.relative_to(payload_path.parent).as_posix()
+            data = path.read_bytes()
+            item: dict[str, Any] = {
+                "path": rel,
+                "size": path.stat().st_size,
+            }
+            try:
+                if data.startswith(b"SSEDDATA"):
+                    item.update(_inspect_lved_ssed_index(path))
+                else:
+                    decoded = _decode_retained_text(data)
+                    if decoded is None:
+                        item.update({"kind": "unknown", "role": "unknown", "reason": "not UTF-8/CP932 text or SSEDDATA"})
+                    else:
+                        encoding, text = decoded
+                        first_line = next((line for line in text.splitlines() if line.strip()), "")
+                        first_parts = first_line.split("\t")
+                        if len(first_parts) >= 3 and _hex_token(first_parts[0]) is not None and _hex_token(first_parts[1]) is not None:
+                            item.update(_inspect_lved_aux_text_tree(path, text, encoding, con))
+                        elif len(first_parts) >= 3 and _int_token(first_parts[1]) is not None:
+                            item.update(_inspect_lved_text_tree(path, text, encoding, con))
+                        else:
+                            item.update({"kind": "text_unknown", "role": "unknown_text", "encoding": encoding})
+            except Exception as exc:
+                item.update({"kind": "inspect_error", "role": "inspect_error", "reason": f"{type(exc).__name__}: {exc}"})
+            kind_counts[str(item.get("kind", "unknown"))] += 1
+            role_counts[str(item.get("role", "unknown"))] += 1
+            files.append(item)
+    finally:
+        if con is not None:
+            con.close()
+    return {
+        "status": "inspected",
+        "file_count": len(files),
+        "kind_counts": dict(sorted(kind_counts.items())),
+        "role_counts": dict(sorted(role_counts.items())),
+        "files": files,
+    }
+
+
 def _package_layout_features(payload_path: Path) -> dict[str, Any]:
     root = payload_path.parent
     resource_dirs = []
@@ -436,7 +1017,7 @@ def _package_layout_features(payload_path: Path) -> dict[str, Any]:
         extension = path.suffix.casefold() or "<none>"
         extension_counts[extension] += 1
         name = path.name.casefold()
-        if name.endswith((".dic", ".idx", ".uni")) or name in {"ga16half", "ga16full"}:
+        if name.endswith(_RETAINED_RESOURCE_SUFFIXES) or name in _RETAINED_RESOURCE_NAMES:
             retained_ssed.append(rel)
         if name == "tree.idx":
             tree_indexes.append(rel)
@@ -610,9 +1191,9 @@ def find_lved_key_candidates_in_dump(path: Path) -> list[str]:
 
 
 def _inspect_lved_payload_task(
-    payload: tuple[Path, int | None, str | None, str | None, list[str], bool]
+    payload: tuple[Path, int | None, str | None, str | None, list[str], bool, bool, bool]
 ) -> dict[str, Any]:
-    path, dict_id, dict_code, explicit_key, memory_keys, inspect_sqlite = payload
+    path, dict_id, dict_code, explicit_key, memory_keys, inspect_sqlite, inspect_retained, inspect_loose_resources = payload
     inspected = inspect_lved_payload(path)
     row: dict[str, Any] = {
         "path": str(inspected.path),
@@ -655,25 +1236,39 @@ def _inspect_lved_payload_task(
         safe_result = {key: value for key, value in result.items() if key != "reason" or value}
         safe_result["source"] = source
         row["validation"].append(safe_result)
-    if inspect_sqlite:
+    if inspect_sqlite or inspect_retained:
         if first_valid_key is None:
-            row["sqlite"] = {
-                "status": "not_inspected",
-                "reason": "no valid SQLCipher key candidate",
-            }
+            if inspect_sqlite:
+                row["sqlite"] = {
+                    "status": "not_inspected",
+                    "reason": "no valid SQLCipher key candidate",
+                }
+            if inspect_retained:
+                row["retained_resources"] = inspect_lved_retained_resources(path)
         else:
             with TemporaryDirectory() as temp_dir:
                 decrypted = Path(temp_dir) / f"{path.name}.sqlite"
                 try:
                     decrypt_lved_sqlcipher4_to_path(path, decrypted, first_valid_key)
-                    sqlite_report = inspect_lved_sqlite_database(decrypted)
-                    sqlite_report["status"] = "inspected"
-                    row["sqlite"] = sqlite_report
+                    if inspect_sqlite:
+                        sqlite_report = inspect_lved_sqlite_database(decrypted)
+                        sqlite_report["status"] = "inspected"
+                        row["sqlite"] = sqlite_report
+                    if inspect_retained:
+                        row["retained_resources"] = inspect_lved_retained_resources(path, decrypted)
                 except Exception as exc:
-                    row["sqlite"] = {
+                    error = {
                         "status": "inspect_error",
                         "reason": f"{type(exc).__name__}: {exc}",
                     }
+                    if inspect_sqlite:
+                        row["sqlite"] = error
+                    if inspect_retained:
+                        retained = inspect_lved_retained_resources(path)
+                        retained["sqlite_correlation_status"] = "not_attempted_after_decrypt_error"
+                        row["retained_resources"] = retained
+    if inspect_loose_resources:
+        row["loose_resources"] = inspect_lved_loose_resources(path)
     return row
 
 
@@ -685,6 +1280,8 @@ def inspect_lved_roots(
     key: str | None = None,
     memory_dump: Path | None = None,
     inspect_sqlite: bool = False,
+    inspect_retained: bool = False,
+    inspect_loose_resources: bool = False,
     jobs: int | None = 1,
 ) -> dict[str, Any]:
     payload_paths = discover_lved_payloads(roots)
@@ -692,7 +1289,19 @@ def inspect_lved_roots(
     memory_keys = find_lved_key_candidates_in_dump(memory_dump) if memory_dump else []
     payloads = parallel_map_ordered(
         _inspect_lved_payload_task,
-        [(path, dict_id, dict_code, explicit_key, memory_keys, inspect_sqlite) for path in payload_paths],
+        [
+            (
+                path,
+                dict_id,
+                dict_code,
+                explicit_key,
+                memory_keys,
+                inspect_sqlite,
+                inspect_retained,
+                inspect_loose_resources,
+            )
+            for path in payload_paths
+        ],
         jobs=jobs,
     )
 

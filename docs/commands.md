@@ -590,6 +590,8 @@ Useful options:
 --memory-dump PATH                  count/test local memory-dump key candidates without printing them
 --write-decrypted PATH              write one plaintext SQLite copy for local analysis
 --inspect-sqlite                    inspect decrypted SQLite schema, table roles, and bounded feature signals
+--inspect-retained                  parse retained res/*.idx, tree.idx, and *INDEX.DIC resources
+--inspect-loose-resources           inspect loose image/font/runtime resource signatures and dimensions
 --json                              emit machine-readable JSON
 ```
 
@@ -609,6 +611,18 @@ distributions, and bounded text-signal evidence. Text-signal counts are sampled
 from inspected columns and are not complete row-text exports. Reports
 deliberately do not emit explicit, derived, memory-dump-recovered keys,
 decrypted databases, or dictionary row text.
+
+`--inspect-retained` parses package-local SSED-like resources retained beside
+the SQLCipher payload. Observed decoded roles include UTF-8/CP932 text
+navigation trees targeting SQLite `content.id`, GENIUS53's CP932 auxiliary
+hex-tree rank/filter file, and GENIUS53 retained SSEDATA `BHINDEX.DIC` /
+`BKINDEX.DIC` indexes. Pair it with `--inspect-sqlite` to correlate tree
+targets against SQLite tables.
+
+`--inspect-loose-resources` parses loose resource files by file signature rather
+than extension alone. It reports image media types and dimensions, font
+container signatures, web-runtime text encodings, PDFs, desktop metadata files,
+and unknowns. It does not emit HTML/CSS/JS/resource text.
 
 ### `compose`
 

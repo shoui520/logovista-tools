@@ -156,9 +156,12 @@ dimensions until query behavior is tested in a reader.
 
 Some packages retain SSED-style or index-style files beside the SQLCipher
 payload, including `res/tree.idx`, `res/*.idx`, `BHINDEX.DIC`, and
-`BKINDEX.DIC`. Reader architecture must share SSED/index parsers as feature
-providers when present instead of assuming `LVED_SQLITE3` packages are pure
-SQLite-only books.
+`BKINDEX.DIC`. The observed text-tree `.idx` files are UTF-8/CP932 tabular
+navigation trees whose positive targets correlate to SQLite `content.id` /
+`list.refid`. GENIUS53 also retains compressed SSEDATA `BHINDEX.DIC` and
+`BKINDEX.DIC` streams with normal SSED block/offset leaf targets. Reader
+architecture must share SSED/index parsers as feature providers when present
+instead of assuming `LVED_SQLITE3` packages are pure SQLite-only books.
 
 ## Toolkit Support
 
@@ -170,6 +173,8 @@ and can write a plaintext SQLite copy for local analysis:
 ```bash
 logovista-tools lved /path/to/SQLCIPHER_CORPUS --json
 logovista-tools lved /path/to/SQLCIPHER_CORPUS --jobs 12 --inspect-sqlite --json
+logovista-tools lved /path/to/SQLCIPHER_CORPUS --jobs 12 --inspect-sqlite --inspect-retained --json
+logovista-tools lved /path/to/SQLCIPHER_CORPUS --jobs 12 --inspect-loose-resources --json
 logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 --json
 logovista-tools lved /path/to/OXFPEU4 --memory-dump viewer-memory.dmp --json
 logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 \

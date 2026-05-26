@@ -921,8 +921,10 @@ The corpus also shows optional feature tables such as `exam`, `genre`,
 `bunya`, `kanji`, `kwit`, `joken`, `sakuin`, `listsub`/`searchsub*`,
 `mediasub`, `sound`, `binran`, `t_contents`, `t_convert`, and `item`.
 Several payload directories retain SSED-style `.idx` or `*INDEX.DIC` files.
-Treat those as auxiliary feature providers, not as evidence that the package is
-SSED.
+All 25 observed retained files now decode: 22 text navigation trees target
+SQLite `content.id` / `list.refid`, GENIUS53 has one auxiliary CP932 hex tree,
+and GENIUS53 also retains two compressed SSED index streams. Treat those as
+auxiliary feature providers, not as evidence that the package is SSED.
 
 Run shape:
 

@@ -8,6 +8,8 @@ from logovista_tools.lved import (
     discover_lved_key_file,
     derive_lved_sqlcipher_key,
     infer_lved_dict_code,
+    inspect_lved_loose_resources,
+    inspect_lved_retained_resources,
     inspect_lved_sqlite_database,
     inspect_lved_roots,
     is_lved_payload_name,
@@ -77,6 +79,8 @@ def test_lved_cli_uses_local_key_file_without_status_shadow_crash(tmp_path, caps
             memory_dump=None,
             write_decrypted=None,
             inspect_sqlite=False,
+            inspect_retained=False,
+            inspect_loose_resources=False,
             json=False,
             jobs=1,
             verbose=False,
@@ -129,6 +133,91 @@ def test_lved_sqlite_inspection_classifies_core_tables_without_row_text(tmp_path
     assert body["sample_text_signals"]["html_img"] == 1
     assert "visible title" not in rendered
     assert "alpha body" not in rendered
+
+
+def test_lved_retained_text_tree_decodes_and_correlates_without_row_text(tmp_path) -> None:
+    package = tmp_path / "_DCT_TEST"
+    package.mkdir()
+    payload = package / "main.data"
+    payload.write_bytes(b"x" * 4096)
+    res = package / "res"
+    res.mkdir()
+    (res / "tree.idx").write_text("-127\t0\tRoot Label\n42\t1\tVisible Entry\n", encoding="utf-8-sig")
+    db = tmp_path / "payload.sqlite"
+    import sqlite3
+
+    con = sqlite3.connect(db)
+    con.executescript(
+        """
+        create table list(id integer, refid integer, type integer, anchor text, title text);
+        create table content(id integer, type integer, body text, media text);
+        insert into list values(1, 42, 0, '00000042', 'Visible Entry');
+        insert into content values(42, 0, '<div>Visible Entry</div>', '');
+        """
+    )
+    con.close()
+
+    report = inspect_lved_retained_resources(payload, db)
+    rendered = json.dumps(report, ensure_ascii=False)
+    item = report["files"][0]
+
+    assert item["kind"] == "text_tree"
+    assert item["role"] == "sqlite_content_navigation_tree"
+    assert item["rows"] == 2
+    assert item["sentinel_rows"] == 1
+    assert item["target_correlation"]["matches"]["content_id"]["matched_values"] == 1
+    assert item["target_correlation"]["matches"]["list_refid"]["matched_values"] == 1
+    assert "Visible Entry" not in rendered
+
+
+def test_lved_retained_aux_text_tree_decodes_cp932_without_row_text(tmp_path) -> None:
+    package = tmp_path / "_DCT_TEST"
+    package.mkdir()
+    payload = package / "main.data"
+    payload.write_bytes(b"x" * 4096)
+    (package / "000002C5.idx").write_bytes("00000000\t0000ffff\t\tランク A\n".encode("cp932"))
+
+    report = inspect_lved_retained_resources(payload)
+    rendered = json.dumps(report, ensure_ascii=False)
+    item = report["files"][0]
+
+    assert item["kind"] == "aux_text_tree"
+    assert item["role"] == "auxiliary_hex_text_tree"
+    assert item["encoding"] == "cp932"
+    assert item["rows"] == 1
+    assert item["second_field_sentinel_rows"] == 1
+    assert "ランク" not in rendered
+
+
+def test_lved_loose_resources_decode_images_fonts_and_runtime_without_text(tmp_path) -> None:
+    package = tmp_path / "_DCT_TEST"
+    package.mkdir()
+    payload = package / "main.data"
+    payload.write_bytes(b"x" * 4096)
+    res = package / "res"
+    res.mkdir()
+    # Retained resources are handled by --inspect-retained, not this loose scan.
+    (res / "tree.idx").write_text("1\t1\tHidden Label\n", encoding="utf-8")
+    (res / "dummy.gif").write_bytes(
+        bytes.fromhex(
+            "47494638396101000100800000ffffff00000021f90401000000002c00000000010001000002024401003b"
+        )
+    )
+    (res / "style.css").write_text(".hidden { color: red; }", encoding="utf-8")
+    (res / "font.woff").write_bytes(b"wOFF" + b"\x00" * 32)
+
+    report = inspect_lved_loose_resources(payload)
+    rendered = json.dumps(report, ensure_ascii=False)
+
+    assert report["file_count"] == 3
+    assert report["kind_counts"]["image"] == 1
+    assert report["kind_counts"]["font"] == 1
+    assert report["kind_counts"]["web_runtime_text"] == 1
+    assert report["media_counts"]["gif"] == 1
+    assert report["dimension_counts"]["gif:1x1"] == 1
+    assert report["font_counts"]["woff"] == 1
+    assert "Hidden Label" not in rendered
+    assert "color: red" not in rendered
 
 
 def test_lved_key_derivation_metadata_shape() -> None:
