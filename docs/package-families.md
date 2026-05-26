@@ -58,9 +58,11 @@ iOS       DictList.plist, Gaiji.plist, GaijiS.plist, img/, html/, *.sql
 Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
 Windows   EXINFO.INI, DICPROF.INI, HC*.dll, Templates/, HANREI/,
           SPINDEX.DIC, vlpljbl*, *.chm
-Mac OS X  EXINFO.INI, help `.localized` bundles, AppleDouble `._*` metadata,
-          encrypted `HONMON.DIN`, and observed HANREI/SPINDEX-style auxiliary
-          resources in otherwise normal SSED catalogs
+Mac OS X  EXINFO.INI, root `hanrei.html` plus `*_HELP.localized` help bundles,
+          AppleDouble `._*` metadata, encrypted `HONMON.DIN`, extensionless
+          ZipCrypto `HONMON` wrappers for declared `HONMON.DIN`, and observed
+          HANREI/SPINDEX-style auxiliary resources in otherwise normal SSED
+          catalogs
 ```
 
 Separate non-SSED package families include:
@@ -129,9 +131,10 @@ link-reference DBs, kanji-support DBs, template navigation/filter DBs, and
 ancillary helper DBs. Classification should be schema-first; only body-capable
 SQLite roles should be used as entry-body providers.
 
-`SPINDEX.DIC` and `HANREI/` are auxiliary resource families rather than
-Windows-only markers. They are observed in Windows package layouts, and they can
-appear in Mac OS X package layouts too.
+`SPINDEX.DIC`, `HANREI/`, root `hanrei.html`, and `*_HELP.localized` help
+bundles are auxiliary resource families rather than Windows-only markers.
+`hanrei.html` in observed Mac OS X SSED packages is a small frameset pointing
+into the localized help bundle.
 
 Panels are an optional LogoVista navigation/UI subsystem, not a package family
 and not a Windows platform marker. The observed corpus work decoded Panel XML

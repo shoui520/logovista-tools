@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import tempfile
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,7 +35,8 @@ MENU_TYPES = {0x01}
 GAIJI_TYPES = {0xF1, 0xF2}
 MEDIA_NAMES = {"COLSCR.DIC", "PCMDATA.DIC"}
 TEXT_LIKE_INDEX_OUTLIER_TYPES = {0x27}
-HONMON_NAMES = {"HONMON.DIC", "HONMON.DIN"}
+HONMON_NAMES = {"HONMON.DIC", "HONMON.DIN", "HONMON"}
+MAC_HONMON_ZIP_PASSWORD_PREFIX = "casKet"
 
 
 def read_file_prefix(path: Path, size: int) -> bytes:
@@ -225,7 +229,69 @@ def parse_catalog(path: Path) -> Catalog:
 
 
 def find_file_case_insensitive(root: Path, name: str) -> Path | None:
-    return CaseFoldedDirectory.from_path(root).find(name)
+    lookup = CaseFoldedDirectory.from_path(root)
+    direct = lookup.find(name)
+    if direct is not None:
+        return direct
+    if name.upper() == "HONMON.DIN":
+        wrapper = lookup.find("HONMON")
+        if wrapper is not None and wrapper.is_file():
+            return _extract_zip_component(wrapper, name, root=root)
+    return None
+
+
+def _mac_honmon_zip_passwords(root: Path) -> tuple[bytes | None, ...]:
+    stems: list[str] = []
+    for path in CaseFoldedDirectory.from_path(root).files_with_suffix(".idx"):
+        stem = path.stem
+        if len(stem) == 8 and all(ch in "0123456789abcdefABCDEF" for ch in stem):
+            stems.append(stem.lower())
+    passwords: list[bytes | None] = [None]
+    for stem in sorted(set(stems)):
+        passwords.append(f"{MAC_HONMON_ZIP_PASSWORD_PREFIX}{stem}".encode("ascii"))
+    return tuple(passwords)
+
+
+def _component_cache_path(zip_path: Path, member_name: str, password: bytes | None) -> Path:
+    stat = zip_path.stat()
+    digest = hashlib.sha256()
+    digest.update(str(zip_path.resolve()).encode("utf-8", errors="surrogateescape"))
+    digest.update(stat.st_size.to_bytes(8, "big", signed=False))
+    digest.update(stat.st_mtime_ns.to_bytes(8, "big", signed=False))
+    digest.update(member_name.casefold().encode("utf-8", errors="surrogateescape"))
+    if password:
+        digest.update(password)
+    cache_root = Path(tempfile.gettempdir()) / "lvcore-component-cache" / digest.hexdigest()
+    cache_root.mkdir(parents=True, exist_ok=True)
+    return cache_root / member_name
+
+
+def _extract_zip_component(zip_path: Path, member_name: str, *, root: Path) -> Path | None:
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            names = {name.casefold(): name for name in archive.namelist()}
+            actual_member = names.get(member_name.casefold())
+            if actual_member is None:
+                return None
+            for password in _mac_honmon_zip_passwords(root):
+                out_path = _component_cache_path(zip_path, member_name, password)
+                if out_path.is_file():
+                    return out_path
+                try:
+                    data = archive.read(actual_member, pwd=password)
+                except RuntimeError:
+                    continue
+                tmp_path = out_path.with_suffix(out_path.suffix + ".tmp")
+                tmp_path.write_bytes(data)
+                tmp_path.replace(out_path)
+                return out_path
+    except (OSError, zipfile.BadZipFile):
+        return None
+    return None
+
+
+def resolve_component_file(root: Path, name: str) -> Path | None:
+    return find_file_case_insensitive(root, name)
 
 
 @dataclass(frozen=True)

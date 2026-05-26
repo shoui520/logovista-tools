@@ -28,10 +28,10 @@ from .ssed import (
     CHUNK_SIZE,
     SsedRandomReader,
     expand_sseddata_file_with_storage,
-    find_case_insensitive,
     honmon_component,
     iter_files_with_suffix,
     parse_ssedinfo,
+    resolve_component_file,
     sseddata_storage_for_file,
 )
 
@@ -621,7 +621,7 @@ def _dictionary_source_from_idx(payload: Path | tuple[Path, bool, bool]) -> Dict
     honmon_element = honmon_component(elements)
     if honmon_element is None:
         return None
-    honmon = find_case_insensitive(idx.parent, honmon_element.filename)
+    honmon = resolve_component_file(idx.parent, honmon_element.filename)
     if honmon is None:
         return None
     dict_id = idx.parent.parent.name if idx.parent.name == idx.parent.parent.name else idx.stem

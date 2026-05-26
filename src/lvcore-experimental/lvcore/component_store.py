@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .diagnostics import Location
 from .model import Address, Component, ComponentRole
-from .ssed import BLOCK_SIZE, Catalog, SsedData, find_file_case_insensitive
+from .ssed import BLOCK_SIZE, Catalog, SsedData, resolve_component_file
 
 
 class ComponentStore:
@@ -16,7 +16,7 @@ class ComponentStore:
     def __init__(self, idx_path: Path, catalog: Catalog) -> None:
         self.root = idx_path.parent
         self.components: tuple[Component, ...] = tuple(
-            replace(component, path=find_file_case_insensitive(idx_path.parent, component.name))
+            replace(component, path=resolve_component_file(idx_path.parent, component.name))
             for component in catalog.components
         )
         self._component_by_name = {component.name.casefold(): component for component in self.components}

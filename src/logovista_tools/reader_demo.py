@@ -43,7 +43,14 @@ from .panels import (
     parse_panel_bin_file,
 )
 from .pcmdata import detect_shared_wave_stream, find_pcmdata_path, parse_pcmdata_record, portable_audio_bytes
-from .ssed import BLOCK_SIZE, SsedRandomReader, find_case_insensitive, parse_ssedinfo, resolve_case_insensitive_path
+from .ssed import (
+    BLOCK_SIZE,
+    SsedRandomReader,
+    find_case_insensitive,
+    is_metadata_noise_path,
+    parse_ssedinfo,
+    resolve_case_insensitive_path,
+)
 
 
 PANEL_METADATA_CANDIDATES = (
@@ -814,9 +821,16 @@ class _HanreiLinkParser(HTMLParser):
         self._parts: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag.lower() != "a":
-            return
+        tag_lower = tag.lower()
         attrs_dict = {key.lower(): value for key, value in attrs}
+        if tag_lower in {"frame", "iframe"}:
+            src = attrs_dict.get("src")
+            if src:
+                label = attrs_dict.get("name") or attrs_dict.get("title") or src
+                self.links.append({"href": src, "label": label})
+            return
+        if tag_lower != "a":
+            return
         href = attrs_dict.get("href")
         if href:
             self._href = href
@@ -932,6 +946,44 @@ def _hanrei_chm_navigation_files(extracted_dir: Path) -> list[Path]:
     return [path for path in fallbacks if path.is_file()]
 
 
+def _copy_hanrei_tree(source: Path, target: Path) -> None:
+    def ignore(_dir: str, names: list[str]) -> set[str]:
+        return {name for name in names if name.startswith("._") or name.endswith(":Zone.Identifier") or name == "__MACOSX"}
+
+    shutil.copytree(source, target, dirs_exist_ok=True, ignore=ignore)
+
+
+def _hanrei_html_files(root: Path, limit: int) -> list[Path]:
+    preferred = []
+    for name in ("menu.html", "menu.htm", "index.html", "index.htm", "top.html", "top.htm", "contents/hanrei.html"):
+        path = resolve_case_insensitive_path(root, name)
+        if path is not None and path.is_file() and not is_metadata_noise_path(path):
+            preferred.append(path)
+    seen = set(preferred)
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix().casefold()):
+        if len(preferred) >= limit:
+            break
+        if path in seen or not path.is_file() or is_metadata_noise_path(path):
+            continue
+        if path.suffix.casefold() in {".html", ".htm"}:
+            preferred.append(path)
+            seen.add(path)
+    return preferred[:limit]
+
+
+def _mac_hanrei_bundle_paths(root: Path) -> list[Path]:
+    try:
+        children = list(root.iterdir())
+    except OSError:
+        return []
+    bundles = [
+        child
+        for child in children
+        if child.is_dir() and child.name.casefold().endswith("_help.localized") and not is_metadata_noise_path(child)
+    ]
+    return sorted(bundles, key=lambda path: path.name.casefold())
+
+
 def _hanrei_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
     root = builder.source.idx.parent
     out = builder.out_dir / "hanrei"
@@ -941,7 +993,7 @@ def _hanrei_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
     hanrei_dir = resolve_case_insensitive_path(root, "HANREI")
     if hanrei_dir is not None and hanrei_dir.is_dir():
         target = out / "HANREI"
-        shutil.copytree(hanrei_dir, target, dirs_exist_ok=True)
+        _copy_hanrei_tree(hanrei_dir, target)
         candidates = [target / "menu.html", target / "index.html", target / "top.html"]
         links: list[dict[str, str]] = []
         for candidate in candidates:
@@ -956,6 +1008,41 @@ def _hanrei_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
             ]
         entry = links[0]["href"] if links else "hanrei/HANREI/index.html"
         rows.append({"kind": "html_directory", "source": "HANREI", "entry": entry, "links": links[:limit]})
+    mac_root_hanrei = resolve_case_insensitive_path(root, "hanrei.html")
+    mac_bundles = _mac_hanrei_bundle_paths(root)
+    if mac_root_hanrei is not None and mac_root_hanrei.is_file():
+        out.mkdir(parents=True, exist_ok=True)
+        copied_root = out / "hanrei.html"
+        shutil.copy2(mac_root_hanrei, copied_root)
+        links: list[dict[str, str]] = []
+        _append_hanrei_links(links, _hanrei_links_from_file(copied_root, "hanrei", limit), limit)
+        rows.append(
+            {
+                "kind": "mac_html_frameset",
+                "source": mac_root_hanrei.name,
+                "entry": "hanrei/hanrei.html",
+                "links": links[:limit],
+            }
+        )
+    for bundle in mac_bundles:
+        target = out / bundle.name
+        _copy_hanrei_tree(bundle, target)
+        rel_base = f"hanrei/{bundle.name}"
+        links: list[dict[str, str]] = []
+        for candidate in _hanrei_html_files(target, limit):
+            candidate_base = rel_base
+            if candidate.parent != target:
+                candidate_base = f"{rel_base}/{candidate.parent.relative_to(target).as_posix()}"
+            _append_hanrei_links(links, _hanrei_links_from_file(candidate, candidate_base, limit - len(links)), limit)
+            if len(links) >= limit:
+                break
+        if not links:
+            links = [
+                {"label": path.relative_to(target).as_posix(), "href": f"{rel_base}/{path.relative_to(target).as_posix()}"}
+                for path in _hanrei_html_files(target, limit)
+            ]
+        entry = links[0]["href"] if links else f"{rel_base}/index.htm"
+        rows.append({"kind": "mac_help_localized", "source": bundle.name, "entry": entry, "links": links[:limit]})
     chm_path = resolve_case_insensitive_path(root, "HANREI.chm")
     if chm_path is not None and chm_path.is_file():
         out.mkdir(parents=True, exist_ok=True)

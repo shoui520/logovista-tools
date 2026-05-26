@@ -8,6 +8,9 @@ dictionary source, not the mobile SQLite cache.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import tempfile
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
@@ -28,7 +31,8 @@ WINDOW_SIZE = 0xFF0
 SSEDDATA_MAGIC = b"SSEDDATA"
 SSEDINFO_MAGIC = b"SSEDINFO"
 
-HONMON_COMPONENT_NAMES = {"HONMON.DIC", "HONMON.DIN"}
+HONMON_COMPONENT_NAMES = {"HONMON.DIC", "HONMON.DIN", "HONMON"}
+MAC_HONMON_ZIP_PASSWORD_PREFIX = "casKet"
 
 
 def read_file_prefix(path: Path, size: int) -> bytes:
@@ -173,6 +177,10 @@ def is_honmon_component(element: SsedInfoElement) -> bool:
 
 def honmon_component(elements: list[SsedInfoElement]) -> SsedInfoElement | None:
     return next((element for element in elements if is_honmon_component(element)), None)
+
+
+def is_honmon_component_name(name: str) -> bool:
+    return name.upper() in HONMON_COMPONENT_NAMES
 
 
 def be16(data: bytes, offset: int) -> int:
@@ -532,7 +540,84 @@ def command_expand(args: argparse.Namespace) -> None:
 
 
 def find_case_insensitive(directory: Path, name: str) -> Path | None:
-    return CaseFoldedDirectory.from_path(directory).find(name)
+    lookup = CaseFoldedDirectory.from_path(directory)
+    direct = lookup.find(name)
+    if direct is not None:
+        return direct
+    if name.upper() == "HONMON.DIN":
+        wrapper = lookup.find("HONMON")
+        if wrapper is not None and wrapper.is_file():
+            return _extract_zip_component(wrapper, name, directory=directory)
+    return None
+
+
+def _mac_honmon_zip_passwords(directory: Path) -> tuple[bytes | None, ...]:
+    """Return observed Mac HONMON zip passwords for a package directory.
+
+    The NKGORIN2 Mac updater invokes ``unzip -P`` against an extensionless
+    ``HONMON`` zip wrapper. Its password is ``casKet`` plus the product's
+    eight-hex renderer/index stem, e.g. ``casKet0000012e``.
+    """
+
+    stems: list[str] = []
+    for path in CaseFoldedDirectory.from_path(directory).files_with_suffix(".idx"):
+        stem = path.stem
+        if len(stem) == 8 and all(ch in "0123456789abcdefABCDEF" for ch in stem):
+            stems.append(stem.lower())
+    passwords: list[bytes | None] = [None]
+    for stem in sorted(set(stems)):
+        passwords.append(f"{MAC_HONMON_ZIP_PASSWORD_PREFIX}{stem}".encode("ascii"))
+    return tuple(passwords)
+
+
+def _component_cache_path(zip_path: Path, member_name: str, password: bytes | None) -> Path:
+    stat = zip_path.stat()
+    digest = hashlib.sha256()
+    digest.update(str(zip_path.resolve()).encode("utf-8", errors="surrogateescape"))
+    digest.update(stat.st_size.to_bytes(8, "big", signed=False))
+    digest.update(stat.st_mtime_ns.to_bytes(8, "big", signed=False))
+    digest.update(member_name.casefold().encode("utf-8", errors="surrogateescape"))
+    if password:
+        digest.update(password)
+    cache_root = Path(tempfile.gettempdir()) / "logovista-tools-component-cache" / digest.hexdigest()
+    cache_root.mkdir(parents=True, exist_ok=True)
+    return cache_root / member_name
+
+
+def _extract_zip_component(zip_path: Path, member_name: str, *, directory: Path) -> Path | None:
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            names = {name.casefold(): name for name in archive.namelist()}
+            actual_member = names.get(member_name.casefold())
+            if actual_member is None:
+                return None
+            for password in _mac_honmon_zip_passwords(directory):
+                out_path = _component_cache_path(zip_path, member_name, password)
+                if out_path.is_file():
+                    return out_path
+                try:
+                    data = archive.read(actual_member, pwd=password)
+                except RuntimeError:
+                    continue
+                tmp_path = out_path.with_suffix(out_path.suffix + ".tmp")
+                tmp_path.write_bytes(data)
+                tmp_path.replace(out_path)
+                return out_path
+    except (OSError, zipfile.BadZipFile):
+        return None
+    return None
+
+
+def resolve_component_file(directory: Path, name: str) -> Path | None:
+    """Resolve a declared SSED component to a readable file.
+
+    Most components are direct package files. Observed Mac OS X packages may
+    declare ``HONMON.DIN`` in SSEDINFO while storing an extensionless encrypted
+    zip wrapper named ``HONMON`` on disk. For that narrow layout, materialize
+    the declared member into a deterministic temp cache and return that path.
+    """
+
+    return find_case_insensitive(directory, name)
 
 
 def write_epwing_catalog_header(out, elements: list[SsedInfoElement]) -> None:

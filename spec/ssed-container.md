@@ -92,6 +92,9 @@ title components store readable headword/title streams, index components store
 binary search data and pointers, and the type-`0x00` HONMON component often
 stores bodies. Windows packages normally name this component `HONMON.DIC`;
 observed Mac OS X SSED packages can name the same component `HONMON.DIN`.
+`NKGORIN2` additionally stores the declared `HONMON.DIN` as a ZipCrypto member
+inside an extensionless package file named `HONMON`; after archive unwrapping,
+the member decrypts/expands as ordinary Mac LogoFontCipher `SSEDDATA`.
 
 Some catalogs declare optional resources with start/end block `0`. Observed
 Windows renderer packages can list `GA16FULL` / `GA16HALF` this way while

@@ -95,7 +95,10 @@ The scanner uses the shared package-target discovery layer. It detects:
   `_DataBase/hore_search_a.db`, `_DataBase/horejo_base.db`, and
   `_Programs/LVMultiView.exe`.
 
-SSED rows include `HONMON.DIC` / `HONMON.DIN` readiness where available.
+SSED rows include `HONMON.DIC` / `HONMON.DIN` readiness where available. Mac
+OS X packages that declare `HONMON.DIN` but store an extensionless ZipCrypto
+`HONMON` wrapper are resolved automatically when the package has the observed
+eight-hex renderer/index stem needed for the `casKet<stem>` password.
 `LVED_SQLITE3` rows are classified structurally; encrypted payload detection
 does not imply decryption. Use `lved --inspect-sqlite` when you need decrypted
 schema/feature inspection with local keys.

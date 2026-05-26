@@ -3,10 +3,12 @@ from __future__ import annotations
 import ast
 import json
 import plistlib
+import shutil
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -1115,6 +1117,35 @@ def test_lvcore_reads_macos_honmon_din_package(tmp_path: Path) -> None:
     entry = package.entry_for_hit(results.hits[0])
     assert entry.address.component == "HONMON.DIN"
     assert "first entry" in entry.text
+
+
+def test_lvcore_reads_macos_extensionless_honmon_zip_package(tmp_path: Path) -> None:
+    make_macos_synthetic_package(tmp_path)
+    (tmp_path / "0000012e.idx").write_bytes(b"renderer marker")
+    member = tmp_path / "HONMON.DIN"
+    wrapper = tmp_path / "HONMON"
+    zip_tool = shutil.which("zip")
+    if zip_tool is None:
+        with zipfile.ZipFile(wrapper, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.write(member, "HONMON.DIN")
+    else:
+        zip_out = tmp_path / "HONMON.zip"
+        subprocess.run(
+            [zip_tool, "-q", "-P", "casKet0000012e", "-j", str(zip_out), str(member)],
+            check=True,
+        )
+        zip_out.replace(wrapper)
+    member.unlink()
+
+    package = open_package(tmp_path)
+    honmon = package.honmon_component()
+
+    assert honmon is not None
+    assert honmon.path is not None
+    assert honmon.path.name == "HONMON.DIN"
+    assert package.data(honmon).header.storage == "macos_logofont_cipher"
+    results = package.search("alpha", limit=1)
+    assert len(results.hits) == 1
 
 
 def test_lvcore_encrypted_ssed_data_does_not_read_full_component_with_read_bytes(

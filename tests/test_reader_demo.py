@@ -12,6 +12,7 @@ from logovista_tools.reader_demo import (
     _entries_html,
     _hanrei_html,
     _hanrei_chm_navigation_files,
+    _hanrei_data,
     _hanrei_links_from_file,
     _menu_html,
     _panels_html,
@@ -327,3 +328,35 @@ def test_hanrei_chm_navigation_files_accept_product_named_hhc(tmp_path: Path) ->
     (tmp_path / "ZYAKUKOG.hhc").write_text("<html></html>", encoding="utf-8")
 
     assert _hanrei_chm_navigation_files(tmp_path) == [tmp_path / "ZYAKUKOG.hhc"]
+
+
+def test_hanrei_data_copies_macos_help_localized_bundle(tmp_path: Path) -> None:
+    root = tmp_path / "MACDICT"
+    bundle = root / "MACDICT_HELP.localized"
+    contents = bundle / "contents"
+    contents.mkdir(parents=True)
+    (root / "MACDICT.IDX").write_bytes(b"")
+    (root / "hanrei.html").write_text(
+        '<html><frameset><frame name="leftFrame" src="MACDICT_HELP.localized/menu.html">'
+        '<frame name="mainFrame" src="MACDICT_HELP.localized/top.html"></frameset></html>',
+        encoding="cp932",
+    )
+    (bundle / "menu.html").write_text('<a href="contents/hanrei.html">凡例</a>', encoding="utf-8")
+    (bundle / "top.html").write_text("<p>top</p>", encoding="utf-8")
+    (contents / "hanrei.html").write_text("<p>body</p>", encoding="utf-8")
+    (contents / "._hanrei.html").write_bytes(b"metadata")
+    builder = SimpleNamespace(
+        source=SimpleNamespace(idx=root / "MACDICT.IDX"),
+        out_dir=tmp_path / "out",
+        args=SimpleNamespace(hanrei_page_limit=10),
+    )
+
+    data = _hanrei_data(builder)
+
+    assert (tmp_path / "out" / "hanrei" / "hanrei.html").is_file()
+    assert (tmp_path / "out" / "hanrei" / "MACDICT_HELP.localized" / "contents" / "hanrei.html").is_file()
+    assert not (tmp_path / "out" / "hanrei" / "MACDICT_HELP.localized" / "contents" / "._hanrei.html").exists()
+    assert data["sources"][0]["kind"] == "mac_html_frameset"
+    assert data["sources"][0]["links"][0]["href"] == "hanrei/MACDICT_HELP.localized/menu.html"
+    assert data["sources"][1]["kind"] == "mac_help_localized"
+    assert any(link["href"] == "hanrei/MACDICT_HELP.localized/contents/hanrei.html" for link in data["sources"][1]["links"])

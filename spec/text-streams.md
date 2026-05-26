@@ -9,6 +9,14 @@ Windows packages normally name it `HONMON.DIC`; the observed Mac OS X SSED
 package names the same type of component `HONMON.DIN`. The expanded payload is
 an EPWING/JIS-like stream.
 
+One observed Mac OS X package (`NKGORIN2`) declares `HONMON.DIN` in `SSEDINFO`
+but stores the component on disk as an extensionless ZipCrypto wrapper named
+`HONMON`. The archive member is `HONMON.DIN`; the updater password is derived
+from the product's eight-hex renderer/index stem as `casKet<stem>` (for
+`NKGORIN2`, `casKet0000012e`). After unwrapping, the member is still the normal
+Mac LogoFontCipher AES-CBC `SSEDDATA` payload and follows the same expansion
+rules as other `HONMON.DIN` files.
+
 Text is mostly JIS X 0208 pairs:
 
 ```text

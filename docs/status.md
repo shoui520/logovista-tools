@@ -57,6 +57,10 @@ and non-SSED reader status are tracked separately in
 - Observed Mac OS X SSED `HONMON.DIN` AES-CBC decryption. The payload decrypts
   to normal `SSEDDATA` and then uses the same component expansion path as
   `HONMON.DIC`.
+- Observed Mac OS X extensionless `HONMON` ZipCrypto wrapper support. NKGORIN2
+  declares `HONMON.DIN` in `SSEDINFO`, stores it as member `HONMON.DIN` inside
+  `HONMON`, and uses a `casKet<eight-hex-stem>` password before the normal Mac
+  LogoFontCipher/SSEDDATA path.
 - Corpus-wide `vlpljbl*` classification by suffix, raw/decrypted magic,
   SQLite schema, and inferred role. Observed roles include decryptor binaries,
   fonts, renderer body DBs, media stores, search indexes, row-ordered `HONBUN`,

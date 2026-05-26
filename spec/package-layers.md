@@ -35,9 +35,11 @@ Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
 Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, SPINDEX.DIC,
           sibling *_GAIJI/, *.chm, vlpljbl*; some packages also carry
           DICPROF.INI
-Mac OS X  EXINFO.INI, help `.localized` bundles, AppleDouble `._*` metadata,
-          encrypted `HONMON.DIN`, and observed HANREI/SPINDEX-style auxiliary
-          resources inside an otherwise normal SSED catalog
+Mac OS X  EXINFO.INI, root `hanrei.html` plus `*_HELP.localized` help bundles,
+          AppleDouble `._*` metadata, encrypted `HONMON.DIN`, extensionless
+          ZipCrypto `HONMON` wrappers for declared `HONMON.DIN`, and observed
+          HANREI/SPINDEX-style auxiliary resources inside an otherwise normal
+          SSED catalog
 ```
 
 `NoPlatform` is not an observed retail LogoVista wrapper. It is the model value

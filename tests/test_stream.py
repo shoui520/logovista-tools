@@ -1,6 +1,9 @@
 import plistlib
 import json
+import shutil
 import sqlite3
+import subprocess
+import zipfile
 from io import StringIO
 from argparse import Namespace
 from pathlib import Path
@@ -108,12 +111,14 @@ from logovista_tools.lvcrypto import (
 )
 from logovista_tools.ssed import (
     CaseFoldedDirectory,
+    SsedRandomReader,
     SsedInfoElement,
     find_case_insensitive,
     iter_files_with_suffix,
     load_sseddata_bytes,
     parse_ssedinfo,
     parse_ssedinfo_with_layout,
+    resolve_component_file,
     sseddata_storage_for_bytes,
 )
 from logovista_tools.spindex import parse_spindex_pages, reverse_spindex_key
@@ -291,6 +296,31 @@ def test_discover_dictionaries_accepts_macos_honmon_din(tmp_path) -> None:
     assert len(sources) == 1
     assert sources[0].honmon.name == "HONMON.DIN"
     assert sources[0].honmon_storage == "macos_logofont_cipher"
+
+
+def test_resolve_component_file_extracts_macos_extensionless_honmon_zip(tmp_path) -> None:
+    (tmp_path / "0000012e.idx").write_bytes(b"renderer marker")
+    member = tmp_path / "HONMON.DIN"
+    member.write_bytes(_minimal_sseddata(b"\x1f\x09\x00\x01body"))
+    wrapper = tmp_path / "HONMON"
+    zip_tool = shutil.which("zip")
+    if zip_tool is None:
+        with zipfile.ZipFile(wrapper, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.write(member, "HONMON.DIN")
+    else:
+        zip_out = tmp_path / "HONMON.zip"
+        subprocess.run(
+            [zip_tool, "-q", "-P", "casKet0000012e", "-j", str(zip_out), str(member)],
+            check=True,
+        )
+        zip_out.replace(wrapper)
+    member.unlink()
+
+    resolved = resolve_component_file(tmp_path, "HONMON.DIN")
+
+    assert resolved is not None
+    assert resolved.name == "HONMON.DIN"
+    assert SsedRandomReader(resolved).read(0, 4) == b"\x1f\x09\x00\x01"
 
 
 def test_toolkit_casefolded_lookup_preserves_disk_casing_on_case_insensitive_mounts(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
