@@ -133,9 +133,11 @@ and non-SSED reader status are tracked separately in
   `searchsub/listsub` search where observed. It classifies `info` rows as
   home/HANREI/copyright-like surfaces and can generate generic static HTML
   pages that rewrite `lved.dataid:`, `lved.info:`, `lved.binran:`, image, and
-  audio links. Media payloads in SQLite BLOB or text storage are copied without
-  leaking Python byte-repr strings. This proves structural navigation/resource
-  handling, not exact LVEDVIEWER visual parity.
+  audio links, plus observed `lved.pdf:` and GENIUSE6 picture-dictionary
+  `lved.dict.*` links. Media payloads in SQLite BLOB or text storage are copied
+  without leaking Python byte-repr strings. Unbridged `lved.addr...` links are
+  made explicit deferred metadata rather than fake navigation. This proves
+  structural navigation/resource handling, not exact LVEDVIEWER visual parity.
 - LVLMultiView package-family classification for observed ESPRANT2/YROPPO/MOROKU
   packages, including SSEDINFO facade parsing, LogoFontCipher SQLite payload
   roles, `menuData.xml` href resolution, static HTML/viewer-file reporting,

@@ -173,6 +173,9 @@ LogoVista links. Sampled signals include:
 | `lved.media.sound:` | `content.body`, especially sound-heavy bilingual dictionaries |
 | `lved.binran:` | `info.body` and `binran.body` in HBHYAKKA |
 | `lved.bookmark:` | `content.body`, `info.body` |
+| `lved.pdf:` | `content.body` / `info.body` in HBGEOLOG and OUKOKU12; targets media rows that may be real PDF or image-page blobs. |
+| `lved.dict.<code>:pictlink...` | GENIUSE6 picture-dictionary links; targets `info` picture pages. |
+| `lved.addr...` | Retained SSED-like block/offset links in EIBEIHOU and IBOI5; bridge to SQLite rows is not proven. |
 | `lved.plugin:` | Rare viewer/plugin hook; observed in an info page |
 | HTTP/HTTPS links | `content.body`, `info.body`, occasionally title/subtitle fields |
 
@@ -346,6 +349,27 @@ remaining target rows outside the linked-entry budget. The remaining unresolved
 references in that render were external `../../_images/UpperCase-Letters/...`
 help-page assets, not retained-tree links.
 
+A v3 protocol probe counted unresolved or previously deferred protocol families
+across all 73 payloads:
+
+| Protocol family | Row hits | Current toolkit handling |
+|---|---:|---|
+| `lved.dataid:` | 1,404,279 | Active entry navigation to `content.id`, preserving anchors. |
+| `lved.info:` | 6,798 | Active info/HANREI/about page navigation. |
+| `lved.media.sound:` | 446,019 | Active media/audio asset resolution through `media`, `mediasub`, or `sound`. |
+| `lved.bookmark:` | 259,078 | Suppressed as viewer/user-state metadata. |
+| `lved.imag:` / `lved.image:` | 5,841 | Active image asset resolution. |
+| `lved.pdf:` | 312 | Active asset resolution; HBGEOLOG stores true PDF blobs, while OUKOKU12 uses the same protocol for media rows whose bytes identify as WebP image pages. |
+| `lved.dict.` | 132 | Active rewrite for GENIUSE6 `pictlink` targets to generated `info_*` picture-dictionary pages. |
+| `lved.addr` | 51 | Deferred with `data-lv-original-href`; these are SSED block/offset-style targets without a proven SQLite bridge. |
+| `lved.binran:` | 2 | Active named `binran` page navigation. |
+| `lved.plugin:` | 1 | Suppressed as a viewer/plugin hook. |
+
+No occurrences were found for `lved.browser.*`, `lved.findnum:`,
+`lved.select:`, or `lved.group.*` in the inspected SQLCipher corpus text
+columns. Those remain viewer-code strings rather than observed corpus content
+links.
+
 The generated HTML showcase is intentionally generic. It is useful for
 verifying link/media/resource mechanics, not for claiming exact LVEDVIEWER
 visual parity. Validation results from the v3 run:
@@ -357,6 +381,13 @@ visual parity. Validation results from the v3 run:
 - `lved.info:` links rewrite to local info/HANREI pages.
 - `lved.binran:` links rewrite to local named reference pages where a `binran`
   row exists.
+- `lved.pdf:` links resolve to copied assets through the same media lookup
+  path. Blob signatures decide the output extension.
+- GENIUSE6 `lved.dict.<code>:pictlink.<name>.html` links rewrite to generated
+  `info_<name>.html` picture-dictionary pages.
+- `lved.addr...` links are preserved as explicit deferred metadata because no
+  bridge from those retained SSED block/offset addresses to SQLite content rows
+  has been proven.
 - `lved.image:` / `lved.imag:` resources resolve through the SQLite `media`
   table or loose resources.
 - `lved.media.sound:` links resolve to copied audio assets through `media`,
@@ -436,6 +467,7 @@ end-user behavior. Still open:
   modern SQLite rows or are only legacy/search compatibility data;
 - unresolved external help/image assets referenced by some `info` pages, for
   example the observed upper-case-letter help images;
+- target bridge for the 51 observed `lved.addr...` links in EIBEIHOU/IBOI5;
 - complete visual rendering rules for every HTML/class/link pattern;
 - product-specific LVEDVIEWER template/CSS/JS application;
 - complete product semantics for optional providers such as `exam`, `genre`,

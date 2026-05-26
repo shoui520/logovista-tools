@@ -258,13 +258,17 @@ The body/link protocols observed in the corpus include:
 | `lved.binran:<name>` | Jump to a `binran.name` reference page. Duplicate `.html` suffixes normalize to the stored row name. |
 | `lved.image:` / `lved.imag:` | Resolve an image through SQLite `media` or loose resources. |
 | `lved.media.sound:` | Resolve an audio media row through `media`, `mediasub`, or `sound`. |
+| `lved.pdf:<name>` | Resolve through `media` by name/stem. HBGEOLOG stores true PDF blobs; OUKOKU12 uses the same protocol for media rows that identify as WebP image pages. |
+| `lved.dict.<code>:pictlink.<page>.html` | GENIUSE6 picture-dictionary link to an `info.name` page. The `pictlink.` prefix is stripped before resolving the generated page. |
+| `lved.addr<block>:<offset>` | Retained SSED-style block/offset link. Observed in SQLCipher corpus, but no SQLite bridge is proven; generic rendering preserves it as deferred metadata. |
 | `lved.bookmark:` | Viewer/user-state protocol; do not treat as content navigation. |
 | `lved.plugin:` | Viewer/plugin callback hook; suppress or preserve as metadata unless the frontend implements that plugin. |
 
-Known but not yet implemented protocols include `lved.pdf:`, `lved.browser.*`,
-`lved.dict.*`, `lved.findnum:`, `lved.select:`, and group/settings hooks. They
-should remain explicit unsupported hooks until a real package and viewer code
-path prove their behavior.
+Viewer-code strings not found as corpus content links in the current
+SQLCipher text probe include `lved.browser.*`, `lved.findnum:`,
+`lved.select:`, and group/settings hooks. They should remain explicit
+unsupported hooks until a real package and viewer code path prove their
+behavior.
 
 ## Rendering Contract
 

@@ -43,8 +43,15 @@ _SQLITE_TEXT_SIGNAL_PATTERNS: tuple[tuple[str, str], ...] = (
     ("lved_addr", "%lved.addr%"),
     ("lved_image", "%lved.image:%"),
     ("lved_imag", "%lved.imag:%"),
+    ("lved_media_sound", "%lved.media.sound:%"),
+    ("lved_media", "%lved.media:%"),
     ("lved_ziptomedia", "%lved.ziptomedia:%"),
     ("lved_bookmark", "%lved.bookmark:%"),
+    ("lved_plugin", "%lved.plugin:%"),
+    ("lved_pdf", "%lved.pdf:%"),
+    ("lved_dict", "%lved.dict.%"),
+    ("lved_findnum", "%lved.findnum:%"),
+    ("lved_select", "%lved.select:%"),
     ("lved_sound", "%lved.sond:%"),
     ("http_link", "%http://%"),
     ("https_link", "%https://%"),
@@ -1044,6 +1051,8 @@ def search_lved_sqlite_database(path: Path, query: str, *, mode: str = "forward"
 
 def _lved_blob_extension(blob: bytes, name: str | None = None) -> str:
     lower_name = (name or "").casefold()
+    if blob.startswith(b"%PDF-"):
+        return ".pdf"
     if blob.startswith(b"\x89PNG\r\n\x1a\n"):
         return ".png"
     if blob.startswith((b"GIF87a", b"GIF89a")):
@@ -1084,6 +1093,14 @@ def _safe_lved_named_page_stem(target: str, *, fallback: str) -> str:
     return _safe_asset_name(Path(name).stem or name or fallback)
 
 
+def _lved_dict_info_target(value: str) -> str | None:
+    raw = value.split(":", 1)[1] if ":" in value else value
+    raw = _LVED_TARGET_SPLIT_RE.split(raw.strip(), 1)[0]
+    if raw.casefold().startswith("pictlink."):
+        raw = raw[len("pictlink.") :]
+    return raw or None
+
+
 def _sqlite_blob_to_bytes(value: Any) -> bytes:
     if value is None:
         return b""
@@ -1114,7 +1131,7 @@ def _media_lookup(con: sqlite3.Connection) -> dict[str, tuple[int, str, bytes]]:
         if not {"id", "name", "main"} <= columns:
             continue
         quoted_table = _quote_identifier(table)
-        for row in con.execute(f"select id, name, main from {quoted_table} where main is not null"):
+        for row in con.execute(f"select id, name, cast(main as blob) from {quoted_table} where main is not null"):
             media_id = int(row[0])
             name = "" if row[1] is None else str(row[1])
             blob = _sqlite_blob_to_bytes(row[2])
@@ -1147,7 +1164,7 @@ def _write_lved_asset(
     if not raw or re.match(r"^[a-z][a-z0-9+.-]*://", raw, re.IGNORECASE) or raw.startswith("#") or raw.startswith("data:"):
         return None
     lookup_key = raw.casefold()
-    for prefix in ("lved.image:", "lved.imag:", "lved.media.sound:", "lved.sound:", "lved.media:"):
+    for prefix in ("lved.image:", "lved.imag:", "lved.media.sound:", "lved.sound:", "lved.media:", "lved.pdf:"):
         if lookup_key.startswith(prefix):
             lookup_key = raw.split(":", 1)[1].split("?", 1)[0].casefold()
             break
@@ -1222,12 +1239,34 @@ def _rewrite_lved_fragment(
                 return f'{attr}={quote}binran_{safe_name}.html{html.escape(anchor, quote=True)}{quote}'
             stats["binran_links_unresolved"] += 1
             return match.group(0)
+        if attr.casefold() == "href" and lower.startswith("lved.dict."):
+            raw_target = value.split(":", 1)[1] if ":" in value else ""
+            target = _lved_dict_info_target(value)
+            anchor = ""
+            if "#" in raw_target:
+                anchor = "#" + raw_target.split("#", 1)[1]
+            if target:
+                stats["dict_info_links_rewritten"] += 1
+                safe_name = _safe_lved_named_page_stem(target, fallback="dict")
+                return f'{attr}={quote}info_{safe_name}.html{html.escape(anchor, quote=True)}{quote}'
+            stats["dict_info_links_unresolved"] += 1
+            return match.group(0)
+        if attr.casefold() == "href" and lower.startswith("lved.pdf:"):
+            href = _write_lved_asset(value, assets_dir=assets_dir, media=media, loose=loose)
+            if href:
+                stats["pdf_links_resolved"] += 1
+                return f'{attr}={quote}{html.escape(href, quote=True)}{quote}'
+            stats["pdf_links_unresolved"] += 1
+            return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
         if attr.casefold() == "href" and lower.startswith(("lved.media.sound:", "lved.sound:", "lved.media:")):
             href = _write_lved_asset(value, assets_dir=assets_dir, media=media, loose=loose)
             if href:
                 stats["media_links_resolved"] += 1
                 return f'{attr}={quote}{html.escape(href, quote=True)}{quote}'
             stats["media_links_unresolved"] += 1
+        if attr.casefold() == "href" and lower.startswith("lved.addr"):
+            stats["addr_links_deferred"] += 1
+            return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
         if attr.casefold() == "href" and lower.startswith("lved.bookmark:"):
             stats["bookmark_links_suppressed"] += 1
             return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'

@@ -654,14 +654,17 @@ body/info fragments inside a simple wrapper, rewrites `lved.dataid:` and
 `lved.info:` links to local pages, rewrites `lved.binran:` links when a
 `binran` table exists, resolves `lved.image:` / `lved.imag:` and
 `lved.media.sound:` assets through SQLite `media`, `mediasub`, `sound`, or loose
-resources, writes retained text-tree pages when decoded `res/*.idx` trees are
+resources, resolves `lved.pdf:` media links, rewrites GENIUSE6-style
+`lved.dict.<code>:pictlink...` picture-dictionary links to generated info
+pages, writes retained text-tree pages when decoded `res/*.idx` trees are
 present, and writes bounded entry stubs for linked entries. Retained tree rows
 whose entry targets are valid but outside the materialization budget are marked
 with `data-lv-deferred-entry` rather than emitted as broken local links.
 Viewer/user-state hooks such as `lved.bookmark:` and `lved.plugin:` are
-suppressed to inert links with the original target retained as metadata. The
-generated pages are for structural testing; exact LVEDVIEWER visual parity
-still needs product-template/CSS/JS handling.
+suppressed to inert links with the original target retained as metadata.
+SSED-style `lved.addr...` links are also deferred this way until their
+SQLCipher bridge is proven. The generated pages are for structural testing;
+exact LVEDVIEWER visual parity still needs product-template/CSS/JS handling.
 
 ### `compose`
 

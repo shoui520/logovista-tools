@@ -218,18 +218,21 @@ def test_lved_render_showcase_rewrites_media_assets_and_info_surfaces(tmp_path) 
         """
         create table list(id integer, refid integer, type integer, anchor text, title text, titlesub text);
         create table content(id integer, type integer, body text, media text);
-        create table media(id integer, name text, type integer, main blob);
+        create table media(id integer, name text, type integer, main);
         create table sound(id integer, name text, type integer, main blob);
         create table info(id integer, type integer, name text, body text, media text);
         create table binran(id integer, type integer, name text, body text, media text);
         create virtual table search using fts4(forward, back, part, fts, filter);
         insert into list values(1, 42, 0, 'hit-anchor', 'Alpha', '');
-        insert into content values(42, 0, '<div class="midashi">Alpha</div><img src="pic.png"><img src="txtasset"><a href="lved.dataid:42#anchor">self</a><a href="lved.info:hanrei.html#top">help</a><a href="lved.media.sound:snd.mp3">sound</a><a href="lved.bookmark:42">bookmark</a><a href="lved.binran:ref.html.html#x">ref</a><a href="lved.plugin:noop">plugin</a>', '');
+        insert into content values(42, 0, '<div class="midashi">Alpha</div><img src="pic.png"><img src="txtasset"><img src="invalid_text_png"><a href="lved.dataid:42#anchor">self</a><a href="lved.info:hanrei.html#top">help</a><a href="lved.media.sound:snd.mp3">sound</a><a href="lved.pdf:fig000001.pdf">pdf</a><a href="lved.dict.TEST:pictlink.picture.html#map">picture</a><a href="lved.addr00001234:0567">addr</a><a href="lved.bookmark:42">bookmark</a><a href="lved.binran:ref.html.html#x">ref</a><a href="lved.plugin:noop">plugin</a>', '');
         insert into content values(99, 0, '<div>Linked from info</div>', '');
         insert into media values(7, 'pic', 2, x'47494638396101000100800000ffffff00000021f90401000000002c00000000010001000002024401003b');
         insert into media values(9, 'txtasset', 2, 'text storage resource');
+        insert into media values(10, 'fig000001', 6, x'255044462d312e360a');
+        insert into media values(11, 'invalid_text_png', 2, cast(x'89504E470D0A1A0A' as text));
         insert into sound values(8, 'snd', 5, x'49443303000000000000');
         insert into info values(1, 0, 'hanrei.html', '<div><img src="pic.png"><a href="lved.dataid:99">Help</a></div>', '');
+        insert into info values(2, 0, 'picture.html', '<div>Picture dictionary page</div>', '');
         insert into binran values(1, 2, 'ref.html', '<div>Reference</div>', '');
         insert into search(docid, forward, back, part, fts, filter) values(1, 'alpha', 'ahpla', 'a l p h a', 'alpha body', '∥alpha∥');
         """
@@ -244,13 +247,19 @@ def test_lved_render_showcase_rewrites_media_assets_and_info_surfaces(tmp_path) 
     assert report["status"] == "rendered"
     assert (out / "assets" / "pic.gif").is_file()
     assert (out / "assets" / "txtasset.bin").read_text(encoding="utf-8") == "text storage resource"
+    assert (out / "assets" / "fig000001.pdf").is_file()
+    assert (out / "assets" / "invalid_text_png.png").is_file()
     assert "entry_42.html" in index
     assert 'href="entry_42.html#hit-anchor"' in index
     assert 'src="assets/pic.gif"' in entry
     assert 'src="assets/txtasset.bin"' in entry
+    assert 'src="assets/invalid_text_png.png"' in entry
     assert 'href="entry_42.html#anchor"' in entry
     assert 'href="info_hanrei.html#top"' in entry
     assert 'href="assets/snd.mp3"' in entry
+    assert 'href="assets/fig000001.pdf"' in entry
+    assert 'href="info_picture.html#map"' in entry
+    assert 'href="#" data-lv-original-href="lved.addr00001234:0567"' in entry
     assert 'href="#" data-lv-original-href="lved.bookmark:42"' in entry
     assert 'href="binran_ref.html#x"' in entry
     assert 'href="#" data-lv-original-href="lved.plugin:noop"' in entry
