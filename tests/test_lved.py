@@ -8,6 +8,7 @@ from logovista_tools.lved import (
     discover_lved_key_file,
     derive_lved_sqlcipher_key,
     infer_lved_dict_code,
+    inspect_lved_sqlite_database,
     inspect_lved_roots,
     is_lved_payload_name,
     shannon_entropy,
@@ -75,6 +76,7 @@ def test_lved_cli_uses_local_key_file_without_status_shadow_crash(tmp_path, caps
             key_file=None,
             memory_dump=None,
             write_decrypted=None,
+            inspect_sqlite=False,
             json=False,
             jobs=1,
             verbose=False,
@@ -87,6 +89,46 @@ def test_lved_cli_uses_local_key_file_without_status_shadow_crash(tmp_path, caps
     assert "key_file: OXFPEU4.key" in out
     assert "validation[local_key_file]:" in out
     assert "local-secret-key" not in out
+
+
+def test_lved_sqlite_inspection_classifies_core_tables_without_row_text(tmp_path) -> None:
+    db = tmp_path / "payload.sqlite"
+    import sqlite3
+
+    con = sqlite3.connect(db)
+    con.executescript(
+        """
+        create table list(id integer, refid integer, type integer, anchor text, title text, titlesub text);
+        create table content(id integer, type integer, body text, media text);
+        create table media(id integer, type integer, os integer, name text, main blob);
+        create table info(id integer, type integer, name text, body text, media text);
+        create virtual table search using fts4(forward, back, part, fts, advanced, filter);
+        insert into list values(1, 1, 0, 'a', 'visible title', 'sub');
+        insert into content values(1, 0, '<div><a href="lved.dataid:2"><img src="x.png"></a></div>', 'x.png');
+        insert into media values(1, 0, 1, 'x.png', x'89504e47');
+        insert into info values(1, 0, 'about', '<table><tr><td>about</td></tr></table>', '');
+        insert into search(docid, forward, back, part, fts, advanced, filter)
+          values(1, 'alpha', 'ahpla', 'alp', 'alpha body', 'advanced', 'filter');
+        """
+    )
+    con.close()
+
+    report = inspect_lved_sqlite_database(db)
+    rendered = json.dumps(report, ensure_ascii=False)
+
+    assert report["preferred_family_name"] == "LVED_SQLITE3"
+    assert report["role_counts"]["entry_list"] == 1
+    assert report["role_counts"]["entry_content"] == 1
+    assert report["role_counts"]["media_blob_store"] == 1
+    assert report["role_counts"]["fts_search"] == 1
+    assert report["feature_counts"]["entry_body_store"] == 1
+    assert report["feature_counts"]["search_column_advanced"] == 1
+    content = next(item for item in report["objects"] if item["name"] == "content")
+    body = next(item for item in content["column_profiles"] if item["name"] == "body")
+    assert body["sample_text_signals"]["lved_dataid"] == 1
+    assert body["sample_text_signals"]["html_img"] == 1
+    assert "visible title" not in rendered
+    assert "alpha body" not in rendered
 
 
 def test_lved_key_derivation_metadata_shape() -> None:

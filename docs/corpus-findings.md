@@ -7,7 +7,7 @@ Observed dictionary behavior. These notes are evidence from the local corpus, no
 There are now two authoritative corpus harnesses, with different purposes:
 
 - `logovista-tools dump-package-models` is the research/model harness. It keeps
-  SSED, LVED SQLCipher, and LVLMultiView packages in one family-aware model
+  SSED, `LVED_SQLITE3`, and LVLMultiView packages in one family-aware model
   directory while preserving package paths with deterministic hashes.
 - `lvcore_audit corpus` is the reader-compatibility harness for the clean
   reader core. It validates open/search/dereference/render behavior and reports
@@ -41,7 +41,7 @@ contains 261 chunked package bundles and zero failures:
 ```text
 total package targets:    261
 SSED:                     202
-LVED SQLCipher:            45
+then-observed SQLCipher/LVED: 45
 LVLMultiView SQLite:       14
 decoded model failures:     0
 ```
@@ -101,7 +101,7 @@ audits. It distinguishes:
 
 - SSED packages whose body source is direct `HONMON.DIC`;
 - SSED dense-anchor or sidecar-backed body sources;
-- LVED SQLCipher package families detected but not implemented as lvcore
+- `LVED_SQLITE3` package families detected but not implemented as lvcore
   reader paths;
 - LVLMultiView package families detected but not implemented as lvcore reader
   paths;
@@ -803,8 +803,8 @@ dense-HONMON IDs, plus non-decimal rows such as `99A00001`. The latter are not
 raw HONMON anchors. They are sidecar-only rows and should be measured rather
 than forced through the decimal ID matcher.
 
-LVED/WebView2 SQLCipher products such as OXFPEU4 and KQCMPROS are covered as a
-separate package family below. They are not failed raw-HONMON body streams.
+`LVED_SQLITE3` products are covered as a separate package family below. They
+are not failed raw-HONMON body streams.
 
 The body sampler deliberately filters section-only spans, decimal/hex-only ID
 records, and short opaque base64-like tokens. Without that filter, dense tables
@@ -907,57 +907,38 @@ help/front-matter tree, and many `Templates/*.png` / `Templates/*.svg` images.
 Converters should preserve these as package resources/navigation material
 instead of treating them as dictionary body entries.
 
-## LVED SQLCipher Packages
+## LVED_SQLITE3 Packages
 
-OXFPEU4 and KQCMPROS are not failed SSED/HONMON dictionaries. They are a
-separate LVED/WebView2 package family. The body/search/media data lives in
-SQLCipher payloads named `main.data` on Windows and `*.dbc` in mobile-style
-packages.
+Modern LogoVista `main.data` / `*.dbc` payloads are not failed SSED/HONMON
+dictionaries. They are a separate `LVED_SQLITE3` package family. The
+body/search/media data lives in SQLCipher payloads that decrypt to SQLite3.
 
-Observed OXFPEU4 facts:
+The dedicated local pass inspected 73 payloads. All 73 had local `.key` files,
+validated as SQLCipher, decrypted to SQLite3, and exposed the same core tables:
+`list`, `content`, `media`, `info`, and `search` plus FTS shadow tables.
 
-```text
-Windows main.data size:    15,937,536 bytes
-4096-byte pages:            3,891
-Windows/iOS payload match:  byte-identical in the local corpus
-decrypted schema:           list, content, media, info, search, FTS backing tables
-list rows:                  2,802
-content rows:                  70
-search rows:                2,802
-```
+The corpus also shows optional feature tables such as `exam`, `genre`,
+`bunya`, `kanji`, `kwit`, `joken`, `sakuin`, `listsub`/`searchsub*`,
+`mediasub`, `sound`, `binran`, `t_contents`, `t_convert`, and `item`.
+Several payload directories retain SSED-style `.idx` or `*INDEX.DIC` files.
+Treat those as auxiliary feature providers, not as evidence that the package is
+SSED.
 
-Observed KQCMPROS facts:
-
-```text
-Windows main.data size:   197,382,144 bytes
-4096-byte pages:           48,189
-decrypted schema:          list, content, media, info, search, FTS backing tables
-list rows:                135,317
-content rows:              64,517
-search rows:              135,317
-```
-
-Observed LVED packages ship WebView2 and SQLCipher runtime components. Private
-runtime evidence confirms a metadata-derived `sqlite3_key` path, and independent
-key validation shows the database key path uses dictionary id/code metadata, not
-the product serial. Memory dumps and recovered keys are private local evidence,
-not repository artifacts.
-
-The toolkit therefore treats LVED payloads as a distinct package layer:
+Run shape:
 
 ```bash
-logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 --json
-logovista-tools lved /path/to/KQCMPROS --dict-id 751 --json
+logovista-tools lved /path/to/SQLCIPHER_CORPUS --jobs 12 --inspect-sqlite --json
 ```
 
-Reports validate the payload without emitting derived, explicit, or recovered
-keys.
+The public summary is in [LVED_SQLITE3 Corpus Findings](lved-sqlite3-corpus.md).
+Reports validate and inspect the payload without emitting keys, decrypted
+databases, or dictionary row text.
 
 ## LVLMultiView Packages
 
 The current LVLMultiView corpus has 14 packages: ESPRANT2, MOROKU21 through
 MOROKU26, and YROPPO02/03/04/5/06/07/08. These are not classic SSED/HONMON
-packages and are not LVED SQLCipher packages. They ship `menuData.xml`, a small
+packages and are not `LVED_SQLITE3` packages. They ship `menuData.xml`, a small
 SSEDINFO-magic `.IDX` facade, and LogoFontCipher SQLite payloads.
 
 The law subfamily declares seven familiar component records:

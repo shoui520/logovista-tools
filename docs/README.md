@@ -9,6 +9,7 @@ reverse-engineering notes live in [`../spec`](../spec/README.md).
 | [Project Status and Roadmap](status.md) | `logovista-tools` capability status and project direction. |
 | [lvcore Status](lvcore-status.md) | Reader-core status, boundaries, and audit counters. |
 | [HC Renderer Parity Matrix](hc-renderer-parity.md) | HC renderer family status, visual parity locks, and named hook gaps. |
+| [LVED_SQLITE3 Corpus Findings](lved-sqlite3-corpus.md) | Full-corpus schema and feature findings for modern SQLCipher-backed LogoVista packages. |
 | [Package Families](package-families.md) | SSED package layers, non-SSED families, and lookup rules. |
 | [Corpus Findings](corpus-findings.md) | Observed behavior from real dictionaries. |
 | [Legal and Data Policy](legal.md) | Repository and data-handling boundaries. |
@@ -24,10 +25,11 @@ Public docs now distinguish two active tracks:
   reader-only, independent from `logovista_tools`, and its compatibility target
   is the real LogoVista corpus rather than generated writer fixtures.
 
-LVED SQLCipher and LVLMultiView are separate package families handled by the
-toolkit classification/model-report path. They are not currently implemented
-as lvcore reader paths. Dense/sidecar SSED remains an SSED body-source problem,
-not an LVED or LVLMultiView problem.
+`LVED_SQLITE3` and LVLMultiView are separate package families handled by the
+toolkit classification/model-report path. `LVED_SQLITE3` corpus findings live
+in [LVED_SQLITE3 Corpus Findings](lved-sqlite3-corpus.md). These families are
+not currently implemented as lvcore reader paths. Dense/sidecar SSED remains an
+SSED body-source problem, not an LVED or LVLMultiView problem.
 
 ## Split Map
 

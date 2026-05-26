@@ -12,7 +12,7 @@ The important boundary: this is no longer mainly an exporter. Exporters are
 views over the model. The core toolkit deliverable is a lossless,
 evidence-preserving LogoVista dictionary model.
 
-LVED SQLCipher and LVLMultiView are separate package families handled by
+`LVED_SQLITE3` and LVLMultiView are separate package families handled by
 toolkit classification/model-report paths. They are not SSED packages, and
 dense/sidecar SSED packages are not LVED/LVLMultiView. lvcore-specific scope
 and non-SSED reader status are tracked separately in
@@ -116,9 +116,10 @@ and non-SSED reader status are tracked separately in
   component. Its generic record grammar is still unresolved, so toolkit output
   should report it as a named resource stream rather than inventing raster
   image output.
-- LVED/WebView2 `main.data` / `.dbc` SQLCipher package-family classification
-  and limited validation for inspected packages. Toolkit support treats LVED as
-  a separate SQLite/SQLCipher family rather than a failed SSED/HONMON package.
+- Modern `LVED_SQLITE3` `main.data` / `.dbc` package-family classification,
+  local `.key` validation, and full local corpus schema/feature inspection for
+  73 SQLCipher payloads. Toolkit support treats `LVED_SQLITE3` as a separate
+  SQLite-backed family rather than a failed SSED/HONMON package.
 - LVLMultiView package-family classification for observed ESPRANT2/YROPPO/MOROKU
   packages, including SSEDINFO facade parsing, LogoFontCipher SQLite payload
   roles, `menuData.xml` href resolution, static HTML/viewer-file reporting,
@@ -151,14 +152,16 @@ and non-SSED reader status are tracked separately in
   gaiji/media resources, Windows sidecar evidence, family notes, and
   inconsistencies into one decoded model object. Large per-package runs can
   keep it bounded with skipped row models and opt-in full profile/index
-  boundary scans. The command is now family-aware: LVED SQLCipher and
+  boundary scans. The command is now family-aware: `LVED_SQLITE3` and
   LVLMultiView packages are classified into family-specific non-SSED models
   instead of being treated as failed SSED/HONMON packages.
 - `dump-package-models`, a corpus-scale model harness with package-family
   target discovery, process-level parallelism, path-aware progress output,
   resumable deterministic model paths, and clean failure JSON. The current
   local corpus model pass completed 261 targets with zero failures:
-  202 SSED, 45 LVED SQLCipher, and 14 LVLMultiView packages.
+  202 SSED, 45 then-observed SQLCipher/LVED payloads, and 14 LVLMultiView
+  packages. The newer dedicated `LVED_SQLITE3` corpus pass covers 73
+  SQLCipher payloads.
 - Chunked decoded model output via `--chunked`: `package.json` plus JSONL files
   for components, entries, title/index/menu samples, gaiji, media,
   dereferences, issues, and metrics. Chunked `package.json` files keep the
@@ -266,8 +269,8 @@ and non-SSED reader status are tracked separately in
   corpus.
 - Dictionary-specific semantic profiles for section codes, named images, and
   virtual selectors.
-- Broader LVED/WebView2 corpus coverage as a separate SQLCipher/SQLite package
-  family.
+- Reader-oriented `LVED_SQLITE3` model work on top of the 73-payload
+  SQLCipher schema/feature inventory.
 - Broader LVLMultiView corpus coverage as a separate SQLite/viewer-resource
   package family, not an SSED writer target.
 - Full LogoVista writer support. The current writer code is a research
@@ -690,9 +693,11 @@ and non-SSED reader status are tracked separately in
   destinations rather than unresolved component pointers.
 - `dump-ir` remains a narrower lossless entry-span JSONL inspection command for
   HONMON-specific debugging.
-- Observed `DictFtsDB` `.dbc` payloads for OXFPEU4/KQCMPROS are LVED
-  SQLCipher packages. Future `.dbc` variants should still be classified on
-  their own evidence instead of assumed to be SSED or LVED.
+- Observed `main.data` / `.dbc` payloads in the modern corpus are
+  `LVED_SQLITE3` packages when they validate as SQLCipher-backed SQLite3
+  databases. Some packages retain SSED-style `.idx` / `*INDEX.DIC` files beside
+  the SQLCipher payload, so reader architecture must share index/resource
+  providers across package families instead of gating them to SSED only.
 - LogoFontCipher support covers the key schedule observed in tested Windows
   decryptors. Treat unrelated encrypted-looking payloads separately until their
   reader or key schedule is identified.

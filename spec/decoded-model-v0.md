@@ -113,7 +113,7 @@ target inside a larger collection.
 
 ```text
 ssed              SSEDINFO/SSEDDATA package with HONMON-style components
-lved_sqlcipher    modern LVED/WebView2 SQLCipher payload family
+lved_sqlcipher    modern LVED_SQLITE3 SQLCipher payload family
 multiview_sqlite      LVLMultiView package with SSEDINFO facade + SQLite bodies
 mixed             package has both raw SSED anchors and renderer/database bodies
 unknown           classified enough to report, not enough to decode

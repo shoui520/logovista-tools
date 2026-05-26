@@ -1,23 +1,22 @@
-# Modern LogoVista SQLCipher Packages
+# LVED_SQLITE3 / Modern LogoVista SQLCipher Packages
 
-Modern LogoVista SQLCipher packages are a separate dictionary family from the
-SSED/HONMON dictionaries documented elsewhere in this repository. This project
-still uses `lved` as the command/module shorthand because the recovered viewer
-and older reports use LVED-related names, but LogoVista also reused `lved`
-internally for older SSED-era viewers. In this document, the useful format
-claim is therefore the storage model: SQLCipher `main.data` / `*.dbc`
-dictionary payloads, not the viewer executable name.
+`LVED_SQLITE3` is the preferred reader-facing name for LogoVista's modern
+SQLCipher-backed dictionary family. These packages are separate from the
+SSED/HONMON dictionaries documented elsewhere in this repository. The toolkit
+still uses `lved` as the command/module shorthand because recovered viewer
+names and older reports use LVED-related names, but LogoVista also reused
+`lved` internally for older SSED-era viewers. In this document, the useful
+format claim is therefore the storage model: SQLCipher `main.data` / `*.dbc`
+payloads that decrypt to ordinary SQLite3 databases.
 
-Observed examples:
+Observed corpus shape:
 
-| Dictionary | Windows payload | Mobile payload | Status |
-|---|---|---|---|
-| OXFPEU4 | `main.data` | `OXFPEU4.dbc` | Validated SQLCipher database |
-| KQCMPROS | `main.data` | `KQCMPROS.dbc` | Validated SQLCipher database |
+| Payload count | Local `.key` validated | SQLite inspected | Core tables present |
+|---:|---:|---:|---:|
+| 73 | 73 | 73 | 73 |
 
-For OXFPEU4, the Windows `main.data` and iOS `.dbc` observed in the local
-corpus are byte-identical. KQCMPROS uses the same package family, but the
-observed Windows and iOS payloads differ by product/version.
+The full-corpus schema/feature summary lives in
+[LVED_SQLITE3 Corpus Findings](../docs/lved-sqlite3-corpus.md).
 
 ## Classification
 
@@ -28,15 +27,16 @@ stream. The observed files have these traits:
 - size is a multiple of 4096 bytes;
 - first bytes do not contain the plaintext `SQLite format 3` header;
 - entropy is close to random data;
-- decrypts as SQLCipher 4 with 4096-byte pages.
+- decrypt as SQLCipher 4 with 4096-byte pages;
+- expose ordinary SQLite tables after decryption.
 
 SSED/HONMON-oriented readers cannot recover body text from this package family
 because there is no SSED/HONMON body stream to compose.
 
-Some packages in this family may still carry retained SSED-style components or
+Some packages in this family still carry retained SSED-style components or
 indexes beside the SQLCipher payload. Reader architecture must treat those as
-shared feature providers when present, not gate SSED component parsers away from
-SQLCipher packages.
+shared feature providers when present, not gate SSED component parsers away
+from SQLCipher packages.
 
 ## Viewer Access Path
 
@@ -105,7 +105,7 @@ bytes.
 
 ## Decrypted Schema
 
-Observed decrypted databases contain ordinary SQLite tables:
+Every inspected decrypted database contains these ordinary SQLite tables:
 
 ```text
 list
@@ -120,7 +120,19 @@ search_segments
 search_stat
 ```
 
-Important query shapes recovered from the viewer include:
+The core table roles are:
+
+| Table | Role |
+|---|---|
+| `list` | Entry/search-result list with display titles and anchor/refid mapping. |
+| `content` | Entry body store with HTML/text body and media-reference fields. |
+| `media` | Binary resource store. |
+| `info` | Auxiliary/about/help/info page store. |
+| `search` | Native FTS table for forward/back/part/full-text lookup. |
+| `search_*` | FTS shadow tables. |
+
+Important query shapes recovered from the viewer and confirmed by schema shape
+include:
 
 ```sql
 SELECT id, title FROM list WHERE refid = ? AND anchor = ?
@@ -132,19 +144,32 @@ SELECT id, type, refid, anchor, title
   WHERE search MATCH ?
 ```
 
-`list` is the search/listing layer. `content` stores body HTML or body payloads.
-`media` stores referenced binary assets. `info` stores auxiliary pages. `search`
-is an FTS table backing lookup.
+Always-present search columns are:
+
+```text
+forward, back, part, fts
+```
+
+Optional search columns include `filter`, `advanced`, `advanced1`,
+`advanced2`, and `advanced3`. Treat these as dictionary-specific native search
+dimensions until query behavior is tested in a reader.
+
+Some packages retain SSED-style or index-style files beside the SQLCipher
+payload, including `res/tree.idx`, `res/*.idx`, `BHINDEX.DIC`, and
+`BKINDEX.DIC`. Reader architecture must share SSED/index parsers as feature
+providers when present instead of assuming `LVED_SQLITE3` packages are pure
+SQLite-only books.
 
 ## Toolkit Support
 
 The `lved` command classifies payloads, validates local `.key` files beside
 payloads, validates derived or explicit keys, optionally tests key candidates
-recovered from a local memory dump, and can write a plaintext SQLite copy for
-local analysis:
+recovered from a local memory dump, inspects decrypted SQLite schema/features,
+and can write a plaintext SQLite copy for local analysis:
 
 ```bash
 logovista-tools lved /path/to/SQLCIPHER_CORPUS --json
+logovista-tools lved /path/to/SQLCIPHER_CORPUS --jobs 12 --inspect-sqlite --json
 logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 --json
 logovista-tools lved /path/to/OXFPEU4 --memory-dump viewer-memory.dmp --json
 logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 \
@@ -158,17 +183,19 @@ key file name/match rule, never the key text.
 
 Reports deliberately do not print recovered, derived, or explicit keys.
 Memory-dump candidates are counted and can be used for validation, but key
-strings are not emitted.
+strings are not emitted. `--inspect-sqlite` records exact schema, row counts,
+small value distributions, and bounded text-signal evidence; it does not emit
+dictionary row text.
 
 ## Confidence
 
 | Claim | Confidence |
 |---|---|
-| OXFPEU4 Windows `main.data` and observed iOS `.dbc` are identical | Proven for local files |
-| OXFPEU4/KQCMPROS are SQLCipher 4 page databases | Proven for local files |
-| The observed payload key path derives DB keys from dictionary id/code metadata | Proven for local packages through independent key validation |
+| The inspected modern corpus payloads are SQLCipher 4 page databases | Proven for 73 local payloads |
+| The inspected payloads decrypt to ordinary SQLite3 with stable core tables | Proven for 73 local payloads |
+| The observed payload key path derives DB keys from dictionary id/code metadata or local `.key` files | Proven for local packages through independent key validation |
 | Product serial is not part of the SQLCipher database key path | Strong for observed viewer path |
-| This package family is separate from SSED/HONMON | Proven for observed OXFPEU4/KQCMPROS packages |
+| `LVED_SQLITE3` is separate from SSED/HONMON while still being allowed to carry retained SSED-style feature files | Proven for the inspected corpus |
 
 Do not commit decrypted databases, memory dumps, serials, or proprietary viewer
 files to this repository.

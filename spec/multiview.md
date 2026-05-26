@@ -1,8 +1,8 @@
 # LVLMultiView Packages
 
 `LVLMultiView` packages are a separate observed LogoVista package family. They
-are not classic SSED/HONMON dictionaries and they are not LVED/WebView2
-SQLCipher packages.
+are not classic SSED/HONMON dictionaries and they are not `LVED_SQLITE3`
+packages.
 
 They still expose an `.IDX` file whose magic is `SSEDINFO`, but that index is a
 facade. It declares familiar component names while the readable body, index,
@@ -71,8 +71,8 @@ padding:    PKCS#7
 ```
 
 Every observed `*lvbat` / `*lvdat` payload decrypts to `SQLite format 3`.
-This is different from LVED `main.data` / `.dbc`, which uses SQLCipher page
-encryption.
+This is different from `LVED_SQLITE3` `main.data` / `.dbc`, which uses
+SQLCipher page encryption.
 
 ## Payload Roles
 

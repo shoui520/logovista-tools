@@ -371,6 +371,7 @@ def cmd_lved(args: argparse.Namespace) -> int:
         dict_code=args.dict_code,
         key=key,
         memory_dump=args.memory_dump,
+        inspect_sqlite=args.inspect_sqlite,
         jobs=args.jobs,
     )
 
@@ -434,6 +435,11 @@ def cmd_lved(args: argparse.Namespace) -> int:
             reason = validation.get("reason")
             suffix = f" reason={reason}" if reason else ""
             print(f"  validation[{source}]: {validation_status}{suffix}")
+        sqlite_report = row.get("sqlite") or {}
+        if sqlite_report:
+            role_counts = sqlite_report.get("role_counts") or {}
+            roles = ", ".join(f"{key}={value}" for key, value in sorted(role_counts.items()))
+            print(f"  sqlite: {sqlite_report.get('status')} objects={sqlite_report.get('object_count', 0)} roles=[{roles}]")
     if args.write_decrypted and "decrypted_output" in report:
         out = report["decrypted_output"]
         print(f"decrypted: {out['path']} bytes={out['bytes']}")
@@ -2353,6 +2359,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--write-decrypted",
         type=Path,
         help="Write a plaintext SQLite copy for one payload. Uses a local .key, --dict-id, or --key-file.",
+    )
+    p_lved.add_argument(
+        "--inspect-sqlite",
+        action="store_true",
+        help="Decrypt with local/explicit keys and inspect SQLite schema, roles, and feature signals without emitting row text.",
     )
     p_lved.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     add_jobs_argument(p_lved)

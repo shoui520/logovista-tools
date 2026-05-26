@@ -54,7 +54,8 @@ extension or platform.
 Separate non-SSED package families include:
 
 ```text
-LVED      main.data or *.dbc SQLCipher payloads, WebView2 viewer files,
+LVED_SQLITE3
+          main.data or *.dbc SQLCipher payloads, WebView2 viewer files,
           sqlcipher.dll and plugin DLL/assembly resources
 MultiView SSEDINFO-like *.IDX facade, menuData.xml, LOGOVISTAMULTIVIEW,
           *lvbat/*lvdat LogoFontCipher SQLite payloads, Templates/, Resources/
@@ -408,11 +409,12 @@ The SQLite database, when present, is best understood as an application cache
 or search database. It may contain useful full text, but it is not the only
 raw dictionary source, and using it alone loses format information.
 
-There is now a separately observed LVED/WebView2 package family. These products
-do not expose a normal SSED/HONMON body core. Their `main.data` Windows payload
-or `.dbc` mobile payload is a SQLCipher page database and must be classified as
-that package family, not as a broken SSED dictionary. See
-[LVED SQLCipher Packages](lved-main-data.md).
+There is now a separately observed `LVED_SQLITE3` package family. These
+products do not expose a normal SSED/HONMON body core. Their `main.data`
+Windows payload or `.dbc` mobile payload is a SQLCipher page database and must
+be classified as that package family, not as a broken SSED dictionary. Some
+payload directories still carry SSED-style indexes/resources as auxiliary
+feature files. See [LVED_SQLITE3 Packages](lved-main-data.md).
 
 There is also an observed LVLMultiView package family. These packages expose an
 SSEDINFO-magic `.IDX` facade that declares normal-looking components, but the

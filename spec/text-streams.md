@@ -385,15 +385,18 @@ outside that decimal raw-ID namespace. The observed Windows `NANMED20`
 are preserved as sidecar-only rows in reports and are not interpreted as raw
 HONMON anchors.
 
-## Non-SSED LVED/WebView2 Packages
+## Non-SSED LVED_SQLITE3 Packages
 
-OXFPEU4 and KQCMPROS should not be treated as failed `HONMON.DIC` body-stream
-decodes. They are a separate LVED/WebView2 package family. The useful payload
-is `main.data` on Windows or `*.dbc` in mobile-style packages, and the observed
-payloads are SQLCipher 4 databases with 4096-byte pages.
+Modern `main.data` / `*.dbc` SQLCipher payloads should not be treated as failed
+`HONMON.DIC` body-stream decodes. They are a separate `LVED_SQLITE3` package
+family. The useful payload is `main.data` on Windows or `*.dbc` in
+mobile-style packages, and the observed payloads are SQLCipher 4 databases with
+4096-byte pages.
 
 The high entropy and lack of plaintext `SQLite format 3` headers originally
 made these payloads look opaque. With the Windows viewer path understood, the
-toolkit now classifies and validates them through the `lved` command. Keep
-this family separate from the SSED/HONMON model; there is no normal expanded
-`HONMON.DIC` body stream to slice. See [LVED SQLCipher Packages](lved-main-data.md).
+toolkit now classifies, validates, and inspects them through the `lved`
+command. Keep this family separate from the SSED/HONMON model; there is no
+normal expanded `HONMON.DIC` body stream to slice. Shared SSED-style index
+files may still appear beside the SQLCipher payload as auxiliary feature
+providers. See [LVED_SQLITE3 Packages](lved-main-data.md).

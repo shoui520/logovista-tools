@@ -10,8 +10,11 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+import sqlite3
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Iterable
 
 from .parallel import parallel_map_ordered
@@ -21,6 +24,25 @@ LVED_SQLCIPHER_PAGE_SIZE = 4096
 LVED_SQLCIPHER_RESERVE_BYTES = 80
 LVED_SQLCIPHER_KDF_ITER = 256000
 LVED_SQLCIPHER_KDF_ALGORITHM = "PBKDF2-HMAC-SHA512"
+LVED_SQLITE3_FAMILY_NAME = "LVED_SQLITE3"
+
+_SQLITE_TEXT_SIGNAL_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("html_tag", "%<%>%"),
+    ("html_img", "%<img%"),
+    ("html_table", "%<table%"),
+    ("html_ruby", "%<ruby%"),
+    ("html_math", "%<math%"),
+    ("html_script", "%<script%"),
+    ("lved_dataid", "%lved.dataid:%"),
+    ("lved_addr", "%lved.addr%"),
+    ("lved_image", "%lved.image:%"),
+    ("lved_imag", "%lved.imag:%"),
+    ("lved_ziptomedia", "%lved.ziptomedia:%"),
+    ("lved_bookmark", "%lved.bookmark:%"),
+    ("lved_sound", "%lved.sond:%"),
+    ("http_link", "%http://%"),
+    ("https_link", "%https://%"),
+)
 
 
 @dataclass(frozen=True)
@@ -149,6 +171,281 @@ def discover_lved_key_file(path: Path) -> LvedKeyFile | None:
 
 def read_lved_key_file(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
+
+
+def _quote_identifier(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _safe_count(con: sqlite3.Connection, table: str) -> int | None:
+    try:
+        return int(con.execute(f"select count(*) from {_quote_identifier(table)}").fetchone()[0])
+    except sqlite3.Error:
+        return None
+
+
+def _safe_pragma_rows(con: sqlite3.Connection, pragma: str, name: str) -> list[tuple[Any, ...]]:
+    try:
+        return list(con.execute(f"pragma {pragma}({_quote_identifier(name)})"))
+    except sqlite3.Error:
+        return []
+
+
+def _sqlite_table_role(name: str, sql: str | None) -> str:
+    lower = name.casefold()
+    sql_lower = (sql or "").casefold()
+    if lower == "list":
+        return "entry_list"
+    if lower == "content":
+        return "entry_content"
+    if lower == "media":
+        return "media_blob_store"
+    if lower == "info":
+        return "info_page_store"
+    if lower == "exam":
+        return "example_lookup"
+    if lower == "genre":
+        return "genre_or_category_lookup"
+    if lower == "search":
+        return "fts_search"
+    if lower.startswith("search_"):
+        return "fts_shadow"
+    if "using fts" in sql_lower:
+        return "fts_search"
+    return "unclassified"
+
+
+def _sqlite_text_signals(values: list[object]) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for value in values:
+        if isinstance(value, bytes):
+            continue
+        text = str(value).casefold()
+        for name, pattern in _SQLITE_TEXT_SIGNAL_PATTERNS:
+            needle = pattern.strip("%").casefold()
+            if needle and needle in text:
+                counts[name] += 1
+    return dict(sorted(counts.items()))
+
+
+def _sqlite_column_profile(
+    con: sqlite3.Connection,
+    table: str,
+    column: str,
+    declared_type: str,
+    *,
+    sample_rows: int,
+) -> dict[str, Any]:
+    quoted_table = _quote_identifier(table)
+    quoted_column = _quote_identifier(column)
+    profile: dict[str, Any] = {
+        "name": column,
+        "declared_type": declared_type,
+        "sample_limit": sample_rows,
+    }
+    try:
+        rows = con.execute(
+            f"select {quoted_column} from {quoted_table} where {quoted_column} is not null limit ?",
+            (sample_rows,),
+        ).fetchall()
+    except sqlite3.Error:
+        rows = []
+    values = [row[0] for row in rows]
+    profile["non_null_sample_count"] = len(values)
+    if values:
+        storage_types = Counter(type(value).__name__ for value in values)
+        profile["sample_storage_types"] = dict(sorted(storage_types.items()))
+        profile["sample_max_length"] = max(len(value) if isinstance(value, bytes) else len(str(value)) for value in values)
+    type_hint = declared_type.casefold()
+    if "text" in type_hint or not declared_type:
+        signals = _sqlite_text_signals(values)
+        if signals:
+            profile["sample_text_signals"] = signals
+    return profile
+
+
+def _sqlite_value_distribution(con: sqlite3.Connection, table: str, column: str, *, limit: int = 64) -> list[dict[str, Any]]:
+    quoted_table = _quote_identifier(table)
+    quoted_column = _quote_identifier(column)
+    try:
+        rows = con.execute(
+            f"select {quoted_column}, count(*) as n from {quoted_table} "
+            f"group by {quoted_column} order by n desc, {quoted_column} limit ?",
+            (limit,),
+        ).fetchall()
+    except sqlite3.Error:
+        return []
+    return [
+        {
+            "value": None if row[0] is None else str(row[0]),
+            "count": int(row[1]),
+        }
+        for row in rows
+    ]
+
+
+def _sqlite_table_features(name: str, columns: list[str]) -> list[str]:
+    lower = name.casefold()
+    colset = {column.casefold() for column in columns}
+    features: list[str] = []
+    if lower == "list":
+        features.append("entry_listing")
+        if {"refid", "anchor"} <= colset:
+            features.append("anchor_to_content_reference")
+        if "title" in colset:
+            features.append("display_title")
+        if "titlesub" in colset:
+            features.append("display_subtitle_titlesub")
+        if "subtext" in colset:
+            features.append("display_subtext")
+    elif lower == "content":
+        features.append("entry_body_store")
+        if "body" in colset:
+            features.append("html_or_text_body")
+        if "media" in colset:
+            features.append("entry_media_reference_field")
+    elif lower == "media":
+        features.append("binary_media_store")
+        if "os" in colset:
+            features.append("os_specific_media_rows")
+    elif lower == "info":
+        features.append("auxiliary_info_pages")
+    elif lower == "exam":
+        features.append("example_sentence_lookup")
+    elif lower == "genre":
+        features.append("genre_or_filter_metadata")
+    elif lower == "search":
+        features.append("native_fts_search")
+        for search_column in ("forward", "back", "part", "fts", "advanced", "filter"):
+            if search_column in colset:
+                features.append(f"search_column_{search_column}")
+    elif lower.startswith("search_"):
+        features.append("native_fts_shadow_table")
+    return features
+
+
+def inspect_lved_sqlite_database(path: Path, *, sample_rows: int = 1024) -> dict[str, Any]:
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        pragma: dict[str, Any] = {}
+        for key in ("page_size", "page_count", "encoding", "user_version", "application_id", "schema_version"):
+            try:
+                pragma[key] = con.execute(f"pragma {key}").fetchone()[0]
+            except sqlite3.Error:
+                pass
+        objects: list[dict[str, Any]] = []
+        feature_counts: Counter[str] = Counter()
+        role_counts: Counter[str] = Counter()
+        for row in con.execute(
+            "select type, name, tbl_name, sql from sqlite_master "
+            "where name not like 'sqlite_%' order by type, name"
+        ):
+            object_type = str(row["type"])
+            name = str(row["name"])
+            sql = row["sql"]
+            role = _sqlite_table_role(name, sql if isinstance(sql, str) else None)
+            item: dict[str, Any] = {
+                "type": object_type,
+                "name": name,
+                "tbl_name": row["tbl_name"],
+                "role": role,
+            }
+            role_counts[role] += 1
+            if isinstance(sql, str):
+                sql_lower = sql.casefold()
+                item["virtual"] = "create virtual table" in sql_lower
+                if "using fts" in sql_lower:
+                    item["virtual_module"] = "fts"
+            if object_type == "table":
+                item["row_count"] = _safe_count(con, name)
+                column_rows = _safe_pragma_rows(con, "table_info", name)
+                columns: list[str] = [str(column[1]) for column in column_rows]
+                item["columns"] = [
+                    {
+                        "cid": int(column[0]),
+                        "name": str(column[1]),
+                        "declared_type": str(column[2] or ""),
+                        "notnull": bool(column[3]),
+                        "pk": int(column[5] or 0),
+                    }
+                    for column in column_rows
+                ]
+                features = _sqlite_table_features(name, columns)
+                if features:
+                    item["features"] = features
+                    feature_counts.update(features)
+                if name.casefold() in {"list", "content", "media", "info", "exam", "genre", "search"}:
+                    item["column_profiles"] = [
+                        _sqlite_column_profile(
+                            con,
+                            name,
+                            str(column[1]),
+                            str(column[2] or ""),
+                            sample_rows=sample_rows,
+                        )
+                        for column in column_rows
+                    ]
+                distributions: dict[str, list[dict[str, Any]]] = {}
+                for distribution_column in ("type", "os"):
+                    if distribution_column in {column.casefold() for column in columns}:
+                        source_column = next(column for column in columns if column.casefold() == distribution_column)
+                        distribution = _sqlite_value_distribution(con, name, source_column)
+                        if distribution:
+                            distributions[source_column] = distribution
+                if distributions:
+                    item["value_distributions"] = distributions
+                indexes = _safe_pragma_rows(con, "index_list", name)
+                if indexes:
+                    item["indexes"] = [
+                        {
+                            "name": str(index[1]),
+                            "unique": bool(index[2]),
+                            "origin": str(index[3]) if len(index) > 3 else "",
+                            "partial": bool(index[4]) if len(index) > 4 else False,
+                        }
+                        for index in indexes
+                    ]
+            objects.append(item)
+        return {
+            "preferred_family_name": LVED_SQLITE3_FAMILY_NAME,
+            "sqlite_pragmas": pragma,
+            "object_count": len(objects),
+            "role_counts": dict(sorted(role_counts.items())),
+            "feature_counts": dict(sorted(feature_counts.items())),
+            "objects": objects,
+        }
+    finally:
+        con.close()
+
+
+def _package_layout_features(payload_path: Path) -> dict[str, Any]:
+    root = payload_path.parent
+    resource_dirs = []
+    retained_ssed = []
+    tree_indexes = []
+    extension_counts: Counter[str] = Counter()
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix().casefold()):
+        rel = path.relative_to(root).as_posix()
+        if ":zone.identifier" in rel.casefold():
+            continue
+        if path.is_dir():
+            if path.name.casefold() in {"res", "resources", "templates", "img", "images", "sound", "media"}:
+                resource_dirs.append(rel)
+            continue
+        extension = path.suffix.casefold() or "<none>"
+        extension_counts[extension] += 1
+        name = path.name.casefold()
+        if name.endswith((".dic", ".idx", ".uni")) or name in {"ga16half", "ga16full"}:
+            retained_ssed.append(rel)
+        if name == "tree.idx":
+            tree_indexes.append(rel)
+    return {
+        "resource_dirs": resource_dirs,
+        "retained_ssed_like_files": retained_ssed,
+        "tree_idx_files": tree_indexes,
+        "extension_counts": dict(sorted(extension_counts.items())),
+    }
 
 
 def classify_lved_payload(path: Path) -> str:
@@ -313,9 +610,9 @@ def find_lved_key_candidates_in_dump(path: Path) -> list[str]:
 
 
 def _inspect_lved_payload_task(
-    payload: tuple[Path, int | None, str | None, str | None, list[str]]
+    payload: tuple[Path, int | None, str | None, str | None, list[str], bool]
 ) -> dict[str, Any]:
-    path, dict_id, dict_code, explicit_key, memory_keys = payload
+    path, dict_id, dict_code, explicit_key, memory_keys, inspect_sqlite = payload
     inspected = inspect_lved_payload(path)
     row: dict[str, Any] = {
         "path": str(inspected.path),
@@ -328,6 +625,7 @@ def _inspect_lved_payload_task(
         "header_hex": inspected.header_hex,
         "classification": inspected.classification,
         "inferred_dict_code": inspected.inferred_dict_code,
+        "package_layout": _package_layout_features(path),
         "validation": [],
     }
     validation_keys: list[tuple[str, str]] = []
@@ -349,11 +647,33 @@ def _inspect_lved_payload_task(
             validation_keys.append(("derived_metadata", derive_lved_sqlcipher_key(dict_id, code)))
     for candidate in memory_keys:
         validation_keys.append(("memory_dump_candidate", candidate))
+    first_valid_key: str | None = None
     for source, candidate in validation_keys:
         result = validate_lved_sqlcipher4(path, candidate)
+        if first_valid_key is None and result.get("valid"):
+            first_valid_key = candidate
         safe_result = {key: value for key, value in result.items() if key != "reason" or value}
         safe_result["source"] = source
         row["validation"].append(safe_result)
+    if inspect_sqlite:
+        if first_valid_key is None:
+            row["sqlite"] = {
+                "status": "not_inspected",
+                "reason": "no valid SQLCipher key candidate",
+            }
+        else:
+            with TemporaryDirectory() as temp_dir:
+                decrypted = Path(temp_dir) / f"{path.name}.sqlite"
+                try:
+                    decrypt_lved_sqlcipher4_to_path(path, decrypted, first_valid_key)
+                    sqlite_report = inspect_lved_sqlite_database(decrypted)
+                    sqlite_report["status"] = "inspected"
+                    row["sqlite"] = sqlite_report
+                except Exception as exc:
+                    row["sqlite"] = {
+                        "status": "inspect_error",
+                        "reason": f"{type(exc).__name__}: {exc}",
+                    }
     return row
 
 
@@ -364,6 +684,7 @@ def inspect_lved_roots(
     dict_code: str | None = None,
     key: str | None = None,
     memory_dump: Path | None = None,
+    inspect_sqlite: bool = False,
     jobs: int | None = 1,
 ) -> dict[str, Any]:
     payload_paths = discover_lved_payloads(roots)
@@ -371,7 +692,7 @@ def inspect_lved_roots(
     memory_keys = find_lved_key_candidates_in_dump(memory_dump) if memory_dump else []
     payloads = parallel_map_ordered(
         _inspect_lved_payload_task,
-        [(path, dict_id, dict_code, explicit_key, memory_keys) for path in payload_paths],
+        [(path, dict_id, dict_code, explicit_key, memory_keys, inspect_sqlite) for path in payload_paths],
         jobs=jobs,
     )
 
@@ -384,6 +705,7 @@ def inspect_lved_roots(
         },
         "notes": [
             "Memory dump key candidates are counted and used for validation but never emitted.",
-            "The LVED SQLCipher key derivation uses dictionary id/code metadata, not the product serial.",
+            "The LVED_SQLITE3 SQLCipher key derivation uses dictionary id/code metadata, not the product serial.",
+            "LVED_SQLITE3 is the preferred reader-facing name for the decrypted SQLite3 data model; lved remains the historical command shorthand.",
         ],
     }

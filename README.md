@@ -31,7 +31,7 @@ This table is about `logovista-tools`, not lvcore.
 | `*INDEX.DIC` / `*TITLE.DIC` / `MENU.DIC` | High structural coverage for the current SSED corpus. |
 | `.uni`, `GA16*`, image gaiji, `COLSCR.DIC`, `PCMDATA.DIC` | Parsed or modeled for observed SSED resource variants. |
 | Windows / Android / iOS / Mac OS X SSED packaging layers | Supported per observed package family. These are package layouts around SSED, not separate core formats. |
-| Modern LogoVista SQLCipher `main.data` / `.dbc` packages | Handled as a separate non-SSED format family by toolkit classification/model reports and the historical `lved` inspection command. |
+| Modern LogoVista `LVED_SQLITE3` `main.data` / `.dbc` packages | Handled as a separate non-SSED SQLite-backed format family by toolkit classification/model reports and the historical `lved` inspection command. |
 | LVLMultiView SQLite packages | Handled as a separate package family by toolkit classification/model reports and MultiView inspection code. |
 | SIZK read-aloud dictionaries | Focused inspection/reporting for the observed NHK read-aloud dictionary family. These are SSED dictionaries with loose audio/template sidecars, not a package family. |
 | Plain-SSED writer proof of concept | Experimental author-core primitives for clean generated SSED packages. |
@@ -44,7 +44,7 @@ This table is about `src/lvcore-experimental`, not the toolkit.
 |---|---|
 | SSED reader path | Active compatibility target. The current proof of concept opens, searches, dereferences, and renders known SSED reader cases with diagnostics. The sibling `lvcore-audit` package owns corpus validation and scorecards. |
 | Dense/sidecar SSED | Treated as SSED body-source variants, not as LVED or LVLMultiView. |
-| Modern LogoVista SQLCipher | Detected/classified only in lvcore; not implemented as a lvcore reader path. |
+| Modern LogoVista `LVED_SQLITE3` | Detected/classified only in lvcore; not implemented as a lvcore reader path. |
 | LVLMultiView | Detected/classified only in lvcore; not implemented as a lvcore reader path. |
 | Writer/importer behavior | Out of scope for lvcore. |
 

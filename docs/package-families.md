@@ -66,19 +66,23 @@ Mac OS X  EXINFO.INI, help `.localized` bundles, AppleDouble `._*` metadata,
 Separate non-SSED package families include:
 
 ```text
-LVED      main.data / *.dbc SQLCipher payloads, WebView2 viewer files,
+LVED_SQLITE3
+          main.data / *.dbc SQLCipher payloads, WebView2 viewer files,
           SQLCipher runtime and plugin/assembly resources
 MultiView SSEDINFO-like *.IDX facade, menuData.xml, LOGOVISTAMULTIVIEW,
           *lvbat/*lvdat LogoFontCipher SQLite payloads, Templates/, Resources/
 ```
 
-## LVED / WebView2
+## LVED_SQLITE3
 
-Observed LVED/WebView2 products are a separate package family. Their primary
+Observed `LVED_SQLITE3` products are a separate package family. Their primary
 payloads are SQLCipher databases such as `main.data` or `.dbc`, not SSED
 `HONMON.DIC` streams. `logovista-tools` classifies and inspects those packages
-separately instead of forcing them into the SSED model. The public format notes
-for this family live in [LVED SQLCipher Packages](../spec/lved-main-data.md).
+separately instead of forcing them into the SSED model. Some payload
+directories retain SSED-style indexes/resources, so those parsers must remain
+available as feature providers when present. The public format notes for this
+family live in [LVED_SQLITE3 Packages](../spec/lved-main-data.md), with corpus
+findings in [LVED_SQLITE3 Corpus Findings](lved-sqlite3-corpus.md).
 
 ## LVLMultiView
 

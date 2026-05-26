@@ -17,7 +17,7 @@ implemented as reader paths.
 | Dense/sidecar SSED | Supported where structural providers are known | Treated as SSED body-source variants, not as LVED or LVLMultiView. |
 | SSED native indexes/search/titles | Active target with current sampled misses closed | Exact/forward/backward lookup, grouped rows, title fallback, and debug diagnostics are modeled. |
 | SSED links/media/resources/gaiji | Active target with current known blockers closed | Media/resource bytes remain untouched and require explicit resource APIs. |
-| LVED/WebView2 | Detected/classified only | Separate SQLCipher/SQLite family; no lvcore reader path yet. |
+| LVED_SQLITE3 | Detected/classified only | Separate SQLCipher/SQLite family; no lvcore reader path yet. |
 | LVLMultiView | Detected/classified only | Separate SQLite/viewer-resource family; no lvcore reader path yet. |
 | Writer/importer behavior | Out of scope | Writer research stays in `logovista-tools`. |
 

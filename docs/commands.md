@@ -88,12 +88,14 @@ logovista-tools scan /path/to/LogoVista --json
 The scanner uses the shared package-target discovery layer. It detects:
 
 - SSED packages by parseable `.IDX` / `.idx` files with `SSEDINFO` catalogs,
-- LVED-style payloads by `main.data` / `.dbc` files and lightweight payload
+- `LVED_SQLITE3` payloads by `main.data` / `.dbc` files and lightweight payload
   classification,
 - LVLMultiView packages by `menuData.xml` plus `*lvdat` / `*lvbat` payloads.
 
-SSED rows include `HONMON.DIC` / `HONMON.DIN` readiness where available. LVED rows are
-classified structurally; encrypted payload detection does not imply decryption.
+SSED rows include `HONMON.DIC` / `HONMON.DIN` readiness where available.
+`LVED_SQLITE3` rows are classified structurally; encrypted payload detection
+does not imply decryption. Use `lved --inspect-sqlite` when you need decrypted
+schema/feature inspection with local keys.
 Use `profile` when you need a redacted inventory that also records incomplete
 packages with missing body components or missing declared components.
 
@@ -567,13 +569,14 @@ file.
 
 ### `lved`
 
-Inspect modern LogoVista SQLCipher packages whose body data lives in
+Inspect modern LogoVista `LVED_SQLITE3` packages whose body data lives in
 SQLCipher `main.data` or `.dbc` payloads rather than SSED/HONMON. The command
-keeps the historical `lved` name, but the format distinction is the SQLCipher
-payload family rather than the viewer executable name.
+keeps the historical `lved` name, but the format distinction is the decrypted
+SQLite3 data model rather than the viewer executable name.
 
 ```bash
 logovista-tools lved /path/to/LOGOVISTA_SQLCIPHER_DICTS_WINDOWS --json
+logovista-tools lved /path/to/LOGOVISTA_SQLCIPHER_DICTS_WINDOWS --jobs 12 --inspect-sqlite --json
 logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 --json
 logovista-tools lved /path/to/KQCMPROS --dict-id 751 --json
 ```
@@ -586,6 +589,7 @@ Useful options:
 --key-file PATH                     read an explicit local SQLCipher key; never print it
 --memory-dump PATH                  count/test local memory-dump key candidates without printing them
 --write-decrypted PATH              write one plaintext SQLite copy for local analysis
+--inspect-sqlite                    inspect decrypted SQLite schema, table roles, and bounded feature signals
 --json                              emit machine-readable JSON
 ```
 
@@ -599,8 +603,12 @@ key file name/match rule, never the key text.
 command does not use memory-dump-only recovery to write decrypted output.
 
 Report fields include payload classification, size, SHA-256, sampled entropy,
-inferred dictionary code, and key-validation status. Reports deliberately do
-not emit explicit, derived, or memory-dump-recovered keys.
+inferred dictionary code, and key-validation status. With `--inspect-sqlite`,
+reports also include exact SQLite schema, table roles, row counts, small value
+distributions, and bounded text-signal evidence. Text-signal counts are sampled
+from inspected columns and are not complete row-text exports. Reports
+deliberately do not emit explicit, derived, memory-dump-recovered keys,
+decrypted databases, or dictionary row text.
 
 ### `compose`
 
@@ -801,7 +809,7 @@ dense_honmon_id_table_androiddb     HONMON stores raw numeric IDs that resolve
 idx_title_only_no_readable_honmon_body
                                     indexes/titles exist, but sampled HONMON bodies do not
 skipped_dbc                         .dbc-adjacent package skipped by default;
-                                    use lved for LVED SQLCipher payloads
+                                    use lved for LVED_SQLITE3 payloads
 ```
 
 ### `profile`
@@ -1166,7 +1174,7 @@ structural `unverified` records; with `--deep-sidecars`, readable renderer DB
 rows are checked where the schema is supported.
 
 `dump-package-model` is family-aware. SSED packages receive the full SSED model.
-LVED/WebView2 SQLCipher and LVLMultiView packages receive family-specific
+`LVED_SQLITE3` and LVLMultiView packages receive family-specific
 non-SSED models: they are classified, their obvious payloads/resources are
 summarized, and SSED HONMON parsing plus SSED writer readiness are marked not
 applicable. This keeps mixed corpus runs honest without forcing separate
@@ -1201,9 +1209,9 @@ logovista-tools dump-package-models /path/to/LogoVista \
   --chunked
 ```
 
-The command discovers SSED `.IDX` catalogs, LVED `main.data` / `.dbc` payloads,
+The command discovers SSED `.IDX` catalogs, `LVED_SQLITE3` `main.data` / `.dbc` payloads,
 and LVLMultiView `menuData.xml` packages. SSED packages receive full decoded
-models. LVED and LVLMultiView packages receive family-specific non-SSED models
+models. `LVED_SQLITE3` and LVLMultiView packages receive family-specific non-SSED models
 so the corpus summary remains complete without forcing those formats through
 SSED parsers.
 
