@@ -67,6 +67,9 @@ _LVED_SEARCH_MODES = {"exact", "forward", "backward", "partial", "fulltext", "fi
 _LVED_PROTOCOL_RE = re.compile(r"""(?P<attr>href|src)\s*=\s*(?P<quote>["'])(?P<value>[^"']+)(?P=quote)""", re.IGNORECASE)
 _HTML_SRC_RE = re.compile(r"""src\s*=\s*(["'])([^"']+)\1""", re.IGNORECASE)
 _HTML_HREF_RE = re.compile(r"""href\s*=\s*(["'])([^"']+)\1""", re.IGNORECASE)
+_HTML_ANCHOR_NAME_RE = re.compile(r"""<a\s+[^>]*name\s*=\s*(["'])(?P<name>[^"']+)\1""", re.IGNORECASE)
+_LVED_ADDR_RE = re.compile(r"""lved\.addr(?P<block>[0-9A-Fa-f]{8}):(?P<offset>[0-9A-Fa-f]{4})""", re.IGNORECASE)
+_LVED_RELATIVE_ADDR_RE = re.compile(r"""[0-9A-Fa-f]{6}/[0-9A-Fa-f]{4}""", re.ASCII)
 _LVED_TARGET_SPLIT_RE = re.compile(r"[?#]", re.ASCII)
 _LVED_PROTOCOL_TOKEN_RE = re.compile(r"lved\.[a-z]+(?:\.[a-z]+)?:", re.IGNORECASE)
 _LVED_CORE_TABLES = {"list", "content", "media", "info", "search"}
@@ -105,6 +108,13 @@ class LvedTextTreeRow:
     @property
     def is_entry_target(self) -> bool:
         return self.target_value is not None and self.target_value > 0
+
+
+@dataclass(frozen=True)
+class LvedAddrResolution:
+    content_id: int
+    anchor: str
+    delta: int
 
 
 def sha256_file(path: Path) -> str:
@@ -1122,6 +1132,79 @@ def _lved_entry_href(content_id: int, anchor: str | None = None) -> str:
     return href
 
 
+def _sqlite_text_from_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    data = _sqlite_blob_to_bytes(value)
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("cp932", errors="replace")
+
+
+def _lved_addr_key(value: str) -> str | None:
+    match = _LVED_ADDR_RE.search(value)
+    if not match:
+        return None
+    return f"{match.group('block').casefold()}:{match.group('offset').casefold()}"
+
+
+def _lved_addr_link_keys(con: sqlite3.Connection) -> set[str]:
+    if not _sqlite_table_exists(con, "content"):
+        return set()
+    columns = {column.casefold() for column in _sqlite_columns(con, "content")}
+    if not {"id", "body"} <= columns:
+        return set()
+    link_keys: set[str] = set()
+    for row in con.execute("select cast(body as blob) from content where cast(body as text) like '%lved.addr%'"):
+        body = _sqlite_text_from_value(row[0])
+        link_keys.update(key for key in (_lved_addr_key(match.group(0)) for match in _LVED_ADDR_RE.finditer(body)) if key)
+    return link_keys
+
+
+def _lved_addr_resolution_lookup(con: sqlite3.Connection, *, max_delta: int = 0x100, link_keys: set[str] | None = None) -> dict[str, LvedAddrResolution]:
+    if not _sqlite_table_exists(con, "content"):
+        return {}
+    columns = {column.casefold() for column in _sqlite_columns(con, "content")}
+    if not {"id", "body"} <= columns:
+        return {}
+
+    link_keys = link_keys if link_keys is not None else _lved_addr_link_keys(con)
+    if not link_keys:
+        return {}
+
+    anchors_by_block: dict[str, list[tuple[int, str, int]]] = {}
+    for row in con.execute("select id, cast(body as blob) from content where cast(body as text) like '%name=%'"):
+        content_id = int(row[0])
+        body = _sqlite_text_from_value(row[1])
+        for match in _HTML_ANCHOR_NAME_RE.finditer(body):
+            anchor = match.group("name").strip()
+            lower_anchor = anchor.casefold()
+            if not re.fullmatch(r"[0-9a-f]{12,}", lower_anchor):
+                continue
+            block = lower_anchor[:8]
+            offset = int(lower_anchor[8:12], 16)
+            anchors_by_block.setdefault(block, []).append((offset, anchor, content_id))
+    for anchors in anchors_by_block.values():
+        anchors.sort(key=lambda item: item[0])
+
+    resolved: dict[str, LvedAddrResolution] = {}
+    for key in sorted(link_keys):
+        block, offset_text = key.split(":", 1)
+        target_offset = int(offset_text, 16)
+        for offset, anchor, content_id in anchors_by_block.get(block, ()):
+            delta = offset - target_offset
+            if delta < 0:
+                continue
+            if delta > max_delta:
+                break
+            resolved[key] = LvedAddrResolution(content_id=content_id, anchor=anchor, delta=delta)
+            break
+    return resolved
+
+
 def _media_lookup(con: sqlite3.Connection) -> dict[str, tuple[int, str, bytes]]:
     lookup: dict[str, tuple[int, str, bytes]] = {}
     for table in ("media", "mediasub", "sound"):
@@ -1194,6 +1277,7 @@ def _rewrite_lved_fragment(
     assets_dir: Path,
     media: dict[str, tuple[int, str, bytes]],
     loose: dict[str, Path],
+    addr_lookup: dict[str, LvedAddrResolution] | None = None,
 ) -> tuple[str, dict[str, int], set[int]]:
     stats: Counter[str] = Counter()
     linked_content_ids: set[int] = set()
@@ -1215,6 +1299,14 @@ def _rewrite_lved_fragment(
                 return f'{attr}={quote}{_lved_entry_href(int(target), anchor)}{quote}'
             stats["entry_links_unresolved"] += 1
             return match.group(0)
+        if attr.casefold() == "href" and value.isdigit():
+            target = int(value)
+            linked_content_ids.add(target)
+            stats["bare_entry_links_rewritten"] += 1
+            return f'{attr}={quote}{_lved_entry_href(target)}{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
+        if attr.casefold() == "href" and _LVED_RELATIVE_ADDR_RE.fullmatch(value):
+            stats["relative_addr_links_deferred"] += 1
+            return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
         if attr.casefold() == "href" and lower.startswith("lved.info:"):
             raw_target = value.split(":", 1)[1]
             target = _LVED_TARGET_SPLIT_RE.split(raw_target, 1)[0]
@@ -1264,7 +1356,21 @@ def _rewrite_lved_fragment(
                 stats["media_links_resolved"] += 1
                 return f'{attr}={quote}{html.escape(href, quote=True)}{quote}'
             stats["media_links_unresolved"] += 1
+        if attr.casefold() == "href" and lower.startswith(("lved.image", "lved.imag")):
+            href = _write_lved_asset(value, assets_dir=assets_dir, media=media, loose=loose)
+            if href:
+                stats["image_links_resolved"] += 1
+                return f'{attr}={quote}{html.escape(href, quote=True)}{quote}'
+            stats["image_links_deferred"] += 1
+            return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
         if attr.casefold() == "href" and lower.startswith("lved.addr"):
+            addr_key = _lved_addr_key(value)
+            if addr_key and addr_lookup:
+                resolution = addr_lookup.get(addr_key)
+                if resolution is not None:
+                    linked_content_ids.add(resolution.content_id)
+                    stats["addr_links_rewritten"] += 1
+                    return f'{attr}={quote}{_lved_entry_href(resolution.content_id, resolution.anchor)}{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote} data-lv-addr-delta={quote}{resolution.delta}{quote}'
             stats["addr_links_deferred"] += 1
             return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
         if attr.casefold() == "href" and lower.startswith("lved.bookmark:"):
@@ -1335,6 +1441,7 @@ def _write_lved_entry_page(
     title: str | None = None,
     media_lookup: dict[str, tuple[int, str, bytes]] | None = None,
     loose_lookup: dict[str, Path] | None = None,
+    addr_lookup: dict[str, LvedAddrResolution] | None = None,
 ) -> dict[str, Any] | None:
     row = _content_row(con, content_id)
     if row is None:
@@ -1343,8 +1450,8 @@ def _write_lved_entry_page(
     assets_dir.mkdir(parents=True, exist_ok=True)
     media_lookup = media_lookup if media_lookup is not None else _media_lookup(con)
     loose_lookup = loose_lookup if loose_lookup is not None else _loose_resource_lookup(payload_path)
-    body = "" if row["body"] is None else str(row["body"])
-    rewritten, stats, linked_content_ids = _rewrite_lved_fragment(body, assets_dir=assets_dir, media=media_lookup, loose=loose_lookup)
+    body = _sqlite_text_from_value(row["body"])
+    rewritten, stats, linked_content_ids = _rewrite_lved_fragment(body, assets_dir=assets_dir, media=media_lookup, loose=loose_lookup, addr_lookup=addr_lookup)
     page_title = title or f"entry {content_id}"
     html_body = (
         f'<main class="lv-entry"><div class="lv-meta">content.id={content_id}</div>'
@@ -1386,6 +1493,7 @@ def _write_lved_info_pages(
     limit: int,
     media_lookup: dict[str, tuple[int, str, bytes]],
     loose_lookup: dict[str, Path],
+    addr_lookup: dict[str, LvedAddrResolution] | None = None,
 ) -> list[dict[str, Any]]:
     if not _sqlite_table_exists(con, "info"):
         return []
@@ -1393,9 +1501,9 @@ def _write_lved_info_pages(
     assets_dir.mkdir(parents=True, exist_ok=True)
     pages: list[dict[str, Any]] = []
     for row in con.execute("select id, name, body from info order by id limit ?", (limit,)):
-        name = "" if row["name"] is None else str(row["name"])
-        body = "" if row["body"] is None else str(row["body"])
-        rewritten, stats, linked_content_ids = _rewrite_lved_fragment(body, assets_dir=assets_dir, media=media_lookup, loose=loose_lookup)
+        name = _sqlite_text_from_value(row["name"])
+        body = _sqlite_text_from_value(row["body"])
+        rewritten, stats, linked_content_ids = _rewrite_lved_fragment(body, assets_dir=assets_dir, media=media_lookup, loose=loose_lookup, addr_lookup=addr_lookup)
         safe_name = _safe_lved_named_page_stem(name, fallback=f"info_{row['id']}")
         target = out_dir / f"info_{safe_name}.html"
         target.write_text(
@@ -1425,6 +1533,7 @@ def _write_lved_named_body_pages(
     media_lookup: dict[str, tuple[int, str, bytes]],
     loose_lookup: dict[str, Path],
     limit: int,
+    addr_lookup: dict[str, LvedAddrResolution] | None = None,
 ) -> list[dict[str, Any]]:
     if not _sqlite_table_exists(con, table):
         return []
@@ -1435,9 +1544,9 @@ def _write_lved_named_body_pages(
     assets_dir.mkdir(parents=True, exist_ok=True)
     pages: list[dict[str, Any]] = []
     for row in con.execute(f"select id, name, body from {_quote_identifier(table)} order by id limit ?", (limit,)):
-        name = "" if row["name"] is None else str(row["name"])
-        body = "" if row["body"] is None else str(row["body"])
-        rewritten, stats, linked_content_ids = _rewrite_lved_fragment(body, assets_dir=assets_dir, media=media_lookup, loose=loose_lookup)
+        name = _sqlite_text_from_value(row["name"])
+        body = _sqlite_text_from_value(row["body"])
+        rewritten, stats, linked_content_ids = _rewrite_lved_fragment(body, assets_dir=assets_dir, media=media_lookup, loose=loose_lookup, addr_lookup=addr_lookup)
         safe_name = _safe_lved_named_page_stem(name, fallback=f"{table}_{row['id']}")
         target = out_dir / f"{path_prefix}_{safe_name}.html"
         target.write_text(
@@ -1832,6 +1941,7 @@ def render_lved_sqlite_showcase(
     try:
         media_lookup = _media_lookup(con)
         loose_lookup = _loose_resource_lookup(payload_path)
+        addr_lookup = _lved_addr_resolution_lookup(con)
         search_reports: list[dict[str, Any]] = []
         queries = queries or []
         modes = modes or ["exact", "forward", "backward", "partial", "fulltext"]
@@ -1851,6 +1961,7 @@ def render_lved_sqlite_showcase(
                         title=re.sub(r"<[^>]+>", "", hit.get("title_html") or "") or f"entry {content_id}",
                         media_lookup=media_lookup,
                         loose_lookup=loose_lookup,
+                        addr_lookup=addr_lookup,
                     )
                     if rendered is not None:
                         rendered_entries[content_id] = rendered
@@ -1863,6 +1974,7 @@ def render_lved_sqlite_showcase(
                     int(row["id"]),
                     media_lookup=media_lookup,
                     loose_lookup=loose_lookup,
+                    addr_lookup=addr_lookup,
                 )
                 if rendered is not None:
                     rendered_entries[int(row["id"])] = rendered
@@ -1884,6 +1996,7 @@ def render_lved_sqlite_showcase(
                 linked_id,
                 media_lookup=media_lookup,
                 loose_lookup=loose_lookup,
+                addr_lookup=addr_lookup,
             )
             if rendered is None:
                 continue
@@ -1899,6 +2012,7 @@ def render_lved_sqlite_showcase(
             limit=max(limit, 1000),
             media_lookup=media_lookup,
             loose_lookup=loose_lookup,
+            addr_lookup=addr_lookup,
         )
         binran_pages = _write_lved_named_body_pages(
             con,
@@ -1909,6 +2023,7 @@ def render_lved_sqlite_showcase(
             media_lookup=media_lookup,
             loose_lookup=loose_lookup,
             limit=1000,
+            addr_lookup=addr_lookup,
         )
         stubbed_entries: dict[int, dict[str, Any]] = {}
         for source in [*rendered_entries.values(), *info_pages, *binran_pages]:
@@ -1938,6 +2053,7 @@ def render_lved_sqlite_showcase(
                     assets_dir=out_dir / "assets",
                     media=media_lookup,
                     loose=loose_lookup,
+                    addr_lookup=addr_lookup,
                 )
                 href = _lved_entry_href(int(hit["content_id"]), hit.get("anchor") or "")
                 search_html.append(
@@ -2008,6 +2124,8 @@ def inspect_lved_reader_features(sqlite_path: Path, payload_path: Path, *, sampl
             table_roles[name] = _sqlite_table_role(name, row["sql"] if isinstance(row["sql"], str) else None)
         content_signals = _lved_fragment_signal_summary(con, "content", "body", limit=4096)
         info_signals = _lved_fragment_signal_summary(con, "info", "body", limit=4096)
+        addr_link_keys = _lved_addr_link_keys(con)
+        addr_lookup = _lved_addr_resolution_lookup(con, link_keys=addr_link_keys)
         retained = inspect_lved_retained_resources(payload_path, sqlite_path)
         search_probes = []
         for query in sample_queries or []:
@@ -2028,6 +2146,12 @@ def inspect_lved_reader_features(sqlite_path: Path, payload_path: Path, *, sampl
             "render_readiness": {
                 "content_body": content_signals,
                 "info_body": info_signals,
+                "lved_addr_resolution": {
+                    "target_count": len(addr_link_keys),
+                    "resolved_target_count": len(addr_lookup),
+                    "strategy": "first_following_same_block_html_anchor_within_0x100",
+                    "status": "available" if addr_lookup else ("unresolved" if addr_link_keys else "not_present"),
+                },
                 "body_shape_counts": content_signals.get("shape_counts", {}),
                 "top_classes": content_signals.get("top_classes", {}),
                 "protocol_counts": content_signals.get("protocol_counts", {}),

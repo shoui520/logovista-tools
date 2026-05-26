@@ -224,8 +224,7 @@ def test_lved_render_showcase_rewrites_media_assets_and_info_surfaces(tmp_path) 
         create table binran(id integer, type integer, name text, body text, media text);
         create virtual table search using fts4(forward, back, part, fts, filter);
         insert into list values(1, 42, 0, 'hit-anchor', 'Alpha', '');
-        insert into content values(42, 0, '<div class="midashi">Alpha</div><img src="pic.png"><img src="txtasset"><img src="invalid_text_png"><a href="lved.dataid:42#anchor">self</a><a href="lved.info:hanrei.html#top">help</a><a href="lved.media.sound:snd.mp3">sound</a><a href="lved.pdf:fig000001.pdf">pdf</a><a href="lved.dict.TEST:pictlink.picture.html#map">picture</a><a href="lved.addr00001234:0567">addr</a><a href="lved.bookmark:42">bookmark</a><a href="lved.binran:ref.html.html#x">ref</a><a href="lved.plugin:noop">plugin</a>', '');
-        insert into content values(99, 0, '<div>Linked from info</div>', '');
+        insert into content values(42, 0, '<div class="midashi">Alpha</div><img src="pic.png"><img src="txtasset"><img src="invalid_text_png"><a href="lved.dataid:42#anchor">self</a><a href="99">bare numeric</a><a href="050000/0000">relative addr</a><a href="lved.info:hanrei.html#top">help</a><a href="lved.media.sound:snd.mp3">sound</a><a href="lved.pdf:fig000001.pdf">pdf</a><a href="lved.dict.TEST:pictlink.picture.html#map">picture</a><a href="lved.addr00000001:0004">addr resolved</a><a href="lved.addr00001234:0567">addr deferred</a><a href="lved.imag00000001:0004:0000002c">image addr deferred</a><a href="lved.bookmark:42">bookmark</a><a href="lved.binran:ref.html.html#x">ref</a><a href="lved.plugin:noop">plugin</a>', '');
         insert into media values(7, 'pic', 2, x'47494638396101000100800000ffffff00000021f90401000000002c00000000010001000002024401003b');
         insert into media values(9, 'txtasset', 2, 'text storage resource');
         insert into media values(10, 'fig000001', 6, x'255044462d312e360a');
@@ -237,6 +236,11 @@ def test_lved_render_showcase_rewrites_media_assets_and_info_surfaces(tmp_path) 
         insert into search(docid, forward, back, part, fts, filter) values(1, 'alpha', 'ahpla', 'a l p h a', 'alpha body', '∥alpha∥');
         """
     )
+    con.execute(
+        "insert into content values(99, 0, ?, '')",
+        (sqlite3.Binary('<a name="000000010020"></a><div>Linked from BLOB HTML</div>'.encode("utf-8")),),
+    )
+    con.commit()
     con.close()
 
     out = tmp_path / "render"
@@ -255,16 +259,24 @@ def test_lved_render_showcase_rewrites_media_assets_and_info_surfaces(tmp_path) 
     assert 'src="assets/txtasset.bin"' in entry
     assert 'src="assets/invalid_text_png.png"' in entry
     assert 'href="entry_42.html#anchor"' in entry
+    assert 'href="entry_99.html" data-lv-original-href="99"' in entry
+    assert 'href="#" data-lv-original-href="050000/0000"' in entry
     assert 'href="info_hanrei.html#top"' in entry
     assert 'href="assets/snd.mp3"' in entry
     assert 'href="assets/fig000001.pdf"' in entry
     assert 'href="info_picture.html#map"' in entry
+    assert 'href="entry_99.html#000000010020" data-lv-original-href="lved.addr00000001:0004" data-lv-addr-delta="28"' in entry
     assert 'href="#" data-lv-original-href="lved.addr00001234:0567"' in entry
+    assert 'href="#" data-lv-original-href="lved.imag00000001:0004:0000002c"' in entry
     assert 'href="#" data-lv-original-href="lved.bookmark:42"' in entry
     assert 'href="binran_ref.html#x"' in entry
     assert 'href="#" data-lv-original-href="lved.plugin:noop"' in entry
     assert 'href="entry_99.html"' in (out / "info_hanrei.html").read_text(encoding="utf-8")
     assert (out / "entry_99.html").is_file()
+    entry_99 = (out / "entry_99.html").read_text(encoding="utf-8")
+    assert "Linked from BLOB HTML" in entry_99
+    assert "b&#x27;" not in entry_99
+    assert "b'" not in entry_99
     assert (out / "binran_ref.html").is_file()
     assert report["binran_pages"][0]["path"] == "binran_ref.html"
 
@@ -285,7 +297,8 @@ def test_lved_reader_features_classify_hanrei_and_fragments(tmp_path) -> None:
         create table media(id integer, name text, type integer, main blob);
         create table info(id integer, type integer, name text, body text, media text);
         create virtual table search using fts4(forward, back, part, fts, filter);
-        insert into content values(42, 0, '<div class="midashi"><img src="pic.png"><a href="lved.dataid:42">Alpha</a></div>', '');
+        insert into content values(42, 0, '<div class="midashi"><img src="pic.png"><a href="lved.dataid:42">Alpha</a><a href="lved.addr00000001:0004">addr</a></div>', '');
+        insert into content values(99, 0, '<a name="000000010020"></a><div>Addr target</div>', '');
         insert into info values(1, 0, 'hanrei.html', '<div><a href="lved.info:index.html">Help</a></div>', '');
         """
     )
@@ -297,6 +310,9 @@ def test_lved_reader_features_classify_hanrei_and_fragments(tmp_path) -> None:
     assert report["render_readiness"]["requires_viewer_templates_or_css"] is True
     assert report["render_readiness"]["sample_image_ref_count"] == 1
     assert report["render_readiness"]["protocol_counts"]["lved.dataid:"] == 1
+    assert report["render_readiness"]["lved_addr_resolution"]["target_count"] == 1
+    assert report["render_readiness"]["lved_addr_resolution"]["resolved_target_count"] == 1
+    assert report["render_readiness"]["lved_addr_resolution"]["status"] == "available"
     assert report["render_readiness"]["info_body"]["protocol_counts"]["lved.info:"] == 1
     assert report["search_providers"][0]["available_modes"] == ["exact", "forward", "backward", "partial", "fulltext", "filter"]
 

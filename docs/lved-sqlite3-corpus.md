@@ -175,7 +175,7 @@ LogoVista links. Sampled signals include:
 | `lved.bookmark:` | `content.body`, `info.body` |
 | `lved.pdf:` | `content.body` / `info.body` in HBGEOLOG and OUKOKU12; targets media rows that may be real PDF or image-page blobs. |
 | `lved.dict.<code>:pictlink...` | GENIUSE6 picture-dictionary links; targets `info` picture pages. |
-| `lved.addr...` | Retained SSED-like block/offset links in EIBEIHOU and IBOI5; bridge to SQLite rows is not proven. |
+| `lved.addr...` | Retained SSED-like block/offset links in EIBEIHOU and IBOI5; IBOI5 mostly bridges to nearby HTML anchors, while EIBEIHOU remains unresolved. |
 | `lved.plugin:` | Rare viewer/plugin hook; observed in an info page |
 | HTTP/HTTPS links | `content.body`, `info.body`, occasionally title/subtitle fields |
 
@@ -361,7 +361,7 @@ across all 73 payloads:
 | `lved.imag:` / `lved.image:` | 5,841 | Active image asset resolution. |
 | `lved.pdf:` | 312 | Active asset resolution; HBGEOLOG stores true PDF blobs, while OUKOKU12 uses the same protocol for media rows whose bytes identify as WebP image pages. |
 | `lved.dict.` | 132 | Active rewrite for GENIUSE6 `pictlink` targets to generated `info_*` picture-dictionary pages. |
-| `lved.addr` | 51 | Deferred with `data-lv-original-href`; these are SSED block/offset-style targets without a proven SQLite bridge. |
+| `lved.addr` | 51 rows / 197 links | IBOI5 links mostly resolve to the first following same-block HTML anchor; unresolved targets are deferred with `data-lv-original-href`. |
 | `lved.binran:` | 2 | Active named `binran` page navigation. |
 | `lved.plugin:` | 1 | Suppressed as a viewer/plugin hook. |
 
@@ -385,9 +385,19 @@ visual parity. Validation results from the v3 run:
   path. Blob signatures decide the output extension.
 - GENIUSE6 `lved.dict.<code>:pictlink.<name>.html` links rewrite to generated
   `info_<name>.html` picture-dictionary pages.
-- `lved.addr...` links are preserved as explicit deferred metadata because no
-  bridge from those retained SSED block/offset addresses to SQLite content rows
-  has been proven.
+- `lved.addr...` links use an anchor bridge when proven: choose the first
+  following HTML anchor in the same eight-hex block within `0x100` bytes and
+  rewrite to that entry page/anchor. In IBOI5 this resolves 174 of 183 distinct
+  targets and sample labels match the target midashi. EIBEIHOU has 5 distinct
+  targets but no HTML anchors/conversion table, so those links remain explicit
+  deferred metadata.
+- Bare numeric `href` values inside entry HTML are content-id links and rewrite
+  to generated entry pages.
+- Relative appendix hooks such as `050000/0000` are observed in IBOI5. They
+  likely target classification-table appendix surfaces, but the bridge is not
+  proven yet, so generic rendering preserves them as deferred metadata.
+- `lved.imag...` address-style image links without the usual colon form remain
+  explicit deferred metadata; their resource/address bridge is not proven.
 - `lved.image:` / `lved.imag:` resources resolve through the SQLite `media`
   table or loose resources.
 - `lved.media.sound:` links resolve to copied audio assets through `media`,
@@ -467,7 +477,9 @@ end-user behavior. Still open:
   modern SQLite rows or are only legacy/search compatibility data;
 - unresolved external help/image assets referenced by some `info` pages, for
   example the observed upper-case-letter help images;
-- target bridge for the 51 observed `lved.addr...` links in EIBEIHOU/IBOI5;
+- target bridge for EIBEIHOU's 5 unresolved `lved.addr...` targets;
+- resource/address bridge for IBOI5 `lved.imag...` address-style image links;
+- bridge for IBOI5 relative appendix hooks such as `050000/0000`;
 - complete visual rendering rules for every HTML/class/link pattern;
 - product-specific LVEDVIEWER template/CSS/JS application;
 - complete product semantics for optional providers such as `exam`, `genre`,

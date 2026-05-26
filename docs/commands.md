@@ -662,9 +662,14 @@ whose entry targets are valid but outside the materialization budget are marked
 with `data-lv-deferred-entry` rather than emitted as broken local links.
 Viewer/user-state hooks such as `lved.bookmark:` and `lved.plugin:` are
 suppressed to inert links with the original target retained as metadata.
-SSED-style `lved.addr...` links are also deferred this way until their
-SQLCipher bridge is proven. The generated pages are for structural testing;
-exact LVEDVIEWER visual parity still needs product-template/CSS/JS handling.
+SSED-style `lved.addr...` links are resolved through same-block HTML anchors
+when that bridge is present, otherwise deferred the same way. Address-style
+image links such as `lved.imag00001234:0567:0000002c` are currently deferred.
+Bare numeric `href` values in LVED entry HTML are treated as content-id links.
+Relative appendix hooks like `050000/0000` are currently preserved as deferred
+metadata because their info/content bridge is not proven.
+The generated pages are for structural testing; exact LVEDVIEWER visual parity
+still needs product-template/CSS/JS handling.
 
 ### `compose`
 

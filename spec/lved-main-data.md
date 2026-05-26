@@ -260,9 +260,23 @@ The body/link protocols observed in the corpus include:
 | `lved.media.sound:` | Resolve an audio media row through `media`, `mediasub`, or `sound`. |
 | `lved.pdf:<name>` | Resolve through `media` by name/stem. HBGEOLOG stores true PDF blobs; OUKOKU12 uses the same protocol for media rows that identify as WebP image pages. |
 | `lved.dict.<code>:pictlink.<page>.html` | GENIUSE6 picture-dictionary link to an `info.name` page. The `pictlink.` prefix is stripped before resolving the generated page. |
-| `lved.addr<block>:<offset>` | Retained SSED-style block/offset link. Observed in SQLCipher corpus, but no SQLite bridge is proven; generic rendering preserves it as deferred metadata. |
+| `lved.addr<block>:<offset>` | Retained SSED-style block/offset link. When a package has same-block HTML anchors, resolve to the first following anchor within `0x100` bytes; otherwise preserve as deferred metadata. |
 | `lved.bookmark:` | Viewer/user-state protocol; do not treat as content navigation. |
 | `lved.plugin:` | Viewer/plugin callback hook; suppress or preserve as metadata unless the frontend implements that plugin. |
+
+Bare numeric `href` values in entry HTML are observed as direct `content.id`
+links and should be resolved through the same entry-navigation path as
+`lved.dataid:`.
+
+Relative address-like hooks such as `050000/0000` are observed in IBOI5
+appendix/classification-table links. Their target bridge is not proven yet, so
+generic renderers should preserve them as deferred metadata instead of emitting
+broken local links.
+
+Address-style image links such as `lved.imag<block>:<offset>:<length>` are
+also observed. They are not the same as `lved.imag:<name>` media-name links,
+and their resource bridge is not proven yet; generic rendering preserves them
+as deferred metadata when they appear as hrefs.
 
 Viewer-code strings not found as corpus content links in the current
 SQLCipher text probe include `lved.browser.*`, `lved.findnum:`,

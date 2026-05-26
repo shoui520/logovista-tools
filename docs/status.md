@@ -135,9 +135,13 @@ and non-SSED reader status are tracked separately in
   pages that rewrite `lved.dataid:`, `lved.info:`, `lved.binran:`, image, and
   audio links, plus observed `lved.pdf:` and GENIUSE6 picture-dictionary
   `lved.dict.*` links. Media payloads in SQLite BLOB or text storage are copied
-  without leaking Python byte-repr strings. Unbridged `lved.addr...` links are
-  made explicit deferred metadata rather than fake navigation. This proves
-  structural navigation/resource handling, not exact LVEDVIEWER visual parity.
+  without leaking Python byte-repr strings. `lved.addr...` links resolve
+  through same-block HTML anchors where proven, and unresolved address/image
+  address hooks are made explicit deferred metadata rather than fake
+  navigation. Bare numeric LVED entry hrefs rewrite as content-id links;
+  relative appendix hooks such as `050000/0000` are deferred until their bridge
+  is proven. This proves structural navigation/resource handling, not exact
+  LVEDVIEWER visual parity.
 - LVLMultiView package-family classification for observed ESPRANT2/YROPPO/MOROKU
   packages, including SSEDINFO facade parsing, LogoFontCipher SQLite payload
   roles, `menuData.xml` href resolution, static HTML/viewer-file reporting,
