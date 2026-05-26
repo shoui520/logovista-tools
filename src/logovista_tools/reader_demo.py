@@ -10,7 +10,7 @@ import re
 import shutil
 import subprocess
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Iterable
@@ -43,6 +43,7 @@ from .panels import (
     parse_panel_bin_file,
 )
 from .pcmdata import detect_shared_wave_stream, find_pcmdata_path, parse_pcmdata_record, portable_audio_bytes
+from .sounddata import load_sounddata_index, portable_sounddata_audio_bytes, read_sounddata_record
 from .ssed import (
     BLOCK_SIZE,
     SsedRandomReader,
@@ -111,7 +112,7 @@ def add_reader_demo_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--ccaltstr-row-limit", type=int, default=120, help="Maximum CCALTSTR alternate-string rows to include.")
     parser.add_argument("--link-depth", type=int, default=1, help="How many rounds of entry-internal links to pre-render.")
     parser.add_argument("--max-entries", type=int, default=80, help="Maximum entry bodies to embed in the page.")
-    parser.add_argument("--no-audio", action="store_true", help="Do not extract PCMDATA audio files.")
+    parser.add_argument("--no-audio", action="store_true", help="Do not extract PCMDATA/SoundData audio files.")
     parser.add_argument("--vertical", action="store_true", help="Apply vertical-rendering hints.")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable summary JSON.")
 
@@ -217,6 +218,11 @@ def _resolve_panel_bin(root: Path, filename: str, data_type: str) -> Path | None
 
 
 def _audio_target_key(target: dict[str, Any]) -> str | None:
+    if str(target.get("component") or "") == "SoundData":
+        try:
+            return f"sounddata:{int(target['sound_id']):08x}"
+        except (KeyError, TypeError, ValueError):
+            return None
     try:
         return (
             f"{int(target['start_block']):08d}:{int(target['start_offset']):04d}-"
@@ -285,6 +291,9 @@ class _ReaderDemoBuilder:
         self.audio_dir = out_dir / "audio"
         self.pcmdata_path = find_pcmdata_path(source.idx)
         self.pcm_reader = SsedRandomReader(self.pcmdata_path) if self.pcmdata_path is not None else None
+        self.sounddata_index = load_sounddata_index(source.idx)
+        if self.sounddata_index is not None:
+            self.options = replace(self.options, sounddata_ids=frozenset(self.sounddata_index.records))
         if self.pcm_reader is not None:
             prefix = self.pcm_reader.read(0, min(2048, self.pcm_reader.expanded_size))
             self.shared_wave = detect_shared_wave_stream(prefix)
@@ -399,11 +408,28 @@ class _ReaderDemoBuilder:
         return fragment
 
     def _write_audio_file(self, target: dict[str, Any]) -> str | None:
-        if self.pcm_reader is None:
-            return None
         resource_id = str(target.get("resource_id") or "")
         if resource_id in self.audio_files:
             return self.audio_files[resource_id]
+        if str(target.get("component") or "") == "SoundData":
+            if self.sounddata_index is None:
+                return None
+            try:
+                sound_id = int(target["sound_id"])
+            except (KeyError, TypeError, ValueError):
+                return None
+            decoded = read_sounddata_record(self.sounddata_index, sound_id)
+            if decoded is None:
+                return None
+            _map_record, raw, record, _chunks = decoded
+            self.audio_dir.mkdir(parents=True, exist_ok=True)
+            name = f"{_safe_id(_audio_target_key(target) or resource_id).replace(':', '_')}.{record.extension}"
+            (self.audio_dir / name).write_bytes(portable_sounddata_audio_bytes(record, raw))
+            rel = f"audio/{name}"
+            self.audio_files[resource_id] = rel
+            return rel
+        if self.pcm_reader is None:
+            return None
         try:
             start_block = int(target["start_block"])
             start_offset = int(target["start_offset"])
@@ -422,7 +448,7 @@ class _ReaderDemoBuilder:
             return None
         record, _chunks = parsed
         self.audio_dir.mkdir(parents=True, exist_ok=True)
-        name = f"{_safe_id(_audio_target_key(target) or resource_id)}.{record.extension}"
+        name = f"{_safe_id(_audio_target_key(target) or resource_id).replace(':', '_')}.{record.extension}"
         (self.audio_dir / name).write_bytes(portable_audio_bytes(record, raw))
         rel = f"audio/{name}"
         self.audio_files[resource_id] = rel

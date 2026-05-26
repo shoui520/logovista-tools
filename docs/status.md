@@ -44,8 +44,8 @@ and non-SSED reader status are tracked separately in
   rendering, including packages where glyph slots are addressed by `.uni`
   record order rather than only by the sequential header range.
 - Full-corpus byte accounting for observed `MENU.DIC`, `*TITLE.DIC`,
-  `*INDEX.DIC`, `.uni`, `GA16*`, `COLSCR.DIC`, and `PCMDATA.DIC`
-  components.
+  `*INDEX.DIC`, `.uni`, `GA16*`, `COLSCR.DIC`, `PCMDATA.DIC`, and loose
+  `Sound/SoundData` audio stores.
 
 ## Supported / Corpus-Inferred
 
@@ -107,6 +107,9 @@ and non-SSED reader status are tracked separately in
 - `PCMDATA.DIC` audio/media pointer decoding, unreferenced-record discovery,
   referenced-range byte coverage, and portable WAV/MP3 writing for classified
   payloads, including shared WAVE data-slice stores such as `ARCHSIC3`.
+- MWALEARN-style loose `Sound/SoundData` decoding through `WaveFile.map`,
+  A427/A428 HONMON sound-ID markers, and portable WAV writing through the same
+  `pcmdata` command path.
 - Package image discovery from iOS `img`, Windows `Templates` / `HANREI/img`,
   Android resource folders, platformless `res` / `resources` / `templates`
   folders, and sibling `*_GAIJI` companion directories.
@@ -135,10 +138,17 @@ and non-SSED reader status are tracked separately in
   can run native SQLite search probes (`exact`, `forward`, `backward`,
   `partial`, `fulltext`, and optional `advanced*` columns), including secondary
   `searchsub/listsub` search where observed. It classifies `info` rows as
-  home/HANREI/copyright-like surfaces and can generate generic static HTML
+  home/HANREI/copyright-like surfaces by stable `info.name` even when numeric
+  `info.id` is nullable, and can generate generic static HTML
   pages that rewrite `lved.dataid:`, `lved.info:`, `lved.binran:`, image, and
   audio links, plus observed `lved.pdf:` and GENIUSE6 picture-dictionary
-  `lved.dict.*` links. Media payloads in SQLite BLOB or text storage are copied
+  `lved.dict.*` links. Cross-dictionary `lved.contentlink:` and
+  `lved.dataid.dict.*` hooks are preserved as structured router metadata rather
+  than fake-resolved, and malformed no-colon `lved.dataid<id>` links are
+  normalized to same-book content targets when parseable. Viewer hooks such as
+  `lved.bookmark:`, `lved.plugin:`, `lved.sql:`, `lved.findnum:`,
+  `lved.select:`, and group/browser callbacks are made inert with
+  `data-lv-hook` metadata. Media payloads in SQLite BLOB or text storage are copied
   without leaking Python byte-repr strings. `lved.addr...` links resolve
   through same-block HTML anchors where proven, and unresolved address/image
   address hooks are made explicit deferred metadata rather than fake

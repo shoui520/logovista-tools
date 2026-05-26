@@ -1,4 +1,4 @@
-"""PCMDATA.DIC media extraction."""
+"""PCMDATA.DIC and loose SoundData media extraction."""
 
 from __future__ import annotations
 
@@ -671,16 +671,22 @@ def extract_pcmdata_for_source(source: Any, out_dir: Path, args: argparse.Namesp
     status(args, f"pcmdata: {source.dict_id}: scanning HONMON refs and PCMDATA ranges", verbose=True)
 
     if pcmdata_path is None:
+        from .sounddata import load_sounddata_index, extract_sounddata_for_source
+
+        if load_sounddata_index(source.idx) is not None:
+            return extract_sounddata_for_source(source, out_dir, args)
         manifest_path.write_text("", encoding="utf-8")
         summary = {
             "dict_id": source.dict_id,
             "dict_title": source.title,
             "idx": str(source.idx),
+            "container_kind": None,
             "pcmdata": None,
+            "sounddata": None,
             "audio_references": 0,
             "valid_referenced_records": 0,
             "unreferenced_records": 0,
-            "warnings": ["No PCMDATA.DIC component found."],
+            "warnings": ["No PCMDATA.DIC component or Sound/SoundData store found."],
             "manifest_path": str(manifest_path),
         }
         write_json(dict_out / "pcmdata_summary.json", summary)
@@ -824,11 +830,13 @@ def extract_pcmdata_for_source(source: Any, out_dir: Path, args: argparse.Namesp
         "dict_id": source.dict_id,
         "dict_title": source.title,
         "idx": str(source.idx),
+        "container_kind": "pcmdata",
         "honmon": str(source.honmon),
         "honmon_expanded_bytes": honmon_expanded_bytes,
         "honmon_bytes_scanned": honmon_bytes_scanned,
         "honmon_scan_complete": honmon_scan_complete,
         "pcmdata": str(pcmdata_path),
+        "sounddata": None,
         "pcmdata_start_block": reader.start_block,
         "pcmdata_end_block": reader.end_block,
         "pcmdata_expanded_bytes": reader.expanded_size,

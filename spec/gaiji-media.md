@@ -295,6 +295,69 @@ variant: its first 64 bytes contain a small prelude plus `fmt `/`data` headers,
 and all 235 referenced ranges are contiguous slices inside that shared data
 chunk.
 
+## Loose `Sound/SoundData` Audio Store
+
+MWALEARN does not declare a `PCMDATA.DIC` component. Instead it has a loose
+`Sound/` directory:
+
+```text
+Sound/
+  SoundData
+  WaveFile.map
+```
+
+`SoundData` is a byte-for-byte concatenation of self-contained RIFF/WAVE
+records. Each record begins with `RIFF`, has a normal `WAVE` form type, and in
+the observed corpus uses PCM, mono 11.025 kHz, 8-bit audio.
+
+`WaveFile.map` is an ASCII CRLF text file. Rows have this grammar:
+
+```text
+<16-hex-offset>:<hex-length>\t<decimal-sound-id>
+```
+
+Example:
+
+```text
+000000000339d047:14c7    7391
+```
+
+The row above points to sound ID `7391` at byte offset `0x0339d047` with length
+`0x14c7` inside `SoundData`.
+
+Raw HONMON references use nonliteral gaiji markers rather than `1f4a` ranges:
+
+```text
+A427 2330 2330 2330 2330 2331 2343 2344 2346 A428
+```
+
+The JIS row-3 cells between A427 and A428 are an eight-digit hexadecimal sound
+ID. The example above is `00001CDF`, decimal `7391`. A427 and A428 are renderer
+markers, not display gaiji; the visible renderer output is a package
+`Templates/sound.png` link to the resolved SoundData record.
+
+Four MWALEARN `WaveFile.map` rows immediately after sound ID `32767` print the
+ID field as the truncated signed value `-3276`. HONMON references those records
+as `00008000` through `00008003`, so the toolkit normalizes those four rows to
+sequential effective sound IDs `32768` through `32771` while preserving the raw
+printed ID in manifests.
+
+Verified MWALEARN full decode:
+
+```text
+SoundData bytes:       274,475,859
+WaveFile.map rows:          32,656
+HONMON audio refs:          33,042
+unique referenced IDs:      32,656
+duplicate references:          386
+invalid references:              0
+payload codec:             PCM RIFF/WAVE
+```
+
+The `pcmdata` toolkit command treats this as `container_kind: "sounddata"` and
+writes portable `.wav` files using the same `--write-audio` interface as
+`PCMDATA.DIC`.
+
 ## `FIGURE.DIC`
 
 `FIGURE.DIC` is observed as a compressed SSED resource component with component

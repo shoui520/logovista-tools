@@ -50,6 +50,7 @@ from .indexes import INDEX_TYPES, scan_index_component_reader
 from .navigation import NavigationResolver, lvaddr_href
 from .parallel import parallel_map_ordered, worker_args
 from .pcmdata import PcmPointer, parse_pcm_pointer
+from .sounddata import load_sounddata_index, parse_sounddata_marker_at, sounddata_target
 from .rendererdb import (
     block_offset_body_tables,
     blob_extension,
@@ -1105,6 +1106,7 @@ class HcRenderOptions:
     include_debug_metadata: bool = False
     entry_start_offset: int = 0
     media_image_resolver: Callable[[MediaPointer], str | None] | None = None
+    sounddata_ids: frozenset[int] = frozenset()
     template_heading: str | None = None
     template_subheading: str | None = None
     reader_style: str = WINDOWS_READER_STYLE
@@ -3810,6 +3812,23 @@ def _audio_original_href(target: dict[str, Any] | None) -> str:
     if target is None:
         return "lved.sond:unresolved"
     return f"lved.sond:{target['resource_id']}"
+
+
+def _sounddata_audio_html(target: dict[str, Any], status: str, options: HcRenderOptions, stats: Counter[str]) -> str:
+    sound_src = _sound_image_src(options.image_sources)
+    label = "audio"
+    if sound_src:
+        label = f'<img src="{_escape_attr(sound_src)}" class="img_mark2">'
+        stats["audio_images"] += 1
+    attrs = [
+        'class="lv-hc-audio lv-hc-sounddata-audio"',
+        f'href="{_escape_attr(_audio_href(target))}"',
+        f'data-lv-original-href="{_escape_attr(_audio_original_href(target))}"',
+        f'data-lv-audio-status="{_escape_attr(status)}"',
+        f'data-lv-resource="{_escape_attr(target["resource_id"])}"',
+        f'data-lv-sound-id="{int(target["sound_id"])}"',
+    ]
+    return f"<a {' '.join(attrs)}>{label}</a>"
 
 
 def _media_placeholder_html(
@@ -9930,6 +9949,26 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
             stats["legacy_controls"] += 1
             i += 2
             continue
+        if (_renderer_code(options) == "0089" or options.sounddata_ids) and i + 1 < len(data):
+            parsed_sounddata = parse_sounddata_marker_at(data, i)
+            if parsed_sounddata is not None:
+                reference, end = parsed_sounddata
+                target = sounddata_target(reference.sound_id)
+                resolved = not options.sounddata_ids or reference.sound_id in options.sounddata_ids
+                audio_status = "resolved_sounddata_id" if resolved else "unresolved_sounddata_id"
+                audio.append(
+                    {
+                        "start_control": "gaiji:a427",
+                        "end_control": "gaiji:a428",
+                        "target": target,
+                        "status": audio_status,
+                        "sound_id_hex": reference.code_hex,
+                    }
+                )
+                _current_parts(root_parts, contexts).append(_sounddata_audio_html(target, audio_status, options, stats))
+                stats["sounddata_audio_links"] += 1
+                i = end
+                continue
         if byte == 0x1F and i + 1 < len(data):
             op = data[i + 1]
             arg_len = control_arg_length(data, i)
@@ -19260,6 +19299,7 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
     html_path = dict_out / "raw_honmon_entries.html"
     image_sources, html_templates, stylesheet, copied_assets, renderer_assets = _prepare_hc_render_assets(source, dict_out, renderer)
     media_image_resolver = _make_colscr_image_resolver(source, dict_out)
+    sounddata_index = load_sounddata_index(source.idx)
     options = HcRenderOptions(
         gaiji_map=source.gaiji_map,
         image_sources=image_sources,
@@ -19268,6 +19308,7 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
         renderer_code=renderer_code,
         vertical=bool(getattr(args, "_effective_vertical", getattr(args, "vertical", False))),
         media_image_resolver=media_image_resolver,
+        sounddata_ids=frozenset(sounddata_index.records) if sounddata_index is not None else frozenset(),
     )
     totals: Counter[str] = Counter()
     emitted = 0
@@ -19435,6 +19476,7 @@ def _render_hc_index_hit(
     reader_style: str,
     sequence: int,
     boundary_offsets: Iterable[int] | None = None,
+    sounddata_ids: frozenset[int] = frozenset(),
 ) -> dict[str, Any]:
     reader = SsedRandomReader(source.honmon)
     target_offset = _target_relative_offset(source, hit)
@@ -19447,6 +19489,7 @@ def _render_hc_index_hit(
         renderer_code=renderer_code,
         vertical=vertical,
         media_image_resolver=media_image_resolver,
+        sounddata_ids=sounddata_ids,
     )
     rendered = render_hc_target_body(
         source,
@@ -19509,6 +19552,8 @@ def extract_hc_render_entries_for_source(source: DictionarySource, out_dir: Path
     components = set(args.component or [])
     boundary_reader = SsedRandomReader(source.honmon)
     boundary_offsets_by_component: dict[str, tuple[int, ...]] = {}
+    sounddata_index = load_sounddata_index(source.idx)
+    sounddata_ids = frozenset(sounddata_index.records) if sounddata_index is not None else frozenset()
     with matches_path.open("w", encoding="utf-8") as out:
         for query in args.query:
             status(args, f"hc-render-entry: {source.dict_id}: searching indexes for {query!r}", verbose=True)
@@ -19549,6 +19594,7 @@ def extract_hc_render_entries_for_source(source: DictionarySource, out_dir: Path
                     reader_style=args.reader_style,
                     sequence=sequence,
                     boundary_offsets=boundary_offsets,
+                    sounddata_ids=sounddata_ids,
                 )
                 out.write(json.dumps(row, ensure_ascii=False) + "\n")
                 rows.append(row)

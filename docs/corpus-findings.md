@@ -562,6 +562,7 @@ text-like INDEX.DIC:      1
 GA16 resources:         314
 COLSCR.DIC:              59
 PCMDATA.DIC:             12
+Sound/SoundData stores:   1
 .uni/.UNI files:         90
 ```
 
@@ -584,6 +585,8 @@ COLSCR nonzero unparsed bytes:        0
 COLSCR invalid referenced records:    0
 PCMDATA nonzero unparsed bytes:       0
 PCMDATA shared WAVE slices:         235
+MWALEARN SoundData refs:         33,042
+MWALEARN SoundData invalid refs:      0
 .uni trailing bytes:                 72
 .uni nonzero trailing bytes:         14
 ```
@@ -1021,12 +1024,36 @@ Toolkit command:
 logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --jobs 0 --out-dir out/multiview
 ```
 
-The later showcase pass also rendered bounded reader-oriented HTML samples for
-all 14 packages. ESPRANT2 now renders the numeric `menuData.xml` `t_contents`
-targets first, rather than arbitrary first rows. The YROPPO packages and
-ESPRANT2 produced zero deferred menu targets in the bounded showcase; the
-MOROKU packages each left one viewer-special target deferred while body,
-anchor, and index menu references were resolved.
+The latest readiness pass also rendered bounded reader-oriented HTML samples
+for all 14 packages:
+
+```bash
+logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS \
+  --write-showcase --showcase-limit 80 --jobs 12 --out-dir out/multiview
+```
+
+ESPRANT2 renders numeric `menuData.xml` `t_contents` targets first, rather than
+arbitrary first rows. Law packages render `hore_code`, exact `f_anchor`, and
+`index:<code>` menu targets through decoded SQLite payloads. Viewer-special
+targets (`about`, `hanrei`, `index`, `50on`) are now represented as explicit
+reader-interface surfaces instead of unresolved menu failures.
+
+The 14-package run produced:
+
+```text
+menu unresolved:          0
+showcase deferred:        0
+missing hrefs:            0
+missing srcs:             0
+leaked lved_* protocols:  0
+table/cell balance gaps:  0
+```
+
+YROPPO body fragments reference `kagi.png`; the showcase resolves this from the
+package `Templates/` or `Help/image/` directories. MOROKU23's three law PDFs use
+the Mac OS X LogoFontCipher variant while the other MOROKU law PDFs use the
+Windows variant; both decrypt to normal `%PDF-` files through the multiview
+resource path.
 
 ## Hourei SQLite / LogoVista電子法令 Professional
 
@@ -1075,10 +1102,26 @@ T_LINK_HORE  8,408
 The body rows already contain rendered HTML fragments in `t_page.f_text`.
 Common classes include `aname`, `box`, `amark`, `hon_gou`, `ahref`, `hon_jyo`,
 `hon_kou`, `fusoku`, `fu_jyo`, and `fu_kou`. The full body scan observed
-`lved_mark` links, `lved_ref` links, `lved_unsafe` hooks, and 74 GIF image
-references. The current `hourei --write-showcase` path rewrites known
-`lved_*` navigation to local pages/fragments where possible and copies resolved
-`_DataBase/image/` assets.
+1,011,028 `lved_mark` links, 25,632 local `lved_ref&&` links, 488,990
+mode-1 law references, 658 mode-4 future/revision hooks, 734 `lved_unsafe`
+hooks, and 74 GIF image references. All observed body image references resolve
+against the package resource directories.
+
+`_DataBase/HTMLs/I/` and `_DataBase/HTMLs/P/` contain paired cached index and
+preview HTML for 8,725 laws. `_DataBase/HTMLs/H/` contains cached full-body
+HTML for a 281-law subset. `_Programs/index_panel.html` is a CP932 kana index
+panel that emits `lved_ref:<kana>` search links.
+
+Native law search needs explicit ranking. Exact law-name/abbreviation matches
+must sort before prefix and containing hits; otherwise short queries such as
+`民法` can be buried behind unrelated containing titles.
+
+The current `hourei --write-showcase` path rewrites known `lved_*` navigation
+to local pages/fragments where possible, makes mode-4 future/revision hooks
+inert with structured metadata, renders cached index/preview pages, decodes the
+kana panel, and copies resolved `_DataBase/image/` assets. The readiness run at
+the time of this update produced zero missing local hrefs, zero missing image
+refs, and no leaked live `lved_*` hrefs in the generated showcase.
 
 ## Non-iOS Body Streams
 

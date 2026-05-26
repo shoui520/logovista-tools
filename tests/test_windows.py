@@ -1,7 +1,13 @@
 from pathlib import Path
 import sqlite3
 
-from logovista_tools.multiview import discover_multiview_packages, inspect_multiview_package, write_multiview_showcase
+from logovista_tools.multiview import (
+    discover_multiview_packages,
+    inspect_multiview_package,
+    parse_multiview_link,
+    validate_multiview_showcase,
+    write_multiview_showcase,
+)
 from logovista_tools.windows import (
     HcRendererClassification,
     PeImport,
@@ -187,5 +193,50 @@ def test_multiview_content_search_payload_resolves_numeric_menu_ids(tmp_path) ->
 
     showcase = write_multiview_showcase(package, tmp_path / "showcase", limit=5)
     assert showcase["rendered_count"] == 1
+    assert showcase["validation"]["missing_href_count"] == 0
+    assert showcase["validation"]["missing_src_count"] == 0
     entry = (tmp_path / "showcase" / "entry_000001.html").read_text(encoding="utf-8")
     assert "<p>Body</p>" in entry
+
+
+def test_multiview_showcase_rewrites_lved_links_and_validates(tmp_path) -> None:
+    package = tmp_path / "_DCT_TESTLAW"
+    package.mkdir()
+    (package / "menuData.xml").write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<list>
+  <item label="About" href="about" />
+  <item label="Law" href="M010_HON-j1" />
+</list>
+""",
+        encoding="utf-8",
+    )
+
+    body = package / "blvbat"
+    con = sqlite3.connect(body)
+    con.execute(
+        "create table t_M010 ("
+        "f_hore_code text, f_rec_id integer, f_anchor text, "
+        "f_text text, f_text_plane text)"
+    )
+    con.execute(
+        "insert into t_M010 values "
+        "('M010', 1, 'M010_HON-j1', "
+        "'<a href=\"lved_mark:amark:M010_HON-j1\">mark</a>"
+        "<a href=\"lved_ref:ahsection:M010_HON-j2\">ref</a>', '本文')"
+    )
+    con.commit()
+    con.close()
+
+    assert parse_multiview_link("lved_ref:ahsection:M010_HON-j2").target == "M010_HON-j2"
+
+    showcase = write_multiview_showcase(package, tmp_path / "showcase", limit=5)
+    assert showcase["deferred_menu_targets"] == []
+    assert showcase["validation"]["missing_href_count"] == 0
+    assert showcase["validation"]["protocol_href_counts"] == {}
+    assert showcase["validation"]["tag_balance_issue_count"] == 0
+
+    entry = (tmp_path / "showcase" / "entry_M010_HON-j1.html").read_text(encoding="utf-8")
+    assert 'href="#M010_HON-j1"' in entry
+    assert 'href="#" data-lv-original-href="lved_ref:ahsection:M010_HON-j2"' in entry
+    assert validate_multiview_showcase(tmp_path / "showcase")["protocol_href_counts"] == {}

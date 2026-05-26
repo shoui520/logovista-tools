@@ -159,7 +159,7 @@ def add_pcmdata_args(parser: argparse.ArgumentParser) -> None:
         "--no-include-unreferenced",
         dest="include_unreferenced",
         action="store_false",
-        help="Do not scan unreferenced records in PCMDATA gaps.",
+        help="Do not scan unreferenced records in PCMDATA gaps or Sound/WaveFile.map.",
     )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
     add_jobs_argument(parser)

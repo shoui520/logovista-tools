@@ -243,10 +243,11 @@ semantics that are now understood:
 - SSED JIS text, style, section, heading, literal, URL, and line-break controls;
 - internal address links from paired link controls;
 - `COLSCR.DIC` picture/media placeholders from `1f3c` / `1f4d`-style payloads;
-- `PCMDATA.DIC` audio range links from `1f4a` / `1f6a`, using the package
-  `sound` image asset when present. Generated standalone HTML rewrites the
-  browser-facing link to a safe `#lv-audio-...` fragment and preserves the
-  recovered HC `lved.sond:...` target in `data-lv-original-href`;
+- `PCMDATA.DIC` audio range links from `1f4a` / `1f6a`, plus MWALEARN-style
+  A427/A428 `SoundData` sound-ID links, using the package `sound` image asset
+  when present. Generated standalone HTML rewrites the browser-facing link to a
+  safe `#lv-audio-...` fragment and preserves the recovered HC
+  `lved.sond:...` target in `data-lv-original-href`;
 - Unicode gaiji first, then image-backed gaiji, then a safe placeholder;
 - private renderer directive suppression with metadata counts;
 - vertical-rendering hints as classes/metadata rather than hard-coded layout.
@@ -392,7 +393,8 @@ This command is intentionally a proof-of-concept integration surface, not a
 bulk extractor. It uses the HC entry renderer, native index lookup, decoded
 Panel rows/cells, decoded `MENU.DIC` and `TOC.DIC` rows when a package has
 those components, selected auxiliary indexes/resources, entry `lvaddr://`
-links, copied template/media assets, and resolved `PCMDATA.DIC` audio files to
+links, copied template/media assets, and resolved `PCMDATA.DIC` or `SoundData`
+audio files to
 build one browser page under `<out-dir>/<DICT>/index.html`. Dense HONMON
 packages that render through schema-backed sidecars are dereferenced through
 the same HC rendering path as normal query renders; internal body IDs are not
@@ -426,8 +428,8 @@ The page contains:
 - in-entry `lvaddr://` links that route to embedded entries. Decimal
   `lvaddr://00000042/0016` and hex-derived `lvaddr://0000002a/0010` forms are
   normalized to the same internal address key;
-- PCMDATA sound links rewritten to local WAV/MP3 files and a page-level audio
-  player.
+- PCMDATA and SoundData sound links rewritten to local WAV/MP3 files and a
+  page-level audio player.
 
 Useful sampling controls:
 
@@ -499,7 +501,7 @@ observed law subfamily uses `blvbat`, `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`,
 and `nlvbat`/`nlvdat`; ESPRANT2 uses `blvdat`.
 
 ```bash
-logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --jobs 0 --out-dir multiview-audit
+logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --jobs 12 --out-dir multiview-audit
 logovista-tools multiview /path/to/_DCT_YROPPO08 --json
 logovista-tools multiview /path/to/_DCT_ESPRANT2 --json
 logovista-tools multiview /path/to/_DCT_ESPRANT2 --write-showcase --out-dir multiview-audit
@@ -514,6 +516,9 @@ Report fields include:
 - `menuData.xml` tag/attribute counts and `href` resolution status;
 - bundled static HTML directories and dedicated viewer executable/DLL files;
 - LogoFontCipher-encrypted `Resources/*` assets such as PDFs.
+- bounded showcase validation counts for missing `href`, missing `src`,
+  leaked `lved_*` protocol links, and browser-hostile unbalanced table/cell
+  output.
 
 Useful options:
 
@@ -538,6 +543,13 @@ nlvbat                 law metadata; viewer name hint yroppo.db
 nlvdat                 law metadata; viewer name hint mo6.db
 ```
 
+`--write-showcase` rewrites observed LVLMultiView body links such as
+`lved_mark:amark:*` and `lved_ref:ahsection:*` into bounded local links or
+explicit deferred anchors. It also copies referenced package assets from
+`Templates/`, `Help/image/`, and `Help/` into the private showcase output, so
+the generated validation can be used as a reader-readiness smoke test rather
+than just a static dump.
+
 ### `hourei`
 
 Inspect LogoVista電子法令 Professional packages. This is a separate plain-SQLite
@@ -559,6 +571,10 @@ Report fields include:
 - corpus-wide table/column-set counts across the per-law shard databases;
 - body-fragment HTML class, `href`, and `src` signals from sampled or full
   shard scans;
+- structured link/readiness counts for `lved_ref&1`, `lved_ref&4`,
+  `lved_ref&&`, `lved_mark&&`, `lved_unsafe`, and body image resolution;
+- cached `_DataBase/HTMLs/H`, `_DataBase/HTMLs/I`, and `_DataBase/HTMLs/P`
+  surface counts;
 - manual/help and program file summaries.
 
 Useful options:
@@ -575,9 +591,13 @@ Useful options:
 
 The showcase preserves the stored HTML body fragments, substitutes the official
 CSS placeholders in `LVLawBrowser_00.css`, rewrites known `lved_mark&&` and
-`lved_ref...` links to local fragments/pages where possible, suppresses
-`lved_unsafe`, and copies resolved `_DataBase/image/` assets. It is a practical
-reader probe, not a claim of exact official viewer UI parity.
+`lved_ref...` links to local fragments/pages where possible, makes the observed
+mode-4 future/revision law hooks inert with `data-lv-*` metadata, decodes the
+CP932 `_Programs/index_panel.html` kana panel, writes cached law index/preview
+pages where available, suppresses `lved_unsafe`, and copies resolved
+`_DataBase/image/` assets. Its manifest includes validation counters for
+missing local `href`/`src` targets and leaked live `lved_*` hrefs. It is a
+practical reader probe, not a claim of exact official viewer UI parity.
 
 ### `sizk`
 
@@ -774,7 +794,7 @@ include:
 ```text
 entries   full entries as JSON, CSV, and/or newline-separated text
 sqlite    applicable plaintext/decrypted SQLite database copies
-media     COLSCR images and PCMDATA audio as readable files
+media     COLSCR images and PCMDATA/SoundData audio as readable files
 indexes   all title streams, index rows, and menus
 gaiji     gaiji-map.tsv plus GA16/GAI16 glyph BMP files and image-backed gaiji assets
 vlpljbl   non-executable vlpljbl resources, decrypted when LogoFontCipher-backed
@@ -1537,16 +1557,19 @@ body stream first. Full runs without `--limit` still scan the complete stream.
 ### `pcmdata`
 
 Inspect or extract audio/media records stored in `PCMDATA.DIC` and referenced
-by raw `HONMON.DIC` controls.
+by raw `HONMON.DIC` controls. If a package has no `PCMDATA.DIC` but has the
+MWALEARN-style loose `Sound/SoundData` plus `Sound/WaveFile.map` store, the
+same command decodes that store instead.
 
 ```bash
 logovista-tools pcmdata /path/to/LogoVista --dict HAESPJPN --out-dir pcmdata
 logovista-tools pcmdata /path/to/DICT/DICT.IDX --write-audio --out-dir pcmdata
+logovista-tools pcmdata /path/to/_DCT_MWALEARN --dict MWALEARN --write-audio
 ```
 
 Do not pass `PCMDATA.DIC` directly. The command needs the package `.IDX` or
 directory so it can scan `HONMON.DIC` audio controls and then resolve the
-target ranges in `PCMDATA.DIC`.
+target ranges in `PCMDATA.DIC` or `Sound/WaveFile.map`.
 
 Output layout:
 
@@ -1560,10 +1583,12 @@ pcmdata/
       00001_00023193_0000.wav
 ```
 
-The manifest includes the raw 16-byte payload, decoded logical block range,
-visible link label when present, codec, chunk layout, sample rate, channel
-count, bit depth, source (`honmon` or `unreferenced`), and optional output
-filename.
+For `PCMDATA.DIC`, the manifest includes the raw 16-byte payload, decoded
+logical block range, visible link label when present, codec, chunk layout,
+sample rate, channel count, bit depth, source (`honmon` or `unreferenced`), and
+optional output filename. For `SoundData`, the manifest records the A427/A428
+HONMON marker position, hexadecimal sound ID, `WaveFile.map` row, RIFF/WAVE
+chunk layout, and optional output filename.
 
 Useful options:
 

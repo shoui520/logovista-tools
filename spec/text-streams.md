@@ -152,6 +152,12 @@ payload leaks one binary byte into the text stream and produces mojibake before
 labels such as `→音声1`. `1f 4d` media starts have an 18-byte payload in the
 same dictionary family.
 
+MWALEARN uses a separate SoundData convention instead of `1f4a`: nonliteral
+gaiji marker A427 starts an eight-JIS-cell hexadecimal sound ID and A428 ends
+it. The markers and ID are renderer control data, not display text. The ID
+resolves through `Sound/WaveFile.map` into the concatenated `Sound/SoundData`
+RIFF/WAVE store.
+
 `1f 04` / `1f 05` are a text-mode span pair, not a generic style pair.
 Compatible plain-text behavior treats them as `半角開始` / `半角終了`: JIS row-3
 fullwidth ASCII cells inside this span to halfwidth ASCII. Raw bodies still

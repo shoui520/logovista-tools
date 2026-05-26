@@ -202,12 +202,34 @@ Viewer files are useful evidence but should not be treated as authoritative by
 filename alone. ESPRANT2's dedicated viewer contains both ESPRANT2-specific
 `blvdat`/`t_contents` strings and leftover shared law-viewer strings.
 
+## Body Links and Static Assets
+
+Law body HTML uses LogoVista-specific link schemes inherited from the dedicated
+viewer:
+
+```text
+lved_mark:amark:<anchor>      local mark/anchor reference
+lved_ref:ahsection:<anchor>   body-section reference by anchor
+```
+
+For reader-core modeling these should not be treated as opaque browser URLs.
+They are package-local entry/navigation targets. The toolkit showcase rewrites
+known targets to local generated pages, rewrites local marks to `#anchor`, and
+keeps unresolved section references as explicit deferred reader targets with
+`data-lv-original-href` metadata.
+
+YROPPO law body fragments also reference `kagi.png`. The asset is stored in
+package static directories (`Templates/`, and also `Help/image/` in observed
+packages), not beside the rendered body row. A reader should resolve body
+assets through a package static-asset lookup rather than relative to the
+generated entry page.
+
 ## Toolkit Support
 
 Use:
 
 ```bash
-logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --jobs 0 --out-dir out/multiview
+logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --jobs 12 --out-dir out/multiview
 ```
 
 The command writes one `multiview.json` report per package and a corpus
@@ -226,11 +248,16 @@ pages under the private output directory. The showcase path:
   falling back to first rows;
 - renders law-package `hore_code`, exact `f_anchor`, and `index:<code>` menu
   targets through the decoded SQLite payloads;
-- keeps viewer-special targets such as `about`/`hanrei` as explicit deferred
-  targets when they are not backed by decoded rows in that package;
+- represents viewer-special targets such as `about`/`hanrei` as explicit
+  reader-interface surfaces when they are not backed by decoded body rows;
+- rewrites observed `lved_mark:amark:*` and `lved_ref:ahsection:*` links so no
+  private protocol hrefs leak into generated showcase pages;
+- copies referenced static assets from package resource directories;
+- validates generated pages for missing hrefs, missing srcs, leaked protocols,
+  and browser-hostile unbalanced table/cell output;
 - wraps existing HTML fragments without claiming exact official viewer chrome.
 
-The latest full-corpus showcase pass rendered pages for all 14 packages. The
-seven YROPPO packages and ESPRANT2 had zero deferred menu targets in the
-bounded showcase. The six MOROKU packages each had one deferred viewer-special
-target while all body/index menu references remained resolved.
+The latest full-corpus showcase pass rendered pages for all 14 packages with
+zero unresolved menu targets, zero deferred showcase targets, zero missing
+hrefs/srcs, zero leaked `lved_*` protocol hrefs, and zero table/cell balance
+gaps.

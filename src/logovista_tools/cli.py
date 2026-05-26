@@ -1850,6 +1850,10 @@ def _multiview_task(payload: tuple[Path, Path, argparse.Namespace]) -> dict[str,
             "index": str(out_dir / package_dir.name / "showcase" / "index.html"),
             "rendered_count": showcase["rendered_count"],
             "deferred_menu_targets": len(showcase["deferred_menu_targets"]),
+            "missing_href_count": showcase["validation"]["missing_href_count"],
+            "missing_src_count": showcase["validation"]["missing_src_count"],
+            "protocol_href_counts": showcase["validation"]["protocol_href_counts"],
+            "tag_balance_issue_count": showcase["validation"]["tag_balance_issue_count"],
         }
     return row
 
@@ -1928,6 +1932,9 @@ def _hourei_task(payload: tuple[Path, Path, argparse.Namespace]) -> dict[str, An
         row["showcase"] = {
             "index": str(package_out / "showcase" / "index.html"),
             "rendered_entries": len(showcase.get("rendered_entries") or []),
+            "navigation_pages": len(showcase.get("navigation_pages") or []),
+            "placeholder_entries": len(showcase.get("placeholder_entries") or []),
+            "validation": showcase.get("validation") or {},
             "queries": len(showcase.get("queries") or []),
         }
     return row

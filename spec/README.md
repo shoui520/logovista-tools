@@ -13,7 +13,7 @@ from platform packaging observations and product-specific behavior.
 | [SSED Container](ssed-container.md) | `SSEDINFO`, `SSEDDATA`, compression, encryption, and component composition. |
 | [Text Streams and Body Storage](text-streams.md) | Expanded `HONMON.DIC` / `HONMON.DIN`, controls, body boundaries, dense HONMON, and database-backed bodies. |
 | [Menus, Titles, and Indexes](menus-titles-indexes.md) | `MENU.DIC`, `*TITLE.DIC`, `*INDEX.DIC`, branch pages, and leaf rows. |
-| [Gaiji, Images, and Media](gaiji-media.md) | `.uni`, `GA16HALF`, `GA16FULL`, image resources, `COLSCR.DIC`, and `PCMDATA.DIC`. |
+| [Gaiji, Images, and Media](gaiji-media.md) | `.uni`, `GA16HALF`, `GA16FULL`, image resources, `COLSCR.DIC`, `PCMDATA.DIC`, and loose `Sound/SoundData`. |
 | [LVED_SQLITE3 Packages](lved-main-data.md) | Modern SQLCipher-backed `main.data` / `.dbc` payloads that are not SSED/HONMON dictionaries. |
 | [LVLMultiView Packages](multiview.md) | Products with SSEDINFO facade catalogs and LogoFontCipher SQLite payloads. |
 | [Hourei SQLite Packages](hourei.md) | LogoVista電子法令 Professional SQLite law-browser package layout. |

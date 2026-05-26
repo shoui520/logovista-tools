@@ -103,7 +103,9 @@ Observed link/resource prefixes:
 ```text
 lved_mark&&<anchor>              local anchor marker
 lved_ref&&<anchor>               same-law/local reference
-lved_ref&<mode>:<hore_id>&...    law-to-law reference
+lved_ref&1:<hore_id>             law-to-law reference
+lved_ref&1:<hore_id>&<anchor>    law-to-law reference to an article anchor
+lved_ref&4:<hore_id>:<id>        future/revision-law hook; deferred
 lved_ref:<kana>                  kana/search-panel style reference
 lved_unsafe                      unsafe/deferred viewer hook
 ```
@@ -118,6 +120,10 @@ The recovered viewer strings and schema identify these first-class surfaces:
 
 - keyword law search through `_DataBase/hore_search_a.db`;
 - article/title search through `_DataBase/horejo_base.db`;
+- cached law navigation HTML under `_DataBase/HTMLs/I/` and
+  `_DataBase/HTMLs/P/` for 8,725 laws;
+- cached full law body HTML under `_DataBase/HTMLs/H/` for a 281-law subset;
+- kana index-panel HTML in `_Programs/index_panel.html` encoded as CP932;
 - category, institution, era, abolished-law, and missing-law metadata from
   `_DataBase/hore_base.db`;
 - kana-style references through `lved_ref:<kana>`;
@@ -127,6 +133,11 @@ The recovered viewer strings and schema identify these first-class surfaces:
 - user-only state under `_Programs/USER.db`.
 
 `USER.db` should not be treated as dictionary content.
+
+Toolkit search probes rank exact law-name/abbreviation matches first, then
+prefix matches, then containing matches. This matters because the raw search
+tables are broad LIKE-friendly tables rather than pre-sorted reader result
+lists.
 
 ## Toolkit Support
 
@@ -142,8 +153,12 @@ The `hourei` command writes one `hourei.json` report per package plus a corpus
 `summary.json`. `--deep` scans every per-law body shard for HTML classes,
 links, image references, and SQLite errors. `--write-showcase` writes bounded
 reader-oriented HTML pages that preserve body fragments, rewrite known
-`lved_*` links to local pages/fragments where possible, and copy resolved image
-assets under the private report directory.
+`lved_*` links to local pages/fragments where possible, make mode-4
+future/revision hooks inert with structured `data-lv-*` metadata, decode the
+CP932 kana panel, render cached index/preview pages where available, and copy
+resolved image assets under the private report directory. The showcase manifest
+includes validation counters for missing local links/assets and leaked live
+`lved_*` hrefs.
 
 This is reader-oriented inspection, not export support. Exact official viewer
 chrome, user-state behavior, and every search dialog are intentionally outside

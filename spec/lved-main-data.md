@@ -254,6 +254,10 @@ The body/link protocols observed in the corpus include:
 | Protocol | Current interpretation |
 |---|---|
 | `lved.dataid:<id>` | Jump to SQLite `content.id`. Preserve `#anchor` suffixes when present. |
+| `lved.dataid.result:<id>?<code>` | Search-result/detail-pane callback used by viewer templates. It carries the same content target as `lved.dataid:` plus host UI metadata. |
+| `lved.dataid.dict.<code>:<id>` | Cross-dictionary entry navigation. A single-book static render must not fake this; preserve dictionary code, content id, and anchor metadata for the frontend router. |
+| `lved.dataid<id>` | Malformed/no-colon content-id link observed in KQEBHOU. Treat as same-book `content.id` when the numeric id parses; retain the original href as metadata. |
+| `lved.contentlink:<code>.<id>` | Cross-dictionary content link, observed between BUREI/HINKAKU/MEIKYOU3. Preserve dictionary code, content id, and optional anchor for library-wide routing. |
 | `lved.info:<name>` | Jump to an `info.name` page such as `hanrei.html`. |
 | `lved.binran:<name>` | Jump to a `binran.name` reference page. Duplicate `.html` suffixes normalize to the stored row name. |
 | `lved.image:` / `lved.imag:` | Resolve an image through SQLite `media` or loose resources. |
@@ -263,6 +267,8 @@ The body/link protocols observed in the corpus include:
 | `lved.addr<block>:<offset>` | Retained SSED-style block/offset link. When a package has same-block HTML anchors, resolve to the first following anchor within `0x100` bytes; otherwise preserve as deferred metadata. |
 | `lved.bookmark:` | Viewer/user-state protocol; do not treat as content navigation. |
 | `lved.plugin:` | Viewer/plugin callback hook; suppress or preserve as metadata unless the frontend implements that plugin. |
+| `lved.sql:` | Product/template SQL refresh hook. Preserve as metadata unless the frontend implements the matching product provider. |
+| `lved.findnum:` / `lved.select:` / `lved.group.*` / `lved.browser.*` | Viewer host callbacks used by embedded templates/scripts. They are not dictionary body targets and should be converted to internal frontend events or inert metadata. |
 
 Bare numeric `href` values in entry HTML are observed as direct `content.id`
 links and should be resolved through the same entry-navigation path as
@@ -283,6 +289,11 @@ SQLCipher text probe include `lved.browser.*`, `lved.findnum:`,
 `lved.select:`, and group/settings hooks. They should remain explicit
 unsupported hooks until a real package and viewer code path prove their
 behavior.
+
+`info.name` is the stable key for info/HANREI/home pages. Numeric `info.id`
+exists in most packages, but it is nullable in at least one observed payload;
+reader APIs must therefore address info pages by name or opaque target token
+rather than requiring a numeric id.
 
 ## Rendering Contract
 

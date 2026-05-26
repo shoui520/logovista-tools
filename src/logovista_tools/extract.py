@@ -154,7 +154,7 @@ def build_plan(args: argparse.Namespace, sources: list[DictionarySource]) -> Ext
     print("  all  entries, SQLite, media, titles/indexes/menus, gaiji, vlpljbl resources")
     print("  1    entries: full entries, using renderer SQLite sidecars automatically when needed")
     print("  2    SQLite: applicable database copies")
-    print("  3    media: COLSCR images and PCMDATA audio")
+    print("  3    media: COLSCR images and PCMDATA/SoundData audio")
     print("  4    indexes: all titles, indexes, and menus")
     print("  5    gaiji: Unicode map TSV, GA16/GAI16 glyph BMPs, and image-backed gaiji assets")
     print("  6    vlpljbl: non-executable vlpljbl resources")
@@ -709,7 +709,7 @@ def extract_one_dictionary(source: DictionarySource, plan: ExtractPlan, *, jobs:
         status(None, f"extract: {source.dict_id}: SQLite databases")
         summary["sqlite"], renderer_summary = extract_sqlite_databases(source, plan, jobs=jobs, renderer_summary=renderer_summary)
     if "media" in plan.categories:
-        status(None, f"extract: {source.dict_id}: COLSCR/PCMDATA media")
+        status(None, f"extract: {source.dict_id}: COLSCR/PCMDATA/SoundData media")
         summary["media"] = extract_media(source, plan, jobs=jobs)
     if "indexes" in plan.categories:
         status(None, f"extract: {source.dict_id}: titles/indexes/menus")

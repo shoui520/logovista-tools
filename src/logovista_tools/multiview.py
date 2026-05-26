@@ -11,9 +11,11 @@ import sqlite3
 import tempfile
 import xml.etree.ElementTree as ET
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .loose_media import classify_loose_decoded_resource, write_decoded_resource
 from .lvcrypto import (
     LogoVistaCryptoError,
     LogoVistaCryptoUnavailable,
@@ -25,6 +27,13 @@ from .windows import file_magic_kind, quote_identifier
 
 
 MULTIVIEW_PAYLOAD_RE = re.compile(r"^[a-z]lv(?:bat|dat)$", re.IGNORECASE)
+VIEWER_SPECIAL_HREFS = frozenset({"50on", "about", "hanrei", "index"})
+_ATTR_LINK_RE = re.compile(
+    r"""(?<![-\w])(?P<attr>href|src)\s*=\s*(?P<quote>["'])(?P<value>.*?)(?P=quote)""",
+    re.IGNORECASE | re.DOTALL,
+)
+_MULTIVIEW_MARK_RE = re.compile(r"^lved_mark:(?P<kind>[^:]+):(?P<anchor>.+)$", re.IGNORECASE)
+_MULTIVIEW_REF_RE = re.compile(r"^lved_ref:(?P<kind>[^:]+):(?P<target>.+)$", re.IGNORECASE)
 
 PAYLOAD_NAME_HINTS = {
     "blvdat": "content_search_body",
@@ -48,6 +57,15 @@ VIEWER_DECRYPTED_NAME_HINTS = {
     "jlvbat": "jiko_sakuin.db",
     "jlvdat": "jiko_sakuin.db",
 }
+
+
+@dataclass(frozen=True)
+class MultiviewLinkTarget:
+    kind: str
+    original: str
+    link_kind: str | None = None
+    anchor: str | None = None
+    target: str | None = None
 
 
 def sha256_file(path: Path) -> str:
@@ -234,7 +252,14 @@ def classify_resource(path: Path, out_dir: Path | None = None) -> dict[str, Any]
     kind = raw_kind
     decrypted_kind: str | None = None
     out_path: Path | None = None
-    if raw_kind == "unknown" and path.stat().st_size % 16 == 0:
+    decoded = classify_loose_decoded_resource(path)
+    if decoded is not None:
+        storage = decoded.storage
+        kind = decoded.content_kind
+        decrypted_kind = decoded.content_kind if decoded.storage != "plain" else None
+        if out_dir is not None:
+            out_path = write_decoded_resource(decoded, out_dir)
+    elif raw_kind == "unknown" and path.stat().st_size % 16 == 0:
         try:
             decrypted_prefix = decrypt_logofont_cipher_prefix(prefix, size=min(len(prefix), 4096))
             decrypted_kind = file_magic_kind(decrypted_prefix)
@@ -260,6 +285,104 @@ def classify_resource(path: Path, out_dir: Path | None = None) -> dict[str, Any]
     }
 
 
+def _sqlite_columns_for_tables(con: sqlite3.Connection) -> dict[str, list[str]]:
+    return {
+        str(row[0]): [info[1] for info in con.execute(f"pragma table_info({quote_identifier(str(row[0]))})")]
+        for row in con.execute("select name from sqlite_master where type='table'")
+    }
+
+
+def _chunked(values: list[str], size: int = 900) -> list[list[str]]:
+    return [values[index : index + size] for index in range(0, len(values), size)]
+
+
+def _menu_reference_sets(db_paths: dict[str, Path], hrefs: set[str]) -> dict[str, set[str]]:
+    anchors: set[str] = set()
+    codes: set[str] = set()
+    index_codes: set[str] = set()
+    content_ids: set[str] = set()
+    numeric_ids = sorted({int(href) for href in hrefs if href.isdigit()})
+
+    for db_path in db_paths.values():
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            tables = _sqlite_columns_for_tables(con)
+            for table, columns in tables.items():
+                lowered_columns = {column.lower() for column in columns}
+                quoted_table = quote_identifier(table)
+                if table.lower() == "t_contents" and "f_id" in lowered_columns:
+                    if numeric_ids:
+                        for chunk in _chunked([str(value) for value in numeric_ids]):
+                            placeholders = ",".join("?" for _ in chunk)
+                            content_ids.update(
+                                f"{int(row[0]):06d}"
+                                for row in con.execute(
+                                    f"select f_ID from {quoted_table} where f_ID in ({placeholders})",
+                                    tuple(int(value) for value in chunk),
+                                )
+                            )
+                    else:
+                        content_ids.update(
+                            f"{int(row[0]):06d}"
+                            for row in con.execute(f"select f_ID from {quoted_table} where f_ID is not null")
+                        )
+
+                if "f_hore_code" in lowered_columns:
+                    if table.lower().startswith("t_") and table.lower() != "t_index":
+                        codes.add(table[2:])
+                    if table.lower() == "t_index":
+                        values = [
+                            str(row[0])
+                            for row in con.execute(
+                                f"select distinct f_hore_code from {quoted_table} "
+                                "where f_hore_code is not null and f_hore_code != ''"
+                            )
+                        ]
+                        codes.update(values)
+                        index_codes.update(values)
+                    elif table.lower() == "t_hore":
+                        codes.update(
+                            str(row[0])
+                            for row in con.execute(
+                                f"select distinct f_hore_code from {quoted_table} "
+                                "where f_hore_code is not null and f_hore_code != ''"
+                            )
+                        )
+
+                if "f_anchor" in lowered_columns:
+                    candidate_hrefs = sorted(
+                        href
+                        for href in hrefs
+                        if href
+                        and (
+                            not table.lower().startswith("t_")
+                            or href == table[2:]
+                            or href.startswith(f"{table[2:]}_")
+                        )
+                    )
+                    if not candidate_hrefs:
+                        continue
+                    for chunk in _chunked(candidate_hrefs):
+                        placeholders = ",".join("?" for _ in chunk)
+                        anchors.update(
+                            str(row[0])
+                            for row in con.execute(
+                                f"select f_anchor from {quoted_table} where f_anchor in ({placeholders})",
+                                tuple(chunk),
+                            )
+                            if row[0] is not None and row[0] != ""
+                        )
+        finally:
+            con.close()
+
+    return {
+        "anchors": anchors,
+        "codes": codes,
+        "index_codes": index_codes,
+        "content_ids": content_ids,
+    }
+
+
 def inspect_menu(path: Path, db_paths: dict[str, Path]) -> dict[str, Any]:
     root = ET.parse(path).getroot()
     tags = Counter(element.tag for element in root.iter())
@@ -275,45 +398,11 @@ def inspect_menu(path: Path, db_paths: dict[str, Path]) -> dict[str, Any]:
         if element.attrib.get("href")
     ]
 
-    anchors: set[str] = set()
-    codes: set[str] = set()
-    index_codes: set[str] = set()
-    content_ids: set[str] = set()
-    for db_path in db_paths.values():
-        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        try:
-            for (table,) in con.execute("select name from sqlite_master where type='table'"):
-                columns = [row[1] for row in con.execute(f"pragma table_info({quote_identifier(table)})")]
-                lowered_columns = {column.lower() for column in columns}
-                if table.lower() == "t_contents" and "f_id" in lowered_columns:
-                    content_ids.update(
-                        f"{int(row[0]):06d}"
-                        for row in con.execute(
-                            f"select f_ID from {quote_identifier(table)} "
-                            "where f_ID is not null"
-                        )
-                    )
-                if "f_anchor" in columns:
-                    anchors.update(
-                        row[0]
-                        for row in con.execute(
-                            f"select f_anchor from {quote_identifier(table)} "
-                            "where f_anchor is not null and f_anchor != ''"
-                        )
-                    )
-                if "f_hore_code" in columns:
-                    values = [
-                        row[0]
-                        for row in con.execute(
-                            f"select distinct f_hore_code from {quote_identifier(table)} "
-                            "where f_hore_code is not null and f_hore_code != ''"
-                        )
-                    ]
-                    codes.update(values)
-                    if table == "t_index":
-                        index_codes.update(values)
-        finally:
-            con.close()
+    reference_sets = _menu_reference_sets(db_paths, {row["href"] for row in href_rows})
+    anchors = reference_sets["anchors"]
+    codes = reference_sets["codes"]
+    index_codes = reference_sets["index_codes"]
+    content_ids = reference_sets["content_ids"]
 
     def classify_href(href: str) -> str:
         if href in content_ids:
@@ -326,7 +415,7 @@ def inspect_menu(path: Path, db_paths: dict[str, Path]) -> dict[str, Any]:
             return "hore_code"
         if href.split("_", 1)[0] in codes:
             return "prefix_hore_code"
-        if href in {"50on", "about", "hanrei", "index"}:
+        if href in VIEWER_SPECIAL_HREFS:
             return "viewer_special"
         return "unresolved"
 
@@ -480,7 +569,64 @@ def _html_title(value: str, fallback: str) -> str:
     return text or fallback
 
 
-def _rewrite_multiview_fragment(fragment: str, known_pages: dict[str, str]) -> tuple[str, dict[str, int]]:
+def parse_multiview_link(value: str) -> MultiviewLinkTarget | None:
+    raw = html.unescape(value).strip()
+    mark = _MULTIVIEW_MARK_RE.match(raw)
+    if mark:
+        return MultiviewLinkTarget(
+            kind="mark",
+            original=raw,
+            link_kind=mark.group("kind"),
+            anchor=mark.group("anchor"),
+        )
+    ref = _MULTIVIEW_REF_RE.match(raw)
+    if ref:
+        return MultiviewLinkTarget(
+            kind="ref",
+            original=raw,
+            link_kind=ref.group("kind"),
+            target=ref.group("target"),
+        )
+    return None
+
+
+def _copy_multiview_asset(value: str, *, package_dir: Path, out_dir: Path) -> str | None:
+    raw = html.unescape(value).strip().replace("\\", "/")
+    if not raw or raw.startswith("#") or re.match(r"^[a-z][a-z0-9+.-]*:", raw, re.IGNORECASE):
+        return None
+    package_root = package_dir.resolve()
+    source = (package_dir / raw).resolve()
+    try:
+        source.relative_to(package_root)
+    except ValueError:
+        return None
+    if not source.is_file():
+        name = Path(raw).name.casefold()
+        for base in (package_dir / "Templates", package_dir / "Help" / "image", package_dir / "Help"):
+            if not base.is_dir():
+                continue
+            for candidate in sorted(base.iterdir()):
+                if candidate.is_file() and not is_metadata_noise_path(candidate) and candidate.name.casefold() == name:
+                    source = candidate.resolve()
+                    break
+            if source.is_file():
+                break
+    if not source.is_file():
+        return None
+    target = out_dir / "assets" / _safe_showcase_name(str(Path(raw)))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if not target.exists():
+        shutil.copy2(source, target)
+    return f"assets/{target.name}"
+
+
+def _rewrite_multiview_fragment(
+    fragment: str,
+    known_pages: dict[str, str],
+    *,
+    package_dir: Path | None = None,
+    out_dir: Path | None = None,
+) -> tuple[str, dict[str, int]]:
     stats: Counter[str] = Counter()
 
     def repl(match: re.Match[str]) -> str:
@@ -488,6 +634,24 @@ def _rewrite_multiview_fragment(fragment: str, known_pages: dict[str, str]) -> t
         quote = match.group("quote")
         value = html.unescape(match.group("value"))
         if attr.casefold() == "href":
+            target = parse_multiview_link(value)
+            if target is not None and target.kind == "mark" and target.anchor:
+                stats["mark_links_rewritten"] += 1
+                return f'{attr}={quote}#{html.escape(target.anchor, quote=True)}{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
+            if target is not None and target.kind == "ref" and target.target:
+                key = target.target.removeprefix("index:")
+                if target.target in known_pages:
+                    stats["ref_links_resolved"] += 1
+                    return f'{attr}={quote}{html.escape(known_pages[target.target], quote=True)}{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
+                if key in known_pages:
+                    stats["ref_links_resolved"] += 1
+                    return f'{attr}={quote}{html.escape(known_pages[key], quote=True)}{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
+                stats[f"{target.link_kind or 'unknown'}_ref_links_deferred"] += 1
+                return (
+                    f'{attr}={quote}#{quote} '
+                    f'data-lv-original-href={quote}{html.escape(value, quote=True)}{quote} '
+                    f'data-lv-ref-kind={quote}{html.escape(target.link_kind or "unknown", quote=True)}{quote}'
+                )
             key = value.removeprefix("index:")
             if value in known_pages:
                 stats["links_resolved"] += 1
@@ -499,10 +663,16 @@ def _rewrite_multiview_fragment(fragment: str, known_pages: dict[str, str]) -> t
                 return match.group(0)
             stats["links_deferred"] += 1
             return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
+        if attr.casefold() == "src" and package_dir is not None and out_dir is not None:
+            copied = _copy_multiview_asset(value, package_dir=package_dir, out_dir=out_dir)
+            if copied is not None:
+                stats["assets_resolved"] += 1
+                return f'{attr}={quote}{html.escape(copied, quote=True)}{quote}'
+            if not value.startswith(("http://", "https://", "data:")):
+                stats["assets_unresolved"] += 1
         return match.group(0)
 
-    attr_re = re.compile(r"""(?P<attr>href|src)=(?P<quote>["'])(?P<value>.*?)(?P=quote)""", re.IGNORECASE | re.DOTALL)
-    return attr_re.sub(repl, fragment), dict(sorted(stats.items()))
+    return _ATTR_LINK_RE.sub(repl, fragment), dict(sorted(stats.items()))
 
 
 def _write_multiview_content_page(
@@ -513,9 +683,10 @@ def _write_multiview_content_page(
     body: str,
     source: str,
     known_pages: dict[str, str],
+    package_dir: Path | None = None,
 ) -> dict[str, Any]:
     filename = f"entry_{_safe_showcase_name(content_id)}.html"
-    rewritten, stats = _rewrite_multiview_fragment(body, known_pages)
+    rewritten, stats = _rewrite_multiview_fragment(body, known_pages, package_dir=package_dir, out_dir=out_dir)
     (out_dir / filename).write_text(
         _multiview_page(
             _html_title(title, content_id),
@@ -553,6 +724,7 @@ def _render_multiview_content_search(
     known_pages: dict[str, str],
     limit: int,
     *,
+    package_dir: Path,
     preferred_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -594,6 +766,7 @@ def _render_multiview_content_search(
                     body=_safe_text(row["f_Body"]),
                     source=f"{db_path.name}:t_contents",
                     known_pages=known_pages,
+                    package_dir=package_dir,
                 )
             )
         return rendered
@@ -601,7 +774,16 @@ def _render_multiview_content_search(
         con.close()
 
 
-def _render_multiview_law_page(db_path: Path, out_dir: Path, known_pages: dict[str, str], href: str) -> dict[str, Any] | None:
+def _render_multiview_law_page(
+    db_path: Path,
+    out_dir: Path,
+    known_pages: dict[str, str],
+    href: str,
+    *,
+    package_dir: Path,
+) -> dict[str, Any] | None:
+    if href in VIEWER_SPECIAL_HREFS:
+        return None
     table_hint = href.split("_", 1)[0]
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
@@ -646,12 +828,20 @@ def _render_multiview_law_page(db_path: Path, out_dir: Path, known_pages: dict[s
             body=body,
             source=f"{db_path.name}:{table}",
             known_pages=known_pages,
+            package_dir=package_dir,
         )
     finally:
         con.close()
 
 
-def _render_multiview_index_page(db_path: Path, out_dir: Path, known_pages: dict[str, str], code: str) -> dict[str, Any] | None:
+def _render_multiview_index_page(
+    db_path: Path,
+    out_dir: Path,
+    known_pages: dict[str, str],
+    code: str,
+    *,
+    package_dir: Path,
+) -> dict[str, Any] | None:
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     try:
@@ -673,9 +863,110 @@ def _render_multiview_index_page(db_path: Path, out_dir: Path, known_pages: dict
             body=body,
             source=f"{db_path.name}:t_index",
             known_pages=known_pages,
+            package_dir=package_dir,
         )
     finally:
         con.close()
+
+
+def _copy_multiview_static_dir(source: Path, target: Path) -> str | None:
+    if not source.is_dir():
+        return None
+    target.mkdir(parents=True, exist_ok=True)
+    for path in sorted(source.rglob("*")):
+        if not path.is_file() or is_metadata_noise_path(path):
+            continue
+        relative = path.relative_to(source)
+        out = target / relative
+        out.parent.mkdir(parents=True, exist_ok=True)
+        if not out.exists():
+            shutil.copy2(path, out)
+    index = target / "index.html"
+    if index.is_file():
+        return str(index.relative_to(target.parent.parent))
+    html_files = sorted(target.rglob("*.html"))
+    if html_files:
+        return str(html_files[0].relative_to(target.parent.parent))
+    return None
+
+
+def _render_multiview_special_page(
+    package_dir: Path,
+    out_dir: Path,
+    known_pages: dict[str, str],
+    href: str,
+    label: str = "",
+) -> dict[str, Any]:
+    filename = f"surface_{_safe_showcase_name(href)}.html"
+    known_pages[href] = filename
+    static_link: str | None = None
+    if href == "hanrei":
+        static_link = _copy_multiview_static_dir(package_dir / "HANREI", out_dir / "static" / "HANREI")
+    if static_link:
+        body = (
+            f'<main><h1>{html.escape(label or href)}</h1>'
+            f'<p><a href="{html.escape(static_link, quote=True)}">Open bundled static HTML</a></p></main>'
+        )
+        status = "static_html"
+    else:
+        body = (
+            f'<main><h1>{html.escape(label or href)}</h1>'
+            '<div class="lv-meta">Viewer surface recognized; this bounded showcase records it as a '
+            "reader-interface target rather than pretending it is a decoded body row.</div></main>"
+        )
+        status = "deferred_viewer_surface"
+    (out_dir / filename).write_text(_multiview_page(label or href, body), encoding="utf-8")
+    return {"id": href, "title": label or href, "path": filename, "source": "menuData.xml", "surface_status": status}
+
+
+def validate_multiview_showcase(out_dir: Path) -> dict[str, Any]:
+    missing_href: list[dict[str, str]] = []
+    missing_src: list[dict[str, str]] = []
+    protocol_hrefs: Counter[str] = Counter()
+    tag_balance_issues: list[dict[str, Any]] = []
+    html_files = sorted(out_dir.rglob("*.html"))
+    for path in html_files:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        relative_parent = path.parent
+        for match in _ATTR_LINK_RE.finditer(text):
+            attr = match.group("attr")
+            raw = html.unescape(match.group("value")).strip()
+            lower = raw.casefold()
+            if attr.casefold() == "href":
+                if lower.startswith(("http:", "https:", "mailto:", "javascript:")) or raw.startswith("#"):
+                    continue
+                if lower.startswith(("lved_", "lved:")):
+                    protocol_hrefs[raw.split(":", 1)[0].split("&", 1)[0]] += 1
+                    continue
+                target = relative_parent / raw.split("#", 1)[0].split("?", 1)[0]
+                if raw and not target.is_file():
+                    missing_href.append({"page": str(path.relative_to(out_dir)), "href": raw})
+            elif attr.casefold() == "src":
+                if lower.startswith(("http:", "https:", "data:")):
+                    continue
+                target = relative_parent / raw.split("#", 1)[0].split("?", 1)[0]
+                if raw and not target.is_file():
+                    missing_src.append({"page": str(path.relative_to(out_dir)), "src": raw})
+        # Missing table/cell closes are the browser-hostile case: they can create
+        # pathological nested table DOMs. A lone missing <tr> close is common in
+        # legacy fragments and browsers repair it without deep nesting.
+        for tag in ("table", "td"):
+            opens = len(re.findall(fr"<{tag}(?:\s|>)", text, re.IGNORECASE))
+            closes = len(re.findall(fr"</{tag}\s*>", text, re.IGNORECASE))
+            if opens != closes:
+                tag_balance_issues.append(
+                    {"page": str(path.relative_to(out_dir)), "tag": tag, "opens": opens, "closes": closes}
+                )
+    return {
+        "html_file_count": len(html_files),
+        "missing_href_count": len(missing_href),
+        "missing_src_count": len(missing_src),
+        "protocol_href_counts": dict(sorted(protocol_hrefs.items())),
+        "tag_balance_issue_count": len(tag_balance_issues),
+        "missing_href_samples": missing_href[:40],
+        "missing_src_samples": missing_src[:40],
+        "tag_balance_issue_samples": tag_balance_issues[:40],
+    }
 
 
 def write_multiview_showcase(package_dir: Path, out_dir: Path, *, limit: int = 40) -> dict[str, Any]:
@@ -702,6 +993,7 @@ def write_multiview_showcase(package_dir: Path, out_dir: Path, *, limit: int = 4
                     out_dir,
                     known_pages,
                     limit,
+                    package_dir=package_dir,
                     preferred_ids=[row["href"] for row in menu_hrefs],
                 )
             )
@@ -714,10 +1006,12 @@ def write_multiview_showcase(package_dir: Path, out_dir: Path, *, limit: int = 4
             if href in known_pages:
                 continue
             page = None
-            if href.startswith("index:") and index_db is not None:
-                page = _render_multiview_index_page(index_db, out_dir, known_pages, href[6:])
+            if href in VIEWER_SPECIAL_HREFS:
+                page = _render_multiview_special_page(package_dir, out_dir, known_pages, href, item.get("label", ""))
+            elif href.startswith("index:") and index_db is not None:
+                page = _render_multiview_index_page(index_db, out_dir, known_pages, href[6:], package_dir=package_dir)
             elif law_db is not None:
-                page = _render_multiview_law_page(law_db, out_dir, known_pages, href)
+                page = _render_multiview_law_page(law_db, out_dir, known_pages, href, package_dir=package_dir)
             if page is None:
                 unresolved.append(item)
                 continue
@@ -748,6 +1042,7 @@ def write_multiview_showcase(package_dir: Path, out_dir: Path, *, limit: int = 4
             "rendered_count": len(rendered),
             "deferred_menu_targets": unresolved,
         }
+        manifest["validation"] = validate_multiview_showcase(out_dir)
         (out_dir / "showcase.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         return manifest
 

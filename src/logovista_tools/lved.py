@@ -40,6 +40,10 @@ _SQLITE_TEXT_SIGNAL_PATTERNS: tuple[tuple[str, str], ...] = (
     ("html_math", "%<math%"),
     ("html_script", "%<script%"),
     ("lved_dataid", "%lved.dataid:%"),
+    ("lved_dataid_result", "%lved.dataid.result:%"),
+    ("lved_dataid_dict", "%lved.dataid.dict.%"),
+    ("lved_dataid_no_colon", "%lved.dataid0%"),
+    ("lved_contentlink", "%lved.contentlink:%"),
     ("lved_addr", "%lved.addr%"),
     ("lved_image", "%lved.image:%"),
     ("lved_imag", "%lved.imag:%"),
@@ -48,10 +52,13 @@ _SQLITE_TEXT_SIGNAL_PATTERNS: tuple[tuple[str, str], ...] = (
     ("lved_ziptomedia", "%lved.ziptomedia:%"),
     ("lved_bookmark", "%lved.bookmark:%"),
     ("lved_plugin", "%lved.plugin:%"),
+    ("lved_sql", "%lved.sql:%"),
     ("lved_pdf", "%lved.pdf:%"),
     ("lved_dict", "%lved.dict.%"),
     ("lved_findnum", "%lved.findnum:%"),
     ("lved_select", "%lved.select:%"),
+    ("lved_group", "%lved.group.%"),
+    ("lved_browser", "%lved.browser.%"),
     ("lved_sound", "%lved.sond:%"),
     ("http_link", "%http://%"),
     ("https_link", "%https://%"),
@@ -69,6 +76,15 @@ _HTML_SRC_RE = re.compile(r"""src\s*=\s*(["'])([^"']+)\1""", re.IGNORECASE)
 _HTML_HREF_RE = re.compile(r"""href\s*=\s*(["'])([^"']+)\1""", re.IGNORECASE)
 _HTML_ANCHOR_NAME_RE = re.compile(r"""<a\s+[^>]*name\s*=\s*(["'])(?P<name>[^"']+)\1""", re.IGNORECASE)
 _LVED_ADDR_RE = re.compile(r"""lved\.addr(?P<block>[0-9A-Fa-f]{8}):(?P<offset>[0-9A-Fa-f]{4})""", re.IGNORECASE)
+_LVED_DATAID_NO_COLON_RE = re.compile(r"""lved\.dataid(?P<id>\d+)(?:#(?P<anchor>[^?#]+))?""", re.IGNORECASE)
+_LVED_CONTENTLINK_RE = re.compile(
+    r"""lved\.contentlink:(?P<dict>[A-Za-z0-9_]+)\.(?P<id>\d+)(?:#(?P<anchor>[^?#]+))?""",
+    re.IGNORECASE,
+)
+_LVED_DATAID_DICT_RE = re.compile(
+    r"""lved\.dataid\.dict\.(?P<dict>[A-Za-z0-9_]+):(?P<id>\d+)(?:#(?P<anchor>[^?#]+))?""",
+    re.IGNORECASE,
+)
 _LVED_RELATIVE_ADDR_RE = re.compile(r"""[0-9A-Fa-f]{6}/[0-9A-Fa-f]{4}""", re.ASCII)
 _LVED_TARGET_SPLIT_RE = re.compile(r"[?#]", re.ASCII)
 _LVED_PROTOCOL_TOKEN_RE = re.compile(r"lved\.[a-z]+(?:\.[a-z]+)?:", re.IGNORECASE)
@@ -1132,6 +1148,45 @@ def _lved_entry_href(content_id: int, anchor: str | None = None) -> str:
     return href
 
 
+def _lved_deferred_href(attr: str, quote: str, value: str, *, hook: str | None = None) -> str:
+    hook_attr = f" data-lv-hook={quote}{html.escape(hook, quote=True)}{quote}" if hook else ""
+    return (
+        f"{attr}={quote}#{quote} "
+        f"data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}"
+        f"{hook_attr}"
+    )
+
+
+def _lved_cross_dict_href(
+    attr: str,
+    quote: str,
+    value: str,
+    *,
+    hook: str,
+    dict_code: str,
+    content_id: str,
+    anchor: str | None = None,
+) -> str:
+    anchor_attr = f" data-lv-anchor={quote}{html.escape(anchor, quote=True)}{quote}" if anchor else ""
+    return (
+        f"{attr}={quote}#{quote} "
+        f"data-lv-original-href={quote}{html.escape(value, quote=True)}{quote} "
+        f"data-lv-hook={quote}{html.escape(hook, quote=True)}{quote} "
+        f"data-lv-dict={quote}{html.escape(dict_code.upper(), quote=True)}{quote} "
+        f"data-lv-content-id={quote}{html.escape(str(int(content_id)), quote=True)}{quote}"
+        f"{anchor_attr}"
+    )
+
+
+def _sqlite_optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _sqlite_text_from_value(value: Any) -> str:
     if value is None:
         return ""
@@ -1287,6 +1342,58 @@ def _rewrite_lved_fragment(
         quote = match.group("quote")
         value = html.unescape(match.group("value"))
         lower = value.casefold()
+        if attr.casefold() == "href":
+            contentlink = _LVED_CONTENTLINK_RE.fullmatch(value)
+            if contentlink:
+                stats["contentlink_links_deferred"] += 1
+                return _lved_cross_dict_href(
+                    attr,
+                    quote,
+                    value,
+                    hook="contentlink",
+                    dict_code=contentlink.group("dict"),
+                    content_id=contentlink.group("id"),
+                    anchor=contentlink.group("anchor"),
+                )
+            dataid_dict = _LVED_DATAID_DICT_RE.fullmatch(value)
+            if dataid_dict:
+                stats["dataid_dict_links_deferred"] += 1
+                return _lved_cross_dict_href(
+                    attr,
+                    quote,
+                    value,
+                    hook="dataid-dict",
+                    dict_code=dataid_dict.group("dict"),
+                    content_id=dataid_dict.group("id"),
+                    anchor=dataid_dict.group("anchor"),
+                )
+            dataid_no_colon = _LVED_DATAID_NO_COLON_RE.fullmatch(value)
+            if dataid_no_colon:
+                target = int(dataid_no_colon.group("id"))
+                anchor = dataid_no_colon.group("anchor")
+                linked_content_ids.add(target)
+                stats["dataid_no_colon_links_rewritten"] += 1
+                return (
+                    f'{attr}={quote}{_lved_entry_href(target, anchor)}{quote} '
+                    f'data-lv-original-href={quote}{html.escape(value, quote=True)}{quote} '
+                    f'data-lv-hook={quote}dataid-no-colon{quote}'
+                )
+        if attr.casefold() == "href" and lower.startswith("lved.dataid.result:"):
+            raw_target = value.split(":", 1)[1]
+            target = _LVED_TARGET_SPLIT_RE.split(raw_target, 1)[0]
+            anchor: str | None = None
+            if "#" in raw_target:
+                anchor = raw_target.split("#", 1)[1]
+            if target.isdigit():
+                linked_content_ids.add(int(target))
+                stats["dataid_result_links_rewritten"] += 1
+                return (
+                    f'{attr}={quote}{_lved_entry_href(int(target), anchor)}{quote} '
+                    f'data-lv-original-href={quote}{html.escape(value, quote=True)}{quote} '
+                    f'data-lv-hook={quote}search-result-detail{quote}'
+                )
+            stats["dataid_result_links_deferred"] += 1
+            return _lved_deferred_href(attr, quote, value, hook="search-result-detail")
         if attr.casefold() == "href" and lower.startswith("lved.dataid:"):
             raw_target = value.split(":", 1)[1]
             target = _LVED_TARGET_SPLIT_RE.split(raw_target, 1)[0]
@@ -1306,7 +1413,7 @@ def _rewrite_lved_fragment(
             return f'{attr}={quote}{_lved_entry_href(target)}{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
         if attr.casefold() == "href" and _LVED_RELATIVE_ADDR_RE.fullmatch(value):
             stats["relative_addr_links_deferred"] += 1
-            return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
+            return _lved_deferred_href(attr, quote, value, hook="relative-address")
         if attr.casefold() == "href" and lower.startswith("lved.info:"):
             raw_target = value.split(":", 1)[1]
             target = _LVED_TARGET_SPLIT_RE.split(raw_target, 1)[0]
@@ -1349,7 +1456,7 @@ def _rewrite_lved_fragment(
                 stats["pdf_links_resolved"] += 1
                 return f'{attr}={quote}{html.escape(href, quote=True)}{quote}'
             stats["pdf_links_unresolved"] += 1
-            return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
+            return _lved_deferred_href(attr, quote, value, hook="pdf")
         if attr.casefold() == "href" and lower.startswith(("lved.media.sound:", "lved.sound:", "lved.media:")):
             href = _write_lved_asset(value, assets_dir=assets_dir, media=media, loose=loose)
             if href:
@@ -1362,7 +1469,7 @@ def _rewrite_lved_fragment(
                 stats["image_links_resolved"] += 1
                 return f'{attr}={quote}{html.escape(href, quote=True)}{quote}'
             stats["image_links_deferred"] += 1
-            return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
+            return _lved_deferred_href(attr, quote, value, hook="image")
         if attr.casefold() == "href" and lower.startswith("lved.addr"):
             addr_key = _lved_addr_key(value)
             if addr_key and addr_lookup:
@@ -1372,19 +1479,37 @@ def _rewrite_lved_fragment(
                     stats["addr_links_rewritten"] += 1
                     return f'{attr}={quote}{_lved_entry_href(resolution.content_id, resolution.anchor)}{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote} data-lv-addr-delta={quote}{resolution.delta}{quote}'
             stats["addr_links_deferred"] += 1
-            return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
+            return _lved_deferred_href(attr, quote, value, hook="address")
         if attr.casefold() == "href" and lower.startswith("lved.bookmark:"):
             stats["bookmark_links_suppressed"] += 1
-            return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
+            return _lved_deferred_href(attr, quote, value, hook="bookmark")
         if attr.casefold() == "href" and lower.startswith("lved.plugin:"):
             stats["plugin_links_suppressed"] += 1
-            return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
+            return _lved_deferred_href(attr, quote, value, hook="plugin")
+        if attr.casefold() == "href" and lower.startswith("lved.sql:"):
+            stats["sql_links_deferred"] += 1
+            return _lved_deferred_href(attr, quote, value, hook="sql")
+        if attr.casefold() == "href" and lower.startswith("lved.findnum:"):
+            stats["findnum_links_suppressed"] += 1
+            return _lved_deferred_href(attr, quote, value, hook="findnum")
+        if attr.casefold() == "href" and lower.startswith("lved.select:"):
+            stats["select_links_suppressed"] += 1
+            return _lved_deferred_href(attr, quote, value, hook="select")
+        if attr.casefold() == "href" and lower.startswith("lved.group."):
+            stats["group_links_suppressed"] += 1
+            return _lved_deferred_href(attr, quote, value, hook="group")
+        if attr.casefold() == "href" and lower.startswith("lved.browser."):
+            stats["browser_links_suppressed"] += 1
+            return _lved_deferred_href(attr, quote, value, hook="browser")
         if attr.casefold() == "src" or lower.startswith(("lved.image:", "lved.imag:")):
             src = _write_lved_asset(value, assets_dir=assets_dir, media=media, loose=loose)
             if src:
                 stats["assets_resolved"] += 1
                 return f'{attr}={quote}{html.escape(src, quote=True)}{quote}'
             stats["assets_unresolved"] += 1
+        if attr.casefold() == "href" and lower.startswith("lved."):
+            stats["unknown_lved_links_deferred"] += 1
+            return _lved_deferred_href(attr, quote, value, hook="unknown")
         return match.group(0)
 
     return _LVED_PROTOCOL_RE.sub(repl, fragment), dict(sorted(stats.items())), linked_content_ids
@@ -1500,7 +1625,7 @@ def _write_lved_info_pages(
     assets_dir = out_dir / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
     pages: list[dict[str, Any]] = []
-    for row in con.execute("select id, name, body from info order by id limit ?", (limit,)):
+    for row in con.execute("select rowid as sqlite_rowid, id, name, body from info order by rowid limit ?", (limit,)):
         name = _sqlite_text_from_value(row["name"])
         body = _sqlite_text_from_value(row["body"])
         rewritten, stats, linked_content_ids = _rewrite_lved_fragment(body, assets_dir=assets_dir, media=media_lookup, loose=loose_lookup, addr_lookup=addr_lookup)
@@ -1512,7 +1637,8 @@ def _write_lved_info_pages(
         )
         pages.append(
             {
-                "id": int(row["id"]),
+                "id": _sqlite_optional_int(row["id"]),
+                "rowid": int(row["sqlite_rowid"]),
                 "name": name,
                 "path": target.name,
                 "body_bytes": len(body.encode("utf-8")),
@@ -2098,7 +2224,7 @@ def inspect_lved_reader_features(sqlite_path: Path, payload_path: Path, *, sampl
     try:
         info_pages: list[dict[str, Any]] = []
         if _sqlite_table_exists(con, "info"):
-            for row in con.execute("select id, name, length(body) as body_length, media from info order by id"):
+            for row in con.execute("select rowid as sqlite_rowid, id, name, length(body) as body_length, media from info order by rowid"):
                 name = "" if row["name"] is None else str(row["name"])
                 lower = name.casefold()
                 if "hanrei" in lower or "凡例" in name:
@@ -2111,7 +2237,8 @@ def inspect_lved_reader_features(sqlite_path: Path, payload_path: Path, *, sampl
                     role = "info"
                 info_pages.append(
                     {
-                        "id": int(row["id"]),
+                        "rowid": int(row["sqlite_rowid"]),
+                        "id": _sqlite_optional_int(row["id"]),
                         "name": name,
                         "role": role,
                         "body_length": int(row["body_length"] or 0),
