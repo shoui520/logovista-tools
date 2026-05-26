@@ -634,7 +634,8 @@ and unknowns. It does not emit HTML/CSS/JS/resource text.
 
 `--inspect-reader` adds reader-facing analysis: `info` home/HANREI/copyright
 surfaces, body fragment vs full-document signals, top HTML classes,
-`lved.*` protocols, retained tree summaries, and optional real search probes.
+`lved.*` protocols, retained tree summaries, optional-provider readiness, and
+optional real search probes.
 
 Search probes use the recovered native model:
 
@@ -653,7 +654,10 @@ body/info fragments inside a simple wrapper, rewrites `lved.dataid:` and
 `lved.info:` links to local pages, rewrites `lved.binran:` links when a
 `binran` table exists, resolves `lved.image:` / `lved.imag:` and
 `lved.media.sound:` assets through SQLite `media`, `mediasub`, `sound`, or loose
-resources, and writes stubs for linked entries beyond `--render-link-limit`.
+resources, writes retained text-tree pages when decoded `res/*.idx` trees are
+present, and writes bounded entry stubs for linked entries. Retained tree rows
+whose entry targets are valid but outside the materialization budget are marked
+with `data-lv-deferred-entry` rather than emitted as broken local links.
 Viewer/user-state hooks such as `lved.bookmark:` and `lved.plugin:` are
 suppressed to inert links with the original target retained as metadata. The
 generated pages are for structural testing; exact LVEDVIEWER visual parity

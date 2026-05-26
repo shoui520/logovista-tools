@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Iterable
+from urllib.parse import parse_qsl
 
 from .colscr import parse_jpeg_dimensions
 from .indexes import scan_index_component
@@ -82,6 +83,21 @@ class LvedPayload:
 class LvedKeyFile:
     path: Path
     match: str
+
+
+@dataclass(frozen=True)
+class LvedTextTreeRow:
+    line_no: int
+    raw_target: str
+    depth: int
+    label: str
+    target_value: int | None
+    target_form: str
+    query_params: tuple[tuple[str, str], ...] = ()
+
+    @property
+    def is_entry_target(self) -> bool:
+        return self.target_value is not None and self.target_value > 0
 
 
 def sha256_file(path: Path) -> str:
@@ -576,12 +592,61 @@ def _hex_token(value: str) -> int | None:
     return None
 
 
-def _tree_target_int_token(value: str) -> tuple[int | None, bool]:
+def _parse_lved_tree_target(value: str) -> tuple[int | None, str, tuple[tuple[str, str], ...]]:
     stripped = value.strip()
+    target = stripped
+    query_params: tuple[tuple[str, str], ...] = ()
     if "?" in stripped:
-        prefix, _query = stripped.split("?", 1)
-        return _int_token(prefix), True
-    return _int_token(stripped), False
+        target, query = stripped.split("?", 1)
+        query_params = tuple(parse_qsl(query, keep_blank_values=True))
+    int_value = _int_token(target)
+    if int_value is not None:
+        if query_params:
+            form = "decimal_with_query"
+        elif int_value < 0:
+            form = "negative_sentinel"
+        elif int_value == 0:
+            form = "zero_root_or_sentinel"
+        elif target.startswith("0") and len(target) > 1:
+            form = "decimal_with_leading_zero"
+        else:
+            form = "decimal"
+        return int_value, form, query_params
+    hex_value = _hex_token(target)
+    if hex_value is not None:
+        return hex_value, "hex", query_params
+    return None, "other", query_params
+
+
+def _parse_lved_text_tree_rows(text: str) -> tuple[list[LvedTextTreeRow], int]:
+    rows: list[LvedTextTreeRow] = []
+    unparsed = 0
+    for line_no, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
+        parts = line.rstrip("\r\n").split("\t")
+        if len(parts) < 3:
+            unparsed += 1
+            continue
+        depth_value = _int_token(parts[1])
+        if depth_value is None:
+            unparsed += 1
+            continue
+        raw_target = parts[0].strip()
+        label = "\t".join(parts[2:]).strip()
+        target_value, target_form, query_params = _parse_lved_tree_target(raw_target)
+        rows.append(
+            LvedTextTreeRow(
+                line_no=line_no,
+                raw_target=raw_target,
+                depth=depth_value,
+                label=label,
+                target_value=target_value,
+                target_form=target_form,
+                query_params=query_params,
+            )
+        )
+    return rows, unparsed
 
 
 def _retained_resource_paths(payload_path: Path) -> list[Path]:
@@ -1019,6 +1084,27 @@ def _safe_lved_named_page_stem(target: str, *, fallback: str) -> str:
     return _safe_asset_name(Path(name).stem or name or fallback)
 
 
+def _sqlite_blob_to_bytes(value: Any) -> bytes:
+    if value is None:
+        return b""
+    if isinstance(value, bytes):
+        return value
+    if isinstance(value, bytearray):
+        return bytes(value)
+    if isinstance(value, memoryview):
+        return value.tobytes()
+    if isinstance(value, str):
+        return value.encode("utf-8")
+    return str(value).encode("utf-8")
+
+
+def _lved_entry_href(content_id: int, anchor: str | None = None) -> str:
+    href = f"entry_{int(content_id)}.html"
+    if anchor:
+        href += "#" + html.escape(str(anchor), quote=True)
+    return href
+
+
 def _media_lookup(con: sqlite3.Connection) -> dict[str, tuple[int, str, bytes]]:
     lookup: dict[str, tuple[int, str, bytes]] = {}
     for table in ("media", "mediasub", "sound"):
@@ -1031,7 +1117,9 @@ def _media_lookup(con: sqlite3.Connection) -> dict[str, tuple[int, str, bytes]]:
         for row in con.execute(f"select id, name, main from {quoted_table} where main is not null"):
             media_id = int(row[0])
             name = "" if row[1] is None else str(row[1])
-            blob = bytes(row[2])
+            blob = _sqlite_blob_to_bytes(row[2])
+            if not blob:
+                continue
             keys = {name.casefold(), Path(name).stem.casefold(), str(media_id)}
             for key in keys:
                 if key and key not in lookup:
@@ -1101,13 +1189,13 @@ def _rewrite_lved_fragment(
         if attr.casefold() == "href" and lower.startswith("lved.dataid:"):
             raw_target = value.split(":", 1)[1]
             target = _LVED_TARGET_SPLIT_RE.split(raw_target, 1)[0]
-            anchor = ""
+            anchor: str | None = None
             if "#" in raw_target:
-                anchor = "#" + raw_target.split("#", 1)[1]
+                anchor = raw_target.split("#", 1)[1]
             if target.isdigit():
                 linked_content_ids.add(int(target))
                 stats["entry_links_rewritten"] += 1
-                return f'{attr}={quote}entry_{int(target)}.html{html.escape(anchor, quote=True)}{quote}'
+                return f'{attr}={quote}{_lved_entry_href(int(target), anchor)}{quote}'
             stats["entry_links_unresolved"] += 1
             return match.group(0)
         if attr.casefold() == "href" and lower.startswith("lved.info:"):
@@ -1172,6 +1260,9 @@ img {{ max-width: 100%; height: auto; vertical-align: middle; }}
 .lv-meta {{ color: #555; font-size: 13px; border-bottom: 1px solid #ddd; margin-bottom: 16px; padding-bottom: 8px; }}
 .lv-search-hit {{ display: block; padding: 8px 10px; border-bottom: 1px solid #eee; text-decoration: none; }}
 .lv-search-hit:hover {{ background: #f6f8fa; }}
+.lv-lved-tree {{ list-style: none; padding: 0; margin: 0; }}
+.lv-lved-tree li {{ padding-block: 0.15rem; border-bottom: 1px solid #f1f1f1; }}
+.lv-lved-tree a {{ text-decoration: none; }}
 .midashi, .head {{ font-weight: 700; font-size: 1.25em; margin: 0.4em 0; }}
 .honbun, .contents {{ margin: 0.35em 0 1em; }}
 .img_gaiji, .img_gaiji_midashi, .img_hinshi, .img_mark, .img_mark2, .ex_img {{ max-height: 1.4em; width: auto; }}
@@ -1338,6 +1429,103 @@ def _tree_rows_for_report(retained: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def _lved_tree_href(row: LvedTextTreeRow) -> str | None:
+    if row.target_value is None or row.target_value <= 0:
+        return None
+    return _lved_entry_href(row.target_value)
+
+
+def _write_lved_tree_pages(
+    payload_path: Path,
+    out_dir: Path,
+    *,
+    limit: int = 20000,
+    stub_entry_limit: int = 500,
+) -> list[dict[str, Any]]:
+    pages: list[dict[str, Any]] = []
+    stubbed_entry_ids: set[int] = set()
+    for path in _retained_resource_paths(payload_path):
+        data = path.read_bytes()
+        if data.startswith(b"SSEDDATA"):
+            continue
+        decoded = _decode_retained_text(data)
+        if decoded is None:
+            continue
+        encoding, text = decoded
+        first_line = next((line for line in text.splitlines() if line.strip()), "")
+        first_parts = first_line.split("\t")
+        if not (len(first_parts) >= 3 and _int_token(first_parts[1]) is not None):
+            continue
+        rows, unparsed = _parse_lved_text_tree_rows(text)
+        if not rows:
+            continue
+        safe_name = _safe_asset_name(path.relative_to(payload_path.parent).as_posix().replace("/", "_"))
+        target = out_dir / f"tree_{safe_name}.html"
+        items: list[str] = []
+        linked_rows = 0
+        deferred_rows = 0
+        page_stubbed_rows = 0
+        query_rows = 0
+        for row in rows[:limit]:
+            href = _lved_tree_href(row)
+            label = html.escape(row.label or row.raw_target)
+            style = f"padding-inline-start:{max(0, row.depth) * 1.25:.2f}rem"
+            attrs = [
+                f'data-lv-depth="{row.depth}"',
+                f'data-lv-target="{html.escape(row.raw_target, quote=True)}"',
+                f'data-lv-target-form="{html.escape(row.target_form, quote=True)}"',
+            ]
+            if row.query_params:
+                query_rows += 1
+                attrs.append(
+                    'data-lv-query="'
+                    + html.escape("&".join(f"{key}={value}" for key, value in row.query_params), quote=True)
+                    + '"'
+                )
+            if href and row.target_value is not None:
+                entry_path = out_dir / f"entry_{row.target_value}.html"
+                if not entry_path.exists():
+                    if len(stubbed_entry_ids) < stub_entry_limit:
+                        _write_lved_entry_stub(out_dir, row.target_value)
+                        stubbed_entry_ids.add(row.target_value)
+                        page_stubbed_rows += 1
+                    else:
+                        href = None
+                        deferred_rows += 1
+                        attrs.append(f'data-lv-deferred-entry="{row.target_value}"')
+            if href:
+                linked_rows += 1
+                content = f'<a href="{html.escape(href, quote=True)}">{label}</a>'
+            else:
+                content = f"<span>{label}</span>"
+            items.append(f'<li style="{style}" {" ".join(attrs)}>{content}</li>')
+        if len(rows) > limit:
+            items.append(f"<li>truncated after {limit} rows</li>")
+        body = (
+            '<main class="lv-tree">'
+            f'<div class="lv-meta">tree={html.escape(path.relative_to(payload_path.parent).as_posix())} '
+            f"encoding={html.escape(encoding)} rows={len(rows)} unparsed={unparsed}</div>"
+            '<ul class="lv-lved-tree">'
+            + "".join(items)
+            + "</ul></main>"
+        )
+        target.write_text(_lved_page(path.name, body), encoding="utf-8")
+        pages.append(
+            {
+                "path": target.name,
+                "source": path.relative_to(payload_path.parent).as_posix(),
+                "rows": len(rows),
+                "rendered_rows": min(len(rows), limit),
+                "linked_rows": linked_rows,
+                "deferred_entry_rows": deferred_rows,
+                "stubbed_entry_rows": page_stubbed_rows,
+                "query_rows": query_rows,
+                "unparsed_lines": unparsed,
+            }
+        )
+    return pages
+
+
 def _sqlite_non_empty_count(con: sqlite3.Connection, table: str, column: str) -> int | None:
     try:
         return int(
@@ -1438,6 +1626,66 @@ def _sqlite_optional_feature_tables(con: sqlite3.Connection) -> list[dict[str, A
             item["target_columns"] = target_columns
         tables.append(item)
     return tables
+
+
+def _lved_provider_target_columns(con: sqlite3.Connection, table: str, columns: list[str]) -> dict[str, Any]:
+    target_columns: dict[str, Any] = {}
+    for column in columns:
+        lower_column = column.casefold()
+        if lower_column in {"id", "refid", "data_id", "f_dataid", "f_id", "anchor"}:
+            values = _sqlite_int_values_from_column(con, table, column)
+            if values:
+                target_columns[column] = _sqlite_correlate_common_targets(con, values)
+    return target_columns
+
+
+def _lved_optional_provider_readiness(con: sqlite3.Connection) -> list[dict[str, Any]]:
+    providers: list[dict[str, Any]] = []
+    for table, provider_kind, status in (
+        ("binran", "named_html_reference_pages", "active_render_provider"),
+        ("t_contents", "legacy_html_content_rows", "understood_legacy_content_source"),
+        ("t_convert", "legacy_block_offset_bridge", "understood_address_bridge"),
+        ("exam", "example_lookup", "metadata_provider"),
+        ("genre", "genre_filter_lookup", "metadata_provider"),
+        ("bunya", "field_category_lookup", "metadata_provider"),
+        ("kanji", "kanji_lookup", "metadata_provider"),
+        ("kanji_all", "kanji_lookup", "metadata_provider"),
+        ("kwit", "keyword_lookup", "metadata_provider"),
+        ("joken", "condition_lookup", "metadata_provider"),
+        ("sakuin", "index_lookup", "metadata_provider"),
+        ("item", "advanced_filter_lookup", "metadata_provider"),
+        ("mediasub", "secondary_media_store", "active_resource_provider"),
+        ("sound", "audio_blob_store", "active_resource_provider"),
+    ):
+        if not _sqlite_table_exists(con, table):
+            continue
+        columns = _sqlite_columns(con, table)
+        item: dict[str, Any] = {
+            "table": table,
+            "provider_kind": provider_kind,
+            "status": status,
+            "row_count": _safe_count(con, table),
+            "columns": columns,
+        }
+        if table == "binran":
+            item["named_body_rows"] = _sqlite_non_empty_count(con, table, "body")
+            item["body_signals"] = _lved_fragment_signal_summary(con, table, "body", limit=256)
+        elif table == "t_contents":
+            item["html_rows"] = _sqlite_non_empty_count(con, table, "f_Html")
+            item["plain_rows"] = _sqlite_non_empty_count(con, table, "f_Plane")
+            item["keyword_rows"] = _sqlite_non_empty_count(con, table, "f_Keyword")
+            item["html_signals"] = _lved_fragment_signal_summary(con, table, "f_Html", limit=256)
+        elif table == "t_convert":
+            item["block_offset_rows"] = _sqlite_non_empty_count(con, table, "block")
+            item["old_title_rows"] = _sqlite_non_empty_count(con, table, "old_title")
+        elif table in {"mediasub", "sound"}:
+            if "type" in {column.casefold() for column in columns}:
+                item["type_counts"] = _sqlite_value_distribution(con, table, "type", limit=20)
+        targets = _lved_provider_target_columns(con, table, columns)
+        if targets:
+            item["target_columns"] = targets
+        providers.append(item)
+    return providers
 
 
 def _lved_search_provider_summaries(con: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -1631,6 +1879,7 @@ def render_lved_sqlite_showcase(
                     stubbed_entries[linked_id] = _write_lved_entry_stub(out_dir, linked_id)
         retained = inspect_lved_retained_resources(payload_path, sqlite_path)
         tree_summaries = _tree_rows_for_report(retained)
+        tree_pages = _write_lved_tree_pages(payload_path, out_dir, stub_entry_limit=linked_entry_limit)
         links = []
         for rendered in rendered_entries.values():
             links.append(f'<a class="lv-search-hit" href="{html.escape(rendered["path"])}">entry {rendered["content_id"]}</a>')
@@ -1638,6 +1887,8 @@ def render_lved_sqlite_showcase(
             links.append(f'<a class="lv-search-hit" href="{html.escape(page["path"])}">info {html.escape(page["name"])}</a>')
         for page in binran_pages:
             links.append(f'<a class="lv-search-hit" href="{html.escape(page["path"])}">binran {html.escape(page["name"])}</a>')
+        for page in tree_pages:
+            links.append(f'<a class="lv-search-hit" href="{html.escape(page["path"])}">tree {html.escape(page["source"])}</a>')
         search_html = []
         for report in search_reports:
             search_html.append(f'<h2>{html.escape(report["mode"])}: {html.escape(report["query"])}</h2>')
@@ -1649,8 +1900,9 @@ def render_lved_sqlite_showcase(
                     media=media_lookup,
                     loose=loose_lookup,
                 )
+                href = _lved_entry_href(int(hit["content_id"]), hit.get("anchor") or "")
                 search_html.append(
-                    f'<a class="lv-search-hit" href="entry_{int(hit["content_id"])}.html">'
+                    f'<a class="lv-search-hit" href="{href}">'
                     f"{title_fragment}"
                     f'<small> content={int(hit["content_id"])} list={int(hit["list_id"])}</small></a>'
                 )
@@ -1677,6 +1929,7 @@ def render_lved_sqlite_showcase(
             "stub_entry_pages": list(stubbed_entries.values()),
             "info_pages": info_pages,
             "binran_pages": binran_pages,
+            "tree_pages": tree_pages,
             "search_reports": search_reports,
             "retained_tree_summaries": tree_summaries,
         }
@@ -1726,6 +1979,7 @@ def inspect_lved_reader_features(sqlite_path: Path, payload_path: Path, *, sampl
             "table_roles": table_roles,
             "info_pages": info_pages,
             "optional_feature_tables": _sqlite_optional_feature_tables(con),
+            "optional_provider_readiness": _lved_optional_provider_readiness(con),
             "search_providers": _lved_search_provider_summaries(con),
             "home_surfaces": [
                 {"kind": page["role"], "name": page["name"], "id": page["id"], "status": "available"}
@@ -1786,71 +2040,47 @@ def _sqlite_correlate_tree_targets(con: sqlite3.Connection | None, values: set[i
 
 
 def _inspect_lved_text_tree(path: Path, text: str, encoding: str, con: sqlite3.Connection | None) -> dict[str, Any]:
-    rows = 0
     blank_labels = 0
     max_depth = 0
     target_values: set[int] = set()
     target_forms: Counter[str] = Counter()
+    query_keys: Counter[str] = Counter()
     depth_counts: Counter[str] = Counter()
     sentinel_rows = 0
     zero_rows = 0
-    unresolved_rows = 0
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        parts = line.rstrip("\r\n").split("\t")
-        if len(parts) < 3:
-            unresolved_rows += 1
-            continue
-        depth_value = _int_token(parts[1])
-        if depth_value is None:
-            unresolved_rows += 1
-            continue
-        target_token = parts[0].strip()
-        label = "\t".join(parts[2:]).strip()
-        rows += 1
-        max_depth = max(max_depth, depth_value)
-        depth_counts[str(depth_value)] += 1
-        if not label:
+    tree_rows, unresolved_rows = _parse_lved_text_tree_rows(text)
+    for row in tree_rows:
+        max_depth = max(max_depth, row.depth)
+        depth_counts[str(row.depth)] += 1
+        if not row.label:
             blank_labels += 1
-        target_value, has_query = _tree_target_int_token(target_token)
-        if target_value is None:
-            hex_value = _hex_token(target_token)
-            if hex_value is not None:
-                target_forms["hex"] += 1
-                target_values.add(hex_value)
-            else:
-                target_forms["other"] += 1
+        target_forms[row.target_form] += 1
+        query_keys.update(key for key, _value in row.query_params)
+        if row.target_value is None:
             continue
-        target_values.add(target_value)
-        if has_query:
-            target_forms["decimal_with_query"] += 1
-        elif target_value < 0:
-            target_forms["negative_sentinel"] += 1
+        target_values.add(row.target_value)
+        if row.target_form == "negative_sentinel":
             sentinel_rows += 1
-        elif target_value == 0:
-            target_forms["zero_root_or_sentinel"] += 1
+        elif row.target_form == "zero_root_or_sentinel":
             zero_rows += 1
-        elif target_token.startswith("0") and len(target_token) > 1:
-            target_forms["decimal_with_leading_zero"] += 1
-        else:
-            target_forms["decimal"] += 1
     correlation = _sqlite_correlate_tree_targets(con, target_values)
     role = "lved_text_navigation_tree"
     if correlation.get("best_match") in {"content_id", "list_refid", "list_anchor_padded_decimal"}:
         role = "sqlite_content_navigation_tree"
-    elif rows and int(correlation.get("best_matched_values", 0) or 0) == 0:
+    elif tree_rows and int(correlation.get("best_matched_values", 0) or 0) == 0:
         role = "unmatched_text_navigation_tree"
     return {
         "kind": "text_tree",
         "role": role,
         "encoding": encoding,
-        "rows": rows,
+        "rows": len(tree_rows),
         "unparsed_lines": unresolved_rows,
         "blank_label_rows": blank_labels,
         "max_depth": max_depth,
         "sentinel_rows": sentinel_rows,
         "zero_target_rows": zero_rows,
+        "query_rows": sum(1 for row in tree_rows if row.query_params),
+        "query_key_counts": dict(query_keys.most_common()),
         "target_forms": dict(sorted(target_forms.items())),
         "depth_counts": dict(sorted(depth_counts.items(), key=lambda item: int(item[0]))),
         "target_correlation": correlation,

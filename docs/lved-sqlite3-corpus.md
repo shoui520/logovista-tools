@@ -5,10 +5,10 @@ SQLCipher-backed dictionary family. The toolkit command remains `lved` because
 existing reports and recovered viewer names use that shorthand, but the useful
 format distinction is the decrypted SQLite3 data model.
 
-This page summarizes a full local corpus inspection of the modern SQLCipher
-payload set. The private run wrote schema/feature reports under
-`reports/lved-sqlite3-corpus-v1/`. No decrypted database, key string, or
-dictionary row text is committed.
+This page summarizes local corpus inspections of the modern SQLCipher payload
+set. Private schema, feature, retained-resource, loose-resource, and render
+reports live under `reports/lved-sqlite3-*`. No decrypted database, key string,
+or dictionary row text is committed.
 
 ## Corpus Shape
 
@@ -152,6 +152,12 @@ storage/query surface and returns real dictionary rows, but official ranking
 and product-specific search-dialog behavior still need dedicated UI parity
 tests.
 
+The native `sqlcipher` command-line client can open the validated payloads much
+faster than the pure-Python page decryptor used by the toolkit. That is useful
+for research probes, but toolkit support still validates/decrypts internally
+unless a future fast path is added explicitly. Full-corpus `--inspect-reader`
+passes should be treated as expensive with the current Python decryptor.
+
 ## Body And Link Signals
 
 The sampled body/info/title fields contain renderer-facing HTML and internal
@@ -199,7 +205,8 @@ The core model is stable, but several dictionaries add feature tables:
 These must be modeled as optional feature providers. They are not evidence for
 separate package families.
 
-The toolkit now classifies these tables by role during `--inspect-sqlite`.
+The toolkit now classifies these tables by role during `--inspect-sqlite` and
+emits `optional_provider_readiness` during `--inspect-reader`.
 Currently supported reader-facing handling is:
 
 - `list`, `content`, `media`, `info`, and `search` are active reader providers.
@@ -217,6 +224,10 @@ Currently supported reader-facing handling is:
   `item`, `t_contents`, and `t_convert` are classified feature tables. Their
   exact product UI semantics are not all implemented yet and should remain
   named providers/gaps, not hidden columns.
+- `optional_provider_readiness` records row counts, relevant non-empty body or
+  keyword counts, protocol/body signal summaries, media type distributions, and
+  target-column correlation where a provider column points back to SQLite
+  `content` / `list` rows.
 
 Targeted row inspection tightened several table roles:
 
@@ -267,11 +278,11 @@ dedicated retained-resource pass decodes all 25:
 | CP932 auxiliary hex tree | 1 | GENIUS53 rank/filter auxiliary tree. Its two hexadecimal fields do not map to SQLite content ids. |
 | SSEDATA index stream | 2 | GENIUS53 retained compressed SSED indexes with normal block/offset leaf targets. |
 
-The 22 decoded text trees all correlate primarily to SQLite `content.id` and
-`list.refid`, so they are not opaque blobs. They are navigation/category trees
-over the SQLite content store. The parser does not emit decoded labels in
-normal reports; it reports row counts, depth counts, target forms, and target
-correlation.
+The 22 decoded text trees all parse with zero unparsed rows and correlate
+primarily to SQLite `content.id` and `list.refid`, so they are not opaque blobs.
+They are navigation/category trees over the SQLite content store. The parser
+does not emit decoded labels in normal reports; it reports row counts, query
+parameter keys, depth counts, target forms, and target correlation.
 
 ```text
 DAIJIRN4     res/tree.idx
@@ -300,8 +311,16 @@ This confirms the reader architecture must not gate SSED/index parsers behind
 the SSED package family. SQLCipher packages can expose retained SSED-style
 indexes or trees as package-local feature providers.
 
-The private retained decode report is written under
-`reports/lved-sqlite3-retained-v2/`.
+The toolkit generic render path now materializes retained text trees as
+`tree_*.html` pages. Positive targets link to generated `entry_<id>.html` pages
+when those pages are already rendered or can be created within the configured
+linked-entry budget. Other valid entry targets are marked with
+`data-lv-deferred-entry` rather than generating dead links. Query suffixes such
+as `?key=...` are preserved as metadata (`data-lv-query`) for future frontend
+filter/search behavior.
+
+The private retained decode/render reports are written under
+`reports/lved-sqlite3-semantics-v2/`.
 
 ## Reader Probe And Generic Rendering
 
@@ -320,6 +339,13 @@ metadata tables. A real HBHYAKKA generic render produced 112 entry pages,
 24 info pages, 14 binran pages, and 244 linked-entry stubs with zero missing
 local references after link rewriting.
 
+The v2 retained-tree probe generated a NIHONSHI tree showcase from
+`res/nihonshi.idx`: 15,126 decoded rows, 15,055 query rows, zero tree-parser
+failures, 1,971 immediately clickable links, and deferred metadata for the
+remaining target rows outside the linked-entry budget. The remaining unresolved
+references in that render were external `../../_images/UpperCase-Letters/...`
+help-page assets, not retained-tree links.
+
 The generated HTML showcase is intentionally generic. It is useful for
 verifying link/media/resource mechanics, not for claiming exact LVEDVIEWER
 visual parity. Validation results from the v3 run:
@@ -335,6 +361,9 @@ visual parity. Validation results from the v3 run:
   table or loose resources.
 - `lved.media.sound:` links resolve to copied audio assets through `media`,
   `mediasub`, or `sound` rows when matching media names exist.
+- SQLite `media` / `mediasub` / `sound` payloads are decoded from BLOB values
+  or text-storage values without leaking Python `b'...'` byte reprs into
+  generated output.
 - `lved.bookmark:` and `lved.plugin:` are preserved as suppressed viewer hooks
   with their original target recorded in `data-lv-original-href`.
 - Headless Chromium loaded representative generated index pages.
@@ -401,9 +430,12 @@ end-user behavior. Still open:
 - official UI labels and ranking for `advanced*`, `filter`, and
   dictionary-specific metadata tables;
 - exact UI placement and interaction model for decoded text trees in each
-  product;
+  product; structural page generation is implemented, but official widget
+  placement remains unverified;
 - whether GENIUS53 retained SSEDATA index block/offset targets have a bridge to
   modern SQLite rows or are only legacy/search compatibility data;
+- unresolved external help/image assets referenced by some `info` pages, for
+  example the observed upper-case-letter help images;
 - complete visual rendering rules for every HTML/class/link pattern;
 - product-specific LVEDVIEWER template/CSS/JS application;
 - complete product semantics for optional providers such as `exam`, `genre`,

@@ -169,6 +169,11 @@ by products for phrases, examples, filters, or auxiliary search panes. Reader
 frontends should expose it only when the package capability metadata identifies
 what that product uses it for.
 
+The `filter` column commonly stores exact-boundary tokens such as
+`∥normalized query∥`. The toolkit's exact mode prefers that boundary form when
+the column exists. `advanced*` columns must not be assigned global labels
+without product evidence.
+
 READERS3 and RPLUSREV also have a secondary search/list pair:
 
 ```text
@@ -210,11 +215,24 @@ Observed links may contain duplicated `.html` suffixes, for example
 Some packages retain SSED-style or index-style files beside the SQLCipher
 payload, including `res/tree.idx`, `res/*.idx`, `BHINDEX.DIC`, and
 `BKINDEX.DIC`. The observed text-tree `.idx` files are UTF-8/CP932 tabular
-navigation trees whose positive targets correlate to SQLite `content.id` /
-`list.refid`. GENIUS53 also retains compressed SSEDATA `BHINDEX.DIC` and
-`BKINDEX.DIC` streams with normal SSED block/offset leaf targets. Reader
-architecture must share SSED/index parsers as feature providers when present
-instead of assuming `LVED_SQLITE3` packages are pure SQLite-only books.
+navigation trees with rows shaped as:
+
+```text
+target<TAB>depth<TAB>label
+```
+
+The `target` field can be a positive decimal SQLite content target, a negative
+sentinel/category value, a zero root/sentinel value, an eight-hex auxiliary
+target, or a target plus query suffix such as `12345?key=...`. Positive
+decimal targets in the observed text trees correlate to SQLite `content.id` /
+`list.refid`. Query suffixes are retained as target metadata; they should not
+be discarded just because the entry id is sufficient for simple navigation.
+
+GENIUS53 also retains compressed SSEDATA `BHINDEX.DIC` and `BKINDEX.DIC`
+streams with normal SSED block/offset leaf targets. Their block/offset bridge
+to modern SQLite rows is not proven. Reader architecture must share SSED/index
+parsers as feature providers when present instead of assuming
+`LVED_SQLITE3` packages are pure SQLite-only books.
 
 ## Reader Surfaces
 
@@ -227,7 +245,9 @@ the same resource/link path as entry bodies.
 Retained text trees such as `res/tree.idx` are navigation trees over SQLite
 content. Positive targets correlate to `content.id` / `list.refid`; negative
 targets are category/sentinel rows. They should become browse/navigation
-surfaces, not exporter-only diagnostics.
+surfaces, not exporter-only diagnostics. Generic showcase rendering now
+materializes decoded tree pages and marks out-of-budget valid entry targets as
+deferred links rather than producing broken local hrefs.
 
 The body/link protocols observed in the corpus include:
 
@@ -240,6 +260,11 @@ The body/link protocols observed in the corpus include:
 | `lved.media.sound:` | Resolve an audio media row through `media`, `mediasub`, or `sound`. |
 | `lved.bookmark:` | Viewer/user-state protocol; do not treat as content navigation. |
 | `lved.plugin:` | Viewer/plugin callback hook; suppress or preserve as metadata unless the frontend implements that plugin. |
+
+Known but not yet implemented protocols include `lved.pdf:`, `lved.browser.*`,
+`lved.dict.*`, `lved.findnum:`, `lved.select:`, and group/settings hooks. They
+should remain explicit unsupported hooks until a real package and viewer code
+path prove their behavior.
 
 ## Rendering Contract
 
@@ -255,6 +280,8 @@ Toolkit generic rendering therefore has this contract:
 - preserve source body HTML rather than flattening it;
 - rewrite known `lved.*` protocols to local pages/assets where possible;
 - copy BLOB/loose media assets needed by generated pages;
+- decode SQLite media values safely when a package stores a resource payload in
+  text storage rather than BLOB storage;
 - report or preserve unknown product hooks instead of claiming exact parity.
 
 Exact LVED_SQLITE3 reader parity is a separate renderer-template task.

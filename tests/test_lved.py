@@ -154,7 +154,7 @@ def test_lved_search_modes_join_list_to_content(tmp_path) -> None:
         create table list(id integer, refid integer, type integer, anchor text, title text, titlesub text);
         create table content(id integer, type integer, body text, media text);
         create virtual table search using fts4(forward, back, part, fts, advanced1, filter);
-        insert into list values(1, 42, 0, '', 'Alpha', '');
+        insert into list values(1, 42, 0, 'hit-anchor', 'Alpha', '');
         insert into content values(42, 0, '<div>Alpha body</div>', '');
         insert into search(docid, forward, back, part, fts, advanced1, filter)
           values(1, 'alpha', 'ahpla', 'a l p h a', 'alpha body', 'example phrase', '∥alpha∥');
@@ -223,10 +223,11 @@ def test_lved_render_showcase_rewrites_media_assets_and_info_surfaces(tmp_path) 
         create table info(id integer, type integer, name text, body text, media text);
         create table binran(id integer, type integer, name text, body text, media text);
         create virtual table search using fts4(forward, back, part, fts, filter);
-        insert into list values(1, 42, 0, '', 'Alpha', '');
-        insert into content values(42, 0, '<div class="midashi">Alpha</div><img src="pic.png"><a href="lved.dataid:42#anchor">self</a><a href="lved.info:hanrei.html#top">help</a><a href="lved.media.sound:snd.mp3">sound</a><a href="lved.bookmark:42">bookmark</a><a href="lved.binran:ref.html.html#x">ref</a><a href="lved.plugin:noop">plugin</a>', '');
+        insert into list values(1, 42, 0, 'hit-anchor', 'Alpha', '');
+        insert into content values(42, 0, '<div class="midashi">Alpha</div><img src="pic.png"><img src="txtasset"><a href="lved.dataid:42#anchor">self</a><a href="lved.info:hanrei.html#top">help</a><a href="lved.media.sound:snd.mp3">sound</a><a href="lved.bookmark:42">bookmark</a><a href="lved.binran:ref.html.html#x">ref</a><a href="lved.plugin:noop">plugin</a>', '');
         insert into content values(99, 0, '<div>Linked from info</div>', '');
         insert into media values(7, 'pic', 2, x'47494638396101000100800000ffffff00000021f90401000000002c00000000010001000002024401003b');
+        insert into media values(9, 'txtasset', 2, 'text storage resource');
         insert into sound values(8, 'snd', 5, x'49443303000000000000');
         insert into info values(1, 0, 'hanrei.html', '<div><img src="pic.png"><a href="lved.dataid:99">Help</a></div>', '');
         insert into binran values(1, 2, 'ref.html', '<div>Reference</div>', '');
@@ -242,8 +243,11 @@ def test_lved_render_showcase_rewrites_media_assets_and_info_surfaces(tmp_path) 
 
     assert report["status"] == "rendered"
     assert (out / "assets" / "pic.gif").is_file()
+    assert (out / "assets" / "txtasset.bin").read_text(encoding="utf-8") == "text storage resource"
     assert "entry_42.html" in index
+    assert 'href="entry_42.html#hit-anchor"' in index
     assert 'src="assets/pic.gif"' in entry
+    assert 'src="assets/txtasset.bin"' in entry
     assert 'href="entry_42.html#anchor"' in entry
     assert 'href="info_hanrei.html#top"' in entry
     assert 'href="assets/snd.mp3"' in entry
@@ -288,6 +292,43 @@ def test_lved_reader_features_classify_hanrei_and_fragments(tmp_path) -> None:
     assert report["search_providers"][0]["available_modes"] == ["exact", "forward", "backward", "partial", "fulltext", "filter"]
 
 
+def test_lved_reader_features_summarize_optional_providers(tmp_path) -> None:
+    package = tmp_path / "_DCT_TEST"
+    package.mkdir()
+    payload = package / "main.data"
+    payload.write_bytes(b"x" * 4096)
+    db = tmp_path / "payload.sqlite"
+    import sqlite3
+
+    con = sqlite3.connect(db)
+    con.executescript(
+        """
+        create table list(id integer, refid integer, type integer, anchor text, title text);
+        create table content(id integer, type integer, body text, media text);
+        create table t_contents(f_DataId integer, f_Type integer, f_Title text, f_Html text, f_Plane text, f_Keyword text);
+        create table t_convert(f_array_no integer, block integer, offset integer, old_title text, id integer, title text, type integer);
+        create table sound(id integer, name text, type integer, main blob);
+        insert into list values(1, 42, 0, '', 'Alpha');
+        insert into content values(42, 0, '<div>Alpha body</div>', '');
+        insert into t_contents values(42, 2, 'Alpha', '<div class="midashi">Alpha</div>', 'Alpha body', 'alpha');
+        insert into t_convert values(1, 3, 128, 'old alpha', 42, 'Alpha', 2);
+        insert into sound values(1, 'alpha.mp3', 5, x'49443303000000000000');
+        """
+    )
+    con.close()
+
+    report = inspect_lved_reader_features(db, payload)
+    providers = {item["table"]: item for item in report["optional_provider_readiness"]}
+
+    assert providers["t_contents"]["provider_kind"] == "legacy_html_content_rows"
+    assert providers["t_contents"]["html_rows"] == 1
+    assert providers["t_contents"]["target_columns"]["f_DataId"]["best_match"] == "content_id"
+    assert providers["t_convert"]["provider_kind"] == "legacy_block_offset_bridge"
+    assert providers["t_convert"]["target_columns"]["id"]["best_match"] == "content_id"
+    assert providers["sound"]["provider_kind"] == "audio_blob_store"
+    assert providers["sound"]["type_counts"] == [{"value": "5", "count": 1}]
+
+
 def test_lved_retained_text_tree_decodes_and_correlates_without_row_text(tmp_path) -> None:
     package = tmp_path / "_DCT_TEST"
     package.mkdir()
@@ -295,7 +336,7 @@ def test_lved_retained_text_tree_decodes_and_correlates_without_row_text(tmp_pat
     payload.write_bytes(b"x" * 4096)
     res = package / "res"
     res.mkdir()
-    (res / "tree.idx").write_text("-127\t0\tRoot Label\n42\t1\tVisible Entry\n", encoding="utf-8-sig")
+    (res / "tree.idx").write_text("-127\t0\tRoot Label\n42?key=visible\t1\tVisible Entry\n", encoding="utf-8-sig")
     db = tmp_path / "payload.sqlite"
     import sqlite3
 
@@ -318,9 +359,102 @@ def test_lved_retained_text_tree_decodes_and_correlates_without_row_text(tmp_pat
     assert item["role"] == "sqlite_content_navigation_tree"
     assert item["rows"] == 2
     assert item["sentinel_rows"] == 1
+    assert item["query_rows"] == 1
+    assert item["query_key_counts"] == {"key": 1}
+    assert item["target_forms"]["decimal_with_query"] == 1
     assert item["target_correlation"]["matches"]["content_id"]["matched_values"] == 1
     assert item["target_correlation"]["matches"]["list_refid"]["matched_values"] == 1
     assert "Visible Entry" not in rendered
+
+
+def test_lved_render_showcase_materializes_retained_tree_navigation(tmp_path) -> None:
+    package = tmp_path / "_DCT_TEST"
+    package.mkdir()
+    payload = package / "main.data"
+    payload.write_bytes(b"x" * 4096)
+    res = package / "res"
+    res.mkdir()
+    (res / "tree.idx").write_text("-127\t0\tRoot Label\n42?key=visible\t1\tVisible Entry\n", encoding="utf-8-sig")
+    db = tmp_path / "payload.sqlite"
+    import sqlite3
+
+    con = sqlite3.connect(db)
+    con.executescript(
+        """
+        create table list(id integer, refid integer, type integer, anchor text, title text);
+        create table content(id integer, type integer, body text, media text);
+        create table media(id integer, name text, type integer, main blob);
+        create table info(id integer, type integer, name text, body text, media text);
+        create virtual table search using fts4(forward, back, part, fts, filter);
+        insert into list values(1, 42, 0, '', 'Visible Entry');
+        insert into content values(42, 0, '<div>Visible Entry</div>', '');
+        insert into search(docid, forward, back, part, fts, filter) values(1, 'visible', 'elbisiv', 'v i s i b l e', 'visible entry', '∥visible∥');
+        """
+    )
+    con.close()
+
+    out = tmp_path / "showcase"
+    report = render_lved_sqlite_showcase(db, payload, out, queries=["visible"], modes=["exact"], limit=5)
+    tree_page = out / report["tree_pages"][0]["path"]
+    html = tree_page.read_text(encoding="utf-8")
+
+    assert report["tree_pages"][0]["source"] == "res/tree.idx"
+    assert report["tree_pages"][0]["linked_rows"] == 1
+    assert 'href="entry_42.html"' in html
+    assert 'data-lv-query="key=visible"' in html
+    assert "Visible Entry" in html
+
+
+def test_lved_render_showcase_marks_retained_tree_deferred_targets(tmp_path) -> None:
+    package = tmp_path / "_DCT_TEST"
+    package.mkdir()
+    payload = package / "main.data"
+    payload.write_bytes(b"x" * 4096)
+    res = package / "res"
+    res.mkdir()
+    (res / "tree.idx").write_text(
+        "-127\t0\tRoot Label\n42\t1\tVisible Entry\n43\t1\tDeferred Entry\n",
+        encoding="utf-8-sig",
+    )
+    db = tmp_path / "payload.sqlite"
+    import sqlite3
+
+    con = sqlite3.connect(db)
+    con.executescript(
+        """
+        create table list(id integer, refid integer, type integer, anchor text, title text);
+        create table content(id integer, type integer, body text, media text);
+        create table media(id integer, name text, type integer, main blob);
+        create table info(id integer, type integer, name text, body text, media text);
+        create virtual table search using fts4(forward, back, part, fts, filter);
+        insert into list values(1, 42, 0, '', 'Visible Entry');
+        insert into list values(2, 43, 0, '', 'Deferred Entry');
+        insert into content values(42, 0, '<div>Visible Entry</div>', '');
+        insert into content values(43, 0, '<div>Deferred Entry</div>', '');
+        insert into search(docid, forward, back, part, fts, filter) values(1, 'visible', 'elbisiv', 'v i s i b l e', 'visible entry', '∥visible∥');
+        """
+    )
+    con.close()
+
+    out = tmp_path / "showcase"
+    report = render_lved_sqlite_showcase(
+        db,
+        payload,
+        out,
+        queries=["visible"],
+        modes=["exact"],
+        limit=1,
+        linked_entry_limit=0,
+    )
+    tree_page = out / report["tree_pages"][0]["path"]
+    html = tree_page.read_text(encoding="utf-8")
+
+    assert report["tree_pages"][0]["linked_rows"] == 1
+    assert report["tree_pages"][0]["deferred_entry_rows"] == 1
+    assert report["tree_pages"][0]["stubbed_entry_rows"] == 0
+    assert 'href="entry_42.html"' in html
+    assert 'data-lv-deferred-entry="43"' in html
+    assert 'href="entry_43.html"' not in html
 
 
 def test_lved_retained_aux_text_tree_decodes_cp932_without_row_text(tmp_path) -> None:
