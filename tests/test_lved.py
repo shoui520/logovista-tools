@@ -174,6 +174,37 @@ def test_lved_search_modes_join_list_to_content(tmp_path) -> None:
         assert report["hits"][0]["content_id"] == 42
 
 
+def test_lved_secondary_searchsub_provider(tmp_path) -> None:
+    db = tmp_path / "payload.sqlite"
+    import sqlite3
+
+    con = sqlite3.connect(db)
+    con.executescript(
+        """
+        create table list(id integer, refid integer, type integer, anchor text, title text, titlesub text);
+        create table content(id integer, type integer, body text, media text);
+        create table listsub(id integer, refid integer, type integer, anchor text, title text, titlesub text);
+        create virtual table search using fts4(forward, back, part, fts, filter);
+        create virtual table searchsub using fts4(advanced3);
+        insert into list values(1, 42, 0, '', 'Main', '');
+        insert into listsub values(7, 99, 0, '', 'Secondary', '');
+        insert into content values(42, 0, '<div>Main body</div>', '');
+        insert into content values(99, 0, '<div>Secondary body</div>', '');
+        insert into search(docid, forward, back, part, fts, filter) values(1, 'main', 'niam', 'm a i n', 'main body', '∥main∥');
+        insert into searchsub(docid, advanced3) values(7, 'secondary phrase');
+        """
+    )
+    con.close()
+
+    report = search_lved_sqlite_database(db, "phrase", mode="advanced3")
+
+    assert report["status"] == "ok"
+    assert report["search_table"] == "searchsub"
+    assert report["list_table"] == "listsub"
+    assert report["hits"][0]["list_id"] == 7
+    assert report["hits"][0]["content_id"] == 99
+
+
 def test_lved_render_showcase_rewrites_media_assets_and_info_surfaces(tmp_path) -> None:
     package = tmp_path / "_DCT_TEST"
     package.mkdir()
@@ -188,14 +219,17 @@ def test_lved_render_showcase_rewrites_media_assets_and_info_surfaces(tmp_path) 
         create table list(id integer, refid integer, type integer, anchor text, title text, titlesub text);
         create table content(id integer, type integer, body text, media text);
         create table media(id integer, name text, type integer, main blob);
+        create table sound(id integer, name text, type integer, main blob);
         create table info(id integer, type integer, name text, body text, media text);
+        create table binran(id integer, type integer, name text, body text, media text);
         create virtual table search using fts4(forward, back, part, fts, filter);
         insert into list values(1, 42, 0, '', 'Alpha', '');
-        insert into content values(42, 0, '<div class="midashi">Alpha</div><img src="pic.png"><a href="lved.dataid:42#anchor">self</a><a href="lved.info:hanrei.html#top">help</a><a href="lved.media.sound:snd.mp3">sound</a><a href="lved.bookmark:42">bookmark</a>', '');
+        insert into content values(42, 0, '<div class="midashi">Alpha</div><img src="pic.png"><a href="lved.dataid:42#anchor">self</a><a href="lved.info:hanrei.html#top">help</a><a href="lved.media.sound:snd.mp3">sound</a><a href="lved.bookmark:42">bookmark</a><a href="lved.binran:ref.html.html#x">ref</a><a href="lved.plugin:noop">plugin</a>', '');
         insert into content values(99, 0, '<div>Linked from info</div>', '');
         insert into media values(7, 'pic', 2, x'47494638396101000100800000ffffff00000021f90401000000002c00000000010001000002024401003b');
-        insert into media values(8, 'snd', 5, x'49443303000000000000');
+        insert into sound values(8, 'snd', 5, x'49443303000000000000');
         insert into info values(1, 0, 'hanrei.html', '<div><img src="pic.png"><a href="lved.dataid:99">Help</a></div>', '');
+        insert into binran values(1, 2, 'ref.html', '<div>Reference</div>', '');
         insert into search(docid, forward, back, part, fts, filter) values(1, 'alpha', 'ahpla', 'a l p h a', 'alpha body', '∥alpha∥');
         """
     )
@@ -214,8 +248,12 @@ def test_lved_render_showcase_rewrites_media_assets_and_info_surfaces(tmp_path) 
     assert 'href="info_hanrei.html#top"' in entry
     assert 'href="assets/snd.mp3"' in entry
     assert 'href="#" data-lv-original-href="lved.bookmark:42"' in entry
+    assert 'href="binran_ref.html#x"' in entry
+    assert 'href="#" data-lv-original-href="lved.plugin:noop"' in entry
     assert 'href="entry_99.html"' in (out / "info_hanrei.html").read_text(encoding="utf-8")
     assert (out / "entry_99.html").is_file()
+    assert (out / "binran_ref.html").is_file()
+    assert report["binran_pages"][0]["path"] == "binran_ref.html"
 
 
 def test_lved_reader_features_classify_hanrei_and_fragments(tmp_path) -> None:
@@ -234,8 +272,8 @@ def test_lved_reader_features_classify_hanrei_and_fragments(tmp_path) -> None:
         create table media(id integer, name text, type integer, main blob);
         create table info(id integer, type integer, name text, body text, media text);
         create virtual table search using fts4(forward, back, part, fts, filter);
-        insert into content values(42, 0, '<div class="midashi"><img src="pic.png">Alpha</div>', '');
-        insert into info values(1, 0, 'hanrei.html', '<div>Help</div>', '');
+        insert into content values(42, 0, '<div class="midashi"><img src="pic.png"><a href="lved.dataid:42">Alpha</a></div>', '');
+        insert into info values(1, 0, 'hanrei.html', '<div><a href="lved.info:index.html">Help</a></div>', '');
         """
     )
     con.close()
@@ -245,6 +283,9 @@ def test_lved_reader_features_classify_hanrei_and_fragments(tmp_path) -> None:
     assert report["home_surfaces"][0]["kind"] == "hanrei"
     assert report["render_readiness"]["requires_viewer_templates_or_css"] is True
     assert report["render_readiness"]["sample_image_ref_count"] == 1
+    assert report["render_readiness"]["protocol_counts"]["lved.dataid:"] == 1
+    assert report["render_readiness"]["info_body"]["protocol_counts"]["lved.info:"] == 1
+    assert report["search_providers"][0]["available_modes"] == ["exact", "forward", "backward", "partial", "fulltext", "filter"]
 
 
 def test_lved_retained_text_tree_decodes_and_correlates_without_row_text(tmp_path) -> None:

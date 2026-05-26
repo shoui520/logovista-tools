@@ -920,6 +920,10 @@ validated as SQLCipher, decrypted to SQLite3, and exposed the same core tables:
 The corpus also shows optional feature tables such as `exam`, `genre`,
 `bunya`, `kanji`, `kwit`, `joken`, `sakuin`, `listsub`/`searchsub*`,
 `mediasub`, `sound`, `binran`, `t_contents`, `t_convert`, and `item`.
+Follow-up reader probes confirmed `searchsub/listsub` as a secondary native
+search provider, `binran` as named reference-page HTML, `sound`/`mediasub` as
+secondary media stores, `t_contents` as a legacy HTML-content table, and
+`t_convert` as an old block/offset-to-modern-id bridge.
 Several payload directories retain SSED-style `.idx` or `*INDEX.DIC` files.
 All 25 observed retained files now decode: 22 text navigation trees target
 SQLite `content.id` / `list.refid`, GENIUS53 has one auxiliary CP932 hex tree,

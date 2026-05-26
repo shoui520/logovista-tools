@@ -55,11 +55,13 @@ _LOOSE_IMAGE_SUFFIXES = {".png", ".gif", ".jpg", ".jpeg", ".webp", ".bmp", ".svg
 _LOOSE_FONT_SUFFIXES = {".otf", ".ttf", ".ttc", ".woff", ".woff2"}
 _LOOSE_WEB_TEXT_SUFFIXES = {".css", ".htm", ".html", ".js", ".json", ".md", ".txt", ".yaml", ".yml"}
 _PAYLOAD_NAMES = {"main.data"}
-_LVED_SEARCH_MODES = {"exact", "forward", "backward", "partial", "fulltext", "filter", "advanced1", "advanced2", "advanced3"}
+_LVED_SEARCH_MODES = {"exact", "forward", "backward", "partial", "fulltext", "filter", "advanced", "advanced1", "advanced2", "advanced3"}
 _LVED_PROTOCOL_RE = re.compile(r"""(?P<attr>href|src)\s*=\s*(?P<quote>["'])(?P<value>[^"']+)(?P=quote)""", re.IGNORECASE)
 _HTML_SRC_RE = re.compile(r"""src\s*=\s*(["'])([^"']+)\1""", re.IGNORECASE)
 _HTML_HREF_RE = re.compile(r"""href\s*=\s*(["'])([^"']+)\1""", re.IGNORECASE)
 _LVED_TARGET_SPLIT_RE = re.compile(r"[?#]", re.ASCII)
+_LVED_PROTOCOL_TOKEN_RE = re.compile(r"lved\.[a-z]+(?:\.[a-z]+)?:", re.IGNORECASE)
+_LVED_CORE_TABLES = {"list", "content", "media", "info", "search"}
 
 
 @dataclass(frozen=True)
@@ -873,12 +875,28 @@ def _lved_list_select_columns(con: sqlite3.Connection, table: str = "list") -> s
     return ", ".join(parts)
 
 
-def _lved_search_where(con: sqlite3.Connection, query: str, mode: str) -> tuple[str, tuple[Any, ...], str, str]:
+def _lved_search_tables_for_mode(con: sqlite3.Connection, mode: str) -> tuple[str, str, str | None]:
+    search_columns = {column.casefold() for column in _sqlite_columns(con, "search")} if _sqlite_table_exists(con, "search") else set()
+    if mode in {"exact", "forward", "backward", "partial", "fulltext", "filter"} or mode in search_columns:
+        return "search", "list", None
+    searchsub_columns = {column.casefold() for column in _sqlite_columns(con, "searchsub")} if _sqlite_table_exists(con, "searchsub") else set()
+    if mode in searchsub_columns and _sqlite_table_exists(con, "listsub"):
+        return "searchsub", "listsub", "secondary searchsub/listsub provider"
+    return "search", "list", None
+
+
+def _lved_search_where(
+    con: sqlite3.Connection,
+    query: str,
+    mode: str,
+    *,
+    search_table: str = "search",
+) -> tuple[str, tuple[Any, ...], str, str]:
     mode = mode.casefold()
     if mode not in _LVED_SEARCH_MODES:
         raise ValueError(f"unsupported LVED search mode: {mode}")
     normalized = _normalize_lved_query(query)
-    search_columns = {column.casefold() for column in _sqlite_columns(con, "search")}
+    search_columns = {column.casefold() for column in _sqlite_columns(con, search_table)}
     if not normalized:
         return "0", (), mode, "empty query"
     if mode == "exact":
@@ -909,20 +927,25 @@ def _lved_search_where(con: sqlite3.Connection, query: str, mode: str) -> tuple[
         expr = _lved_fts_expr(column, tokens)
     if not expr:
         return "0", (), mode, "query produced no FTS terms"
-    return "s.rowid in (select rowid from search where search match ?)", (expr,), mode, expr
+    quoted_search = _quote_identifier(search_table)
+    return f"s.rowid in (select rowid from {quoted_search} where {quoted_search} match ?)", (expr,), mode, expr
 
 
 def search_lved_sqlite_database(path: Path, query: str, *, mode: str = "forward", limit: int = 20) -> dict[str, Any]:
     con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     try:
-        if not _sqlite_table_exists(con, "search") or not _sqlite_table_exists(con, "list"):
-            return {"query": query, "mode": mode, "status": "unsupported", "reason": "missing search/list tables", "hits": []}
-        where, params, normalized_mode, strategy = _lved_search_where(con, query, mode)
-        select_columns = _lved_list_select_columns(con)
+        normalized_mode = mode.casefold()
+        search_table, list_table, provider_note = _lved_search_tables_for_mode(con, normalized_mode)
+        if not _sqlite_table_exists(con, search_table) or not _sqlite_table_exists(con, list_table):
+            return {"query": query, "mode": mode, "status": "unsupported", "reason": f"missing {search_table}/{list_table} tables", "hits": []}
+        where, params, normalized_mode, strategy = _lved_search_where(con, query, normalized_mode, search_table=search_table)
+        select_columns = _lved_list_select_columns(con, list_table)
+        quoted_search = _quote_identifier(search_table)
+        quoted_list = _quote_identifier(list_table)
         sql = (
-            f"select {select_columns} from search s "
-            f"join list l on l.id = s.rowid where {where} "
+            f"select {select_columns} from {quoted_search} s "
+            f"join {quoted_list} l on l.id = s.rowid where {where} "
             "order by l.id limit ?"
         )
         hits = [
@@ -941,6 +964,9 @@ def search_lved_sqlite_database(path: Path, query: str, *, mode: str = "forward"
             "mode": normalized_mode,
             "status": "ok",
             "strategy": strategy,
+            "search_table": search_table,
+            "list_table": list_table,
+            "provider": provider_note or "primary search/list provider",
             "limit": limit,
             "hit_count": len(hits),
             "hits": hits,
@@ -979,21 +1005,37 @@ def _safe_asset_name(name: str) -> str:
     return cleaned or "resource"
 
 
+def _safe_lved_named_page_stem(target: str, *, fallback: str) -> str:
+    """Return the generated page stem for info/binran-style named HTML rows.
+
+    Some real LVED payloads link to ``foo.html.html`` while the row name is
+    ``foo.html``.  Treat repeated HTML suffixes as a protocol wart and collapse
+    them so generated named pages and rewritten links agree.
+    """
+
+    name = _LVED_TARGET_SPLIT_RE.split(target.strip(), 1)[0]
+    while name.casefold().endswith(".html"):
+        name = name[:-5]
+    return _safe_asset_name(Path(name).stem or name or fallback)
+
+
 def _media_lookup(con: sqlite3.Connection) -> dict[str, tuple[int, str, bytes]]:
-    if not _sqlite_table_exists(con, "media"):
-        return {}
-    columns = {column.casefold() for column in _sqlite_columns(con, "media")}
-    if not {"id", "name", "main"} <= columns:
-        return {}
     lookup: dict[str, tuple[int, str, bytes]] = {}
-    for row in con.execute("select id, name, main from media where main is not null"):
-        media_id = int(row[0])
-        name = "" if row[1] is None else str(row[1])
-        blob = bytes(row[2])
-        keys = {name.casefold(), Path(name).stem.casefold(), str(media_id)}
-        for key in keys:
-            if key and key not in lookup:
-                lookup[key] = (media_id, name, blob)
+    for table in ("media", "mediasub", "sound"):
+        if not _sqlite_table_exists(con, table):
+            continue
+        columns = {column.casefold() for column in _sqlite_columns(con, table)}
+        if not {"id", "name", "main"} <= columns:
+            continue
+        quoted_table = _quote_identifier(table)
+        for row in con.execute(f"select id, name, main from {quoted_table} where main is not null"):
+            media_id = int(row[0])
+            name = "" if row[1] is None else str(row[1])
+            blob = bytes(row[2])
+            keys = {name.casefold(), Path(name).stem.casefold(), str(media_id)}
+            for key in keys:
+                if key and key not in lookup:
+                    lookup[key] = (media_id, name, blob)
     return lookup
 
 
@@ -1076,9 +1118,21 @@ def _rewrite_lved_fragment(
                 anchor = "#" + raw_target.split("#", 1)[1]
             if target:
                 stats["info_links_rewritten"] += 1
-                safe_name = _safe_asset_name(Path(target).stem or target)
+                safe_name = _safe_lved_named_page_stem(target, fallback="info")
                 return f'{attr}={quote}info_{safe_name}.html{html.escape(anchor, quote=True)}{quote}'
             stats["info_links_unresolved"] += 1
+            return match.group(0)
+        if attr.casefold() == "href" and lower.startswith("lved.binran:"):
+            raw_target = value.split(":", 1)[1]
+            target = _LVED_TARGET_SPLIT_RE.split(raw_target, 1)[0]
+            anchor = ""
+            if "#" in raw_target:
+                anchor = "#" + raw_target.split("#", 1)[1]
+            if target:
+                stats["binran_links_rewritten"] += 1
+                safe_name = _safe_lved_named_page_stem(target, fallback="binran")
+                return f'{attr}={quote}binran_{safe_name}.html{html.escape(anchor, quote=True)}{quote}'
+            stats["binran_links_unresolved"] += 1
             return match.group(0)
         if attr.casefold() == "href" and lower.startswith(("lved.media.sound:", "lved.sound:", "lved.media:")):
             href = _write_lved_asset(value, assets_dir=assets_dir, media=media, loose=loose)
@@ -1088,6 +1142,9 @@ def _rewrite_lved_fragment(
             stats["media_links_unresolved"] += 1
         if attr.casefold() == "href" and lower.startswith("lved.bookmark:"):
             stats["bookmark_links_suppressed"] += 1
+            return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
+        if attr.casefold() == "href" and lower.startswith("lved.plugin:"):
+            stats["plugin_links_suppressed"] += 1
             return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
         if attr.casefold() == "src" or lower.startswith(("lved.image:", "lved.imag:")):
             src = _write_lved_asset(value, assets_dir=assets_dir, media=media, loose=loose)
@@ -1209,10 +1266,55 @@ def _write_lved_info_pages(
         name = "" if row["name"] is None else str(row["name"])
         body = "" if row["body"] is None else str(row["body"])
         rewritten, stats, linked_content_ids = _rewrite_lved_fragment(body, assets_dir=assets_dir, media=media_lookup, loose=loose_lookup)
-        safe_name = _safe_asset_name(Path(name).stem or f"info_{row['id']}")
+        safe_name = _safe_lved_named_page_stem(name, fallback=f"info_{row['id']}")
         target = out_dir / f"info_{safe_name}.html"
         target.write_text(
             _lved_page(name or f"info {row['id']}", f'<main class="lv-info"><div class="lv-meta">info.id={row["id"]} name={html.escape(name)}</div>{rewritten}</main>'),
+            encoding="utf-8",
+        )
+        pages.append(
+            {
+                "id": int(row["id"]),
+                "name": name,
+                "path": target.name,
+                "body_bytes": len(body.encode("utf-8")),
+                "rewrite": stats,
+                "linked_content_ids": sorted(linked_content_ids),
+            }
+        )
+    return pages
+
+
+def _write_lved_named_body_pages(
+    con: sqlite3.Connection,
+    out_dir: Path,
+    *,
+    table: str,
+    path_prefix: str,
+    page_class: str,
+    media_lookup: dict[str, tuple[int, str, bytes]],
+    loose_lookup: dict[str, Path],
+    limit: int,
+) -> list[dict[str, Any]]:
+    if not _sqlite_table_exists(con, table):
+        return []
+    columns = {column.casefold() for column in _sqlite_columns(con, table)}
+    if not {"id", "name", "body"} <= columns:
+        return []
+    assets_dir = out_dir / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    pages: list[dict[str, Any]] = []
+    for row in con.execute(f"select id, name, body from {_quote_identifier(table)} order by id limit ?", (limit,)):
+        name = "" if row["name"] is None else str(row["name"])
+        body = "" if row["body"] is None else str(row["body"])
+        rewritten, stats, linked_content_ids = _rewrite_lved_fragment(body, assets_dir=assets_dir, media=media_lookup, loose=loose_lookup)
+        safe_name = _safe_lved_named_page_stem(name, fallback=f"{table}_{row['id']}")
+        target = out_dir / f"{path_prefix}_{safe_name}.html"
+        target.write_text(
+            _lved_page(
+                name or f"{table} {row['id']}",
+                f'<main class="{html.escape(page_class)}"><div class="lv-meta">{html.escape(table)}.id={row["id"]} name={html.escape(name)}</div>{rewritten}</main>',
+            ),
             encoding="utf-8",
         )
         pages.append(
@@ -1234,6 +1336,196 @@ def _tree_rows_for_report(retained: dict[str, Any]) -> list[dict[str, Any]]:
         if item.get("kind") == "text_tree":
             rows.append(item)
     return rows
+
+
+def _sqlite_non_empty_count(con: sqlite3.Connection, table: str, column: str) -> int | None:
+    try:
+        return int(
+            con.execute(
+                f"select count(*) from {_quote_identifier(table)} "
+                f"where {_quote_identifier(column)} is not null and {_quote_identifier(column)} != ''"
+            ).fetchone()[0]
+        )
+    except sqlite3.Error:
+        return None
+
+
+def _sqlite_like_count(con: sqlite3.Connection, table: str, column: str, pattern: str) -> int | None:
+    try:
+        return int(
+            con.execute(
+                f"select count(*) from {_quote_identifier(table)} "
+                f"where {_quote_identifier(column)} like ?",
+                (pattern,),
+            ).fetchone()[0]
+        )
+    except sqlite3.Error:
+        return None
+
+
+def _sqlite_int_values_from_column(con: sqlite3.Connection, table: str, column: str, *, limit: int = 4096) -> set[int]:
+    if not _sqlite_table_exists(con, table):
+        return set()
+    values: set[int] = set()
+    try:
+        rows = con.execute(
+            f"select {_quote_identifier(column)} from {_quote_identifier(table)} "
+            f"where {_quote_identifier(column)} is not null limit ?",
+            (limit,),
+        )
+    except sqlite3.Error:
+        return values
+    for row in rows:
+        value = _int_token(str(row[0]))
+        if value is not None:
+            values.add(value)
+    return values
+
+
+def _sqlite_correlate_common_targets(con: sqlite3.Connection, values: set[int]) -> dict[str, Any]:
+    correlations = {
+        "content_id": _sqlite_distinct_matches(con, "content", "id", values),
+        "list_id": _sqlite_distinct_matches(con, "list", "id", values),
+        "list_refid": _sqlite_distinct_matches(con, "list", "refid", values),
+        "info_id": _sqlite_distinct_matches(con, "info", "id", values),
+        "media_id": _sqlite_distinct_matches(con, "media", "id", values),
+    }
+    if _sqlite_table_exists(con, "listsub"):
+        correlations["listsub_id"] = _sqlite_distinct_matches(con, "listsub", "id", values)
+        correlations["listsub_refid"] = _sqlite_distinct_matches(con, "listsub", "refid", values)
+    best_name = "none"
+    best_count = 0
+    for name, result in correlations.items():
+        count = int(result.get("matched_values", 0))
+        if count > best_count:
+            best_name = name
+            best_count = count
+    return {
+        "status": "matched" if best_count else "unmatched",
+        "sampled_distinct_values": len(values),
+        "best_match": best_name,
+        "best_matched_values": best_count,
+        "matches": correlations,
+    }
+
+
+def _sqlite_optional_feature_tables(con: sqlite3.Connection) -> list[dict[str, Any]]:
+    tables: list[dict[str, Any]] = []
+    shadow_suffixes = ("_content", "_docsize", "_segdir", "_segments", "_stat")
+    for row in con.execute("select name, sql from sqlite_master where type='table' and name not like 'sqlite_%' order by name"):
+        name = str(row["name"])
+        lower = name.casefold()
+        if lower in _LVED_CORE_TABLES or ((lower.startswith("search_") or lower.startswith("searchsub_")) and lower.endswith(shadow_suffixes)):
+            continue
+        columns = _sqlite_columns(con, name)
+        item: dict[str, Any] = {
+            "name": name,
+            "role": _sqlite_table_role(name, row["sql"] if isinstance(row["sql"], str) else None),
+            "row_count": _safe_count(con, name),
+            "columns": columns,
+            "features": _sqlite_table_features(name, columns),
+        }
+        target_columns: dict[str, Any] = {}
+        for column in columns:
+            lower_column = column.casefold()
+            if lower_column in {"id", "refid", "data_id", "f_dataid", "f_id", "anchor"}:
+                values = _sqlite_int_values_from_column(con, name, column)
+                if values:
+                    target_columns[column] = _sqlite_correlate_common_targets(con, values)
+        if {"block", "offset"} <= {column.casefold() for column in columns}:
+            item["address_shape"] = "block_offset_bridge_candidate"
+        if target_columns:
+            item["target_columns"] = target_columns
+        tables.append(item)
+    return tables
+
+
+def _lved_search_provider_summaries(con: sqlite3.Connection) -> list[dict[str, Any]]:
+    providers: list[dict[str, Any]] = []
+    for search_table, list_table in (("search", "list"), ("searchsub", "listsub")):
+        if not _sqlite_table_exists(con, search_table):
+            continue
+        columns = _sqlite_columns(con, search_table)
+        column_set = {column.casefold() for column in columns}
+        modes = []
+        for mode, required in (
+            ("exact", "filter"),
+            ("forward", "forward"),
+            ("backward", "back"),
+            ("partial", "part"),
+            ("fulltext", "fts"),
+            ("filter", "filter"),
+            ("advanced", "advanced"),
+            ("advanced1", "advanced1"),
+            ("advanced2", "advanced2"),
+            ("advanced3", "advanced3"),
+        ):
+            if required in column_set:
+                modes.append(mode)
+        column_counts = {
+            column: {"non_empty_rows": _sqlite_non_empty_count(con, search_table, column)}
+            for column in columns
+            if not column.casefold().startswith("docid")
+        }
+        if "filter" in column_set:
+            column_counts["filter"]["boundary_token_rows"] = _sqlite_like_count(con, search_table, "filter", "%∥%")
+        providers.append(
+            {
+                "search_table": search_table,
+                "list_table": list_table,
+                "role": _sqlite_table_role(search_table, None),
+                "row_count": _safe_count(con, search_table),
+                "list_row_count": _safe_count(con, list_table) if _sqlite_table_exists(con, list_table) else None,
+                "columns": columns,
+                "available_modes": modes,
+                "column_counts": column_counts,
+            }
+        )
+    return providers
+
+
+def _lved_fragment_signal_summary(con: sqlite3.Connection, table: str, column: str, *, limit: int = 4096) -> dict[str, Any]:
+    if not _sqlite_table_exists(con, table) or column not in _sqlite_columns(con, table):
+        return {"status": "missing"}
+    shape_counts: Counter[str] = Counter()
+    class_counts: Counter[str] = Counter()
+    protocol_counts: Counter[str] = Counter()
+    href_counts: Counter[str] = Counter()
+    image_ref_count = 0
+    rows = 0
+    try:
+        source = con.execute(
+            f"select {_quote_identifier(column)} from {_quote_identifier(table)} "
+            f"where {_quote_identifier(column)} is not null and length({_quote_identifier(column)}) > 0 "
+            "order by rowid limit ?",
+            (limit,),
+        )
+    except sqlite3.Error:
+        return {"status": "sqlite_error"}
+    for row in source:
+        rows += 1
+        body = str(row[0])
+        lower = body[:512].casefold()
+        if "<html" in lower or "<head" in lower:
+            shape_counts["self_contained_html"] += 1
+        else:
+            shape_counts["html_fragment"] += 1
+        class_counts.update(re.findall(r"""class=["']([^"']+)["']""", body))
+        protocol_counts.update(token.casefold() for token in _LVED_PROTOCOL_TOKEN_RE.findall(body))
+        for _quote, href in _HTML_HREF_RE.findall(body):
+            href_lower = href.casefold()
+            if href_lower.startswith("lved."):
+                href_counts[href_lower.split(":", 1)[0] + ":"] += 1
+        image_ref_count += len(_HTML_SRC_RE.findall(body))
+    return {
+        "status": "inspected",
+        "sampled_rows": rows,
+        "shape_counts": dict(sorted(shape_counts.items())),
+        "top_classes": dict(class_counts.most_common(40)),
+        "protocol_counts": dict(protocol_counts.most_common()),
+        "href_protocol_counts": dict(href_counts.most_common()),
+        "image_ref_count": image_ref_count,
+    }
 
 
 def render_lved_sqlite_showcase(
@@ -1321,8 +1613,18 @@ def render_lved_sqlite_showcase(
             media_lookup=media_lookup,
             loose_lookup=loose_lookup,
         )
+        binran_pages = _write_lved_named_body_pages(
+            con,
+            out_dir,
+            table="binran",
+            path_prefix="binran",
+            page_class="lv-info",
+            media_lookup=media_lookup,
+            loose_lookup=loose_lookup,
+            limit=1000,
+        )
         stubbed_entries: dict[int, dict[str, Any]] = {}
-        for source in [*rendered_entries.values(), *info_pages]:
+        for source in [*rendered_entries.values(), *info_pages, *binran_pages]:
             for linked_id in source.get("linked_content_ids", []):
                 linked_id = int(linked_id)
                 if linked_id not in rendered_entries and linked_id not in stubbed_entries:
@@ -1334,6 +1636,8 @@ def render_lved_sqlite_showcase(
             links.append(f'<a class="lv-search-hit" href="{html.escape(rendered["path"])}">entry {rendered["content_id"]}</a>')
         for page in info_pages:
             links.append(f'<a class="lv-search-hit" href="{html.escape(page["path"])}">info {html.escape(page["name"])}</a>')
+        for page in binran_pages:
+            links.append(f'<a class="lv-search-hit" href="{html.escape(page["path"])}">binran {html.escape(page["name"])}</a>')
         search_html = []
         for report in search_reports:
             search_html.append(f'<h2>{html.escape(report["mode"])}: {html.escape(report["query"])}</h2>')
@@ -1372,6 +1676,7 @@ def render_lved_sqlite_showcase(
             "entry_pages": list(rendered_entries.values()),
             "stub_entry_pages": list(stubbed_entries.values()),
             "info_pages": info_pages,
+            "binran_pages": binran_pages,
             "search_reports": search_reports,
             "retained_tree_summaries": tree_summaries,
         }
@@ -1409,40 +1714,32 @@ def inspect_lved_reader_features(sqlite_path: Path, payload_path: Path, *, sampl
         for row in con.execute("select name, sql from sqlite_master where type='table' and name not like 'sqlite_%' order by name"):
             name = str(row["name"])
             table_roles[name] = _sqlite_table_role(name, row["sql"] if isinstance(row["sql"], str) else None)
-        render_signals: Counter[str] = Counter()
-        class_counts: Counter[str] = Counter()
-        protocol_counts: Counter[str] = Counter()
-        image_ref_count = 0
-        if _sqlite_table_exists(con, "content"):
-            for row in con.execute("select body from content where body is not null and length(body)>0 order by id limit 128"):
-                body = str(row["body"])
-                if "<html" in body[:512].casefold() or "<head" in body[:512].casefold():
-                    render_signals["self_contained_html"] += 1
-                else:
-                    render_signals["html_fragment"] += 1
-                class_counts.update(re.findall(r"""class=["']([^"']+)["']""", body))
-                protocol_counts.update(re.findall(r"lved\\.[a-z]+:", body.casefold()))
-                image_ref_count += len(_HTML_SRC_RE.findall(body))
+        content_signals = _lved_fragment_signal_summary(con, "content", "body", limit=4096)
+        info_signals = _lved_fragment_signal_summary(con, "info", "body", limit=4096)
         retained = inspect_lved_retained_resources(payload_path, sqlite_path)
         search_probes = []
         for query in sample_queries or []:
-            for mode in ("exact", "forward", "backward", "partial", "fulltext"):
+            for mode in ("exact", "forward", "backward", "partial", "fulltext", "advanced", "advanced1", "advanced2", "advanced3"):
                 search_probes.append(search_lved_sqlite_database(sqlite_path, query, mode=mode, limit=5))
         return {
             "status": "inspected",
             "table_roles": table_roles,
             "info_pages": info_pages,
+            "optional_feature_tables": _sqlite_optional_feature_tables(con),
+            "search_providers": _lved_search_provider_summaries(con),
             "home_surfaces": [
                 {"kind": page["role"], "name": page["name"], "id": page["id"], "status": "available"}
                 for page in info_pages
                 if page["role"] in {"home_index", "hanrei", "copyright"}
             ],
             "render_readiness": {
-                "body_shape_counts": dict(sorted(render_signals.items())),
-                "top_classes": dict(class_counts.most_common(40)),
-                "protocol_counts": dict(protocol_counts.most_common()),
-                "sample_image_ref_count": image_ref_count,
-                "requires_viewer_templates_or_css": bool(render_signals.get("html_fragment")),
+                "content_body": content_signals,
+                "info_body": info_signals,
+                "body_shape_counts": content_signals.get("shape_counts", {}),
+                "top_classes": content_signals.get("top_classes", {}),
+                "protocol_counts": content_signals.get("protocol_counts", {}),
+                "sample_image_ref_count": content_signals.get("image_ref_count", 0),
+                "requires_viewer_templates_or_css": bool((content_signals.get("shape_counts") or {}).get("html_fragment")),
             },
             "retained_resources": {
                 "file_count": retained["file_count"],

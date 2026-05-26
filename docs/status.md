@@ -125,11 +125,12 @@ and non-SSED reader status are tracked separately in
   one GENIUS53 auxiliary hex tree, and two GENIUS53 compressed SSED indexes.
 - Reader-oriented `LVED_SQLITE3` probes for selected real packages. The toolkit
   can run native SQLite search probes (`exact`, `forward`, `backward`,
-  `partial`, `fulltext`, and optional `advanced*` columns), classify `info`
-  rows as home/HANREI/copyright-like surfaces, and generate generic static HTML
-  pages that rewrite `lved.dataid:`, `lved.info:`, image, and audio links. This
-  proves structural navigation/resource handling, not exact LVEDVIEWER visual
-  parity.
+  `partial`, `fulltext`, and optional `advanced*` columns), including secondary
+  `searchsub/listsub` search where observed. It classifies `info` rows as
+  home/HANREI/copyright-like surfaces and can generate generic static HTML
+  pages that rewrite `lved.dataid:`, `lved.info:`, `lved.binran:`, image, and
+  audio links. This proves structural navigation/resource handling, not exact
+  LVEDVIEWER visual parity.
 - LVLMultiView package-family classification for observed ESPRANT2/YROPPO/MOROKU
   packages, including SSEDINFO facade parsing, LogoFontCipher SQLite payload
   roles, `menuData.xml` href resolution, static HTML/viewer-file reporting,

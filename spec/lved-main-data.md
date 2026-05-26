@@ -169,6 +169,44 @@ by products for phrases, examples, filters, or auxiliary search panes. Reader
 frontends should expose it only when the package capability metadata identifies
 what that product uses it for.
 
+READERS3 and RPLUSREV also have a secondary search/list pair:
+
+```text
+listsub(id, refid, type, anchor, title, titlesub)
+searchsub(advanced3)
+```
+
+For these packages, `advanced3` is not in the primary `search` table. It is a
+separate native provider whose `searchsub.rowid` joins to `listsub.id`, and
+`listsub.refid` then resolves to `content.id` just like the primary `list`
+path. This is currently best modeled as a second `SearchProvider`, not as a
+special-case post-filter over primary search results.
+
+## Optional Feature Tables
+
+Observed optional tables are feature providers layered on top of the core
+SQLite book model. They are not separate package families.
+
+| Table | Role |
+|---|---|
+| `exam` | Example-sentence lookup. KOJIEN7 and NKGORIN2 use different schemas, but both point back to content ids/anchors. |
+| `genre` | KOJIEN7 genre/category metadata over refids. |
+| `bunya` | DAIJIRN4 field/category metadata over refids. |
+| `kanji` / `kanji_all` | Kanji metadata providers. Some cells contain rich HTML/image references. |
+| `kwit` | NANMED/NMEDEJ keyword lookup rows. |
+| `joken` | NANMED condition/filter lookup rows. |
+| `sakuin` | NANMED index/search lookup rows. |
+| `item` | SANKOKU8 grammatical/category metadata. |
+| `mediasub` | Secondary media BLOB store with the same practical lookup shape as `media`. |
+| `sound` | Separate audio BLOB store; ASJPUSCL uses it for `lved.media.sound:` targets. |
+| `binran` | HBHYAKKA named reference-page store with `id`, `type`, `name`, `body`, and `media`. |
+| `t_contents` | HAFRAN legacy HTML content table: `f_DataId`, `f_Type`, `f_Title`, `f_Html`, `f_Plane`, `f_Keyword`. |
+| `t_convert` | SAITOJE old block/offset/title to modern id/title conversion bridge. |
+
+`binran` rows are full named HTML fragments. Links use `lved.binran:<name>`.
+Observed links may contain duplicated `.html` suffixes, for example
+`kinen.html.html`; these normalize to the row named `kinen.html`.
+
 Some packages retain SSED-style or index-style files beside the SQLCipher
 payload, including `res/tree.idx`, `res/*.idx`, `BHINDEX.DIC`, and
 `BKINDEX.DIC`. The observed text-tree `.idx` files are UTF-8/CP932 tabular
@@ -197,9 +235,11 @@ The body/link protocols observed in the corpus include:
 |---|---|
 | `lved.dataid:<id>` | Jump to SQLite `content.id`. Preserve `#anchor` suffixes when present. |
 | `lved.info:<name>` | Jump to an `info.name` page such as `hanrei.html`. |
+| `lved.binran:<name>` | Jump to a `binran.name` reference page. Duplicate `.html` suffixes normalize to the stored row name. |
 | `lved.image:` / `lved.imag:` | Resolve an image through SQLite `media` or loose resources. |
-| `lved.media.sound:` | Resolve an audio media row and expose it as a playable/downloadable asset. |
-| `lved.bookmark:` | Viewer/user-state protocol; do not treat as a content body. |
+| `lved.media.sound:` | Resolve an audio media row through `media`, `mediasub`, or `sound`. |
+| `lved.bookmark:` | Viewer/user-state protocol; do not treat as content navigation. |
+| `lved.plugin:` | Viewer/plugin callback hook; suppress or preserve as metadata unless the frontend implements that plugin. |
 
 ## Rendering Contract
 

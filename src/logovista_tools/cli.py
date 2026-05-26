@@ -2416,7 +2416,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_lved.add_argument(
         "--search-mode",
         action="append",
-        choices=("exact", "forward", "backward", "partial", "fulltext", "filter", "advanced1", "advanced2", "advanced3"),
+        choices=("exact", "forward", "backward", "partial", "fulltext", "filter", "advanced", "advanced1", "advanced2", "advanced3"),
         default=None,
         help="Search mode to probe/render. May be repeated.",
     )

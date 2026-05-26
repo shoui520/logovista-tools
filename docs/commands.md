@@ -596,7 +596,7 @@ Useful options:
 --inspect-loose-resources           inspect loose image/font/runtime resource signatures and dimensions
 --inspect-reader                    inspect reader surfaces, render signals, retained tree use, and bounded search probes
 --search QUERY                      run a real SQLite search probe; may be repeated
---search-mode MODE                  exact, forward, backward, partial, fulltext, filter, advanced1, advanced2, or advanced3
+--search-mode MODE                  exact, forward, backward, partial, fulltext, filter, advanced, advanced1, advanced2, or advanced3
 --search-limit N                    maximum hits per query/mode
 --render-dir PATH                   write generic static HTML pages for search hits/info pages
 --render-link-limit N               maximum linked lved.dataid pages to materialize before writing stubs
@@ -644,15 +644,20 @@ Search probes use the recovered native model:
 - `backward`: reversed query against FTS `back`.
 - `partial`: character-token FTS against `part`.
 - `fulltext`: FTS against `fts`.
-- `advanced1`/`advanced2`/`advanced3`: optional product-specific FTS columns.
+- `advanced`/`advanced1`/`advanced2`/`advanced3`: optional product-specific
+  FTS columns. READERS3/RPLUSREV use a secondary `searchsub`/`listsub`
+  provider for `advanced3`.
 
 `--render-dir` writes a private generic HTML showcase. It preserves SQLite
 body/info fragments inside a simple wrapper, rewrites `lved.dataid:` and
-`lved.info:` links to local pages, resolves `lved.image:` / `lved.imag:` and
-`lved.media.sound:` assets through SQLite `media` or loose resources, and writes
-stubs for linked entries beyond `--render-link-limit`. The generated pages are
-for structural testing; exact LVEDVIEWER visual parity still needs
-product-template/CSS/JS handling.
+`lved.info:` links to local pages, rewrites `lved.binran:` links when a
+`binran` table exists, resolves `lved.image:` / `lved.imag:` and
+`lved.media.sound:` assets through SQLite `media`, `mediasub`, `sound`, or loose
+resources, and writes stubs for linked entries beyond `--render-link-limit`.
+Viewer/user-state hooks such as `lved.bookmark:` and `lved.plugin:` are
+suppressed to inert links with the original target retained as metadata. The
+generated pages are for structural testing; exact LVEDVIEWER visual parity
+still needs product-template/CSS/JS handling.
 
 ### `compose`
 

@@ -164,7 +164,10 @@ LogoVista links. Sampled signals include:
 | HTML tables | `content.body`, `info.body` |
 | `lved.dataid:` | `content.body`, `content.bodysub`, `info.body` |
 | `lved.image:` / `lved.imag:` | `content.body` |
+| `lved.media.sound:` | `content.body`, especially sound-heavy bilingual dictionaries |
+| `lved.binran:` | `info.body` and `binran.body` in HBHYAKKA |
 | `lved.bookmark:` | `content.body`, `info.body` |
+| `lved.plugin:` | Rare viewer/plugin hook; observed in an info page |
 | HTTP/HTTPS links | `content.body`, `info.body`, occasionally title/subtitle fields |
 
 Important implication: title/list labels need the same rich-text and gaiji/image
@@ -200,13 +203,41 @@ The toolkit now classifies these tables by role during `--inspect-sqlite`.
 Currently supported reader-facing handling is:
 
 - `list`, `content`, `media`, `info`, and `search` are active reader providers.
-- `mediasub` and `sound` are recognized as secondary media/audio stores, but
-  rendering support is still first-pass and mostly exercised through direct
-  `lved.media.sound:` links.
+- `mediasub` and `sound` are recognized as secondary media/audio stores and
+  are searched by the generic renderer alongside `media`.
+- `listsub` plus `searchsub` form a secondary native search/list provider. In
+  READERS3 and RPLUSREV it backs the observed `advanced3` phrase/translation
+  search surface, while the primary `search` table carries the usual
+  forward/back/part/fts modes plus `advanced1`/`advanced2`.
+- `binran` is an active named HTML-body provider for HBHYAKKA reference/table
+  pages. `lved.binran:<name>` links rewrite to generated local `binran_*`
+  pages; observed duplicate suffix targets such as `kinen.html.html` collapse
+  to the stored `kinen.html` row.
 - `bunya`, `genre`, `exam`, `kanji`, `kanji_all`, `kwit`, `joken`, `sakuin`,
-  `item`, `binran`, `listsub`, `searchsub`, `t_contents`, and `t_convert` are
-  classified feature tables. Their exact product UI semantics are not all
-  implemented yet and should remain named providers/gaps, not hidden columns.
+  `item`, `t_contents`, and `t_convert` are classified feature tables. Their
+  exact product UI semantics are not all implemented yet and should remain
+  named providers/gaps, not hidden columns.
+
+Targeted row inspection tightened several table roles:
+
+- `exam` is an example-sentence lookup. KOJIEN7 stores `title_exam` and
+  `key_exam`; NKGORIN2 stores classical example text, authority text, and
+  anchors back into content rows.
+- `genre` and `bunya` are category/filter metadata tables over entry refids.
+  They should feed browse/filter surfaces rather than entry body rendering.
+- `kwit`, `joken`, and `sakuin` in NANMED20/NMEDEJ12 are keyword/condition/
+  index lookup surfaces. They point back to dictionary refids/data ids and
+  should be exposed as native lookup providers when their UI is implemented.
+- `kanji` and `kanji_all` are kanji metadata providers. Some title cells carry
+  rich HTML or image references, so they need the same title/resource handling
+  as ordinary `list` rows.
+- `t_contents` in HAFRAN is a legacy HTML content store with
+  `f_DataId`, `f_Title`, `f_Html`, `f_Plane`, and `f_Keyword`. It mirrors the
+  sidecar-body pattern seen in older SSED dense dictionaries, but inside the
+  SQLCipher payload.
+- `t_convert` in SAITOJE maps old SSED-like `block`/`offset` positions and old
+  titles to modern SQLite ids/titles. Treat it as an address compatibility
+  bridge, not a body store.
 
 ## Loose Resources And Retained SSED-Like Files
 
@@ -280,6 +311,15 @@ queries across `exact`, `forward`, `backward`, `partial`, `fulltext`, and
 `advanced1`, generated static HTML pages from real `content` and `info` rows,
 and validated the generated pages.
 
+A follow-up semantics probe under
+`reports/lved-sqlite3-semantics-v1/` focused on the remaining optional-table
+gaps. It confirmed secondary `searchsub/listsub` search in READERS3/RPLUSREV,
+audio BLOB resolution from `sound`, HBHYAKKA `binran` reference-page
+navigation, HAFRAN `t_contents`, SAITOJE `t_convert`, and several product
+metadata tables. A real HBHYAKKA generic render produced 112 entry pages,
+24 info pages, 14 binran pages, and 244 linked-entry stubs with zero missing
+local references after link rewriting.
+
 The generated HTML showcase is intentionally generic. It is useful for
 verifying link/media/resource mechanics, not for claiming exact LVEDVIEWER
 visual parity. Validation results from the v3 run:
@@ -289,10 +329,14 @@ visual parity. Validation results from the v3 run:
 - `lved.dataid:` links, including `#anchor` suffixes, rewrite to local entry
   pages.
 - `lved.info:` links rewrite to local info/HANREI pages.
+- `lved.binran:` links rewrite to local named reference pages where a `binran`
+  row exists.
 - `lved.image:` / `lved.imag:` resources resolve through the SQLite `media`
   table or loose resources.
-- `lved.media.sound:` links resolve to copied audio assets when matching media
-  rows exist.
+- `lved.media.sound:` links resolve to copied audio assets through `media`,
+  `mediasub`, or `sound` rows when matching media names exist.
+- `lved.bookmark:` and `lved.plugin:` are preserved as suppressed viewer hooks
+  with their original target recorded in `data-lv-original-href`.
 - Headless Chromium loaded representative generated index pages.
 - One KOJIEN7 info fragment contains extra closing table row/cell tags in the
   source body. The toolkit preserves it rather than silently rewriting vendor
@@ -325,11 +369,15 @@ output.
 - `ListProvider`: browse/search result display rows from `list` and optional
   `listsub`.
 - `ContentProvider`: resolve `list.refid` / `list.anchor` to `content` rows.
-- `SearchProvider`: expose native forward/back/part/fts/advanced search columns.
+- `SearchProvider`: expose native forward/back/part/fts/advanced search columns,
+  including secondary `searchsub/listsub` providers when a mode exists only
+  there.
 - `MediaProvider`: resolve `media`, `mediasub`, `sound`, and loose `res/`
   resources.
 - `InfoProvider`: expose `info` rows as home/help/about/HANREI-like surfaces.
   Do not treat them as hidden metadata by default.
+- `NamedBodyProvider`: expose named HTML body tables such as HBHYAKKA `binran`
+  as navigable reference surfaces.
 - `OptionalMetadataProviders`: `exam`, `genre`, `bunya`, `kanji`, `kwit`,
   `joken`, `sakuin`, `item`, and conversion tables.
 - `RetainedSsedProvider`: parse retained `.idx` / `*INDEX.DIC` / tree files
@@ -350,17 +398,17 @@ end-user behavior. Still open:
 - exact official search ranking and query rewriting;
 - numeric meaning of all `type` values in `list`, `content`, `media`, and
   `info`;
-- exact semantics of `advanced*`, `filter`, and dictionary-specific metadata
-  tables;
+- official UI labels and ranking for `advanced*`, `filter`, and
+  dictionary-specific metadata tables;
 - exact UI placement and interaction model for decoded text trees in each
   product;
 - whether GENIUS53 retained SSEDATA index block/offset targets have a bridge to
   modern SQLite rows or are only legacy/search compatibility data;
-- complete rendering/resource rules for every HTML/link pattern;
+- complete visual rendering rules for every HTML/class/link pattern;
 - product-specific LVEDVIEWER template/CSS/JS application;
-- exact semantics of secondary tables such as `sound`, `mediasub`, `listsub`,
-  `searchsub`, `t_convert`, and `binran` beyond current structural
-  classification.
+- complete product semantics for optional providers such as `exam`, `genre`,
+  `bunya`, `kanji`, `kwit`, `joken`, `sakuin`, `item`, `t_contents`, and
+  `t_convert` beyond the structural roles described above.
 
 These are the next SQLCipher-specific targets before claiming a usable
 `LVED_SQLITE3` reader path.
