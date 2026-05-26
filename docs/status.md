@@ -123,6 +123,13 @@ and non-SSED reader status are tracked separately in
 - Retained `LVED_SQLITE3` resource decoding for all observed `res/tree.idx`,
   `res/*.idx`, and `*INDEX.DIC` side files: 22 SQLite content navigation trees,
   one GENIUS53 auxiliary hex tree, and two GENIUS53 compressed SSED indexes.
+- Reader-oriented `LVED_SQLITE3` probes for selected real packages. The toolkit
+  can run native SQLite search probes (`exact`, `forward`, `backward`,
+  `partial`, `fulltext`, and optional `advanced*` columns), classify `info`
+  rows as home/HANREI/copyright-like surfaces, and generate generic static HTML
+  pages that rewrite `lved.dataid:`, `lved.info:`, image, and audio links. This
+  proves structural navigation/resource handling, not exact LVEDVIEWER visual
+  parity.
 - LVLMultiView package-family classification for observed ESPRANT2/YROPPO/MOROKU
   packages, including SSEDINFO facade parsing, LogoFontCipher SQLite payload
   roles, `menuData.xml` href resolution, static HTML/viewer-file reporting,

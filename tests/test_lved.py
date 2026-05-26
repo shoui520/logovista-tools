@@ -9,10 +9,13 @@ from logovista_tools.lved import (
     derive_lved_sqlcipher_key,
     infer_lved_dict_code,
     inspect_lved_loose_resources,
+    inspect_lved_reader_features,
     inspect_lved_retained_resources,
     inspect_lved_sqlite_database,
     inspect_lved_roots,
     is_lved_payload_name,
+    render_lved_sqlite_showcase,
+    search_lved_sqlite_database,
     shannon_entropy,
 )
 
@@ -81,6 +84,12 @@ def test_lved_cli_uses_local_key_file_without_status_shadow_crash(tmp_path, caps
             inspect_sqlite=False,
             inspect_retained=False,
             inspect_loose_resources=False,
+            inspect_reader=False,
+            search=[],
+            search_mode=None,
+            search_limit=20,
+            render_link_limit=500,
+            render_dir=None,
             json=False,
             jobs=1,
             verbose=False,
@@ -133,6 +142,109 @@ def test_lved_sqlite_inspection_classifies_core_tables_without_row_text(tmp_path
     assert body["sample_text_signals"]["html_img"] == 1
     assert "visible title" not in rendered
     assert "alpha body" not in rendered
+
+
+def test_lved_search_modes_join_list_to_content(tmp_path) -> None:
+    db = tmp_path / "payload.sqlite"
+    import sqlite3
+
+    con = sqlite3.connect(db)
+    con.executescript(
+        """
+        create table list(id integer, refid integer, type integer, anchor text, title text, titlesub text);
+        create table content(id integer, type integer, body text, media text);
+        create virtual table search using fts4(forward, back, part, fts, advanced1, filter);
+        insert into list values(1, 42, 0, '', 'Alpha', '');
+        insert into content values(42, 0, '<div>Alpha body</div>', '');
+        insert into search(docid, forward, back, part, fts, advanced1, filter)
+          values(1, 'alpha', 'ahpla', 'a l p h a', 'alpha body', 'example phrase', '∥alpha∥');
+        """
+    )
+    con.close()
+
+    exact = search_lved_sqlite_database(db, "alpha", mode="exact")
+    forward = search_lved_sqlite_database(db, "al", mode="forward")
+    backward = search_lved_sqlite_database(db, "ha", mode="backward")
+    partial = search_lved_sqlite_database(db, "alp", mode="partial")
+    advanced = search_lved_sqlite_database(db, "phrase", mode="advanced1")
+
+    for report in (exact, forward, backward, partial, advanced):
+        assert report["status"] == "ok"
+        assert report["hits"][0]["list_id"] == 1
+        assert report["hits"][0]["content_id"] == 42
+
+
+def test_lved_render_showcase_rewrites_media_assets_and_info_surfaces(tmp_path) -> None:
+    package = tmp_path / "_DCT_TEST"
+    package.mkdir()
+    payload = package / "main.data"
+    payload.write_bytes(b"x" * 4096)
+    db = tmp_path / "payload.sqlite"
+    import sqlite3
+
+    con = sqlite3.connect(db)
+    con.executescript(
+        """
+        create table list(id integer, refid integer, type integer, anchor text, title text, titlesub text);
+        create table content(id integer, type integer, body text, media text);
+        create table media(id integer, name text, type integer, main blob);
+        create table info(id integer, type integer, name text, body text, media text);
+        create virtual table search using fts4(forward, back, part, fts, filter);
+        insert into list values(1, 42, 0, '', 'Alpha', '');
+        insert into content values(42, 0, '<div class="midashi">Alpha</div><img src="pic.png"><a href="lved.dataid:42#anchor">self</a><a href="lved.info:hanrei.html#top">help</a><a href="lved.media.sound:snd.mp3">sound</a><a href="lved.bookmark:42">bookmark</a>', '');
+        insert into content values(99, 0, '<div>Linked from info</div>', '');
+        insert into media values(7, 'pic', 2, x'47494638396101000100800000ffffff00000021f90401000000002c00000000010001000002024401003b');
+        insert into media values(8, 'snd', 5, x'49443303000000000000');
+        insert into info values(1, 0, 'hanrei.html', '<div><img src="pic.png"><a href="lved.dataid:99">Help</a></div>', '');
+        insert into search(docid, forward, back, part, fts, filter) values(1, 'alpha', 'ahpla', 'a l p h a', 'alpha body', '∥alpha∥');
+        """
+    )
+    con.close()
+
+    out = tmp_path / "render"
+    report = render_lved_sqlite_showcase(db, payload, out, queries=["alpha"], modes=["exact"], limit=5)
+    index = (out / "index.html").read_text(encoding="utf-8")
+    entry = (out / "entry_42.html").read_text(encoding="utf-8")
+
+    assert report["status"] == "rendered"
+    assert (out / "assets" / "pic.gif").is_file()
+    assert "entry_42.html" in index
+    assert 'src="assets/pic.gif"' in entry
+    assert 'href="entry_42.html#anchor"' in entry
+    assert 'href="info_hanrei.html#top"' in entry
+    assert 'href="assets/snd.mp3"' in entry
+    assert 'href="#" data-lv-original-href="lved.bookmark:42"' in entry
+    assert 'href="entry_99.html"' in (out / "info_hanrei.html").read_text(encoding="utf-8")
+    assert (out / "entry_99.html").is_file()
+
+
+def test_lved_reader_features_classify_hanrei_and_fragments(tmp_path) -> None:
+    package = tmp_path / "_DCT_TEST"
+    package.mkdir()
+    payload = package / "main.data"
+    payload.write_bytes(b"x" * 4096)
+    db = tmp_path / "payload.sqlite"
+    import sqlite3
+
+    con = sqlite3.connect(db)
+    con.executescript(
+        """
+        create table list(id integer, refid integer, type integer, anchor text, title text);
+        create table content(id integer, type integer, body text, media text);
+        create table media(id integer, name text, type integer, main blob);
+        create table info(id integer, type integer, name text, body text, media text);
+        create virtual table search using fts4(forward, back, part, fts, filter);
+        insert into content values(42, 0, '<div class="midashi"><img src="pic.png">Alpha</div>', '');
+        insert into info values(1, 0, 'hanrei.html', '<div>Help</div>', '');
+        """
+    )
+    con.close()
+
+    report = inspect_lved_reader_features(db, payload)
+
+    assert report["home_surfaces"][0]["kind"] == "hanrei"
+    assert report["render_readiness"]["requires_viewer_templates_or_css"] is True
+    assert report["render_readiness"]["sample_image_ref_count"] == 1
 
 
 def test_lved_retained_text_tree_decodes_and_correlates_without_row_text(tmp_path) -> None:

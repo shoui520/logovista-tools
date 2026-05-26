@@ -8,9 +8,11 @@ SQLCipher package family, not as a variant of SSED.
 from __future__ import annotations
 
 import hashlib
+import html
 import math
 import re
 import sqlite3
+import shutil
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,6 +55,11 @@ _LOOSE_IMAGE_SUFFIXES = {".png", ".gif", ".jpg", ".jpeg", ".webp", ".bmp", ".svg
 _LOOSE_FONT_SUFFIXES = {".otf", ".ttf", ".ttc", ".woff", ".woff2"}
 _LOOSE_WEB_TEXT_SUFFIXES = {".css", ".htm", ".html", ".js", ".json", ".md", ".txt", ".yaml", ".yml"}
 _PAYLOAD_NAMES = {"main.data"}
+_LVED_SEARCH_MODES = {"exact", "forward", "backward", "partial", "fulltext", "filter", "advanced1", "advanced2", "advanced3"}
+_LVED_PROTOCOL_RE = re.compile(r"""(?P<attr>href|src)\s*=\s*(?P<quote>["'])(?P<value>[^"']+)(?P=quote)""", re.IGNORECASE)
+_HTML_SRC_RE = re.compile(r"""src\s*=\s*(["'])([^"']+)\1""", re.IGNORECASE)
+_HTML_HREF_RE = re.compile(r"""href\s*=\s*(["'])([^"']+)\1""", re.IGNORECASE)
+_LVED_TARGET_SPLIT_RE = re.compile(r"[?#]", re.ASCII)
 
 
 @dataclass(frozen=True)
@@ -187,6 +194,10 @@ def _quote_identifier(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+def _sqlite_columns(con: sqlite3.Connection, table: str) -> list[str]:
+    return [str(row[1]) for row in _safe_pragma_rows(con, "table_info", table)]
+
+
 def _safe_count(con: sqlite3.Connection, table: str) -> int | None:
     try:
         return int(con.execute(f"select count(*) from {_quote_identifier(table)}").fetchone()[0])
@@ -216,6 +227,34 @@ def _sqlite_table_role(name: str, sql: str | None) -> str:
         return "example_lookup"
     if lower == "genre":
         return "genre_or_category_lookup"
+    if lower == "bunya":
+        return "field_category_lookup"
+    if lower == "binran":
+        return "reference_page_store"
+    if lower in {"kanji", "kanji_all"}:
+        return "kanji_metadata_lookup"
+    if lower == "kwit":
+        return "keyword_lookup"
+    if lower == "joken":
+        return "condition_lookup"
+    if lower == "sakuin":
+        return "index_lookup"
+    if lower == "item":
+        return "item_metadata_lookup"
+    if lower == "t_contents":
+        return "legacy_html_content_store"
+    if lower == "t_convert":
+        return "legacy_address_conversion"
+    if lower == "listsub":
+        return "secondary_entry_list"
+    if lower == "searchsub":
+        return "secondary_fts_search"
+    if lower.startswith("searchsub_"):
+        return "secondary_fts_shadow"
+    if lower == "sound":
+        return "audio_blob_store"
+    if lower == "mediasub":
+        return "secondary_media_blob_store"
     if lower == "search":
         return "fts_search"
     if lower.startswith("search_"):
@@ -385,9 +424,31 @@ def _sqlite_table_features(name: str, columns: list[str]) -> list[str]:
         features.append("example_sentence_lookup")
     elif lower == "genre":
         features.append("genre_or_filter_metadata")
+    elif lower == "bunya":
+        features.append("field_category_metadata")
+    elif lower in {"kanji", "kanji_all"}:
+        features.append("kanji_search_metadata")
+    elif lower in {"kwit", "joken", "sakuin", "item"}:
+        features.append(f"{lower}_metadata")
+    elif lower == "binran":
+        features.append("reference_page_store")
+    elif lower == "t_contents":
+        features.append("legacy_html_content_store")
+    elif lower == "t_convert":
+        features.append("legacy_address_conversion")
+    elif lower == "listsub":
+        features.append("secondary_entry_listing")
+    elif lower == "searchsub":
+        features.append("secondary_native_fts_search")
+    elif lower.startswith("searchsub_"):
+        features.append("secondary_native_fts_shadow_table")
+    elif lower == "sound":
+        features.append("audio_blob_store")
+    elif lower == "mediasub":
+        features.append("secondary_media_blob_store")
     elif lower == "search":
         features.append("native_fts_search")
-        for search_column in ("forward", "back", "part", "fts", "advanced", "filter"):
+        for search_column in ("forward", "back", "part", "fts", "advanced", "advanced1", "advanced2", "advanced3", "filter"):
             if search_column in colset:
                 features.append(f"search_column_{search_column}")
     elif lower.startswith("search_"):
@@ -760,6 +821,642 @@ def inspect_lved_loose_resources(payload_path: Path) -> dict[str, Any]:
         "font_counts": dict(sorted(font_counts.items())),
         "files": files,
     }
+
+
+def _normalize_lved_query(query: str) -> str:
+    return " ".join(query.strip().casefold().split())
+
+
+def _lved_fts_tokens(query: str, *, split_chars: bool = False) -> list[str]:
+    normalized = _normalize_lved_query(query)
+    if not normalized:
+        return []
+    if split_chars:
+        return [char for char in normalized if not char.isspace()]
+    return re.findall(r"[0-9A-Za-zÀ-ÖØ-öø-ÿĀ-ſƀ-ɏ\u0370-\u03ff\u0400-\u052f\u3040-\u30ff\u3400-\u9fffー]+", normalized)
+
+
+def _lved_fts_term(term: str, *, prefix: bool = False) -> str:
+    cleaned = re.sub(r"""["':*()\s]+""", "", term)
+    if not cleaned:
+        return ""
+    return f"{cleaned}*" if prefix else cleaned
+
+
+def _lved_fts_expr(column: str, tokens: list[str], *, prefix_last: bool = False) -> str:
+    terms = []
+    for index, token in enumerate(tokens):
+        term = _lved_fts_term(token, prefix=prefix_last and index == len(tokens) - 1)
+        if term:
+            terms.append(f"{column}:{term}")
+    return " ".join(terms)
+
+
+def _lved_should_split_chars(query: str) -> bool:
+    return not bool(re.search(r"[0-9A-Za-zÀ-ÖØ-öø-ÿĀ-ſƀ-ɏ]", query))
+
+
+def _lved_list_select_columns(con: sqlite3.Connection, table: str = "list") -> str:
+    columns = {column.casefold() for column in _sqlite_columns(con, table)}
+    parts = ["l.id as list_id", "l.refid as content_id"]
+    parts.append("l.anchor as anchor" if "anchor" in columns else "'' as anchor")
+    parts.append("l.title as title" if "title" in columns else "'' as title")
+    if "titlesub" in columns:
+        parts.append("l.titlesub as subtitle")
+    elif "subtext" in columns:
+        parts.append("l.subtext as subtitle")
+    elif "titleplain" in columns:
+        parts.append("l.titleplain as subtitle")
+    else:
+        parts.append("'' as subtitle")
+    parts.append("l.type as list_type" if "type" in columns else "null as list_type")
+    return ", ".join(parts)
+
+
+def _lved_search_where(con: sqlite3.Connection, query: str, mode: str) -> tuple[str, tuple[Any, ...], str, str]:
+    mode = mode.casefold()
+    if mode not in _LVED_SEARCH_MODES:
+        raise ValueError(f"unsupported LVED search mode: {mode}")
+    normalized = _normalize_lved_query(query)
+    search_columns = {column.casefold() for column in _sqlite_columns(con, "search")}
+    if not normalized:
+        return "0", (), mode, "empty query"
+    if mode == "exact":
+        if "filter" in search_columns:
+            return "s.filter like ? escape '\\'", (f"%∥{normalized}∥%",), mode, "filter boundary LIKE"
+        return "s.forward = ?", (normalized,), mode, "forward equality fallback"
+    if mode == "filter":
+        if "filter" not in search_columns:
+            return "0", (), mode, "missing filter column"
+        return "s.filter like ? escape '\\'", (f"%{normalized}%",), mode, "filter substring LIKE"
+    if mode == "backward":
+        tokens = _lved_fts_tokens(normalized[::-1])
+        expr = _lved_fts_expr("back", tokens, prefix_last=True)
+    elif mode == "forward":
+        tokens = _lved_fts_tokens(normalized)
+        expr = _lved_fts_expr("forward", tokens, prefix_last=True)
+    elif mode == "partial":
+        tokens = _lved_fts_tokens(normalized, split_chars=True)
+        expr = _lved_fts_expr("part", tokens)
+    elif mode == "fulltext":
+        tokens = _lved_fts_tokens(normalized, split_chars=_lved_should_split_chars(normalized))
+        expr = _lved_fts_expr("fts", tokens)
+    else:
+        column = mode
+        if column not in search_columns:
+            return "0", (), mode, f"missing {column} column"
+        tokens = _lved_fts_tokens(normalized, split_chars=_lved_should_split_chars(normalized))
+        expr = _lved_fts_expr(column, tokens)
+    if not expr:
+        return "0", (), mode, "query produced no FTS terms"
+    return "s.rowid in (select rowid from search where search match ?)", (expr,), mode, expr
+
+
+def search_lved_sqlite_database(path: Path, query: str, *, mode: str = "forward", limit: int = 20) -> dict[str, Any]:
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        if not _sqlite_table_exists(con, "search") or not _sqlite_table_exists(con, "list"):
+            return {"query": query, "mode": mode, "status": "unsupported", "reason": "missing search/list tables", "hits": []}
+        where, params, normalized_mode, strategy = _lved_search_where(con, query, mode)
+        select_columns = _lved_list_select_columns(con)
+        sql = (
+            f"select {select_columns} from search s "
+            f"join list l on l.id = s.rowid where {where} "
+            "order by l.id limit ?"
+        )
+        hits = [
+            {
+                "list_id": int(row["list_id"]),
+                "content_id": int(row["content_id"]),
+                "anchor": "" if row["anchor"] is None else str(row["anchor"]),
+                "title_html": "" if row["title"] is None else str(row["title"]),
+                "subtitle_html": "" if row["subtitle"] is None else str(row["subtitle"]),
+                "list_type": None if row["list_type"] is None else int(row["list_type"]),
+            }
+            for row in con.execute(sql, (*params, max(0, limit)))
+        ]
+        return {
+            "query": query,
+            "mode": normalized_mode,
+            "status": "ok",
+            "strategy": strategy,
+            "limit": limit,
+            "hit_count": len(hits),
+            "hits": hits,
+        }
+    except sqlite3.Error as exc:
+        return {"query": query, "mode": mode, "status": "sqlite_error", "reason": str(exc), "hits": []}
+    finally:
+        con.close()
+
+
+def _lved_blob_extension(blob: bytes, name: str | None = None) -> str:
+    lower_name = (name or "").casefold()
+    if blob.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if blob.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if blob.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if blob.startswith(b"RIFF") and blob[8:12] == b"WEBP":
+        return ".webp"
+    if blob.startswith(b"BM"):
+        return ".bmp"
+    stripped = blob.lstrip()
+    if stripped.lower().startswith(b"<svg") or (stripped.lower().startswith(b"<?xml") and b"<svg" in stripped[:512].lower()):
+        return ".svg"
+    if blob.startswith(b"RIFF") and blob[8:12] == b"WAVE":
+        return ".wav"
+    if blob.startswith(b"ID3") or blob.startswith(b"\xff\xfb"):
+        return ".mp3"
+    suffix = Path(lower_name).suffix
+    return suffix if suffix else ".bin"
+
+
+def _safe_asset_name(name: str) -> str:
+    cleaned = re.sub(r"[^0-9A-Za-z._-]+", "_", name).strip("._")
+    return cleaned or "resource"
+
+
+def _media_lookup(con: sqlite3.Connection) -> dict[str, tuple[int, str, bytes]]:
+    if not _sqlite_table_exists(con, "media"):
+        return {}
+    columns = {column.casefold() for column in _sqlite_columns(con, "media")}
+    if not {"id", "name", "main"} <= columns:
+        return {}
+    lookup: dict[str, tuple[int, str, bytes]] = {}
+    for row in con.execute("select id, name, main from media where main is not null"):
+        media_id = int(row[0])
+        name = "" if row[1] is None else str(row[1])
+        blob = bytes(row[2])
+        keys = {name.casefold(), Path(name).stem.casefold(), str(media_id)}
+        for key in keys:
+            if key and key not in lookup:
+                lookup[key] = (media_id, name, blob)
+    return lookup
+
+
+def _loose_resource_lookup(payload_path: Path) -> dict[str, Path]:
+    lookup: dict[str, Path] = {}
+    for path in _loose_resource_paths(payload_path):
+        rel_key = path.relative_to(payload_path.parent).as_posix().casefold()
+        for key in {rel_key, path.name.casefold(), path.stem.casefold()}:
+            lookup.setdefault(key, path)
+    return lookup
+
+
+def _write_lved_asset(
+    value: str,
+    *,
+    assets_dir: Path,
+    media: dict[str, tuple[int, str, bytes]],
+    loose: dict[str, Path],
+) -> str | None:
+    raw = value.strip()
+    if not raw or re.match(r"^[a-z][a-z0-9+.-]*://", raw, re.IGNORECASE) or raw.startswith("#") or raw.startswith("data:"):
+        return None
+    lookup_key = raw.casefold()
+    for prefix in ("lved.image:", "lved.imag:", "lved.media.sound:", "lved.sound:", "lved.media:"):
+        if lookup_key.startswith(prefix):
+            lookup_key = raw.split(":", 1)[1].split("?", 1)[0].casefold()
+            break
+    if lookup_key.startswith("./"):
+        lookup_key = lookup_key[2:]
+    media_item = media.get(lookup_key) or media.get(Path(lookup_key).stem.casefold())
+    if media_item is not None:
+        media_id, name, blob = media_item
+        ext = _lved_blob_extension(blob, name)
+        stem = _safe_asset_name(Path(name).stem or f"media_{media_id}")
+        target = assets_dir / f"{stem}{ext}"
+        if not target.exists():
+            target.write_bytes(blob)
+        return f"assets/{target.name}"
+    loose_path = loose.get(lookup_key) or loose.get(Path(lookup_key).name.casefold()) or loose.get(Path(lookup_key).stem.casefold())
+    if loose_path is not None:
+        target = assets_dir / _safe_asset_name(loose_path.name)
+        if not target.exists():
+            shutil.copy2(loose_path, target)
+        return f"assets/{target.name}"
+    return None
+
+
+def _rewrite_lved_fragment(
+    fragment: str,
+    *,
+    assets_dir: Path,
+    media: dict[str, tuple[int, str, bytes]],
+    loose: dict[str, Path],
+) -> tuple[str, dict[str, int], set[int]]:
+    stats: Counter[str] = Counter()
+    linked_content_ids: set[int] = set()
+
+    def repl(match: re.Match[str]) -> str:
+        attr = match.group("attr")
+        quote = match.group("quote")
+        value = html.unescape(match.group("value"))
+        lower = value.casefold()
+        if attr.casefold() == "href" and lower.startswith("lved.dataid:"):
+            raw_target = value.split(":", 1)[1]
+            target = _LVED_TARGET_SPLIT_RE.split(raw_target, 1)[0]
+            anchor = ""
+            if "#" in raw_target:
+                anchor = "#" + raw_target.split("#", 1)[1]
+            if target.isdigit():
+                linked_content_ids.add(int(target))
+                stats["entry_links_rewritten"] += 1
+                return f'{attr}={quote}entry_{int(target)}.html{html.escape(anchor, quote=True)}{quote}'
+            stats["entry_links_unresolved"] += 1
+            return match.group(0)
+        if attr.casefold() == "href" and lower.startswith("lved.info:"):
+            raw_target = value.split(":", 1)[1]
+            target = _LVED_TARGET_SPLIT_RE.split(raw_target, 1)[0]
+            anchor = ""
+            if "#" in raw_target:
+                anchor = "#" + raw_target.split("#", 1)[1]
+            if target:
+                stats["info_links_rewritten"] += 1
+                safe_name = _safe_asset_name(Path(target).stem or target)
+                return f'{attr}={quote}info_{safe_name}.html{html.escape(anchor, quote=True)}{quote}'
+            stats["info_links_unresolved"] += 1
+            return match.group(0)
+        if attr.casefold() == "href" and lower.startswith(("lved.media.sound:", "lved.sound:", "lved.media:")):
+            href = _write_lved_asset(value, assets_dir=assets_dir, media=media, loose=loose)
+            if href:
+                stats["media_links_resolved"] += 1
+                return f'{attr}={quote}{html.escape(href, quote=True)}{quote}'
+            stats["media_links_unresolved"] += 1
+        if attr.casefold() == "href" and lower.startswith("lved.bookmark:"):
+            stats["bookmark_links_suppressed"] += 1
+            return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
+        if attr.casefold() == "src" or lower.startswith(("lved.image:", "lved.imag:")):
+            src = _write_lved_asset(value, assets_dir=assets_dir, media=media, loose=loose)
+            if src:
+                stats["assets_resolved"] += 1
+                return f'{attr}={quote}{html.escape(src, quote=True)}{quote}'
+            stats["assets_unresolved"] += 1
+        return match.group(0)
+
+    return _LVED_PROTOCOL_RE.sub(repl, fragment), dict(sorted(stats.items())), linked_content_ids
+
+
+def _lved_page(title: str, body: str, *, extra_head: str = "") -> str:
+    return f"""<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html.escape(title)}</title>
+<style>
+body {{ margin: 0; padding: 24px; font-family: system-ui, -apple-system, "Yu Gothic", "Meiryo", sans-serif; line-height: 1.65; color: #222; background: #fff; }}
+a {{ color: #2f6fb4; }}
+img {{ max-width: 100%; height: auto; vertical-align: middle; }}
+.lv-entry, .lv-info, .lv-tree {{ max-width: 960px; margin: 0 auto; }}
+.lv-meta {{ color: #555; font-size: 13px; border-bottom: 1px solid #ddd; margin-bottom: 16px; padding-bottom: 8px; }}
+.lv-search-hit {{ display: block; padding: 8px 10px; border-bottom: 1px solid #eee; text-decoration: none; }}
+.lv-search-hit:hover {{ background: #f6f8fa; }}
+.midashi, .head {{ font-weight: 700; font-size: 1.25em; margin: 0.4em 0; }}
+.honbun, .contents {{ margin: 0.35em 0 1em; }}
+.img_gaiji, .img_gaiji_midashi, .img_hinshi, .img_mark, .img_mark2, .ex_img {{ max-height: 1.4em; width: auto; }}
+table {{ border-collapse: collapse; }}
+td, th {{ padding: 0.25em 0.5em; border: 1px solid #ddd; }}
+</style>
+{extra_head}
+</head>
+<body>
+{body}
+</body>
+</html>
+"""
+
+
+def _content_row(con: sqlite3.Connection, content_id: int) -> sqlite3.Row | None:
+    if not _sqlite_table_exists(con, "content"):
+        return None
+    columns = {column.casefold() for column in _sqlite_columns(con, "content")}
+    if "id" not in columns or "body" not in columns:
+        return None
+    return con.execute("select * from content where id = ? limit 1", (content_id,)).fetchone()
+
+
+def _write_lved_entry_page(
+    con: sqlite3.Connection,
+    payload_path: Path,
+    out_dir: Path,
+    content_id: int,
+    *,
+    title: str | None = None,
+    media_lookup: dict[str, tuple[int, str, bytes]] | None = None,
+    loose_lookup: dict[str, Path] | None = None,
+) -> dict[str, Any] | None:
+    row = _content_row(con, content_id)
+    if row is None:
+        return None
+    assets_dir = out_dir / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    media_lookup = media_lookup if media_lookup is not None else _media_lookup(con)
+    loose_lookup = loose_lookup if loose_lookup is not None else _loose_resource_lookup(payload_path)
+    body = "" if row["body"] is None else str(row["body"])
+    rewritten, stats, linked_content_ids = _rewrite_lved_fragment(body, assets_dir=assets_dir, media=media_lookup, loose=loose_lookup)
+    page_title = title or f"entry {content_id}"
+    html_body = (
+        f'<main class="lv-entry"><div class="lv-meta">content.id={content_id}</div>'
+        f"{rewritten}</main>"
+    )
+    target = out_dir / f"entry_{content_id}.html"
+    target.write_text(_lved_page(page_title, html_body), encoding="utf-8")
+    return {
+        "content_id": content_id,
+        "path": target.name,
+        "body_bytes": len(body.encode("utf-8")),
+        "rewrite": stats,
+        "linked_content_ids": sorted(linked_content_ids),
+    }
+
+
+def _write_lved_entry_stub(out_dir: Path, content_id: int) -> dict[str, Any]:
+    target = out_dir / f"entry_{content_id}.html"
+    if not target.exists():
+        target.write_text(
+            _lved_page(
+                f"entry {content_id}",
+                '<main class="lv-entry">'
+                f'<div class="lv-meta">content.id={content_id}</div>'
+                "<p>This linked LVED entry was discovered but not materialized in this static showcase. "
+                "A reader frontend should resolve this target dynamically through lved.dataid navigation.</p>"
+                "</main>",
+            ),
+            encoding="utf-8",
+        )
+    return {"content_id": content_id, "path": target.name, "stub": True}
+
+
+def _write_lved_info_pages(
+    con: sqlite3.Connection,
+    payload_path: Path,
+    out_dir: Path,
+    *,
+    limit: int,
+    media_lookup: dict[str, tuple[int, str, bytes]],
+    loose_lookup: dict[str, Path],
+) -> list[dict[str, Any]]:
+    if not _sqlite_table_exists(con, "info"):
+        return []
+    assets_dir = out_dir / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    pages: list[dict[str, Any]] = []
+    for row in con.execute("select id, name, body from info order by id limit ?", (limit,)):
+        name = "" if row["name"] is None else str(row["name"])
+        body = "" if row["body"] is None else str(row["body"])
+        rewritten, stats, linked_content_ids = _rewrite_lved_fragment(body, assets_dir=assets_dir, media=media_lookup, loose=loose_lookup)
+        safe_name = _safe_asset_name(Path(name).stem or f"info_{row['id']}")
+        target = out_dir / f"info_{safe_name}.html"
+        target.write_text(
+            _lved_page(name or f"info {row['id']}", f'<main class="lv-info"><div class="lv-meta">info.id={row["id"]} name={html.escape(name)}</div>{rewritten}</main>'),
+            encoding="utf-8",
+        )
+        pages.append(
+            {
+                "id": int(row["id"]),
+                "name": name,
+                "path": target.name,
+                "body_bytes": len(body.encode("utf-8")),
+                "rewrite": stats,
+                "linked_content_ids": sorted(linked_content_ids),
+            }
+        )
+    return pages
+
+
+def _tree_rows_for_report(retained: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for item in retained.get("files") or []:
+        if item.get("kind") == "text_tree":
+            rows.append(item)
+    return rows
+
+
+def render_lved_sqlite_showcase(
+    sqlite_path: Path,
+    payload_path: Path,
+    out_dir: Path,
+    *,
+    queries: list[str] | None = None,
+    modes: list[str] | None = None,
+    limit: int = 10,
+    linked_entry_limit: int = 500,
+) -> dict[str, Any]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    rendered_entries: dict[int, dict[str, Any]] = {}
+    try:
+        media_lookup = _media_lookup(con)
+        loose_lookup = _loose_resource_lookup(payload_path)
+        search_reports: list[dict[str, Any]] = []
+        queries = queries or []
+        modes = modes or ["exact", "forward", "backward", "partial", "fulltext"]
+        for query in queries:
+            for mode in modes:
+                report = search_lved_sqlite_database(sqlite_path, query, mode=mode, limit=limit)
+                search_reports.append(report)
+                for hit in report.get("hits", []):
+                    content_id = int(hit["content_id"])
+                    if content_id in rendered_entries:
+                        continue
+                    rendered = _write_lved_entry_page(
+                        con,
+                        payload_path,
+                        out_dir,
+                        content_id,
+                        title=re.sub(r"<[^>]+>", "", hit.get("title_html") or "") or f"entry {content_id}",
+                        media_lookup=media_lookup,
+                        loose_lookup=loose_lookup,
+                    )
+                    if rendered is not None:
+                        rendered_entries[content_id] = rendered
+        if not rendered_entries and _sqlite_table_exists(con, "content"):
+            for row in con.execute("select id from content order by id limit ?", (limit,)):
+                rendered = _write_lved_entry_page(
+                    con,
+                    payload_path,
+                    out_dir,
+                    int(row["id"]),
+                    media_lookup=media_lookup,
+                    loose_lookup=loose_lookup,
+                )
+                if rendered is not None:
+                    rendered_entries[int(row["id"])] = rendered
+        pending_links: list[int] = []
+        seen_pending: set[int] = set()
+        for rendered in rendered_entries.values():
+            for linked_id in rendered.get("linked_content_ids", []):
+                if linked_id not in rendered_entries and linked_id not in seen_pending:
+                    pending_links.append(int(linked_id))
+                    seen_pending.add(int(linked_id))
+        while pending_links and len(seen_pending) <= linked_entry_limit:
+            linked_id = pending_links.pop(0)
+            if linked_id in rendered_entries:
+                continue
+            rendered = _write_lved_entry_page(
+                con,
+                payload_path,
+                out_dir,
+                linked_id,
+                media_lookup=media_lookup,
+                loose_lookup=loose_lookup,
+            )
+            if rendered is None:
+                continue
+            rendered_entries[linked_id] = rendered
+            for next_id in rendered.get("linked_content_ids", []):
+                if next_id not in rendered_entries and next_id not in seen_pending and len(seen_pending) < linked_entry_limit:
+                    pending_links.append(int(next_id))
+                    seen_pending.add(int(next_id))
+        info_pages = _write_lved_info_pages(
+            con,
+            payload_path,
+            out_dir,
+            limit=max(limit, 1000),
+            media_lookup=media_lookup,
+            loose_lookup=loose_lookup,
+        )
+        stubbed_entries: dict[int, dict[str, Any]] = {}
+        for source in [*rendered_entries.values(), *info_pages]:
+            for linked_id in source.get("linked_content_ids", []):
+                linked_id = int(linked_id)
+                if linked_id not in rendered_entries and linked_id not in stubbed_entries:
+                    stubbed_entries[linked_id] = _write_lved_entry_stub(out_dir, linked_id)
+        retained = inspect_lved_retained_resources(payload_path, sqlite_path)
+        tree_summaries = _tree_rows_for_report(retained)
+        links = []
+        for rendered in rendered_entries.values():
+            links.append(f'<a class="lv-search-hit" href="{html.escape(rendered["path"])}">entry {rendered["content_id"]}</a>')
+        for page in info_pages:
+            links.append(f'<a class="lv-search-hit" href="{html.escape(page["path"])}">info {html.escape(page["name"])}</a>')
+        search_html = []
+        for report in search_reports:
+            search_html.append(f'<h2>{html.escape(report["mode"])}: {html.escape(report["query"])}</h2>')
+            search_html.append(f'<p>{html.escape(report.get("strategy", report.get("reason", "")))}; hits={report.get("hit_count", 0)}</p>')
+            for hit in report.get("hits", []):
+                title_fragment, _title_stats, _title_links = _rewrite_lved_fragment(
+                    hit.get("title_html") or html.escape(str(hit["content_id"])),
+                    assets_dir=out_dir / "assets",
+                    media=media_lookup,
+                    loose=loose_lookup,
+                )
+                search_html.append(
+                    f'<a class="lv-search-hit" href="entry_{int(hit["content_id"])}.html">'
+                    f"{title_fragment}"
+                    f'<small> content={int(hit["content_id"])} list={int(hit["list_id"])}</small></a>'
+                )
+        tree_html = "".join(
+            f'<li>{html.escape(str(item.get("path")))}: rows={item.get("rows")} role={html.escape(str(item.get("role")))}</li>'
+            for item in tree_summaries
+        )
+        index_body = (
+            '<main class="lv-tree">'
+            "<h1>LVED_SQLITE3 showcase</h1>"
+            "<h2>Rendered pages</h2>"
+            + "".join(links)
+            + "<h2>Search probes</h2>"
+            + "".join(search_html)
+            + "<h2>Retained trees</h2><ul>"
+            + tree_html
+            + "</ul></main>"
+        )
+        (out_dir / "index.html").write_text(_lved_page("LVED_SQLITE3 showcase", index_body), encoding="utf-8")
+        return {
+            "status": "rendered",
+            "out_dir": str(out_dir),
+            "entry_pages": list(rendered_entries.values()),
+            "stub_entry_pages": list(stubbed_entries.values()),
+            "info_pages": info_pages,
+            "search_reports": search_reports,
+            "retained_tree_summaries": tree_summaries,
+        }
+    finally:
+        con.close()
+
+
+def inspect_lved_reader_features(sqlite_path: Path, payload_path: Path, *, sample_queries: list[str] | None = None) -> dict[str, Any]:
+    con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        info_pages: list[dict[str, Any]] = []
+        if _sqlite_table_exists(con, "info"):
+            for row in con.execute("select id, name, length(body) as body_length, media from info order by id"):
+                name = "" if row["name"] is None else str(row["name"])
+                lower = name.casefold()
+                if "hanrei" in lower or "凡例" in name:
+                    role = "hanrei"
+                elif lower in {"index.html", "index"}:
+                    role = "home_index"
+                elif "copyright" in lower:
+                    role = "copyright"
+                else:
+                    role = "info"
+                info_pages.append(
+                    {
+                        "id": int(row["id"]),
+                        "name": name,
+                        "role": role,
+                        "body_length": int(row["body_length"] or 0),
+                        "has_media_field": bool(row["media"]),
+                    }
+                )
+        table_roles = {}
+        for row in con.execute("select name, sql from sqlite_master where type='table' and name not like 'sqlite_%' order by name"):
+            name = str(row["name"])
+            table_roles[name] = _sqlite_table_role(name, row["sql"] if isinstance(row["sql"], str) else None)
+        render_signals: Counter[str] = Counter()
+        class_counts: Counter[str] = Counter()
+        protocol_counts: Counter[str] = Counter()
+        image_ref_count = 0
+        if _sqlite_table_exists(con, "content"):
+            for row in con.execute("select body from content where body is not null and length(body)>0 order by id limit 128"):
+                body = str(row["body"])
+                if "<html" in body[:512].casefold() or "<head" in body[:512].casefold():
+                    render_signals["self_contained_html"] += 1
+                else:
+                    render_signals["html_fragment"] += 1
+                class_counts.update(re.findall(r"""class=["']([^"']+)["']""", body))
+                protocol_counts.update(re.findall(r"lved\\.[a-z]+:", body.casefold()))
+                image_ref_count += len(_HTML_SRC_RE.findall(body))
+        retained = inspect_lved_retained_resources(payload_path, sqlite_path)
+        search_probes = []
+        for query in sample_queries or []:
+            for mode in ("exact", "forward", "backward", "partial", "fulltext"):
+                search_probes.append(search_lved_sqlite_database(sqlite_path, query, mode=mode, limit=5))
+        return {
+            "status": "inspected",
+            "table_roles": table_roles,
+            "info_pages": info_pages,
+            "home_surfaces": [
+                {"kind": page["role"], "name": page["name"], "id": page["id"], "status": "available"}
+                for page in info_pages
+                if page["role"] in {"home_index", "hanrei", "copyright"}
+            ],
+            "render_readiness": {
+                "body_shape_counts": dict(sorted(render_signals.items())),
+                "top_classes": dict(class_counts.most_common(40)),
+                "protocol_counts": dict(protocol_counts.most_common()),
+                "sample_image_ref_count": image_ref_count,
+                "requires_viewer_templates_or_css": bool(render_signals.get("html_fragment")),
+            },
+            "retained_resources": {
+                "file_count": retained["file_count"],
+                "role_counts": retained["role_counts"],
+                "tree_files": [
+                    {"path": item.get("path"), "role": item.get("role"), "rows": item.get("rows"), "target_correlation": item.get("target_correlation")}
+                    for item in retained.get("files", [])
+                    if item.get("kind") == "text_tree"
+                ],
+            },
+            "search_probes": search_probes,
+        }
+    finally:
+        con.close()
 
 
 def _sqlite_correlate_tree_targets(con: sqlite3.Connection | None, values: set[int]) -> dict[str, Any]:
@@ -1191,9 +1888,39 @@ def find_lved_key_candidates_in_dump(path: Path) -> list[str]:
 
 
 def _inspect_lved_payload_task(
-    payload: tuple[Path, int | None, str | None, str | None, list[str], bool, bool, bool]
+    payload: tuple[
+        Path,
+        int | None,
+        str | None,
+        str | None,
+        list[str],
+        bool,
+        bool,
+        bool,
+        bool,
+        tuple[str, ...],
+        tuple[str, ...],
+        int,
+        int,
+        str | None,
+    ]
 ) -> dict[str, Any]:
-    path, dict_id, dict_code, explicit_key, memory_keys, inspect_sqlite, inspect_retained, inspect_loose_resources = payload
+    (
+        path,
+        dict_id,
+        dict_code,
+        explicit_key,
+        memory_keys,
+        inspect_sqlite,
+        inspect_retained,
+        inspect_loose_resources,
+        inspect_reader,
+        search_queries,
+        search_modes,
+        search_limit,
+        render_link_limit,
+        render_dir,
+    ) = payload
     inspected = inspect_lved_payload(path)
     row: dict[str, Any] = {
         "path": str(inspected.path),
@@ -1236,7 +1963,8 @@ def _inspect_lved_payload_task(
         safe_result = {key: value for key, value in result.items() if key != "reason" or value}
         safe_result["source"] = source
         row["validation"].append(safe_result)
-    if inspect_sqlite or inspect_retained:
+    needs_decrypted = inspect_sqlite or inspect_retained or inspect_reader or bool(search_queries) or bool(render_dir)
+    if needs_decrypted:
         if first_valid_key is None:
             if inspect_sqlite:
                 row["sqlite"] = {
@@ -1245,6 +1973,12 @@ def _inspect_lved_payload_task(
                 }
             if inspect_retained:
                 row["retained_resources"] = inspect_lved_retained_resources(path)
+            if inspect_reader:
+                row["reader_features"] = {"status": "not_inspected", "reason": "no valid SQLCipher key candidate"}
+            if search_queries:
+                row["search"] = {"status": "not_inspected", "reason": "no valid SQLCipher key candidate", "queries": list(search_queries)}
+            if render_dir:
+                row["render"] = {"status": "not_rendered", "reason": "no valid SQLCipher key candidate"}
         else:
             with TemporaryDirectory() as temp_dir:
                 decrypted = Path(temp_dir) / f"{path.name}.sqlite"
@@ -1256,6 +1990,28 @@ def _inspect_lved_payload_task(
                         row["sqlite"] = sqlite_report
                     if inspect_retained:
                         row["retained_resources"] = inspect_lved_retained_resources(path, decrypted)
+                    if inspect_reader:
+                        row["reader_features"] = inspect_lved_reader_features(decrypted, path, sample_queries=list(search_queries))
+                    if search_queries:
+                        row["search"] = {
+                            "status": "searched",
+                            "queries": [
+                                search_lved_sqlite_database(decrypted, query, mode=mode, limit=search_limit)
+                                for query in search_queries
+                                for mode in search_modes
+                            ],
+                        }
+                    if render_dir:
+                        package_dir = Path(render_dir) / (inspected.inferred_dict_code or path.parent.name)
+                        row["render"] = render_lved_sqlite_showcase(
+                            decrypted,
+                            path,
+                            package_dir,
+                            queries=list(search_queries),
+                            modes=list(search_modes),
+                            limit=search_limit,
+                            linked_entry_limit=render_link_limit,
+                        )
                 except Exception as exc:
                     error = {
                         "status": "inspect_error",
@@ -1267,6 +2023,12 @@ def _inspect_lved_payload_task(
                         retained = inspect_lved_retained_resources(path)
                         retained["sqlite_correlation_status"] = "not_attempted_after_decrypt_error"
                         row["retained_resources"] = retained
+                    if inspect_reader:
+                        row["reader_features"] = error
+                    if search_queries:
+                        row["search"] = error
+                    if render_dir:
+                        row["render"] = error
     if inspect_loose_resources:
         row["loose_resources"] = inspect_lved_loose_resources(path)
     return row
@@ -1282,11 +2044,19 @@ def inspect_lved_roots(
     inspect_sqlite: bool = False,
     inspect_retained: bool = False,
     inspect_loose_resources: bool = False,
+    inspect_reader: bool = False,
+    search_queries: Iterable[str] = (),
+    search_modes: Iterable[str] = ("exact", "forward", "backward", "partial", "fulltext"),
+    search_limit: int = 20,
+    render_link_limit: int = 500,
+    render_dir: Path | None = None,
     jobs: int | None = 1,
 ) -> dict[str, Any]:
     payload_paths = discover_lved_payloads(roots)
     explicit_key = key
     memory_keys = find_lved_key_candidates_in_dump(memory_dump) if memory_dump else []
+    search_query_tuple = tuple(search_queries)
+    search_mode_tuple = tuple(search_modes)
     payloads = parallel_map_ordered(
         _inspect_lved_payload_task,
         [
@@ -1299,6 +2069,12 @@ def inspect_lved_roots(
                 inspect_sqlite,
                 inspect_retained,
                 inspect_loose_resources,
+                inspect_reader,
+                search_query_tuple,
+                search_mode_tuple,
+                search_limit,
+                render_link_limit,
+                str(render_dir) if render_dir is not None else None,
             )
             for path in payload_paths
         ],

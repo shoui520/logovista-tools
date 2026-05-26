@@ -151,8 +151,23 @@ forward, back, part, fts
 ```
 
 Optional search columns include `filter`, `advanced`, `advanced1`,
-`advanced2`, and `advanced3`. Treat these as dictionary-specific native search
-dimensions until query behavior is tested in a reader.
+`advanced2`, and `advanced3`.
+
+The reader search surface recovered so far is:
+
+| Reader mode | Storage mapping |
+|---|---|
+| 完全一致 / exact | `filter` boundary match using `∥query∥`, falling back to `forward = ?` when `filter` is absent. |
+| 前方一致 / forward | FTS `forward:<query>*`. |
+| 後方一致 / backward | Reverse normalized query, then FTS `back:<reversed-query>*`. |
+| 逐次一致 / partial | Character-token FTS over `part`. |
+| 全文検索 / fulltext | FTS over `fts`; CJK/non-Latin-only probes use character terms. |
+| advanced / advanced1/2/3 | Optional product-specific search dimensions. |
+
+`advanced*` is not one universal feature. It is an extra native FTS column used
+by products for phrases, examples, filters, or auxiliary search panes. Reader
+frontends should expose it only when the package capability metadata identifies
+what that product uses it for.
 
 Some packages retain SSED-style or index-style files beside the SQLCipher
 payload, including `res/tree.idx`, `res/*.idx`, `BHINDEX.DIC`, and
@@ -162,6 +177,47 @@ navigation trees whose positive targets correlate to SQLite `content.id` /
 `BKINDEX.DIC` streams with normal SSED block/offset leaf targets. Reader
 architecture must share SSED/index parsers as feature providers when present
 instead of assuming `LVED_SQLITE3` packages are pure SQLite-only books.
+
+## Reader Surfaces
+
+The `info` table is a first-class reader surface provider. Observed row names
+include `index.html`, `hanrei.html`, copyright/about/help pages, and
+product-specific info pages. The row `body` values are usually fragments, not
+complete documents. They should be wrapped by the reader and resolved through
+the same resource/link path as entry bodies.
+
+Retained text trees such as `res/tree.idx` are navigation trees over SQLite
+content. Positive targets correlate to `content.id` / `list.refid`; negative
+targets are category/sentinel rows. They should become browse/navigation
+surfaces, not exporter-only diagnostics.
+
+The body/link protocols observed in the corpus include:
+
+| Protocol | Current interpretation |
+|---|---|
+| `lved.dataid:<id>` | Jump to SQLite `content.id`. Preserve `#anchor` suffixes when present. |
+| `lved.info:<name>` | Jump to an `info.name` page such as `hanrei.html`. |
+| `lved.image:` / `lved.imag:` | Resolve an image through SQLite `media` or loose resources. |
+| `lved.media.sound:` | Resolve an audio media row and expose it as a playable/downloadable asset. |
+| `lved.bookmark:` | Viewer/user-state protocol; do not treat as a content body. |
+
+## Rendering Contract
+
+The SQLCipher database usually stores HTML fragments. It does not, by itself,
+contain enough template/CSS/JS information for exact official visual parity.
+The shipped viewer contains embedded per-product resources such as
+`Html_Template_Detail.html`, `Html_Template_Index.html`,
+`Html_Template_DictSearch.html`, product CSS, and viewer scripts.
+
+Toolkit generic rendering therefore has this contract:
+
+- produce navigable HTML useful for analysis and structural smoke testing;
+- preserve source body HTML rather than flattening it;
+- rewrite known `lved.*` protocols to local pages/assets where possible;
+- copy BLOB/loose media assets needed by generated pages;
+- report or preserve unknown product hooks instead of claiming exact parity.
+
+Exact LVED_SQLITE3 reader parity is a separate renderer-template task.
 
 ## Toolkit Support
 
@@ -175,6 +231,10 @@ logovista-tools lved /path/to/SQLCIPHER_CORPUS --json
 logovista-tools lved /path/to/SQLCIPHER_CORPUS --jobs 12 --inspect-sqlite --json
 logovista-tools lved /path/to/SQLCIPHER_CORPUS --jobs 12 --inspect-sqlite --inspect-retained --json
 logovista-tools lved /path/to/SQLCIPHER_CORPUS --jobs 12 --inspect-loose-resources --json
+logovista-tools lved /path/to/SQLCIPHER_CORPUS --jobs 12 --inspect-reader --search 犬 \
+  --search-mode exact --search-mode forward --search-mode backward \
+  --search-mode partial --search-mode fulltext --json
+logovista-tools lved /path/to/KOJIEN7 --search 右 --render-dir /tmp/koji-lved-pages
 logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 --json
 logovista-tools lved /path/to/OXFPEU4 --memory-dump viewer-memory.dmp --json
 logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 \

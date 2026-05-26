@@ -577,6 +577,8 @@ SQLite3 data model rather than the viewer executable name.
 ```bash
 logovista-tools lved /path/to/LOGOVISTA_SQLCIPHER_DICTS_WINDOWS --json
 logovista-tools lved /path/to/LOGOVISTA_SQLCIPHER_DICTS_WINDOWS --jobs 12 --inspect-sqlite --json
+logovista-tools lved /path/to/LOGOVISTA_SQLCIPHER_DICTS_WINDOWS --jobs 12 --inspect-reader --search 犬 --search-mode exact --search-mode forward --json
+logovista-tools lved /path/to/KOJIEN7 --search 右 --render-dir /tmp/koji-lved-pages
 logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 --json
 logovista-tools lved /path/to/KQCMPROS --dict-id 751 --json
 ```
@@ -592,6 +594,12 @@ Useful options:
 --inspect-sqlite                    inspect decrypted SQLite schema, table roles, and bounded feature signals
 --inspect-retained                  parse retained res/*.idx, tree.idx, and *INDEX.DIC resources
 --inspect-loose-resources           inspect loose image/font/runtime resource signatures and dimensions
+--inspect-reader                    inspect reader surfaces, render signals, retained tree use, and bounded search probes
+--search QUERY                      run a real SQLite search probe; may be repeated
+--search-mode MODE                  exact, forward, backward, partial, fulltext, filter, advanced1, advanced2, or advanced3
+--search-limit N                    maximum hits per query/mode
+--render-dir PATH                   write generic static HTML pages for search hits/info pages
+--render-link-limit N               maximum linked lved.dataid pages to materialize before writing stubs
 --json                              emit machine-readable JSON
 ```
 
@@ -623,6 +631,28 @@ targets against SQLite tables.
 than extension alone. It reports image media types and dimensions, font
 container signatures, web-runtime text encodings, PDFs, desktop metadata files,
 and unknowns. It does not emit HTML/CSS/JS/resource text.
+
+`--inspect-reader` adds reader-facing analysis: `info` home/HANREI/copyright
+surfaces, body fragment vs full-document signals, top HTML classes,
+`lved.*` protocols, retained tree summaries, and optional real search probes.
+
+Search probes use the recovered native model:
+
+- `exact`: `filter` boundary token match such as `∥query∥`, with `forward`
+  equality fallback.
+- `forward`: FTS `forward:<query>*`.
+- `backward`: reversed query against FTS `back`.
+- `partial`: character-token FTS against `part`.
+- `fulltext`: FTS against `fts`.
+- `advanced1`/`advanced2`/`advanced3`: optional product-specific FTS columns.
+
+`--render-dir` writes a private generic HTML showcase. It preserves SQLite
+body/info fragments inside a simple wrapper, rewrites `lved.dataid:` and
+`lved.info:` links to local pages, resolves `lved.image:` / `lved.imag:` and
+`lved.media.sound:` assets through SQLite `media` or loose resources, and writes
+stubs for linked entries beyond `--render-link-limit`. The generated pages are
+for structural testing; exact LVEDVIEWER visual parity still needs
+product-template/CSS/JS handling.
 
 ### `compose`
 

@@ -129,8 +129,28 @@ This maps well to the reader search modes:
 - `filter` and `advanced*`: dictionary-specific filters or advanced search
   dimensions.
 
-The exact query and ranking behavior still needs end-user visual/search tests.
-Do not assume FTS `MATCH` alone reproduces official search ordering.
+Real search probes now confirm the base join:
+
+```sql
+search.rowid -> list.id -> list.refid -> content.id
+```
+
+The toolkit maps the reader modes as follows:
+
+| Mode | Query strategy |
+|---|---|
+| 完全一致 / `exact` | `filter` boundary tokens such as `∥query∥` when present; `forward = ?` fallback when not. |
+| 前方一致 / `forward` | FTS `forward:<query>*`. |
+| 後方一致 / `backward` | Reverse the normalized query and use FTS `back:<reversed-query>*`. |
+| 逐次一致 / `partial` | Character-token FTS over `part`. |
+| 全文検索 / `fulltext` | FTS over `fts`; non-Latin/CJK-only queries are split into character terms. |
+| `advanced`, `advanced1`, `advanced2`, `advanced3` | Product-specific FTS dimensions. Observed values include phrase/example/filter panes; there is no single universal semantic. |
+| `filter` | Raw substring probe of the `filter` column for diagnostics. |
+
+The current implementation is deliberately conservative. It proves the native
+storage/query surface and returns real dictionary rows, but official ranking
+and product-specific search-dialog behavior still need dedicated UI parity
+tests.
 
 ## Body And Link Signals
 
@@ -175,6 +195,18 @@ The core model is stable, but several dictionaries add feature tables:
 
 These must be modeled as optional feature providers. They are not evidence for
 separate package families.
+
+The toolkit now classifies these tables by role during `--inspect-sqlite`.
+Currently supported reader-facing handling is:
+
+- `list`, `content`, `media`, `info`, and `search` are active reader providers.
+- `mediasub` and `sound` are recognized as secondary media/audio stores, but
+  rendering support is still first-pass and mostly exercised through direct
+  `lved.media.sound:` links.
+- `bunya`, `genre`, `exam`, `kanji`, `kanji_all`, `kwit`, `joken`, `sakuin`,
+  `item`, `binran`, `listsub`, `searchsub`, `t_contents`, and `t_convert` are
+  classified feature tables. Their exact product UI semantics are not all
+  implemented yet and should remain named providers/gaps, not hidden columns.
 
 ## Loose Resources And Retained SSED-Like Files
 
@@ -240,6 +272,52 @@ indexes or trees as package-local feature providers.
 The private retained decode report is written under
 `reports/lved-sqlite3-retained-v2/`.
 
+## Reader Probe And Generic Rendering
+
+A focused reader probe was run on KOJIEN7, DAIJIRN4, GENIUS53, NANMED20, and
+NKGORIN2 under `reports/lved-sqlite3-reader-probe-v3/`. It exercised real
+queries across `exact`, `forward`, `backward`, `partial`, `fulltext`, and
+`advanced1`, generated static HTML pages from real `content` and `info` rows,
+and validated the generated pages.
+
+The generated HTML showcase is intentionally generic. It is useful for
+verifying link/media/resource mechanics, not for claiming exact LVEDVIEWER
+visual parity. Validation results from the v3 run:
+
+- 28,609 HTML pages generated across the five selected packages.
+- 0 missing local `href` / `src` targets after rewriting.
+- `lved.dataid:` links, including `#anchor` suffixes, rewrite to local entry
+  pages.
+- `lved.info:` links rewrite to local info/HANREI pages.
+- `lved.image:` / `lved.imag:` resources resolve through the SQLite `media`
+  table or loose resources.
+- `lved.media.sound:` links resolve to copied audio assets when matching media
+  rows exist.
+- Headless Chromium loaded representative generated index pages.
+- One KOJIEN7 info fragment contains extra closing table row/cell tags in the
+  source body. The toolkit preserves it rather than silently rewriting vendor
+  body HTML.
+
+The probe also confirms that `info` rows are not disposable metadata. They
+hold book home/help/HANREI/copyright-like surfaces, often as HTML fragments.
+Many dictionaries need those pages to feel like a complete electronic book.
+
+## Renderer Readiness
+
+Most `content.body` and `info.body` values are HTML fragments, not full HTML
+documents with complete CSS/JS. The generic renderer wraps those fragments with
+minimal CSS, rewrites internal protocols, and copies resources. That is enough
+for structural testing and rough browsing, but not enough for official visual
+parity.
+
+The official viewer supplies significant product-specific rendering material:
+embedded per-product templates such as `Html_Template_Detail.html`,
+`Html_Template_Index.html`, `Html_Template_DictSearch.html`, product CSS, and
+viewer JavaScript/resources. Exact LVED_SQLITE3 renderer parity therefore
+requires either extracting and applying those templates or reimplementing their
+semantics. The database payload alone is not enough to guarantee exact visual
+output.
+
 ## Reader Architecture Implications
 
 `LVED_SQLITE3` should be a first-class package driver with shared providers:
@@ -250,8 +328,8 @@ The private retained decode report is written under
 - `SearchProvider`: expose native forward/back/part/fts/advanced search columns.
 - `MediaProvider`: resolve `media`, `mediasub`, `sound`, and loose `res/`
   resources.
-- `InfoProvider`: expose `info` rows as home/help/about/HANREI-like surfaces
-  when appropriate.
+- `InfoProvider`: expose `info` rows as home/help/about/HANREI-like surfaces.
+  Do not treat them as hidden metadata by default.
 - `OptionalMetadataProviders`: `exam`, `genre`, `bunya`, `kanji`, `kwit`,
   `joken`, `sakuin`, `item`, and conversion tables.
 - `RetainedSsedProvider`: parse retained `.idx` / `*INDEX.DIC` / tree files
@@ -279,8 +357,10 @@ end-user behavior. Still open:
 - whether GENIUS53 retained SSEDATA index block/offset targets have a bridge to
   modern SQLite rows or are only legacy/search compatibility data;
 - complete rendering/resource rules for every HTML/link pattern;
-- whether all `info` rows should be home surfaces, help/HANREI pages, hidden
-  metadata, or product-specific UI panels.
+- product-specific LVEDVIEWER template/CSS/JS application;
+- exact semantics of secondary tables such as `sound`, `mediasub`, `listsub`,
+  `searchsub`, `t_convert`, and `binran` beyond current structural
+  classification.
 
 These are the next SQLCipher-specific targets before claiming a usable
 `LVED_SQLITE3` reader path.

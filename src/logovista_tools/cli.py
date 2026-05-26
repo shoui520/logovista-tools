@@ -374,6 +374,12 @@ def cmd_lved(args: argparse.Namespace) -> int:
         inspect_sqlite=args.inspect_sqlite,
         inspect_retained=args.inspect_retained,
         inspect_loose_resources=args.inspect_loose_resources,
+        inspect_reader=args.inspect_reader,
+        search_queries=args.search or (),
+        search_modes=args.search_mode or ("exact", "forward", "backward", "partial", "fulltext"),
+        search_limit=args.search_limit,
+        render_link_limit=args.render_link_limit,
+        render_dir=args.render_dir,
         jobs=args.jobs,
     )
 
@@ -450,6 +456,17 @@ def cmd_lved(args: argparse.Namespace) -> int:
         if loose:
             kinds = ", ".join(f"{key}={value}" for key, value in sorted((loose.get("kind_counts") or {}).items()))
             print(f"  loose_resources: {loose.get('status')} files={loose.get('file_count', 0)} kinds=[{kinds}]")
+        reader = row.get("reader_features") or {}
+        if reader:
+            surfaces = reader.get("home_surfaces") or []
+            print(f"  reader: {reader.get('status')} surfaces={len(surfaces)}")
+        search = row.get("search") or {}
+        if search:
+            query_count = len(search.get("queries") or [])
+            print(f"  search: {search.get('status')} probes={query_count}")
+        render = row.get("render") or {}
+        if render:
+            print(f"  render: {render.get('status')} out={render.get('out_dir', '')}")
     if args.write_decrypted and "decrypted_output" in report:
         out = report["decrypted_output"]
         print(f"decrypted: {out['path']} bytes={out['bytes']}")
@@ -2384,6 +2401,36 @@ def build_parser() -> argparse.ArgumentParser:
         "--inspect-loose-resources",
         action="store_true",
         help="Inspect loose image/font/runtime resources by signature, dimensions, and type without emitting resource text.",
+    )
+    p_lved.add_argument(
+        "--inspect-reader",
+        action="store_true",
+        help="Inspect reader-facing LVED surfaces, retained tree use, body render signals, and bounded search probes.",
+    )
+    p_lved.add_argument(
+        "--search",
+        action="append",
+        default=[],
+        help="Run a bounded real SQLite search probe for this query. May be repeated.",
+    )
+    p_lved.add_argument(
+        "--search-mode",
+        action="append",
+        choices=("exact", "forward", "backward", "partial", "fulltext", "filter", "advanced1", "advanced2", "advanced3"),
+        default=None,
+        help="Search mode to probe/render. May be repeated.",
+    )
+    p_lved.add_argument("--search-limit", type=int, default=20, help="Maximum hits per LVED search probe.")
+    p_lved.add_argument(
+        "--render-link-limit",
+        type=int,
+        default=500,
+        help="Maximum linked lved.dataid entry pages to materialize per rendered package.",
+    )
+    p_lved.add_argument(
+        "--render-dir",
+        type=Path,
+        help="Write simple reader-oriented HTML showcase pages under this directory using search hits or first entries.",
     )
     p_lved.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     add_jobs_argument(p_lved)
