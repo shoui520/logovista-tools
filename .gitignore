@@ -28,6 +28,7 @@ logovista-raw-titles/
 logovista-*/
 reports/
 *.jsonl
+LvedViewer.*
 
 # Committed synthetic format fixtures. These intentionally contain tiny
 # dictionary-like binary files that match the otherwise ignored LogoVista

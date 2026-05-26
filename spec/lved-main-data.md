@@ -291,6 +291,8 @@ contain enough template/CSS/JS information for exact official visual parity.
 The shipped viewer contains embedded per-product resources such as
 `Html_Template_Detail.html`, `Html_Template_Index.html`,
 `Html_Template_DictSearch.html`, product CSS, and viewer scripts.
+The current private extraction summary is in
+[LVEDVIEWER Embedded Assets](../docs/lved-viewer-assets.md).
 
 Toolkit generic rendering therefore has this contract:
 

@@ -432,6 +432,13 @@ requires either extracting and applying those templates or reimplementing their
 semantics. The database payload alone is not enough to guarantee exact visual
 output.
 
+A dedicated extraction pass of `LVEDVIEWER.exe` found 612 managed resources,
+including 393 viewer-facing HTML/CSS/JS/text assets. The product inventory has
+88 product/plugin codes plus global viewer resources, with specialized
+templates for examples, kanji pages, tree navigation, HANREI/info pages,
+advanced search, condition search, keyword-in-text search, sakuin/index pages,
+and PDF/image-page views. See [LVEDVIEWER Embedded Assets](lved-viewer-assets.md).
+
 ## Reader Architecture Implications
 
 `LVED_SQLITE3` should be a first-class package driver with shared providers:
@@ -481,7 +488,9 @@ end-user behavior. Still open:
 - resource/address bridge for IBOI5 `lved.imag...` address-style image links;
 - bridge for IBOI5 relative appendix hooks such as `050000/0000`;
 - complete visual rendering rules for every HTML/class/link pattern;
-- product-specific LVEDVIEWER template/CSS/JS application;
+- product-specific LVEDVIEWER template/CSS/JS application and reimplementation
+  of the product hooks summarized in
+  [LVEDVIEWER Embedded Assets](lved-viewer-assets.md);
 - complete product semantics for optional providers such as `exam`, `genre`,
   `bunya`, `kanji`, `kwit`, `joken`, `sakuin`, `item`, `t_contents`, and
   `t_convert` beyond the structural roles described above.

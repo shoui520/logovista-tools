@@ -10,6 +10,7 @@ reverse-engineering notes live in [`../spec`](../spec/README.md).
 | [lvcore Status](lvcore-status.md) | Reader-core status, boundaries, and audit counters. |
 | [HC Renderer Parity Matrix](hc-renderer-parity.md) | HC renderer family status, visual parity locks, and named hook gaps. |
 | [LVED_SQLITE3 Corpus Findings](lved-sqlite3-corpus.md) | Full-corpus schema and feature findings for modern SQLCipher-backed LogoVista packages. |
+| [LVEDVIEWER Embedded Assets](lved-viewer-assets.md) | Private extraction summary for LVEDVIEWER product HTML/CSS/JS resources and product hook implications. |
 | [Package Families](package-families.md) | SSED package layers, non-SSED families, and lookup rules. |
 | [Corpus Findings](corpus-findings.md) | Observed behavior from real dictionaries. |
 | [Legal and Data Policy](legal.md) | Repository and data-handling boundaries. |

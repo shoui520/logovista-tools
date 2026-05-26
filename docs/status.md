@@ -142,6 +142,13 @@ and non-SSED reader status are tracked separately in
   relative appendix hooks such as `050000/0000` are deferred until their bridge
   is proven. This proves structural navigation/resource handling, not exact
   LVEDVIEWER visual parity.
+- LVEDVIEWER embedded asset extraction. The private extraction report records
+  612 managed resources and 393 viewer-facing HTML/CSS/JS/text assets,
+  including per-product detail/index/search templates, specialized example,
+  kanji, HANREI, tree, advanced, condition, keyword-in-text, sakuin, and
+  PDF/image templates, plus global detail/search scripts. The repository only
+  commits the summary in [LVEDVIEWER Embedded Assets](lved-viewer-assets.md),
+  not the proprietary extracted templates.
 - LVLMultiView package-family classification for observed ESPRANT2/YROPPO/MOROKU
   packages, including SSEDINFO facade parsing, LogoFontCipher SQLite payload
   roles, `menuData.xml` href resolution, static HTML/viewer-file reporting,
