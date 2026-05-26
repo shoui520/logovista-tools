@@ -115,6 +115,7 @@ target inside a larger collection.
 ssed              SSEDINFO/SSEDDATA package with HONMON-style components
 lved_sqlcipher    modern LVED_SQLITE3 SQLCipher payload family
 multiview_sqlite      LVLMultiView package with SSEDINFO facade + SQLite bodies
+hourei_sqlite     LogoVista電子法令 Professional SQLite law-browser package
 mixed             package has both raw SSED anchors and renderer/database bodies
 unknown           classified enough to report, not enough to decode
 ```
@@ -132,8 +133,8 @@ unknown
 The `platform` field records observed package-layer evidence, not the core
 format family. SIZK is not a package-family or platform value; it is reported
 through dictionary-family notes/markers while keeping `package_family=ssed`.
-LVED and LVLMultiView use their own `package_family` values and ordinary
-platform evidence such as `windows`.
+LVED, LVLMultiView, and Hourei use their own `package_family` values and
+ordinary platform evidence such as `windows`.
 
 `honmon_shape` values observed so far:
 
@@ -162,6 +163,7 @@ dictfulldb
 renderer_db
 lved_sqlcipher
 multiview_sqlite
+hourei_sqlite
 none
 unknown
 ```
@@ -1120,8 +1122,8 @@ The legacy alias fields remain for compatibility with older reports:
 `lossless_repacker` is an alias of `lossless_repack_existing`, and `combined`
 is the worst of `export_existing` and `lossless_repack_existing`.
 
-For non-SSED package families such as `lved_sqlcipher` and
-`multiview_sqlite`, SSED writer readiness is deliberately `gray` with a
+For non-SSED package families such as `lved_sqlcipher`, `multiview_sqlite`,
+and `hourei_sqlite`, SSED writer readiness is deliberately `gray` with a
 `non_ssed_package_family` blocker. Those families are classified into the
 common package model so corpus runs can account for them, but planned writer
 support applies only to core SSED packages.

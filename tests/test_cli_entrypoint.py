@@ -93,6 +93,13 @@ def test_logovista_tools_scan_detects_ssed_lved_and_multiview(tmp_path: Path) ->
     (multiview_dir / "menuData.xml").write_text("<menuData />", encoding="utf-8")
     (multiview_dir / "blvdat").write_bytes(b"fixture")
 
+    hourei_dir = tmp_path / "HOUREI"
+    (hourei_dir / "_DataBase").mkdir(parents=True)
+    (hourei_dir / "_Programs").mkdir(parents=True)
+    for name in ("hore_base.db", "hore_search_a.db", "horejo_base.db"):
+        (hourei_dir / "_DataBase" / name).write_bytes(b"SQLite format 3\x00" + b"\0" * 64)
+    (hourei_dir / "_Programs" / "LVMultiView.exe").write_bytes(b"MZ")
+
     result = subprocess.run(
         [sys.executable, "-m", "logovista_tools", "scan", str(tmp_path), "--json"],
         text=True,
@@ -104,7 +111,7 @@ def test_logovista_tools_scan_detects_ssed_lved_and_multiview(tmp_path: Path) ->
     assert result.returncode == 0
     rows = json.loads(result.stdout)
     families = {row["family"] for row in rows}
-    assert {"ssed", "lved_sqlcipher", "multiview_sqlite"} <= families
+    assert {"ssed", "lved_sqlcipher", "multiview_sqlite", "hourei_sqlite"} <= families
     assert any(row["family"] == "ssed" and row["dict_id"] == "SCANSS" for row in rows)
     assert any(
         row["family"] == "lved_sqlcipher"
@@ -116,6 +123,7 @@ def test_logovista_tools_scan_detects_ssed_lved_and_multiview(tmp_path: Path) ->
         row["family"] == "multiview_sqlite" and row["dict_id"] == "MVIEW" and row["payload_count"] == 1
         for row in rows
     )
+    assert any(row["family"] == "hourei_sqlite" and row["dict_id"] == "HOUREI" for row in rows)
 
 
 def test_logovista_tools_colscr_direct_component_reports_expected_input(tmp_path: Path) -> None:

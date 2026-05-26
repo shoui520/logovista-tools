@@ -27,6 +27,7 @@ from .gaiji import (
 )
 from .gaiji_readiness import extract_gaiji_readiness
 from .indexes import INDEX_TYPES, collect_index_body_offsets_for_idx, extract_indexes_for_idx
+from .hourei import discover_hourei_packages, inspect_hourei_package
 from .lved import discover_lved_payloads, inspect_lved_roots
 from .menus import extract_menus_for_idx
 from .model_readiness import build_model_readiness
@@ -400,6 +401,17 @@ def select_single_multiview_package(root: Path, dict_id: str | None = None) -> P
     return packages[0]
 
 
+def select_single_hourei_package(root: Path, dict_id: str | None = None) -> Path | None:
+    packages = [path for path in discover_hourei_packages([root]) if matches_dict_id(path, dict_id)]
+    if not packages:
+        return None
+    if len(packages) > 1:
+        ids = ", ".join(path.name for path in packages[:20])
+        suffix = "..." if len(packages) > 20 else ""
+        raise ValueError(f"dump-package-model found {len(packages)} Hourei packages: {ids}{suffix}. Use --dict.")
+    return packages[0]
+
+
 def _candidate_idx_paths(root: Path) -> list[Path]:
     if not root.is_dir():
         return [path.resolve() for path in iter_files_with_suffix(root, ".idx")]
@@ -420,6 +432,19 @@ def discover_package_model_targets(roots: list[Path], dict_ids: set[str] | None 
     wanted = {item.upper().removeprefix("_DCT_") for item in dict_ids} if dict_ids else None
     targets: list[PackageModelTarget] = []
     seen: set[tuple[str, Path]] = set()
+
+    hourei_packages = []
+    for package in discover_hourei_packages(roots):
+        dict_id = package.name
+        if wanted and dict_id.upper() not in wanted:
+            continue
+        resolved = package.resolve()
+        key = (PackageFamily.HOUREI_SQLITE.value, resolved)
+        if key in seen:
+            continue
+        seen.add(key)
+        hourei_packages.append(resolved)
+        targets.append(PackageModelTarget(dict_id=dict_id, path=resolved, family_hint=PackageFamily.HOUREI_SQLITE.value))
 
     multiview_packages = []
     for package in discover_multiview_packages(roots):
@@ -449,6 +474,8 @@ def discover_package_model_targets(roots: list[Path], dict_ids: set[str] | None 
 
     for root in roots:
         for idx in _candidate_idx_paths(root):
+            if any(_path_is_inside(idx, package) for package in hourei_packages):
+                continue
             if any(_path_is_inside(idx, package) for package in multiview_packages):
                 continue
             try:
@@ -1659,10 +1686,61 @@ def dump_multiview_deferred_model(package: Path, args: argparse.Namespace) -> di
     )
 
 
+def dump_hourei_deferred_model(package: Path, args: argparse.Namespace) -> dict[str, Any]:
+    report = inspect_hourei_package(package, deep=False, sample_rows=max(1, int(getattr(args, "sample_limit", 20) or 20)))
+    core_databases = report.get("core_databases", [])
+    components = [
+        normalize_component_row(
+            {
+                "filename": Path(row.get("path", "")).name,
+                "path": row.get("path"),
+                "role": "component",
+                "type": "hourei_sqlite_database",
+                "bytes": row.get("size"),
+                "storage": row.get("kind"),
+                "sha256": row.get("sha256"),
+                "table_count": row.get("table_count"),
+                "row_count": row.get("row_count"),
+            }
+        )
+        for row in core_databases
+        if isinstance(row, dict)
+    ]
+    markers = {
+        "hore_base_db": (package / "_DataBase" / "hore_base.db").is_file(),
+        "hore_search_a_db": (package / "_DataBase" / "hore_search_a.db").is_file(),
+        "horejo_base_db": (package / "_DataBase" / "horejo_base.db").is_file(),
+        "kanpou_db": (package / "_Kanpou" / "hore_kanpou.db").is_file(),
+        "program_viewer": (package / "_Programs" / "LVMultiView.exe").is_file(),
+    }
+    return _deferred_family_common(
+        dict_id=str(report.get("dict_id") or package.name),
+        title="LogoVista電子法令 Professional",
+        package_path=package,
+        package_family=PackageFamily.HOUREI_SQLITE,
+        platform=PlatformWrapper.WINDOWS,
+        body_source=BodySource.HOUREI_SQLITE,
+        markers=markers,
+        families={"hourei": report},
+        resources={"static_sidecars": static_resources_for_package(package, sample_limit=args.sample_limit)},
+        components=components,
+        notes=[
+            issue(
+                "deferred_hourei_sqlite",
+                "Hourei is a separate SQLite law-browser package family. It is classified and inspected without forcing it into SSED/HONMON.",
+                package=str(package),
+            )
+        ],
+    )
+
+
 def dump_package_model_for_path(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     try:
         source = select_single_source(root, dict_id=args.dict)
     except ValueError as exc:
+        hourei = select_single_hourei_package(root, dict_id=args.dict)
+        if hourei is not None:
+            return dump_hourei_deferred_model(hourei, args)
         multiview = select_single_multiview_package(root, dict_id=args.dict)
         if multiview is not None:
             return dump_multiview_deferred_model(multiview, args)

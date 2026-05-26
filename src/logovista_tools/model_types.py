@@ -23,6 +23,7 @@ class PackageFamily(ModelEnum):
     SSED = "ssed"
     LVED_SQLCIPHER = "lved_sqlcipher"
     MULTIVIEW_SQLITE = "multiview_sqlite"
+    HOUREI_SQLITE = "hourei_sqlite"
     MIXED = "mixed"
     UNKNOWN = "unknown"
 
@@ -58,6 +59,7 @@ class BodySource(ModelEnum):
     RENDERER_DB = "renderer_db"
     LVED_SQLCIPHER = "lved_sqlcipher"
     MULTIVIEW_SQLITE = "multiview_sqlite"
+    HOUREI_SQLITE = "hourei_sqlite"
     NONE = "none"
     UNKNOWN = "unknown"
 

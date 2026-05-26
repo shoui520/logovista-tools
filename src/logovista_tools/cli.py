@@ -67,6 +67,12 @@ from .hcrender import (
     extract_hc_render_for_sources,
 )
 from .hc_regression import add_hc_render_lock_args, print_hc_render_lock_rows, run_hc_render_lock_for_args
+from .hourei import (
+    discover_hourei_packages,
+    inspect_hourei_package,
+    write_hourei_report,
+    write_hourei_showcase,
+)
 from .indexes import extract_indexes_for_idx
 from .ir import extract_ir_for_args
 from .lved import (
@@ -95,6 +101,7 @@ from .multiview import (
     inspect_multiview_package,
     is_multiview_payload_path,
     write_multiview_report,
+    write_multiview_showcase,
 )
 from .opcode_atlas import extract_opcode_atlas_for_args
 from .parallel import add_jobs_argument, parallel_map_ordered, worker_args
@@ -297,6 +304,22 @@ def cmd_scan(args: argparse.Namespace) -> int:
             )
             continue
 
+        if target.family_hint == PackageFamily.HOUREI_SQLITE.value:
+            rows.append(
+                {
+                    "family": PackageFamily.HOUREI_SQLITE.value,
+                    "dict_id": target.dict_id,
+                    "path": str(target.path),
+                    "core_databases": [
+                        "_DataBase/hore_base.db",
+                        "_DataBase/hore_search_a.db",
+                        "_DataBase/horejo_base.db",
+                    ],
+                    "scan_status": "detected",
+                }
+            )
+            continue
+
         rows.append(
             {
                 "family": target.family_hint,
@@ -332,6 +355,12 @@ def cmd_scan(args: argparse.Namespace) -> int:
             print(
                 f"{row['dict_id']:12s} family={row['family']:16s} "
                 f"payloads={row['payload_count']:2d} status={row['scan_status']}"
+            )
+            print(f"  package: {row['path']}")
+        elif row["family"] == PackageFamily.HOUREI_SQLITE.value:
+            print(
+                f"{row['dict_id']:12s} family={row['family']:16s} "
+                f"core_dbs={len(row['core_databases']):2d} status={row['scan_status']}"
             )
             print(f"  package: {row['path']}")
         else:
@@ -1784,7 +1813,7 @@ def _multiview_task(payload: tuple[Path, Path, argparse.Namespace]) -> dict[str,
         write_resources=args.write_decrypted_resources,
     )
     write_multiview_report(out_dir / package_dir.name / "multiview.json", report)
-    return {
+    row = {
         "dict_id": report["dict_id"],
         "path": report["path"],
         "report": str(out_dir / package_dir.name / "multiview.json"),
@@ -1815,6 +1844,14 @@ def _multiview_task(payload: tuple[Path, Path, argparse.Namespace]) -> dict[str,
             for row in report["resources"]
         ],
     }
+    if args.write_showcase:
+        showcase = write_multiview_showcase(package_dir, out_dir / package_dir.name / "showcase", limit=args.showcase_limit)
+        row["showcase"] = {
+            "index": str(out_dir / package_dir.name / "showcase" / "index.html"),
+            "rendered_count": showcase["rendered_count"],
+            "deferred_menu_targets": len(showcase["deferred_menu_targets"]),
+        }
+    return row
 
 
 def cmd_multiview(args: argparse.Namespace) -> int:
@@ -1850,6 +1887,84 @@ def cmd_multiview(args: argparse.Namespace) -> int:
     )
     summary = {
         "schema": "logovista-multiview-audit-v1",
+        "total": len(summaries),
+        "packages": summaries,
+    }
+    write_json(args.out_dir / "summary.json", summary)
+    if args.json:
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _hourei_task(payload: tuple[Path, Path, argparse.Namespace]) -> dict[str, Any]:
+    package_dir, out_dir, args = payload
+    package_out = out_dir / package_dir.name
+    report = inspect_hourei_package(package_dir, deep=args.deep, sample_rows=args.sample_rows)
+    write_hourei_report(package_out / "hourei.json", report)
+    row: dict[str, Any] = {
+        "dict_id": report["dict_id"],
+        "path": report["path"],
+        "report": str(package_out / "hourei.json"),
+        "classification": report["classification"],
+        "db_count": report["schema_inventory"]["db_count"],
+        "core_databases": [
+            {
+                "path": db["path"],
+                "tables": db["table_count"],
+                "rows": db["row_count"],
+            }
+            for db in report["core_databases"]
+        ],
+        "body_rows_sampled": report["body_feature_scan"]["body_row_count"],
+        "body_feature_errors": report["body_feature_scan"]["error_count"],
+    }
+    if args.write_showcase:
+        showcase = write_hourei_showcase(
+            package_dir,
+            package_out / "showcase",
+            queries=args.query or None,
+            limit=args.showcase_limit,
+        )
+        row["showcase"] = {
+            "index": str(package_out / "showcase" / "index.html"),
+            "rendered_entries": len(showcase.get("rendered_entries") or []),
+            "queries": len(showcase.get("queries") or []),
+        }
+    return row
+
+
+def cmd_hourei(args: argparse.Namespace) -> int:
+    for root in args.root or [Path(".")]:
+        print(f"hourei discovery: scanning {root}", file=sys.stderr, flush=True)
+    packages = discover_hourei_packages(args.root or [Path(".")])
+    if not packages:
+        print("no LogoVista電子法令 Professional packages found", file=sys.stderr)
+        return 1
+    print(f"hourei discovery: found {len(packages)} package(s)", file=sys.stderr, flush=True)
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    task_args = worker_args(args)
+    completed = 0
+    total = len(packages)
+
+    def log_summary(row: dict[str, Any]) -> None:
+        nonlocal completed
+        completed += 1
+        print(
+            f"hourei progress {completed:3d}/{total}: {row['dict_id']:12s} "
+            f"dbs={row['db_count']:5d} body_rows={row['body_rows_sampled']:6d} "
+            f"errors={row['body_feature_errors']}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    summaries = parallel_map_ordered(
+        _hourei_task,
+        [(package, args.out_dir, task_args) for package in packages],
+        jobs=args.jobs,
+        on_result=log_summary,
+    )
+    summary = {
+        "schema": "logovista-hourei-audit-v1",
         "total": len(summaries),
         "packages": summaries,
     }
@@ -2644,9 +2759,53 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="With --write-decrypted, also write decrypted Resources/* assets such as PDF files.",
     )
+    p_multiview.add_argument(
+        "--write-showcase",
+        action="store_true",
+        help="Write bounded reader-oriented HTML showcase pages for decoded menu/body targets.",
+    )
+    p_multiview.add_argument("--showcase-limit", type=int, default=40, help="Maximum menu/body targets to render.")
     p_multiview.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
     add_jobs_argument(p_multiview)
-    p_multiview.set_defaults(write_decrypted=False, write_decrypted_resources=False, func=cmd_multiview)
+    p_multiview.set_defaults(write_decrypted=False, write_decrypted_resources=False, write_showcase=False, func=cmd_multiview)
+
+    p_hourei = sub.add_parser(
+        "hourei",
+        help="Inspect LogoVista電子法令 Professional SQLite law-browser packages.",
+    )
+    p_hourei.add_argument(
+        "root",
+        type=Path,
+        nargs="*",
+        help="Collection root or direct Hourei package root containing _DataBase and _Programs.",
+    )
+    p_hourei.add_argument("--out-dir", type=Path, default=Path("logovista-hourei-audit"))
+    p_hourei.add_argument(
+        "--deep",
+        action="store_true",
+        help="Scan all law body shard databases for HTML classes, links, and media references.",
+    )
+    p_hourei.add_argument(
+        "--sample-rows",
+        type=int,
+        default=64,
+        help="Number of law shard databases to sample when --deep is not set.",
+    )
+    p_hourei.add_argument(
+        "--write-showcase",
+        action="store_true",
+        help="Write bounded reader-oriented HTML showcase pages for real search results.",
+    )
+    p_hourei.add_argument(
+        "--query",
+        action="append",
+        default=[],
+        help="Search query to render in the showcase. May be repeated.",
+    )
+    p_hourei.add_argument("--showcase-limit", type=int, default=20, help="Maximum hits per showcase query.")
+    p_hourei.add_argument("--json", action="store_true", help="Emit machine-readable JSON summary.")
+    add_jobs_argument(p_hourei)
+    p_hourei.set_defaults(func=cmd_hourei)
 
     p_spindex = sub.add_parser("spindex", help="Inspect standalone SPINDEX.DIC suffix-index resources.")
     p_spindex.add_argument("root", type=Path, nargs="*", help="Collection directory or direct SPINDEX.DIC path.")
@@ -2791,7 +2950,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_models.add_argument(
         "--family",
         action="append",
-        choices=("ssed", "ssed-sizk-read-aloud", "lved_sqlcipher", "multiview_sqlite"),
+        choices=("ssed", "ssed-sizk-read-aloud", "lved_sqlcipher", "multiview_sqlite", "hourei_sqlite"),
         help="Only emit targets from the selected package family. Can be repeated.",
     )
     p_models.add_argument("--resume", action="store_true", help="Skip targets whose deterministic output JSON already contains a valid decoded model.")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import re
 import shutil
@@ -434,6 +435,321 @@ def inspect_multiview_package(
 def write_multiview_report(path: Path, report: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _multiview_page(title: str, body: str) -> str:
+    return f"""<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html.escape(title)}</title>
+<style>
+body {{ margin: 0; padding: 20px; font-family: "Yu Gothic", Meiryo, sans-serif; line-height: 1.6; }}
+nav a, .lv-hit {{ display: block; padding: 0.25rem 0; }}
+.lv-meta {{ color: #666; font-size: 13px; border-bottom: 1px solid #ddd; margin-bottom: 1rem; padding-bottom: 0.4rem; }}
+img {{ max-width: 100%; height: auto; }}
+</style>
+</head>
+<body>
+{body}
+</body>
+</html>
+"""
+
+
+def _sqlite_table_names(con: sqlite3.Connection) -> set[str]:
+    return {str(row[0]) for row in con.execute("select name from sqlite_master where type='table'")}
+
+
+def _safe_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        for encoding in ("utf-8", "cp932"):
+            try:
+                return value.decode(encoding)
+            except UnicodeDecodeError:
+                pass
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _html_title(value: str, fallback: str) -> str:
+    text = re.sub(r"<[^>]+>", "", value or "").strip()
+    return text or fallback
+
+
+def _rewrite_multiview_fragment(fragment: str, known_pages: dict[str, str]) -> tuple[str, dict[str, int]]:
+    stats: Counter[str] = Counter()
+
+    def repl(match: re.Match[str]) -> str:
+        attr = match.group("attr")
+        quote = match.group("quote")
+        value = html.unescape(match.group("value"))
+        if attr.casefold() == "href":
+            key = value.removeprefix("index:")
+            if value in known_pages:
+                stats["links_resolved"] += 1
+                return f'{attr}={quote}{html.escape(known_pages[value], quote=True)}{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
+            if key in known_pages:
+                stats["links_resolved"] += 1
+                return f'{attr}={quote}{html.escape(known_pages[key], quote=True)}{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
+            if value.startswith("http://") or value.startswith("https://") or value.startswith("#"):
+                return match.group(0)
+            stats["links_deferred"] += 1
+            return f'{attr}={quote}#{quote} data-lv-original-href={quote}{html.escape(value, quote=True)}{quote}'
+        return match.group(0)
+
+    attr_re = re.compile(r"""(?P<attr>href|src)=(?P<quote>["'])(?P<value>.*?)(?P=quote)""", re.IGNORECASE | re.DOTALL)
+    return attr_re.sub(repl, fragment), dict(sorted(stats.items()))
+
+
+def _write_multiview_content_page(
+    out_dir: Path,
+    *,
+    content_id: str,
+    title: str,
+    body: str,
+    source: str,
+    known_pages: dict[str, str],
+) -> dict[str, Any]:
+    filename = f"entry_{_safe_showcase_name(content_id)}.html"
+    rewritten, stats = _rewrite_multiview_fragment(body, known_pages)
+    (out_dir / filename).write_text(
+        _multiview_page(
+            _html_title(title, content_id),
+            f'<main><div class="lv-meta">{html.escape(source)} id={html.escape(content_id)}</div>'
+            f"<h1>{title}</h1>{rewritten}</main>",
+        ),
+        encoding="utf-8",
+    )
+    return {"id": content_id, "title": _html_title(title, content_id), "path": filename, "source": source, "rewrite": stats}
+
+
+def _safe_showcase_name(value: str) -> str:
+    return re.sub(r"[^0-9A-Za-z_.-]+", "_", value).strip("._") or "item"
+
+
+def _collect_multiview_menu_hrefs(package_dir: Path, limit: int) -> list[dict[str, str]]:
+    menu_path = package_dir / "menuData.xml"
+    if not menu_path.is_file():
+        return []
+    root = ET.parse(menu_path).getroot()
+    rows: list[dict[str, str]] = []
+    for element in root.iter("item"):
+        href = element.attrib.get("href", "")
+        if not href:
+            continue
+        rows.append({"href": href, "label": element.attrib.get("label", "")})
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def _render_multiview_content_search(
+    db_path: Path,
+    out_dir: Path,
+    known_pages: dict[str, str],
+    limit: int,
+    *,
+    preferred_ids: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        tables = _sqlite_table_names(con)
+        if "t_contents" not in tables:
+            return []
+        rows: list[sqlite3.Row] = []
+        seen_ids: set[str] = set()
+        numeric_ids = [int(value) for value in preferred_ids or [] if value.isdigit()]
+        if numeric_ids:
+            placeholders = ",".join("?" for _ in numeric_ids)
+            rows.extend(
+                con.execute(
+                    f"select * from t_contents where f_ID in ({placeholders}) order by f_ID",
+                    tuple(numeric_ids),
+                ).fetchall()
+            )
+            seen_ids.update(str(row["f_ID"]) for row in rows)
+        if len(rows) < limit:
+            rows.extend(
+                row
+                for row in con.execute("select * from t_contents order by f_ID limit ?", (limit * 2,))
+                if str(row["f_ID"]) not in seen_ids
+            )
+        rows = rows[:limit]
+        rendered: list[dict[str, Any]] = []
+        for row in rows:
+            content_id = f"{int(row['f_ID']):06d}" if str(row["f_ID"]).isdigit() else str(row["f_ID"])
+            known_pages[content_id] = f"entry_{_safe_showcase_name(content_id)}.html"
+        for row in rows:
+            content_id = f"{int(row['f_ID']):06d}" if str(row["f_ID"]).isdigit() else str(row["f_ID"])
+            rendered.append(
+                _write_multiview_content_page(
+                    out_dir,
+                    content_id=content_id,
+                    title=_safe_text(row["f_Title"]),
+                    body=_safe_text(row["f_Body"]),
+                    source=f"{db_path.name}:t_contents",
+                    known_pages=known_pages,
+                )
+            )
+        return rendered
+    finally:
+        con.close()
+
+
+def _render_multiview_law_page(db_path: Path, out_dir: Path, known_pages: dict[str, str], href: str) -> dict[str, Any] | None:
+    table_hint = href.split("_", 1)[0]
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        tables = _sqlite_table_names(con)
+        table = f"t_{table_hint}" if f"t_{table_hint}" in tables else None
+        if table is None:
+            for candidate in tables:
+                columns = [row[1] for row in con.execute(f"pragma table_info({quote_identifier(candidate)})")]
+                if "f_anchor" in columns:
+                    hit = con.execute(
+                        f"select 1 from {quote_identifier(candidate)} where f_anchor = ? limit 1",
+                        (href,),
+                    ).fetchone()
+                    if hit:
+                        table = candidate
+                        break
+        if table is None:
+            return None
+        columns = [row[1] for row in con.execute(f"pragma table_info({quote_identifier(table)})")]
+        if "f_text" not in columns:
+            return None
+        if "f_anchor" in columns:
+            rows = con.execute(
+                f"select * from {quote_identifier(table)} where f_anchor = ? or f_hore_code = ? order by f_rec_id limit 80",
+                (href, table_hint),
+            ).fetchall()
+        else:
+            rows = con.execute(f"select * from {quote_identifier(table)} order by f_rec_id limit 80").fetchall()
+        if not rows:
+            rows = con.execute(f"select * from {quote_identifier(table)} order by f_rec_id limit 80").fetchall()
+        if not rows:
+            return None
+        key = href
+        known_pages[key] = f"entry_{_safe_showcase_name(key)}.html"
+        body = "\n".join(_safe_text(row["f_text"]) for row in rows)
+        title = href
+        return _write_multiview_content_page(
+            out_dir,
+            content_id=key,
+            title=html.escape(title),
+            body=body,
+            source=f"{db_path.name}:{table}",
+            known_pages=known_pages,
+        )
+    finally:
+        con.close()
+
+
+def _render_multiview_index_page(db_path: Path, out_dir: Path, known_pages: dict[str, str], code: str) -> dict[str, Any] | None:
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        tables = _sqlite_table_names(con)
+        if "t_index" not in tables:
+            return None
+        rows = con.execute("select * from t_index where f_hore_code = ? limit 50", (code,)).fetchall()
+        if not rows:
+            return None
+        known_pages[code] = f"entry_{_safe_showcase_name(code)}.html"
+        body = "\n".join(_safe_text(row["f_text"]) for row in rows)
+        title = " ".join(
+            part for part in (_safe_text(rows[0]["f_title_no"]), _safe_text(rows[0]["f_title_sub"])) if part
+        )
+        return _write_multiview_content_page(
+            out_dir,
+            content_id=code,
+            title=html.escape(title or code),
+            body=body,
+            source=f"{db_path.name}:t_index",
+            known_pages=known_pages,
+        )
+    finally:
+        con.close()
+
+
+def write_multiview_showcase(package_dir: Path, out_dir: Path, *, limit: int = 40) -> dict[str, Any]:
+    package_dir = package_dir.resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="lv-multiview-showcase-") as temp:
+        temp_root = Path(temp)
+        db_paths: dict[str, Path] = {}
+        payloads: list[dict[str, Any]] = []
+        for path in sorted(child for child in package_dir.iterdir() if is_multiview_payload_path(child)):
+            payload, db_path = classify_payload(path, temp_root)
+            payloads.append(payload)
+            if db_path is not None:
+                db_paths[path.name] = db_path
+
+        known_pages: dict[str, str] = {}
+        rendered: list[dict[str, Any]] = []
+        menu_hrefs = _collect_multiview_menu_hrefs(package_dir, limit)
+        content_db = next((db_paths[row["name"]] for row in payloads if row["role"] == "sqlite_content_search_body" and row["name"] in db_paths), None)
+        if content_db is not None:
+            rendered.extend(
+                _render_multiview_content_search(
+                    content_db,
+                    out_dir,
+                    known_pages,
+                    limit,
+                    preferred_ids=[row["href"] for row in menu_hrefs],
+                )
+            )
+
+        law_db = next((db_paths[row["name"]] for row in payloads if row["role"] == "sqlite_law_body_table_store" and row["name"] in db_paths), None)
+        index_db = next((db_paths[row["name"]] for row in payloads if row["role"] == "sqlite_html_index" and row["name"] in db_paths), None)
+        unresolved: list[dict[str, str]] = []
+        for item in menu_hrefs:
+            href = item["href"]
+            if href in known_pages:
+                continue
+            page = None
+            if href.startswith("index:") and index_db is not None:
+                page = _render_multiview_index_page(index_db, out_dir, known_pages, href[6:])
+            elif law_db is not None:
+                page = _render_multiview_law_page(law_db, out_dir, known_pages, href)
+            if page is None:
+                unresolved.append(item)
+                continue
+            rendered.append(page)
+
+        index_rows = []
+        for page in rendered:
+            index_rows.append(f'<a class="lv-hit" href="{html.escape(page["path"], quote=True)}">{html.escape(page["title"])}</a>')
+        if unresolved:
+            index_rows.append("<h2>Deferred menu targets</h2>")
+            for row in unresolved[:100]:
+                index_rows.append(
+                    f'<div class="lv-hit">{html.escape(row["href"])} {html.escape(row.get("label", ""))}</div>'
+                )
+        (out_dir / "index.html").write_text(
+            _multiview_page(
+                f"{package_dir.name} showcase",
+                f"<main><h1>{html.escape(package_dir.name)} showcase</h1>{''.join(index_rows)}</main>",
+            ),
+            encoding="utf-8",
+        )
+        manifest = {
+            "schema": "logovista-multiview-showcase-v1",
+            "package": str(package_dir),
+            "index": str(out_dir / "index.html"),
+            "payloads": payloads,
+            "rendered": rendered,
+            "rendered_count": len(rendered),
+            "deferred_menu_targets": unresolved,
+        }
+        (out_dir / "showcase.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        return manifest
 
 
 def _file_listing(path: Path, *, with_kind: bool) -> list[dict[str, Any]]:

@@ -64,7 +64,7 @@ This applies to commands that operate across many dictionaries or resources:
 `spindex`, `audit-honmon`, `gaiji-report`, `gaiji-readiness`, `ga16`,
 `titles`, `indexes`, `menus`, `fulldb`, `profile`, `honmon-bytes`,
 `opcode-atlas`, `component-forensics`, `dump-ir`, `dump-package-models`, LVED
-payload inspection, LVLMultiView inspection, and SIZK SSED read-aloud
+payload inspection, LVLMultiView inspection, Hourei inspection, and SIZK SSED read-aloud
 inspection.
 `capability-matrix` is also corpus-oriented, but it reads already-generated
 report directories rather than re-scanning raw dictionary files.
@@ -90,7 +90,10 @@ The scanner uses the shared package-target discovery layer. It detects:
 - SSED packages by parseable `.IDX` / `.idx` files with `SSEDINFO` catalogs,
 - `LVED_SQLITE3` payloads by `main.data` / `.dbc` files and lightweight payload
   classification,
-- LVLMultiView packages by `menuData.xml` plus `*lvdat` / `*lvbat` payloads.
+- LVLMultiView packages by `menuData.xml` plus `*lvdat` / `*lvbat` payloads,
+- LogoVista電子法令 Professional / Hourei packages by `_DataBase/hore_base.db`,
+  `_DataBase/hore_search_a.db`, `_DataBase/horejo_base.db`, and
+  `_Programs/LVMultiView.exe`.
 
 SSED rows include `HONMON.DIC` / `HONMON.DIN` readiness where available.
 `LVED_SQLITE3` rows are classified structurally; encrypted payload detection
@@ -496,6 +499,7 @@ and `nlvbat`/`nlvdat`; ESPRANT2 uses `blvdat`.
 logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --jobs 0 --out-dir multiview-audit
 logovista-tools multiview /path/to/_DCT_YROPPO08 --json
 logovista-tools multiview /path/to/_DCT_ESPRANT2 --json
+logovista-tools multiview /path/to/_DCT_ESPRANT2 --write-showcase --out-dir multiview-audit
 ```
 
 Report fields include:
@@ -513,6 +517,8 @@ Useful options:
 ```bash
 --write-decrypted                 keep decrypted SQLite payload copies under out-dir
 --write-decrypted-resources       with --write-decrypted, also decrypt Resources/* assets
+--write-showcase                  write bounded reader-oriented HTML pages
+--showcase-limit N                maximum menu/body targets to render
 --jobs N                          inspect packages in parallel; 0 means all CPUs
 --json                            emit machine-readable summary
 ```
@@ -528,6 +534,47 @@ jlvbat / jlvdat        subject index table; viewer name hint jiko_sakuin.db
 nlvbat                 law metadata; viewer name hint yroppo.db
 nlvdat                 law metadata; viewer name hint mo6.db
 ```
+
+### `hourei`
+
+Inspect LogoVista電子法令 Professional packages. This is a separate plain-SQLite
+law-browser family and should not be classified as SSED, LVED_SQLITE3, or
+LVLMultiView.
+
+```bash
+logovista-tools hourei /path/to/LOGOVISTA_HOUREI_WINDOWS --out-dir hourei-audit
+logovista-tools hourei /path/to/LOGOVISTA_HOUREI_WINDOWS --deep --out-dir hourei-deep
+logovista-tools hourei /path/to/LOGOVISTA_HOUREI_WINDOWS --write-showcase --query 民法 --query 会社法
+```
+
+Report fields include:
+
+- top-level `_DataBase`, `_Kanpou`, `_KanpouImg`, `_Manual`, and `_Programs`
+  file/byte counts;
+- core SQLite schema summaries for `hore_base.db`, `hore_search_a.db`,
+  `horejo_base.db`, `hore_kanpou.db`, `hore_aramashi.db`, and `USER.db`;
+- corpus-wide table/column-set counts across the per-law shard databases;
+- body-fragment HTML class, `href`, and `src` signals from sampled or full
+  shard scans;
+- manual/help and program file summaries.
+
+Useful options:
+
+```bash
+--deep                            scan every per-law shard body row
+--sample-rows N                   shard databases sampled without --deep
+--write-showcase                  write bounded reader-oriented HTML pages
+--query TEXT                      showcase search query; may be repeated
+--showcase-limit N                maximum hits per showcase query
+--jobs N                          inspect packages in parallel; mostly useful for multiple roots
+--json                            emit machine-readable summary
+```
+
+The showcase preserves the stored HTML body fragments, substitutes the official
+CSS placeholders in `LVLawBrowser_00.css`, rewrites known `lved_mark&&` and
+`lved_ref...` links to local fragments/pages where possible, suppresses
+`lved_unsafe`, and copies resolved `_DataBase/image/` assets. It is a practical
+reader probe, not a claim of exact official viewer UI parity.
 
 ### `sizk`
 
@@ -1290,6 +1337,7 @@ model-v0/
   lved_sqlcipher/
     DICTID_<pathhash>_decoded_model_v0.json
   multiview_sqlite/
+  hourei_sqlite/
     DICTID_<pathhash>_decoded_model_v0.json
 ```
 
@@ -1323,7 +1371,7 @@ Important options:
 --resume                         skip existing valid decoded model JSON files
 --progress                       print one status line as each package finishes
 --dict ID                        limit to one dictionary id; can be repeated
---family FAMILY                  limit to ssed/lved_sqlcipher/multiview_sqlite
+--family FAMILY                  limit to ssed/lved_sqlcipher/multiview_sqlite/hourei_sqlite
 --allow-failures                 exit 0 even if some workers fail
 --gaiji-readiness                embed gaiji readiness in each model
 --renderer-sidecar-gaiji         use renderer sidecars as contextual gaiji evidence

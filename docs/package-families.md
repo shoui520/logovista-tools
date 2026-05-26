@@ -71,6 +71,8 @@ LVED_SQLITE3
           SQLCipher runtime and plugin/assembly resources
 MultiView SSEDINFO-like *.IDX facade, menuData.xml, LOGOVISTAMULTIVIEW,
           *lvbat/*lvdat LogoFontCipher SQLite payloads, Templates/, Resources/
+Hourei    LogoVista電子法令 Professional plain SQLite law-browser layout with
+          _DataBase/, _Kanpou/, _KanpouImg/, _Manual/, and _Programs/
 ```
 
 ## LVED_SQLITE3
@@ -93,6 +95,16 @@ payloads live in LogoFontCipher-encrypted SQLite files. The observed law
 subfamily uses `blvbat`, `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`, and
 `nlvbat`/`nlvdat`; ESPRANT2 uses `blvdat` with a content/search schema and
 numeric `menuData.xml` targets. See [LVLMultiView Packages](../spec/multiview.md).
+
+## Hourei SQLite
+
+LogoVista電子法令 Professional is a separate law-browser package family. Its
+primary data is ordinary SQLite under `_DataBase/` and `_Kanpou/`, with a
+dedicated `_Programs/LVMultiView.exe` viewer and `LVLawBrowser_00.css`
+renderer stylesheet. It is the precursor to LV Law MultiView, but it is not
+packaged like LVLMultiView: there is no SSEDINFO facade, no `menuData.xml`, and
+no LogoFontCipher-wrapped `*lvbat`/`*lvdat` body payload. See
+[Hourei SQLite Packages](../spec/hourei.md).
 
 ## Metadata and Auxiliary Resources
 

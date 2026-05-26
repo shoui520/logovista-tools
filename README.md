@@ -33,6 +33,7 @@ This table is about `logovista-tools`, not lvcore.
 | Windows / Android / iOS / Mac OS X SSED packaging layers | Supported per observed package family. These are package layouts around SSED, not separate core formats. |
 | Modern LogoVista `LVED_SQLITE3` `main.data` / `.dbc` packages | Handled as a separate non-SSED SQLite-backed format family by toolkit classification/model reports and the historical `lved` inspection command. |
 | LVLMultiView SQLite packages | Handled as a separate package family by toolkit classification/model reports and MultiView inspection code. |
+| LogoVista電子法令 Professional / Hourei SQLite packages | Handled as a separate plain-SQLite law-browser package family by toolkit classification/model reports and the `hourei` inspection command. |
 | SIZK read-aloud dictionaries | Focused inspection/reporting for the observed NHK read-aloud dictionary family. These are SSED dictionaries with loose audio/template sidecars, not a package family. |
 | Plain-SSED writer proof of concept | Experimental author-core primitives for clean generated SSED packages. |
 

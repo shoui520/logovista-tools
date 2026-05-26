@@ -218,3 +218,19 @@ writes decrypted `Resources/*` assets such as PDFs where classification allows.
 Reports are redacted by default: they include schemas, hashes, row counts,
 menu-resolution counts, static HTML directory summaries, viewer file hashes,
 and file classifications, but not full body exports.
+
+With `--write-showcase`, the command also writes bounded reader-oriented HTML
+pages under the private output directory. The showcase path:
+
+- renders ESPRANT2 `menuData.xml` numeric targets through `t_contents` before
+  falling back to first rows;
+- renders law-package `hore_code`, exact `f_anchor`, and `index:<code>` menu
+  targets through the decoded SQLite payloads;
+- keeps viewer-special targets such as `about`/`hanrei` as explicit deferred
+  targets when they are not backed by decoded rows in that package;
+- wraps existing HTML fragments without claiming exact official viewer chrome.
+
+The latest full-corpus showcase pass rendered pages for all 14 packages. The
+seven YROPPO packages and ESPRANT2 had zero deferred menu targets in the
+bounded showcase. The six MOROKU packages each had one deferred viewer-special
+target while all body/index menu references remained resolved.

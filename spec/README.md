@@ -16,6 +16,7 @@ from platform packaging observations and product-specific behavior.
 | [Gaiji, Images, and Media](gaiji-media.md) | `.uni`, `GA16HALF`, `GA16FULL`, image resources, `COLSCR.DIC`, and `PCMDATA.DIC`. |
 | [LVED_SQLITE3 Packages](lved-main-data.md) | Modern SQLCipher-backed `main.data` / `.dbc` payloads that are not SSED/HONMON dictionaries. |
 | [LVLMultiView Packages](multiview.md) | Products with SSEDINFO facade catalogs and LogoFontCipher SQLite payloads. |
+| [Hourei SQLite Packages](hourei.md) | LogoVista電子法令 Professional SQLite law-browser package layout. |
 | [Confidence Levels](confidence.md) | How claims are labeled and how uncertainty should be recorded. |
 
 Corpus-specific findings and product comparisons live in

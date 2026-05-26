@@ -181,16 +181,17 @@ and non-SSED reader status are tracked separately in
   gaiji/media resources, Windows sidecar evidence, family notes, and
   inconsistencies into one decoded model object. Large per-package runs can
   keep it bounded with skipped row models and opt-in full profile/index
-  boundary scans. The command is now family-aware: `LVED_SQLITE3` and
-  LVLMultiView packages are classified into family-specific non-SSED models
-  instead of being treated as failed SSED/HONMON packages.
+  boundary scans. The command is now family-aware: `LVED_SQLITE3`,
+  LVLMultiView, and Hourei SQLite packages are classified into family-specific
+  non-SSED models instead of being treated as failed SSED/HONMON packages.
 - `dump-package-models`, a corpus-scale model harness with package-family
   target discovery, process-level parallelism, path-aware progress output,
   resumable deterministic model paths, and clean failure JSON. The current
   local corpus model pass completed 261 targets with zero failures:
   202 SSED, 45 then-observed SQLCipher/LVED payloads, and 14 LVLMultiView
   packages. The newer dedicated `LVED_SQLITE3` corpus pass covers 73
-  SQLCipher payloads.
+  SQLCipher payloads, and Hourei SQLite is now separately detected by the
+  shared model-target discovery layer.
 - Chunked decoded model output via `--chunked`: `package.json` plus JSONL files
   for components, entries, title/index/menu samples, gaiji, media,
   dereferences, issues, and metrics. Chunked `package.json` files keep the

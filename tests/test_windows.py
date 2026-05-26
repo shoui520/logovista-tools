@@ -1,7 +1,7 @@
 from pathlib import Path
 import sqlite3
 
-from logovista_tools.multiview import discover_multiview_packages, inspect_multiview_package
+from logovista_tools.multiview import discover_multiview_packages, inspect_multiview_package, write_multiview_showcase
 from logovista_tools.windows import (
     HcRendererClassification,
     PeImport,
@@ -184,3 +184,8 @@ def test_multiview_content_search_payload_resolves_numeric_menu_ids(tmp_path) ->
     assert report["menu"]["resolution_counts"]["content_id"] == 1
     assert report["menu"]["unresolved_count"] == 0
     assert report["html_dirs"][0]["name"] == "HANREI"
+
+    showcase = write_multiview_showcase(package, tmp_path / "showcase", limit=5)
+    assert showcase["rendered_count"] == 1
+    entry = (tmp_path / "showcase" / "entry_000001.html").read_text(encoding="utf-8")
+    assert "<p>Body</p>" in entry

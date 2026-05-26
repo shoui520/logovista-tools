@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from argparse import Namespace
 from pathlib import Path
 
@@ -65,15 +66,40 @@ def make_multiview_package(root: Path, name: str) -> Path:
     return package
 
 
+def make_hourei_package(root: Path) -> Path:
+    package = root / "HOUREI"
+    (package / "_DataBase").mkdir(parents=True)
+    (package / "_Programs").mkdir(parents=True)
+    (package / "_Programs" / "LVMultiView.exe").write_bytes(b"MZ")
+    for name, sql in {
+        "hore_base.db": "create table t_hore(f_hore_id text, f_name text, f_abbr1 text)",
+        "hore_search_a.db": (
+            "create table t_hore("
+            "f_hore_id text, f_name text, f_name_sub text, f_abbr1 text, f_abbr2 text, f_abbr3 text, f_text_plane text)"
+        ),
+        "horejo_base.db": (
+            "create table t_horejo("
+            "f_hore_id text, f_rec_id integer, f_anchor text, f_title_no text, f_title_sub text, f_text_plane text)"
+        ),
+    }.items():
+        con = sqlite3.connect(package / "_DataBase" / name)
+        con.execute(sql)
+        con.commit()
+        con.close()
+    return package
+
+
 def test_discover_package_model_targets_classifies_deferred_families(tmp_path: Path) -> None:
     make_lved_package(tmp_path, "TESTLVED")
     make_multiview_package(tmp_path, "TESTMULTI")
+    make_hourei_package(tmp_path)
 
     targets = discover_package_model_targets([tmp_path])
     by_id = {target.dict_id: target for target in targets}
 
     assert by_id["TESTLVED"].family_hint == "lved_sqlcipher"
     assert by_id["TESTMULTI"].family_hint == "multiview_sqlite"
+    assert by_id["HOUREI"].family_hint == "hourei_sqlite"
 
 
 def test_format_progress_target_path_relativizes_to_corpus_root(tmp_path: Path) -> None:
@@ -87,6 +113,7 @@ def test_format_progress_target_path_relativizes_to_corpus_root(tmp_path: Path) 
 def test_dump_package_models_writes_summary_failures_and_resumes(tmp_path: Path) -> None:
     make_lved_package(tmp_path, "TESTLVED")
     make_multiview_package(tmp_path, "TESTMULTI")
+    make_hourei_package(tmp_path)
     out_dir = tmp_path / "reports"
 
     result = cmd_dump_package_models(make_corpus_args(tmp_path, out_dir))
@@ -94,9 +121,9 @@ def test_dump_package_models_writes_summary_failures_and_resumes(tmp_path: Path)
     assert result == 0
     summary = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
     failures = json.loads((out_dir / "failures.json").read_text(encoding="utf-8"))
-    assert summary["total"] == 2
-    assert summary["status_counts"] == {"ok": 2}
-    assert summary["family_counts"] == {"lved_sqlcipher": 1, "multiview_sqlite": 1}
+    assert summary["total"] == 3
+    assert summary["status_counts"] == {"ok": 3}
+    assert summary["family_counts"] == {"hourei_sqlite": 1, "lved_sqlcipher": 1, "multiview_sqlite": 1}
     assert failures["failures"] == []
     model_paths = [Path(row["model_path"]) for row in summary["rows"]]
     assert all(path.exists() for path in model_paths)
@@ -105,7 +132,7 @@ def test_dump_package_models_writes_summary_failures_and_resumes(tmp_path: Path)
 
     assert resumed == 0
     resumed_summary = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
-    assert resumed_summary["status_counts"] == {"skipped": 2}
+    assert resumed_summary["status_counts"] == {"skipped": 3}
 
 
 def test_dump_package_models_chunked_writes_jsonl_bundle_and_matrix_reads_package_json(tmp_path: Path) -> None:

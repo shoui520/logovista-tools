@@ -26,11 +26,13 @@ Public docs now distinguish two active tracks:
   reader-only, independent from `logovista_tools`, and its compatibility target
   is the real LogoVista corpus rather than generated writer fixtures.
 
-`LVED_SQLITE3` and LVLMultiView are separate package families handled by the
-toolkit classification/model-report path. `LVED_SQLITE3` corpus findings live
-in [LVED_SQLITE3 Corpus Findings](lved-sqlite3-corpus.md). These families are
-not currently implemented as lvcore reader paths. Dense/sidecar SSED remains an
-SSED body-source problem, not an LVED or LVLMultiView problem.
+`LVED_SQLITE3`, LVLMultiView, and Hourei SQLite are separate package families
+handled by the toolkit classification/model-report path. `LVED_SQLITE3` corpus
+findings live in [LVED_SQLITE3 Corpus Findings](lved-sqlite3-corpus.md), while
+raw LVLMultiView and Hourei format facts live in
+[`../spec`](../spec/README.md). These families are not currently implemented as
+lvcore reader paths. Dense/sidecar SSED remains an SSED body-source problem,
+not an LVED, LVLMultiView, or Hourei problem.
 
 ## Split Map
 

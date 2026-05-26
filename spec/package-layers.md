@@ -423,3 +423,9 @@ SQLite payloads. The observed law subfamily uses payloads such as `blvbat`,
 `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`, and `nlvbat`/`nlvdat`; ESPRANT2 uses a
 single `blvdat` content/search payload. See
 [LVLMultiView Packages](multiview.md).
+
+LogoVista電子法令 Professional is another separate package family. It is a
+plain-SQLite law-browser layout with `_DataBase/`, `_Kanpou/`, `_KanpouImg/`,
+`_Manual/`, and `_Programs/` directories. It shares law-domain concepts and
+`lved_*` link prefixes with later viewers, but it has no SSEDINFO facade and no
+LVLMultiView `*lvbat`/`*lvdat` payloads. See [Hourei SQLite Packages](hourei.md).

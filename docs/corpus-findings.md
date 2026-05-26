@@ -1021,6 +1021,65 @@ Toolkit command:
 logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --jobs 0 --out-dir out/multiview
 ```
 
+The later showcase pass also rendered bounded reader-oriented HTML samples for
+all 14 packages. ESPRANT2 now renders the numeric `menuData.xml` `t_contents`
+targets first, rather than arbitrary first rows. The YROPPO packages and
+ESPRANT2 produced zero deferred menu targets in the bounded showcase; the
+MOROKU packages each left one viewer-special target deferred while body,
+anchor, and index menu references were resolved.
+
+## Hourei SQLite / LogoVista電子法令 Professional
+
+LogoVista電子法令 Professional is its own observed package family. It is a
+plain-SQLite law-browser package and a precursor to LV Law MultiView, but it is
+not packaged like LVLMultiView and has no SSEDINFO facade.
+
+Observed layout:
+
+```text
+_DataBase/     core metadata, search DBs, law body shard DBs, HTMLs/, image/
+_Kanpou/       official-gazette SQLite DBs
+_KanpouImg/    loose gazette images
+_Manual/       manual/help HTML and image resources
+_Programs/     viewer executable, CSS, USER.db
+```
+
+Full deep scan:
+
+```text
+DB files:          8,603
+body rows scanned: 538,031
+body HTML bytes:   656,889,793
+scan errors:       0
+```
+
+Core database counts:
+
+```text
+_DataBase/hore_base.db       tables=11 rows=11,836
+_DataBase/hore_search_a.db   tables=1  rows=8,597
+_DataBase/horejo_base.db     tables=4  rows=743,270
+_Kanpou/hore_kanpou.db       tables=4  rows=3,739
+_Kanpou/hore_aramashi.db     tables=3  rows=17,564
+_Programs/USER.db            tables=9  rows=2
+```
+
+Top table occurrence counts across all DB files:
+
+```text
+t_page       8,598
+t_hore       8,502
+T_LINK_HORE  8,408
+```
+
+The body rows already contain rendered HTML fragments in `t_page.f_text`.
+Common classes include `aname`, `box`, `amark`, `hon_gou`, `ahref`, `hon_jyo`,
+`hon_kou`, `fusoku`, `fu_jyo`, and `fu_kou`. The full body scan observed
+`lved_mark` links, `lved_ref` links, `lved_unsafe` hooks, and 74 GIF image
+references. The current `hourei --write-showcase` path rewrites known
+`lved_*` navigation to local pages/fragments where possible and copies resolved
+`_DataBase/image/` assets.
+
 ## Non-iOS Body Streams
 
 OUKOKU11 is useful because it is an Android-only package, not part of
