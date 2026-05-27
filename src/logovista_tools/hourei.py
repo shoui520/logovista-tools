@@ -25,6 +25,7 @@ from .windows import file_magic_kind, quote_identifier
 
 HOUREI_SCHEMA = "logovista-hourei-package-v1"
 HOUREI_AUDIT_SCHEMA = "logovista-hourei-audit-v1"
+HOUREI_PACKAGE_TITLE = "LogoVista電子法令 Professional"
 
 ERA_DIR_PREFIX = {
     "1": "M",
@@ -51,6 +52,10 @@ class HoureiLinkTarget:
     related_hore_id: str | None = None
     anchor: str | None = None
     query: str | None = None
+
+
+def hourei_package_title(_root: Path) -> tuple[str, str]:
+    return HOUREI_PACKAGE_TITLE, "known_hourei_product"
 
 
 def sha256_file(path: Path) -> str:
@@ -732,6 +737,7 @@ def inspect_hourei_package(root: Path, *, deep: bool = False, sample_rows: int =
     report = {
         "schema": HOUREI_SCHEMA,
         "dict_id": root.name,
+        "title": HOUREI_PACKAGE_TITLE,
         "path": str(root),
         "classification": "hourei_professional",
         "file_extension_counts": _file_extension_counts(root),

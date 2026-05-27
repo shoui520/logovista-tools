@@ -290,6 +290,13 @@ while emitting raw and normalized lookup aliases; dictionary-local gaiji are
 still allocated when a lookup key cannot be represented in native JIS/CP932
 cells.
 
+Writer output keeps broad and exact lookup families distinct. Simple
+`FHINDEX.DIC` / `BHINDEX.DIC` rows may contain every emitted alias for a body
+target. Tagged `FKINDEX.DIC` / `BKINDEX.DIC` rows should contain one exact
+display-key row per entry. Alias-heavy imports must not duplicate every alias
+into the tagged exact indexes; doing so creates oversized indexes that do not
+match observed LogoVista conventions.
+
 If a dictionary has no `*TITLE.DIC`, the title pointer can equal the body
 pointer.
 

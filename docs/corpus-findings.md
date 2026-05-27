@@ -144,7 +144,7 @@ raw `*INDEX.DIC` scanning, sampled lossless HONMON span decoding, and no
 SQLite body text. The command shape was:
 
 ```bash
-logovista-tools profile /path/to/LOGOVISTA_SSED_DICTS_WINDOWS \
+logovista-tools profile /path/to/ssed-corpus \
   --jobs 0 --max-slices 25 --max-issue-samples 10 --no-hash \
   --out-dir /tmp/lv-profile-corpus
 ```
@@ -246,7 +246,7 @@ The stronger corpus pass scans every expanded `HONMON.DIC` byte, not sampled
 entry slices:
 
 ```bash
-logovista-tools honmon-bytes /path/to/LOGOVISTA_SSED_DICTS_WINDOWS \
+logovista-tools honmon-bytes /path/to/ssed-corpus \
   --jobs 0 --max-issue-samples 20 \
   --out-dir /tmp/lv-honmon-bytes-corpus
 ```
@@ -471,7 +471,7 @@ The dedicated opcode atlas pass scans expanded SSED text-stream components:
 components. Binary B-tree index pages are not scanned as text.
 
 ```bash
-logovista-tools opcode-atlas /path/to/LOGOVISTA_SSED_DICTS_WINDOWS \
+logovista-tools opcode-atlas /path/to/ssed-corpus \
   --jobs 0 --out-dir /tmp/lv-opcode-atlas-corpus
 ```
 
@@ -485,8 +485,8 @@ distinct 0x1f opcodes:      40
 vendor singleton anomalies:   1 occurrence
 ```
 
-During this run, several LVLMultiView packages were still present in the local
-SSED folder. They contributed zero scanned text-stream components, so the
+During this run, several non-SSED LVLMultiView packages were still present in
+the scanned tree. They contributed zero scanned text-stream components, so the
 component/byte/control totals above are the relevant opcode evidence.
 
 Every observed payload length matched the current structural table except one
@@ -545,7 +545,7 @@ The companion pass accounts for non-HONMON SSED components and adjacent gaiji
 mapping files across the same Windows SSED corpus:
 
 ```bash
-logovista-tools component-forensics /path/to/LOGOVISTA_SSED_DICTS_WINDOWS \
+logovista-tools component-forensics /path/to/ssed-corpus \
   --jobs 0 --max-issue-samples 20 \
   --out-dir /tmp/lv-component-forensics-corpus
 ```
@@ -663,7 +663,7 @@ bitmap/image-backed gaiji, probable formatting helpers, and missing
 search/fallback text:
 
 ```bash
-logovista-tools gaiji-readiness /path/to/LOGOVISTA_SSED_DICTS_WINDOWS \
+logovista-tools gaiji-readiness /path/to/ssed-corpus \
   --jobs 0 --out-dir /tmp/lv-gaiji-readiness-corpus
 ```
 
@@ -943,185 +943,12 @@ The public summary is in [LVED_SQLITE3 Corpus Findings](lved-sqlite3-corpus.md).
 Reports validate and inspect the payload without emitting keys, decrypted
 databases, or dictionary row text.
 
-## LVLMultiView Packages
+## Non-SSED SQLite Package Findings
 
-The current LVLMultiView corpus has 14 packages: ESPRANT2, MOROKU21 through
-MOROKU26, and YROPPO02/03/04/5/06/07/08. These are not classic SSED/HONMON
-packages and are not `LVED_SQLITE3` packages. They ship `menuData.xml`, a small
-SSEDINFO-magic `.IDX` facade, and LogoFontCipher SQLite payloads.
+Detailed LVLMultiView and Hourei findings now live in separate pages:
 
-The law subfamily declares seven familiar component records:
-
-```text
-HONMON.DIC, FKINDEX.DIC, FHINDEX.DIC, BKINDEX.DIC, BHINDEX.DIC,
-GA16FULL, GA16HALF
-```
-
-ESPRANT2 declares six records and omits `GA16FULL`. In every observed package,
-the declared component files are absent; readable data comes from encrypted
-SQLite, not from `SSEDDATA` components.
-
-Observed facade layouts:
-
-```text
-7 YROPPO packages:  count byte 0x4d, record start 0x80, 7 components
-6 MOROKU packages:  count byte 0x4c, record start 0x7f, 7 components
-1 ESPRANT2 package: count byte 0x4d, record start 0x80, 6 components
-```
-
-Observed payload classification across the 14 packages:
-
-| Payload | Count | Storage | Role |
-|---|---:|---|---|
-| `blvdat` | 1 | LogoFontCipher SQLite | content/search body |
-| `blvbat` | 13 | LogoFontCipher SQLite | law body tables |
-| `hlvbat` | 13 | LogoFontCipher SQLite | case digest/body |
-| `ilvbat` | 7 | LogoFontCipher SQLite | HTML index |
-| `ilvdat` | 6 | LogoFontCipher SQLite | HTML index |
-| `jlvbat` | 7 | LogoFontCipher SQLite | subject index |
-| `nlvbat` | 7 | LogoFontCipher SQLite | law metadata |
-| `nlvdat` | 6 | LogoFontCipher SQLite | law metadata |
-
-ESPRANT2 is the non-law variant observed so far. It has one `blvdat` payload
-with `t_contents(f_ID, f_Title, f_Body)` and `t_search(...)` tables, plus
-`t_dummy`. The decrypted database has 18,203 content rows and 44,477 search
-rows. Its `menuData.xml` hrefs are six-digit numeric content IDs such as
-`000001`, all resolving to `t_contents.f_ID`.
-
-ESPRANT2 is packaged with a dedicated viewer-resource layout rather than the
-shared law-package layout. Private runtime/resource evidence and the decrypted
-payload schema identify `blvdat`, `t_contents`, and `t_search` as the relevant
-content/search layer. ESPRANT2 also ships a `HANREI/` static HTML directory
-with 15 HTML files; this appears to be a browsable
-example/help-style appendix rather than the primary body store.
-
-Across all 14 packages, `menuData.xml` is a real navigation tree. Current menu
-resolution totals are:
-
-```text
-85,472 anchor_exact
-17,997 index_row
- 5,750 hore_code
-    24 viewer_special
-    18 content_id
-     0 unresolved
-```
-
-Law viewer binaries contain UTF-16 strings naming decrypted cache targets:
-`hore_body.db`, `hanrei_youshi.db`, `index.db`, `jiko_sakuin.db`, `yroppo.db`,
-and `mo6.db`.
-
-The MOROKU law-package `Resources/*` entries named `inshizei`, `minji`,
-`zenkoku`, and `zeihou` are encrypted PDF assets. Across MOROKU21-26 there
-are 20 such resources. Seventeen decrypt with the Windows LogoFontCipher
-variant; the three MOROKU23 files decrypt with the Mac OS X LogoFontCipher
-variant. In both cases the decrypted payload is a normal PDF and should be
-written as `.pdf` without rewriting the document bytes.
-
-Toolkit command:
-
-```bash
-logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --jobs 0 --out-dir out/multiview
-```
-
-The latest readiness pass also rendered bounded reader-oriented HTML samples
-for all 14 packages:
-
-```bash
-logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS \
-  --write-showcase --showcase-limit 80 --jobs 12 --out-dir out/multiview
-```
-
-ESPRANT2 renders numeric `menuData.xml` `t_contents` targets first, rather than
-arbitrary first rows. Law packages render `hore_code`, exact `f_anchor`, and
-`index:<code>` menu targets through decoded SQLite payloads. Viewer-special
-targets (`about`, `hanrei`, `index`, `50on`) are now represented as explicit
-reader-interface surfaces instead of unresolved menu failures.
-
-The 14-package run produced:
-
-```text
-menu unresolved:          0
-showcase deferred:        0
-missing hrefs:            0
-missing srcs:             0
-leaked lved_* protocols:  0
-table/cell balance gaps:  0
-```
-
-YROPPO body fragments reference `kagi.png`; the showcase resolves this from the
-package `Templates/` or `Help/image/` directories. MOROKU23's three law PDFs use
-the Mac OS X LogoFontCipher variant while the other MOROKU law PDFs use the
-Windows variant; both decrypt to normal `%PDF-` files through the multiview
-resource path.
-
-## Hourei SQLite / LogoVista電子法令 Professional
-
-LogoVista電子法令 Professional is its own observed package family. It is a
-plain-SQLite law-browser package and a precursor to LV Law MultiView, but it is
-not packaged like LVLMultiView and has no SSEDINFO facade.
-
-Observed layout:
-
-```text
-_DataBase/     core metadata, search DBs, law body shard DBs, HTMLs/, image/
-_Kanpou/       official-gazette SQLite DBs
-_KanpouImg/    loose gazette images
-_Manual/       manual/help HTML and image resources
-_Programs/     viewer executable, CSS, USER.db
-```
-
-Full deep scan:
-
-```text
-DB files:          8,603
-body rows scanned: 538,031
-body HTML bytes:   656,889,793
-scan errors:       0
-```
-
-Core database counts:
-
-```text
-_DataBase/hore_base.db       tables=11 rows=11,836
-_DataBase/hore_search_a.db   tables=1  rows=8,597
-_DataBase/horejo_base.db     tables=4  rows=743,270
-_Kanpou/hore_kanpou.db       tables=4  rows=3,739
-_Kanpou/hore_aramashi.db     tables=3  rows=17,564
-_Programs/USER.db            tables=9  rows=2
-```
-
-Top table occurrence counts across all DB files:
-
-```text
-t_page       8,598
-t_hore       8,502
-T_LINK_HORE  8,408
-```
-
-The body rows already contain rendered HTML fragments in `t_page.f_text`.
-Common classes include `aname`, `box`, `amark`, `hon_gou`, `ahref`, `hon_jyo`,
-`hon_kou`, `fusoku`, `fu_jyo`, and `fu_kou`. The full body scan observed
-1,011,028 `lved_mark` links, 25,632 local `lved_ref&&` links, 488,990
-mode-1 law references, 658 mode-4 future/revision hooks, 734 `lved_unsafe`
-hooks, and 74 GIF image references. All observed body image references resolve
-against the package resource directories.
-
-`_DataBase/HTMLs/I/` and `_DataBase/HTMLs/P/` contain paired cached index and
-preview HTML for 8,725 laws. `_DataBase/HTMLs/H/` contains cached full-body
-HTML for a 281-law subset. `_Programs/index_panel.html` is a CP932 kana index
-panel that emits `lved_ref:<kana>` search links.
-
-Native law search needs explicit ranking. Exact law-name/abbreviation matches
-must sort before prefix and containing hits; otherwise short queries such as
-`民法` can be buried behind unrelated containing titles.
-
-The current `hourei --write-showcase` path rewrites known `lved_*` navigation
-to local pages/fragments where possible, makes mode-4 future/revision hooks
-inert with structured metadata, renders cached index/preview pages, decodes the
-kana panel, and copies resolved `_DataBase/image/` assets. The readiness run at
-the time of this update produced zero missing local hrefs, zero missing image
-refs, and no leaked live `lved_*` hrefs in the generated showcase.
+- [LVLMultiView Corpus Findings](multiview-findings.md)
+- [Hourei Corpus Findings](hourei-findings.md)
 
 ## Non-iOS Body Streams
 

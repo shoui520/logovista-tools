@@ -144,9 +144,9 @@ lists.
 Use:
 
 ```bash
-logovista-tools hourei /path/to/LOGOVISTA_HOUREI_WINDOWS --out-dir out/hourei
-logovista-tools hourei /path/to/LOGOVISTA_HOUREI_WINDOWS --deep --out-dir out/hourei-deep
-logovista-tools hourei /path/to/LOGOVISTA_HOUREI_WINDOWS --write-showcase --query 民法 --query 会社法
+logovista-tools hourei /path/to/hourei-package-or-corpus --out-dir out/hourei
+logovista-tools hourei /path/to/hourei-package-or-corpus --deep --out-dir out/hourei-deep
+logovista-tools hourei /path/to/hourei-package-or-corpus --write-showcase --query 民法 --query 会社法
 ```
 
 The `hourei` command writes one `hourei.json` report per package plus a corpus

@@ -69,6 +69,7 @@ from .hcrender import (
 from .hc_regression import add_hc_render_lock_args, print_hc_render_lock_rows, run_hc_render_lock_for_args
 from .hourei import (
     discover_hourei_packages,
+    hourei_package_title,
     inspect_hourei_package,
     write_hourei_report,
     write_hourei_showcase,
@@ -82,6 +83,7 @@ from .lved import (
     discover_lved_key_file,
     infer_lved_dict_code,
     inspect_lved_roots,
+    lved_payload_title,
     read_lved_key_file,
 )
 from .lvcrypto import decrypt_logofont_cipher_auto_file_to_path
@@ -100,6 +102,7 @@ from .multiview import (
     discover_multiview_packages,
     inspect_multiview_package,
     is_multiview_payload_path,
+    multiview_package_title,
     write_multiview_report,
     write_multiview_showcase,
 )
@@ -218,12 +221,18 @@ def cmd_scan(args: argparse.Namespace) -> int:
     ssed_sources = {source.idx.resolve(): source for source in discover_dictionaries(ssed_paths, jobs=args.jobs)}
 
     rows: list[dict[str, Any]] = []
+
+    def add_row(row: dict[str, Any]) -> None:
+        rows.append(row)
+        if not args.json:
+            _print_scan_row(row)
+
     for target in targets:
         if target.family_hint == PackageFamily.SSED.value:
             source = ssed_sources.get(target.path.resolve())
             title, elements = parse_ssedinfo(target.path)
             if source is None:
-                rows.append(
+                add_row(
                     {
                         "family": PackageFamily.SSED.value,
                         "dict_id": target.dict_id,
@@ -243,7 +252,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
                     }
                 )
                 continue
-            rows.append(
+            add_row(
                 {
                     "family": PackageFamily.SSED.value,
                     "dict_id": source.dict_id,
@@ -271,11 +280,15 @@ def cmd_scan(args: argparse.Namespace) -> int:
             except OSError as exc:
                 classification = "error"
                 error = str(exc)
+            dict_id = infer_lved_dict_code(target.path) or target.dict_id
+            title, title_source = lved_payload_title(target.path, full_decode_sqlcipher=args.decode_titles)
             stat = target.path.stat()
-            rows.append(
+            add_row(
                 {
                     "family": PackageFamily.LVED_SQLCIPHER.value,
-                    "dict_id": infer_lved_dict_code(target.path) or target.dict_id,
+                    "dict_id": dict_id,
+                    "title": title,
+                    "title_source": title_source,
                     "path": str(target.path),
                     "payload": str(target.path),
                     "payload_kind": "dbc" if target.path.suffix.lower() == ".dbc" else "main.data",
@@ -288,13 +301,16 @@ def cmd_scan(args: argparse.Namespace) -> int:
             continue
 
         if target.family_hint == PackageFamily.MULTIVIEW_SQLITE.value:
+            title, title_source = multiview_package_title(target.path)
             payloads = sorted(
                 child.name for child in target.path.iterdir() if child.is_file() and is_multiview_payload_path(child)
             )
-            rows.append(
+            add_row(
                 {
                     "family": PackageFamily.MULTIVIEW_SQLITE.value,
                     "dict_id": target.dict_id,
+                    "title": title or target.dict_id,
+                    "title_source": title_source,
                     "path": str(target.path),
                     "menu": str(target.path / "menuData.xml"),
                     "payloads": payloads,
@@ -305,10 +321,13 @@ def cmd_scan(args: argparse.Namespace) -> int:
             continue
 
         if target.family_hint == PackageFamily.HOUREI_SQLITE.value:
-            rows.append(
+            title, title_source = hourei_package_title(target.path)
+            add_row(
                 {
                     "family": PackageFamily.HOUREI_SQLITE.value,
                     "dict_id": target.dict_id,
+                    "title": title,
+                    "title_source": title_source,
                     "path": str(target.path),
                     "core_databases": [
                         "_DataBase/hore_base.db",
@@ -320,7 +339,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
             )
             continue
 
-        rows.append(
+        add_row(
             {
                 "family": target.family_hint,
                 "dict_id": target.dict_id,
@@ -333,40 +352,52 @@ def cmd_scan(args: argparse.Namespace) -> int:
         print(json.dumps(rows, ensure_ascii=False, indent=2))
         return 0
 
-    for row in rows:
-        if row["family"] == PackageFamily.SSED.value:
-            print(
-                f"{row['dict_id']:12s} family={row['family']:16s} components={row['components']:2d} "
-                f"honmon={row['honmon_storage']:15s} "
-                f"gaiji={row['gaiji_map_entries']:4d} "
-                f"uni={row['gaiji_uni_entries']:4d} plist={row['gaiji_plist_entries']:4d} "
-                f"img={row['image_resource_entries']:4d} img-gaiji={row['image_gaiji_entries']:4d} "
-                f"status={row['scan_status']} {row['title']}"
-            )
-            print(f"  idx: {row['idx']}")
-        elif row["family"] == PackageFamily.LVED_SQLCIPHER.value:
-            print(
-                f"{row['dict_id']:12s} family={row['family']:16s} "
-                f"kind={row['payload_kind']:9s} class={row['classification']} "
-                f"size={row['size']} status={row['scan_status']}"
-            )
-            print(f"  payload: {row['payload']}")
-        elif row["family"] == PackageFamily.MULTIVIEW_SQLITE.value:
-            print(
-                f"{row['dict_id']:12s} family={row['family']:16s} "
-                f"payloads={row['payload_count']:2d} status={row['scan_status']}"
-            )
-            print(f"  package: {row['path']}")
-        elif row["family"] == PackageFamily.HOUREI_SQLITE.value:
-            print(
-                f"{row['dict_id']:12s} family={row['family']:16s} "
-                f"core_dbs={len(row['core_databases']):2d} status={row['scan_status']}"
-            )
-            print(f"  package: {row['path']}")
-        else:
-            print(f"{row['dict_id']:12s} family={row['family']} status={row['scan_status']}")
-            print(f"  path: {row['path']}")
     return 0
+
+
+def _scan_title_text(row: dict[str, Any]) -> str:
+    title = row.get("title")
+    if isinstance(title, str) and title:
+        return title
+    source = str(row.get("title_source") or "")
+    if source:
+        return f"<title unavailable: {source}>"
+    return "<title unavailable>"
+
+
+def _print_scan_row(row: dict[str, Any]) -> None:
+    if row["family"] == PackageFamily.SSED.value:
+        print(
+            f"{row['dict_id']:12s} family={row['family']:16s} components={row['components']:2d} "
+            f"honmon={row['honmon_storage']:15s} "
+            f"gaiji={row['gaiji_map_entries']:4d} "
+            f"uni={row['gaiji_uni_entries']:4d} plist={row['gaiji_plist_entries']:4d} "
+            f"img={row['image_resource_entries']:4d} img-gaiji={row['image_gaiji_entries']:4d} "
+            f"status={row['scan_status']} {_scan_title_text(row)}"
+        )
+        print(f"  idx: {row['idx']}", flush=True)
+    elif row["family"] == PackageFamily.LVED_SQLCIPHER.value:
+        print(
+            f"{row['dict_id']:12s} family={row['family']:16s} "
+            f"kind={row['payload_kind']:9s} class={row['classification']} "
+            f"size={row['size']} status={row['scan_status']} {_scan_title_text(row)}"
+        )
+        print(f"  payload: {row['payload']}", flush=True)
+    elif row["family"] == PackageFamily.MULTIVIEW_SQLITE.value:
+        print(
+            f"{row['dict_id']:12s} family={row['family']:16s} "
+            f"payloads={row['payload_count']:2d} status={row['scan_status']} {_scan_title_text(row)}"
+        )
+        print(f"  package: {row['path']}", flush=True)
+    elif row["family"] == PackageFamily.HOUREI_SQLITE.value:
+        print(
+            f"{row['dict_id']:12s} family={row['family']:16s} "
+            f"core_dbs={len(row['core_databases']):2d} status={row['scan_status']} {_scan_title_text(row)}"
+        )
+        print(f"  package: {row['path']}", flush=True)
+    else:
+        print(f"{row['dict_id']:12s} family={row['family']} status={row['scan_status']}")
+        print(f"  path: {row['path']}", flush=True)
 
 
 def cmd_expand(args: argparse.Namespace) -> int:
@@ -2477,6 +2508,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Collection directory, package directory, direct .IDX path, or LVED payload.",
     )
     p_scan.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    p_scan.add_argument(
+        "--decode-titles",
+        action="store_true",
+        help="Allow slow full LVED_SQLITE3 decrypt fallback if the default page-level title probe cannot find a title.",
+    )
     add_jobs_argument(p_scan)
     p_scan.set_defaults(func=cmd_scan)
 

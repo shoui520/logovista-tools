@@ -1,10 +1,18 @@
 from pathlib import Path
 import json
 import re
+import sqlite3
 import subprocess
 import sys
 
-from logovista_tools.writer import WriterEntry, build_plain_honmon_package, write_plain_package
+from logovista_tools.writer import (
+    SsedInfoComponent,
+    WriterEntry,
+    build_plain_honmon_package,
+    default_catalog_data,
+    encode_ssedinfo,
+    write_plain_package,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = REPO_ROOT / "src"
@@ -86,11 +94,27 @@ def test_logovista_tools_scan_detects_ssed_lved_and_multiview(tmp_path: Path) ->
 
     lved_dir = tmp_path / "_DCT_LVEDT"
     lved_dir.mkdir()
-    (lved_dir / "main.data").write_bytes(b"SQLite format 3\x00" + b"\0" * 64)
+    con = sqlite3.connect(lved_dir / "main.data")
+    con.execute("create table info(id integer, type integer, name text, body text, media text)")
+    con.execute(
+        "insert into info values(1, 2, 'copyright.html', ?, '')",
+        ('<div style="font-weight:bold">LVED Fixture Dictionary<br>LogoVista電子辞典</div>',),
+    )
+    con.commit()
+    con.close()
 
     multiview_dir = tmp_path / "_DCT_MVIEW"
     multiview_dir.mkdir()
-    (multiview_dir / "menuData.xml").write_text("<menuData />", encoding="utf-8")
+    (multiview_dir / "MVIEW.IDX").write_bytes(
+        encode_ssedinfo(
+            "○○○○ 2026 ○○08○○",
+            [SsedInfoComponent("DUMMY.DIC", 0x00, 0, 0, default_catalog_data(0x00, "DUMMY.DIC"))],
+        )
+    )
+    (multiview_dir / "menuData.xml").write_text(
+        '<list><item label="LVLMultiView Fixture" href=""><item label="child" href="000001" /></item></list>',
+        encoding="utf-8",
+    )
     (multiview_dir / "blvdat").write_bytes(b"fixture")
 
     hourei_dir = tmp_path / "HOUREI"
@@ -116,14 +140,26 @@ def test_logovista_tools_scan_detects_ssed_lved_and_multiview(tmp_path: Path) ->
     assert any(
         row["family"] == "lved_sqlcipher"
         and row["dict_id"] == "LVEDT"
+        and row["title"] == "LVED Fixture Dictionary"
+        and row["title_source"] == "plaintext_sqlite_info"
         and row["classification"] == "plaintext_sqlite"
         for row in rows
     )
     assert any(
-        row["family"] == "multiview_sqlite" and row["dict_id"] == "MVIEW" and row["payload_count"] == 1
+        row["family"] == "multiview_sqlite"
+        and row["dict_id"] == "MVIEW"
+        and row["title"] == "LVLMultiView Fixture"
+        and row["title_source"] == "menuData.xml"
+        and row["payload_count"] == 1
         for row in rows
     )
-    assert any(row["family"] == "hourei_sqlite" and row["dict_id"] == "HOUREI" for row in rows)
+    assert any(
+        row["family"] == "hourei_sqlite"
+        and row["dict_id"] == "HOUREI"
+        and row["title"] == "LogoVista電子法令 Professional"
+        and row["title_source"] == "known_hourei_product"
+        for row in rows
+    )
 
 
 def test_logovista_tools_colscr_direct_component_reports_expected_input(tmp_path: Path) -> None:

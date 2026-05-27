@@ -22,6 +22,8 @@ All 73:
 - decrypted to SQLite3 successfully;
 - exposed the same core reader tables: `list`, `content`, `media`, `info`, and
   `search` plus FTS shadow tables.
+- now produce scan titles through the lightweight page-level title probe, with
+  no full-payload decrypt required during normal `scan`.
 
 The inspection command was:
 
@@ -54,6 +56,13 @@ Every inspected payload has these tables:
 This strongly suggests the first-class reader model should treat
 `LVED_SQLITE3` as a SQLite-backed book with native search, list browsing,
 content rendering, media resolution, and info-page surfaces.
+
+For package discovery, the toolkit extracts a dictionary title from `info`
+metadata rather than accepting the first readable `info` body. Rows that look
+like copyright/about/index/HANREI pages are down-ranked, ruby annotations are
+flattened for title text, and the result is reported with a `title_source`
+showing whether it came from a plaintext database, a bounded SQLCipher page
+probe, or a slow full-decrypt fallback.
 
 ## Core Columns
 

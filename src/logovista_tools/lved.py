@@ -13,6 +13,7 @@ import math
 import re
 import sqlite3
 import shutil
+import struct
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -89,6 +90,22 @@ _LVED_RELATIVE_ADDR_RE = re.compile(r"""[0-9A-Fa-f]{6}/[0-9A-Fa-f]{4}""", re.ASC
 _LVED_TARGET_SPLIT_RE = re.compile(r"[?#]", re.ASCII)
 _LVED_PROTOCOL_TOKEN_RE = re.compile(r"lved\.[a-z]+(?:\.[a-z]+)?:", re.IGNORECASE)
 _LVED_CORE_TABLES = {"list", "content", "media", "info", "search"}
+_HTML_LINEBREAK_RE = re.compile(r"""<(?:br|/div|/p|/tr|/h[1-6])\b[^>]*>""", re.IGNORECASE)
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_HTML_STYLE_RE = re.compile(r"<style\b[^>]*>.*?</style>", re.IGNORECASE | re.DOTALL)
+_HTML_SCRIPT_RE = re.compile(r"<script\b[^>]*>.*?</script>", re.IGNORECASE | re.DOTALL)
+_HTML_RUBY_TEXT_RE = re.compile(r"<(?:rt|rp)\b[^>]*>.*?</(?:rt|rp)>", re.IGNORECASE | re.DOTALL)
+_HTML_TITLE_RE = re.compile(r"<title\b[^>]*>(?P<body>.*?)</title>", re.IGNORECASE | re.DOTALL)
+_HTML_HEADING_RE = re.compile(r"<h[1-3]\b[^>]*>(?P<body>.*?)</h[1-3]>", re.IGNORECASE | re.DOTALL)
+_HTML_BOLD_DIV_RE = re.compile(
+    r"""<div\b(?=[^>]*font-weight\s*:\s*bold)[^>]*>(?P<body>.*?)</div>""",
+    re.IGNORECASE | re.DOTALL,
+)
+_HTML_BOOK_TITLE_RE = re.compile(
+    r"""<(?:div|span)\b(?=[^>]*class\s*=\s*["'][^"']*(?:book[_-]?title|書籍名|辞書名|辞典名)[^"']*["'])[^>]*>(?P<body>.*?)</(?:div|span)>""",
+    re.IGNORECASE | re.DOTALL,
+)
+_LVED_TITLE_PROBE_MAX_PAGES = 2048
 
 
 @dataclass(frozen=True)
@@ -239,6 +256,593 @@ def discover_lved_key_file(path: Path) -> LvedKeyFile | None:
 
 def read_lved_key_file(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
+
+
+def _lved_html_text_lines(fragment: str) -> list[str]:
+    fragment = _HTML_STYLE_RE.sub("\n", fragment)
+    fragment = _HTML_SCRIPT_RE.sub("\n", fragment)
+    fragment = _HTML_RUBY_TEXT_RE.sub("", fragment)
+    text = _HTML_LINEBREAK_RE.sub("\n", fragment)
+    text = _HTML_TAG_RE.sub("", text)
+    text = html.unescape(text)
+    lines = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if ("{" in line and "}" in line and ":" in line) or line.startswith(("window.", "function ")):
+            continue
+        lines.append(line)
+    return lines
+
+
+def _lved_normalize_title_candidate(value: str) -> str | None:
+    value = re.sub(r"\s+", " ", value).strip(" 　:：-－")
+    value = value.lstrip("・●")
+    value = re.sub(r"\s*[（(]\s*(?:C|c|Ｃ|©).*?$", "", value).strip()
+    value = value.strip("【】")
+    value = re.sub(r"^NEW(?=[ぁ-んァ-ヶ一-龯])", "NEW ", value)
+    if not value:
+        return None
+    quoted_about = re.search(r"[『《](?P<title>[^』》]{2,60})[』》]について", value)
+    if quoted_about:
+        return quoted_about.group("title").strip()
+    for marker in (" 凡例", "　凡例", " 目次", "　目次", " ●", "　●"):
+        if marker in value:
+            value = value.split(marker, 1)[0].strip()
+    if value.endswith("について") and len(value) > len("について") + 1:
+        value = value[: -len("について")].strip()
+    generic = {
+        "凡例",
+        "著作権",
+        "著作権について",
+        "目次",
+        "凡例・著作権・その他",
+        "凡例・その他",
+        "はじめに",
+        "記号一覧",
+        "略号・記号一覧表",
+    }
+    if not re.search(r"[\wぁ-んァ-ヶ一-龯]", value):
+        return None
+    if value.startswith(("著作権について", "Copyright")):
+        return None
+    if value in generic or value.casefold() in {"copyright"}:
+        return None
+    if "LogoVista電子辞典" in value or value.startswith(("©", "(C)", "Copyright")):
+        return None
+    if len(value) > 80:
+        return None
+    return value
+
+
+def _lved_copyright_title_candidate(fragment: str) -> str | None:
+    explicit = _lved_explicit_book_title_candidate(fragment)
+    if explicit:
+        return explicit
+    lines = _lved_html_text_lines(fragment)
+    candidates: list[str] = []
+    for line in lines[:24]:
+        text = line.strip(" 　・●◆")
+        if not text:
+            continue
+        quoted = re.search(r"[『《](?P<title>[^』》]{2,80})[』》]", text)
+        if quoted:
+            text = quoted.group("title")
+        candidate = _lved_normalize_title_candidate(text)
+        if candidate:
+            candidates.append(candidate)
+    if not candidates:
+        return None
+    candidates.sort(key=_lved_title_score, reverse=True)
+    return candidates[0] if _lved_title_score(candidates[0]) > 0 else None
+
+
+def _lved_title_score(value: str) -> int:
+    score = 0
+    if re.search(
+        r"辞典|事典|辞書|字典|大辞典|広辞苑|大辞林|字通|シソーラス|リーダーズ|ロワイヤル|"
+        r"大百科|現代用語|国語|英和|和英|仏和|和仏|独和|和独|中日|日中|法律|医学|数学|理化学|"
+        r"仏教|世界人名|世界史|日本史|古語|漢語|類語|用語|文例集|Dictionary|Thesaurus|Encyclopedia",
+        value,
+        re.IGNORECASE,
+    ):
+        score += 120
+    if re.search(r"第[一二三四五六七八九十0-9１２３４５６７８９]+版", value):
+        score += 30
+    if value.startswith("NEW "):
+        score += 10
+    if "この辞書" in value:
+        score -= 200
+    if re.search(r"凡例|索引|一覧|目次|使い方|はしがき|編集|著作権|記号|略語|扉裏|掲載語", value):
+        score -= 90
+    if value in {"Index", "LVED"}:
+        score -= 200
+    if len(value) > 50:
+        score -= 20
+    return score
+
+
+def _lved_html_title_candidate(fragment: str) -> str | None:
+    explicit = _lved_explicit_book_title_candidate(fragment)
+    if explicit:
+        return explicit
+    for regex in (_HTML_BOLD_DIV_RE, _HTML_TITLE_RE, _HTML_HEADING_RE):
+        match = regex.search(fragment)
+        if not match:
+            continue
+        lines = _lved_html_text_lines(match.group("body"))
+        for line in lines:
+            candidate = _lved_normalize_title_candidate(line)
+            if candidate:
+                return candidate
+    lines = _lved_html_text_lines(fragment)
+    for line in lines:
+        candidate = _lved_normalize_title_candidate(line)
+        if candidate:
+            return candidate
+    return None
+
+
+def _lved_explicit_book_title_candidate(fragment: str) -> str | None:
+    candidates: list[str] = []
+    for match in _HTML_BOOK_TITLE_RE.finditer(fragment):
+        for line in _lved_html_text_lines(match.group("body")):
+            candidate = _lved_normalize_title_candidate(line)
+            if candidate:
+                candidates.append(candidate)
+    if not candidates:
+        return None
+    candidates.sort(key=_lved_title_score, reverse=True)
+    return candidates[0] if _lved_title_score(candidates[0]) > 0 else None
+
+
+def _lved_sqlite_title_from_connection(con: sqlite3.Connection) -> str | None:
+    if not _sqlite_table_exists(con, "info"):
+        return None
+    columns = {column.casefold() for column in _sqlite_columns(con, "info")}
+    if not {"name", "body"} <= columns:
+        return None
+    try:
+        rows = con.execute(
+            """
+            select name, body from info
+            where body is not null and body != ''
+            order by
+              case
+                when lower(name) = 'index.html' then 0
+                when lower(name) like '%index%' then 1
+                when lower(name) like '%about%' then 2
+                when lower(name) like '%hanrei%' then 3
+                when lower(name) like '%copyright%' then 4
+                when lower(name) like '%license%' then 5
+                else 6
+              end,
+              rowid
+            limit 128
+            """
+        ).fetchall()
+    except sqlite3.Error:
+        return None
+    candidates: list[tuple[int, int, str]] = []
+    for row in rows:
+        name = row["name"] if isinstance(row, sqlite3.Row) else row[0]
+        body = row["body"] if isinstance(row, sqlite3.Row) else row[1]
+        if isinstance(body, bytes):
+            try:
+                body_text = body.decode("utf-8")
+            except UnicodeDecodeError:
+                body_text = body.decode("cp932", errors="replace")
+        else:
+            body_text = str(body)
+        name_text = "" if name is None else str(name)
+        lower_name = name_text.casefold()
+        candidate = (
+            _lved_copyright_title_candidate(body_text)
+            if "copyright" in lower_name or "license" in lower_name
+            else _lved_html_title_candidate(body_text)
+        )
+        if candidate and candidate not in {"凡例", "著作権", "copyright", "Copyright"}:
+            candidates.append((_lved_title_score(candidate), len(candidates), candidate))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], -item[1]), reverse=True)
+    return candidates[0][2] if candidates[0][0] > 0 else None
+
+
+class _LvedSqlcipherPageReader:
+    """Read decrypted SQLite pages from an LVED_SQLITE3 payload on demand."""
+
+    def __init__(self, path: Path, key: str, *, max_pages: int = _LVED_TITLE_PROBE_MAX_PAGES) -> None:
+        self.path = path
+        self.max_pages = max_pages
+        self.raw_size = path.stat().st_size
+        if self.raw_size % LVED_SQLCIPHER_PAGE_SIZE:
+            raise ValueError("payload size is not a 4096-byte page multiple")
+        with path.open("rb") as handle:
+            first_page = handle.read(LVED_SQLCIPHER_PAGE_SIZE)
+        if len(first_page) != LVED_SQLCIPHER_PAGE_SIZE:
+            raise ValueError("payload is shorter than one SQLCipher page")
+        self.key_material = _derive_sqlcipher4_key(first_page, key)
+        self.cache: dict[int, bytes] = {}
+        first_plain = self.page(1)
+        if not first_plain.startswith(b"SQLite format 3\x00"):
+            raise ValueError("decrypted first page is not SQLite")
+        page_size = struct.unpack(">H", first_plain[16:18])[0]
+        if page_size == 1:
+            page_size = 65536
+        if page_size != LVED_SQLCIPHER_PAGE_SIZE:
+            raise ValueError(f"unsupported SQLite page size {page_size}")
+        self.reserve_bytes = first_plain[20]
+        self.usable_size = LVED_SQLCIPHER_PAGE_SIZE - self.reserve_bytes
+        encoding = struct.unpack(">I", first_plain[56:60])[0]
+        self.text_encoding = {1: "utf-8", 2: "utf-16le", 3: "utf-16be"}.get(encoding, "utf-8")
+
+    def page(self, page_no: int) -> bytes:
+        if page_no <= 0:
+            raise ValueError("SQLite page numbers are 1-based")
+        cached = self.cache.get(page_no)
+        if cached is not None:
+            return cached
+        if len(self.cache) >= self.max_pages:
+            raise ValueError("title probe page budget exceeded")
+        page_count = self.raw_size // LVED_SQLCIPHER_PAGE_SIZE
+        if page_no > page_count:
+            raise ValueError("SQLite page number outside payload")
+        with self.path.open("rb") as handle:
+            handle.seek((page_no - 1) * LVED_SQLCIPHER_PAGE_SIZE)
+            encrypted = handle.read(LVED_SQLCIPHER_PAGE_SIZE)
+        if len(encrypted) != LVED_SQLCIPHER_PAGE_SIZE:
+            raise ValueError("short SQLCipher page")
+        plain = decrypt_lved_sqlcipher_page(encrypted, self.key_material, page_no=page_no)
+        self.cache[page_no] = plain
+        return plain
+
+    def overflow_payload(self, first_overflow_page: int) -> bytes:
+        chunks: list[bytes] = []
+        page_no = first_overflow_page
+        seen: set[int] = set()
+        while page_no and page_no not in seen:
+            seen.add(page_no)
+            page = self.page(page_no)
+            if len(page) < 4:
+                break
+            next_page = struct.unpack(">I", page[:4])[0]
+            chunks.append(page[4 : self.usable_size])
+            page_no = next_page
+        return b"".join(chunks)
+
+
+def _sqlite_varint(data: bytes, offset: int) -> tuple[int, int]:
+    value = 0
+    for index in range(9):
+        byte = data[offset + index]
+        if index == 8:
+            return (value << 8) | byte, offset + 9
+        value = (value << 7) | (byte & 0x7F)
+        if not byte & 0x80:
+            return value, offset + index + 1
+    return value, offset + 9
+
+
+def _sqlite_table_leaf_local_size(payload_size: int, usable_size: int) -> int:
+    max_local = usable_size - 35
+    if payload_size <= max_local:
+        return payload_size
+    min_local = ((usable_size - 12) * 32 // 255) - 23
+    local = min_local + ((payload_size - min_local) % (usable_size - 4))
+    if local > max_local:
+        local = min_local
+    return local
+
+
+def _sqlite_decode_text(data: bytes, encoding: str) -> str:
+    try:
+        return data.decode(encoding)
+    except UnicodeDecodeError:
+        return data.decode("utf-8", errors="replace")
+
+
+def _sqlite_record_values(payload: bytes, encoding: str) -> list[Any]:
+    header_size, pos = _sqlite_varint(payload, 0)
+    serial_types: list[int] = []
+    while pos < header_size:
+        serial_type, pos = _sqlite_varint(payload, pos)
+        serial_types.append(serial_type)
+    data_pos = header_size
+    values: list[Any] = []
+    for serial_type in serial_types:
+        if serial_type == 0:
+            values.append(None)
+        elif serial_type == 1:
+            values.append(int.from_bytes(payload[data_pos : data_pos + 1], "big", signed=True))
+            data_pos += 1
+        elif serial_type == 2:
+            values.append(int.from_bytes(payload[data_pos : data_pos + 2], "big", signed=True))
+            data_pos += 2
+        elif serial_type == 3:
+            values.append(int.from_bytes(payload[data_pos : data_pos + 3], "big", signed=True))
+            data_pos += 3
+        elif serial_type == 4:
+            values.append(int.from_bytes(payload[data_pos : data_pos + 4], "big", signed=True))
+            data_pos += 4
+        elif serial_type == 5:
+            values.append(int.from_bytes(payload[data_pos : data_pos + 6], "big", signed=True))
+            data_pos += 6
+        elif serial_type == 6:
+            values.append(int.from_bytes(payload[data_pos : data_pos + 8], "big", signed=True))
+            data_pos += 8
+        elif serial_type == 7:
+            values.append(struct.unpack(">d", payload[data_pos : data_pos + 8])[0])
+            data_pos += 8
+        elif serial_type == 8:
+            values.append(0)
+        elif serial_type == 9:
+            values.append(1)
+        elif serial_type >= 12:
+            length = (serial_type - 12) // 2
+            raw = payload[data_pos : data_pos + length]
+            data_pos += length
+            if serial_type % 2:
+                values.append(_sqlite_decode_text(raw, encoding))
+            else:
+                values.append(raw)
+        else:
+            values.append(None)
+    return values
+
+
+def _sqlite_table_leaf_payload(
+    reader: _LvedSqlcipherPageReader,
+    page: bytes,
+    cell_offset: int,
+    *,
+    include_overflow: bool = True,
+) -> bytes:
+    payload_size, pos = _sqlite_varint(page, cell_offset)
+    _rowid, pos = _sqlite_varint(page, pos)
+    local_size = _sqlite_table_leaf_local_size(payload_size, reader.usable_size)
+    payload = page[pos : pos + local_size]
+    if not include_overflow:
+        return payload
+    if len(payload) >= payload_size:
+        return payload[:payload_size]
+    overflow_ptr_offset = pos + local_size
+    if overflow_ptr_offset + 4 > len(page):
+        return payload
+    overflow_page = struct.unpack(">I", page[overflow_ptr_offset : overflow_ptr_offset + 4])[0]
+    if overflow_page:
+        payload += reader.overflow_payload(overflow_page)
+    return payload[:payload_size]
+
+
+def _sqlite_iter_table_records(
+    reader: _LvedSqlcipherPageReader,
+    root_page: int,
+    *,
+    max_rows: int = 64,
+    include_overflow: bool = True,
+) -> Iterable[list[Any]]:
+    pending = [root_page]
+    seen_pages: set[int] = set()
+    emitted = 0
+    while pending and emitted < max_rows:
+        page_no = pending.pop()
+        if page_no in seen_pages:
+            continue
+        seen_pages.add(page_no)
+        page = reader.page(page_no)
+        header_offset = 100 if page_no == 1 else 0
+        if len(page) < header_offset + 8:
+            continue
+        page_type = page[header_offset]
+        cell_count = struct.unpack(">H", page[header_offset + 3 : header_offset + 5])[0]
+        header_size = 12 if page_type == 0x05 else 8
+        cell_ptrs = [
+            struct.unpack(">H", page[header_offset + header_size + index * 2 : header_offset + header_size + index * 2 + 2])[0]
+            for index in range(cell_count)
+            if header_offset + header_size + index * 2 + 2 <= len(page)
+        ]
+        if page_type == 0x05:
+            rightmost = struct.unpack(">I", page[header_offset + 8 : header_offset + 12])[0]
+            children = []
+            for ptr in cell_ptrs:
+                if ptr + 4 <= len(page):
+                    children.append(struct.unpack(">I", page[ptr : ptr + 4])[0])
+            if rightmost:
+                children.append(rightmost)
+            pending.extend(reversed([child for child in children if child]))
+            continue
+        if page_type != 0x0D:
+            continue
+        for ptr in cell_ptrs:
+            try:
+                payload = _sqlite_table_leaf_payload(reader, page, ptr, include_overflow=include_overflow)
+                yield _sqlite_record_values(payload, reader.text_encoding)
+                emitted += 1
+            except (IndexError, struct.error, ValueError):
+                continue
+            if emitted >= max_rows:
+                break
+
+
+def _sqlite_identifier_from_token(token: str) -> str:
+    token = token.strip()
+    if not token:
+        return ""
+    if token[0] in {'"', "'", "`", "["}:
+        end = "]" if token[0] == "[" else token[0]
+        token = token[1:]
+        return token.split(end, 1)[0]
+    return token.split(None, 1)[0]
+
+
+def _sqlite_create_table_columns(sql: str) -> list[str]:
+    start = sql.find("(")
+    end = sql.rfind(")")
+    if start < 0 or end <= start:
+        return []
+    body = sql[start + 1 : end]
+    parts: list[str] = []
+    current: list[str] = []
+    depth = 0
+    quote: str | None = None
+    for char in body:
+        if quote:
+            current.append(char)
+            if char == quote:
+                quote = None
+            continue
+        if char in {'"', "'", "`"}:
+            quote = char
+            current.append(char)
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")" and depth:
+            depth -= 1
+        if char == "," and depth == 0:
+            parts.append("".join(current).strip())
+            current = []
+        else:
+            current.append(char)
+    if current:
+        parts.append("".join(current).strip())
+    columns: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        first = part.split(None, 1)[0].casefold()
+        if first in {"constraint", "primary", "foreign", "unique", "check"}:
+            continue
+        name = _sqlite_identifier_from_token(part)
+        if name:
+            columns.append(name)
+    return columns
+
+
+def _lved_sqlcipher_title_probe(path: Path, key: str) -> str | None:
+    reader = _LvedSqlcipherPageReader(path, key)
+    sqlite_master = list(_sqlite_iter_table_records(reader, 1, max_rows=256))
+    info_root: int | None = None
+    info_columns: list[str] = []
+    for record in sqlite_master:
+        if len(record) < 5:
+            continue
+        table_type, name, _table_name, root_page, sql = record[:5]
+        if str(table_type).casefold() != "table" or str(name).casefold() != "info":
+            continue
+        try:
+            info_root = int(root_page)
+        except (TypeError, ValueError):
+            return None
+        info_columns = _sqlite_create_table_columns(str(sql))
+        break
+    if info_root is None:
+        return None
+    lower_columns = [column.casefold() for column in info_columns]
+    try:
+        name_index = lower_columns.index("name")
+        body_index = lower_columns.index("body")
+    except ValueError:
+        return None
+    def collect_candidates(*, include_overflow: bool) -> list[tuple[int, int, str]]:
+        candidates: list[tuple[int, int, str]] = []
+        rows = _sqlite_iter_table_records(reader, info_root, max_rows=1024, include_overflow=include_overflow)
+        for row_index, record in enumerate(rows):
+            if len(record) <= max(name_index, body_index):
+                continue
+            name = _sqlite_text_from_value(record[name_index])
+            body = _sqlite_text_from_value(record[body_index])
+            lower_name = name.casefold()
+            candidate = (
+                _lved_copyright_title_candidate(body)
+                if "copyright" in lower_name or "license" in lower_name
+                else _lved_html_title_candidate(body)
+            )
+            if not candidate:
+                continue
+            score = _lved_title_score(candidate)
+            if lower_name == "index.html":
+                score += 15 if score >= 100 else 0
+            elif "index" in lower_name:
+                score += 10 if score >= 100 else 0
+            elif "menu" in lower_name:
+                score += 8 if score >= 100 else 0
+            elif "about" in lower_name:
+                score += 5 if score >= 100 else 0
+            elif "hanrei" in lower_name:
+                score += 3 if score >= 100 else 0
+            elif "copyright" in lower_name:
+                score += 5 if score >= 100 else 0
+            elif "license" in lower_name:
+                score += 2 if score >= 100 else 0
+            candidates.append((score, row_index, candidate))
+        return candidates
+
+    candidates = collect_candidates(include_overflow=False)
+    if not candidates:
+        candidates = collect_candidates(include_overflow=True)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], -item[1]), reverse=True)
+    return candidates[0][2] if candidates[0][0] > 0 else None
+
+
+def lved_sqlite_database_title(path: Path) -> str | None:
+    """Return the dictionary display title from a decrypted LVED SQLite DB."""
+
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        con.row_factory = sqlite3.Row
+    except sqlite3.Error:
+        return None
+    try:
+        return _lved_sqlite_title_from_connection(con)
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+
+
+def lved_payload_title(path: Path, *, full_decode_sqlcipher: bool = False) -> tuple[str | None, str]:
+    """Return a best-effort LVED_SQLITE3 title and deterministic source label."""
+
+    try:
+        classification = classify_lved_payload(path)
+    except OSError as exc:
+        return None, f"error:{exc}"
+    if classification == "plaintext_sqlite":
+        title = lved_sqlite_database_title(path)
+        return title, "plaintext_sqlite_info" if title else "plaintext_sqlite_no_title"
+    if classification != "sqlcipher_lved_candidate":
+        return None, f"{classification}_no_title"
+
+    key_file = discover_lved_key_file(path)
+    if key_file is None:
+        return None, "sqlcipher_no_local_key"
+    try:
+        key = read_lved_key_file(key_file.path)
+        title = _lved_sqlcipher_title_probe(path, key)
+    except Exception as exc:
+        title = None
+        probe_error = type(exc).__name__
+    else:
+        probe_error = ""
+    if title:
+        return title, f"sqlcipher_info_probe:{key_file.match}"
+    if not full_decode_sqlcipher:
+        suffix = f":{probe_error}" if probe_error else ""
+        return None, f"sqlcipher_title_probe_no_title:{key_file.match}{suffix}"
+
+    try:
+        with TemporaryDirectory() as temp_dir:
+            decrypted = Path(temp_dir) / "lved.sqlite3"
+            decrypt_lved_sqlcipher4_to_path(path, decrypted, key)
+            title = lved_sqlite_database_title(decrypted)
+    except Exception as exc:
+        return None, f"sqlcipher_title_error:{type(exc).__name__}"
+    return title, f"sqlcipher_info:{key_file.match}" if title else f"sqlcipher_no_title:{key_file.match}"
 
 
 def _quote_identifier(name: str) -> str:

@@ -242,6 +242,16 @@ product-specific info pages. The row `body` values are usually fragments, not
 complete documents. They should be wrapped by the reader and resolved through
 the same resource/link path as entry bodies.
 
+Scan-time title discovery is a bounded metadata probe, not a full reader
+inspection. Plain SQLite payloads can be opened directly. Encrypted
+SQLCipher payloads use a local sibling `.key` file when available and decrypt
+only the SQLite pages needed to locate and score title-bearing `info` rows.
+The score intentionally prefers product/dictionary titles over generic rows
+such as copyright, about, index, or HANREI pages, and strips ruby annotations
+from candidate titles. A slow full-decrypt fallback is optional toolkit
+behavior for `scan --decode-titles`; it is not part of the normal lightweight
+scanner path.
+
 Retained text trees such as `res/tree.idx` are navigation trees over SQLite
 content. Positive targets correlate to `content.id` / `list.refid`; negative
 targets are category/sentinel rows. They should become browse/navigation

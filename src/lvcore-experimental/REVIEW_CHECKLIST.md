@@ -14,9 +14,18 @@ Use this checklist when reviewing changes under `src/lvcore-experimental`.
 
 ## Public API Shape
 
-- Friendly APIs expose Package, SearchResults, SearchHit, Entry,
-  EntryDocument, Resource, Diagnostic, and BodySource concepts.
+- Friendly APIs expose Package, Dictionary, SearchResults, SearchHit,
+  EntryTarget, EntryView, VisualBody, HomeSurface, EntryDocument, Resource,
+  Diagnostic, and BodySource concepts.
 - SearchHit exposes reader-facing heading, heading source, and title status.
+- SearchHit public JSON includes a round-trippable EntryTarget token.
+- EntryTarget public JSON can be restored and resolved through
+  `entry_view_for_target` without debug fields.
+- EntryView is the main app-facing body contract. EntryDocument remains a
+  semantic/debug fallback and must not be the only representation of preserved
+  sidecar HTML.
+- HomeSurface targets for MENU/HANREI/Panels use EntryTarget when a target can
+  be represented, even if the surface status is deferred or unsupported.
 - Raw page/row numbers, pointers, component internals, control payloads, and
   byte summaries appear only through explicit debug or inspection output.
 - EntryDocument, LinkTarget, and ResourceRef changes stay enum/string-field

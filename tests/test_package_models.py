@@ -103,11 +103,11 @@ def test_discover_package_model_targets_classifies_deferred_families(tmp_path: P
 
 
 def test_format_progress_target_path_relativizes_to_corpus_root(tmp_path: Path) -> None:
-    target = tmp_path / "LOGOVISTA_SSED_DICTS_WINDOWS" / "_DCT_TEST" / "TEST.IDX"
+    target = tmp_path / "sample-ssed-corpus" / "_DCT_TEST" / "TEST.IDX"
     target.parent.mkdir(parents=True)
     target.write_bytes(b"")
 
-    assert format_progress_target_path(str(target), [tmp_path]) == "LOGOVISTA_SSED_DICTS_WINDOWS/_DCT_TEST/TEST.IDX"
+    assert format_progress_target_path(str(target), [tmp_path]) == "sample-ssed-corpus/_DCT_TEST/TEST.IDX"
 
 
 def test_dump_package_models_writes_summary_failures_and_resumes(tmp_path: Path) -> None:

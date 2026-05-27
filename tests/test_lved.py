@@ -14,6 +14,7 @@ from logovista_tools.lved import (
     inspect_lved_sqlite_database,
     inspect_lved_roots,
     is_lved_payload_name,
+    lved_sqlite_database_title,
     render_lved_sqlite_showcase,
     search_lved_sqlite_database,
     shannon_entropy,
@@ -142,6 +143,61 @@ def test_lved_sqlite_inspection_classifies_core_tables_without_row_text(tmp_path
     assert body["sample_text_signals"]["html_img"] == 1
     assert "visible title" not in rendered
     assert "alpha body" not in rendered
+
+
+def test_lved_sqlite_title_prefers_product_title_over_generic_info_pages(tmp_path) -> None:
+    db = tmp_path / "payload.sqlite"
+    import sqlite3
+
+    con = sqlite3.connect(db)
+    con.execute("create table info(id integer, type integer, name text, body text, media text)")
+    con.execute("insert into info values(1, 2, 'index.html', '<div class=\"title\">記号・略語表</div>', '')")
+    con.execute(
+        "insert into info values(2, 0, 'copyright.html', "
+        "'<div>著作権</div><p>●『新明解国語辞典 第八版』</p><p>© publisher</p>', '')"
+    )
+    con.commit()
+    con.close()
+
+    assert lved_sqlite_database_title(db) == "新明解国語辞典 第八版"
+
+
+def test_lved_sqlite_title_strips_ruby_annotations(tmp_path) -> None:
+    db = tmp_path / "payload.sqlite"
+    import sqlite3
+
+    con = sqlite3.connect(db)
+    con.execute("create table info(id integer, type integer, name text, body text, media text)")
+    con.execute(
+        "insert into info values(1, 2, 'index.html', "
+        "'<div class=\"title\"><ruby>明鏡<rt>めいきょう</rt></ruby>国語辞典 第三版</div>', '')"
+    )
+    con.commit()
+    con.close()
+
+    assert lved_sqlite_database_title(db) == "明鏡国語辞典 第三版"
+
+
+def test_lved_sqlite_title_prefers_explicit_book_title_over_sub_index(tmp_path) -> None:
+    db = tmp_path / "payload.sqlite"
+    import sqlite3
+
+    con = sqlite3.connect(db)
+    con.execute("create table info(id integer, type integer, name text, body text, media text)")
+    con.execute(
+        "insert into info values(1, 1, 'index.html', "
+        "'<div class=\"索引\"><span class=\"title\">和英小辞典</span>"
+        "<span>中高生にとって必要な語を中心に収録</span></div>', '')"
+    )
+    con.execute(
+        "insert into info values(2, 104, 'h04.html', "
+        "'<div class=\"Copyright\"><div class=\"凡例章見出\">著作権表示</div>"
+        "<div class=\"凡例書籍名\">エースクラウン英和辞典 第4版</div></div>', '')"
+    )
+    con.commit()
+    con.close()
+
+    assert lved_sqlite_database_title(db) == "エースクラウン英和辞典 第4版"
 
 
 def test_lved_search_modes_join_list_to_content(tmp_path) -> None:

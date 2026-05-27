@@ -99,9 +99,14 @@ SSED rows include `HONMON.DIC` / `HONMON.DIN` readiness where available. Mac
 OS X packages that declare `HONMON.DIN` but store an extensionless ZipCrypto
 `HONMON` wrapper are resolved automatically when the package has the observed
 eight-hex renderer/index stem needed for the `casKet<stem>` password.
-`LVED_SQLITE3` rows are classified structurally; encrypted payload detection
-does not imply decryption. Use `lved --inspect-sqlite` when you need decrypted
-schema/feature inspection with local keys.
+Rows for SSED, LVED_SQLITE3, LVLMultiView, and Hourei include a `title` and
+`title_source` in JSON output. LVED_SQLITE3 title probing reads plaintext
+SQLite directly. Encrypted LVED_SQLITE3 payloads are probed with the local
+`.key` file by decrypting only the SQLite pages needed to read title-bearing
+`info` rows; `scan` does not decrypt the whole payload by default. Use
+`--decode-titles` only to allow a slow full-decrypt fallback if the bounded
+page-level probe cannot identify a title. Use `lved --inspect-sqlite` when you
+need full decrypted schema or feature inspection with local keys.
 Use `profile` when you need a redacted inventory that also records incomplete
 packages with missing body components or missing declared components.
 
@@ -366,7 +371,7 @@ Render only dictionaries that have confirmed HC visual-parity locks and check
 the generated reference HTML for regression hazards:
 
 ```bash
-logovista-tools hc-render-lock /path/to/LOGOVISTA_SSED_DICTS_WINDOWS \
+logovista-tools hc-render-lock /path/to/ssed-corpus \
   --out-dir reports/hc-render-lock --jobs 12
 ```
 
@@ -450,7 +455,7 @@ for that package copy.
 Losslessly parse and re-emit existing LogoVista dictionary files:
 
 ```bash
-logovista-tools repacker /path/to/LOGOVISTA_SSED_DICTS_WINDOWS \
+logovista-tools repacker /path/to/ssed-corpus \
   --out-dir /path/to/reports/logovista-tools-repacker-v2
 ```
 
@@ -501,7 +506,7 @@ observed law subfamily uses `blvbat`, `hlvbat`, `ilvbat`/`ilvdat`, `jlvbat`,
 and `nlvbat`/`nlvdat`; ESPRANT2 uses `blvdat`.
 
 ```bash
-logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --jobs 12 --out-dir multiview-audit
+logovista-tools multiview /path/to/multiview-corpus --jobs 12 --out-dir multiview-audit
 logovista-tools multiview /path/to/_DCT_YROPPO08 --json
 logovista-tools multiview /path/to/_DCT_ESPRANT2 --json
 logovista-tools multiview /path/to/_DCT_ESPRANT2 --write-showcase --out-dir multiview-audit
@@ -557,9 +562,9 @@ law-browser family and should not be classified as SSED, LVED_SQLITE3, or
 LVLMultiView.
 
 ```bash
-logovista-tools hourei /path/to/LOGOVISTA_HOUREI_WINDOWS --out-dir hourei-audit
-logovista-tools hourei /path/to/LOGOVISTA_HOUREI_WINDOWS --deep --out-dir hourei-deep
-logovista-tools hourei /path/to/LOGOVISTA_HOUREI_WINDOWS --write-showcase --query 民法 --query 会社法
+logovista-tools hourei /path/to/hourei-package-or-corpus --out-dir hourei-audit
+logovista-tools hourei /path/to/hourei-package-or-corpus --deep --out-dir hourei-deep
+logovista-tools hourei /path/to/hourei-package-or-corpus --write-showcase --query 民法 --query 会社法
 ```
 
 Report fields include:
@@ -604,7 +609,7 @@ practical reader probe, not a claim of exact official viewer UI parity.
 Inspect NHK 文学のしずく / SIZK read-aloud packages.
 
 ```bash
-logovista-tools sizk /path/to/LOGOVISTA_SSED_DICTS_WINDOWS --jobs 0 --out-dir sizk-audit
+logovista-tools sizk /path/to/ssed-corpus --jobs 0 --out-dir sizk-audit
 logovista-tools sizk /path/to/_DCT_SIZK0101 --write-playback-jsonl --out-dir sizk-audit
 logovista-tools sizk /path/to/_DCT_SIZK0101 --json
 ```
@@ -645,9 +650,9 @@ keeps the historical `lved` name, but the format distinction is the decrypted
 SQLite3 data model rather than the viewer executable name.
 
 ```bash
-logovista-tools lved /path/to/LOGOVISTA_SQLCIPHER_DICTS_WINDOWS --json
-logovista-tools lved /path/to/LOGOVISTA_SQLCIPHER_DICTS_WINDOWS --jobs 12 --inspect-sqlite --json
-logovista-tools lved /path/to/LOGOVISTA_SQLCIPHER_DICTS_WINDOWS --jobs 12 --inspect-reader --search 犬 --search-mode exact --search-mode forward --json
+logovista-tools lved /path/to/lved-sqlite3-corpus --json
+logovista-tools lved /path/to/lved-sqlite3-corpus --jobs 12 --inspect-sqlite --json
+logovista-tools lved /path/to/lved-sqlite3-corpus --jobs 12 --inspect-reader --search 犬 --search-mode exact --search-mode forward --json
 logovista-tools lved /path/to/KOJIEN7 --search 右 --render-dir /tmp/koji-lved-pages
 logovista-tools lved /path/to/OXFPEU4 --dict-id 750 --dict-code OXFPEU4 --json
 logovista-tools lved /path/to/KQCMPROS --dict-id 751 --json
@@ -1445,7 +1450,7 @@ catalog.
 logovista-tools loose-media /path/to/_DCT_BRI2017P_Media_whatday
 logovista-tools loose-media /path/to/_DCT_BRI2016_Media/top --json
 logovista-tools loose-media /path/to/_DCT_PROYAL53/dat --write-decoded --out-dir loose-media
-logovista-tools loose-media /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --write-decoded
+logovista-tools loose-media /path/to/multiview-corpus --write-decoded
 ```
 
 Handled families:
@@ -2205,6 +2210,12 @@ lookup, folds katakana to hiragana for Japanese lookup keys, and preserves
 source-specific aliases such as bracketed KOUJIEN headword spellings. This is
 necessary for entries displayed with separators, for example `かな‐れい`, to be
 found by a plain lookup key such as `かなれい`.
+
+Generated simple indexes (`FHINDEX.DIC` / `BHINDEX.DIC`) carry the broad alias
+set. Generated tagged indexes (`FKINDEX.DIC` / `BKINDEX.DIC`) carry one exact
+display-key row per entry. This separation is intentional: it matches observed
+LogoVista index conventions and prevents alias-heavy imports from bloating the
+exact lookup indexes.
 
 JSON reports include import counts, duplicate merges, skipped rows, long-key
 drops, emitted search-key/alias counts, headword-markup cleanup counts,

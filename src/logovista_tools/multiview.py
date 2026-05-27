@@ -108,6 +108,46 @@ def discover_multiview_packages(roots: list[Path]) -> list[Path]:
     return sorted(packages)
 
 
+def multiview_package_title(package_dir: Path) -> tuple[str | None, str]:
+    """Return the SSED facade title used by an LVLMultiView package, if present."""
+
+    idx_paths = sorted(iter_files_with_suffix(package_dir, ".idx"), key=lambda path: (path.name.casefold(), path.name))
+    menu_title = _multiview_menu_title(package_dir / "menuData.xml")
+    if not idx_paths:
+        return menu_title, "menuData.xml" if menu_title else "missing_idx"
+    try:
+        title, _elements, _layout = parse_ssedinfo_with_layout(idx_paths[0])
+    except Exception as exc:
+        return menu_title, "menuData.xml" if menu_title else f"idx_parse_error:{type(exc).__name__}"
+    if _multiview_title_is_placeholder(title) and menu_title:
+        return menu_title, "menuData.xml"
+    return title or None, f"idx:{idx_paths[0].name}"
+
+
+def _multiview_title_is_placeholder(title: str) -> bool:
+    stripped = title.strip()
+    return stripped.count("○") >= 2 or stripped.count("□") >= 2 or "\ufffd" in stripped
+
+
+def _multiview_menu_title(path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    try:
+        root = ET.parse(path).getroot()
+    except ET.ParseError:
+        return None
+    for item in root.iter("item"):
+        label = (item.attrib.get("label") or "").strip()
+        href = (item.attrib.get("href") or "").strip()
+        if label and not href:
+            return label
+    for item in root.iter("item"):
+        label = (item.attrib.get("label") or "").strip()
+        if label:
+            return label
+    return None
+
+
 def decrypt_or_copy_to_sqlite(path: Path, out: Path) -> tuple[str, str]:
     prefix = read_file_prefix(path, 4096)
     raw_kind = file_magic_kind(prefix)

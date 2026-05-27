@@ -36,9 +36,12 @@ The future Rust implementation should start only after the Python model has
 made the important boundaries boring:
 
 - package-family detection;
+- package-driver boundaries for SSED, LVED_SQLITE3, LVLMultiView, and future
+  law-browser families;
 - SSED body-source classification;
 - native index search semantics;
 - body-source-aware entry resolution;
+- reader-first target/view contracts;
 - entry document structure;
 - gaiji/media/resource behavior;
 - renderer profiles;
@@ -57,6 +60,10 @@ Package
 Dictionary
 SearchResults
 SearchHit
+EntryTarget
+EntryView
+VisualBody
+HomeSurface
 Entry
 EntryDocument
 RenderedHtml
@@ -118,17 +125,47 @@ Native search profiles should remain explicit:
 - exact native row-key and target-key match;
 - forward prefix lookup;
 - backward suffix lookup;
+- partial / successive-character lookup when a package family exposes a native
+  provider for it;
+- full-text lookup when a package family exposes a native provider or a
+  purpose-built reader index;
 - native default lookup that combines native profiles conservatively;
-- future enhanced search only as a separate profile.
+- enhanced/fuzzy app search only as a separate profile.
 
 Native index search is a core capability. A future application-side full-text
-or fuzzy index should not replace the ability to traverse LogoVista indexes.
+or fuzzy index should not replace the ability to traverse LogoVista indexes or
+package-native search tables.
+
+### EntryTarget, EntryView, And VisualBody
+
+`EntryTarget` should be the stable navigation token used by frontend history,
+bookmarks, menus, panels, search results, and cross-view routing. Public target
+serialization must be opaque but round-trippable. Debug serialization may expose
+addresses, index row locations, sidecar rows, resource names, menu ids, and
+panel ids.
+
+`EntryView` should be the main app-facing result of resolving a target. It
+contains the target, heading, diagnostics, resources, optional semantic
+document, and one `VisualBody`.
+
+`VisualBody` separates display readiness from semantic fallback:
+
+- preserved HTML from SQL/sidecar/dense body stores;
+- raw SSED stream slices that require HC/profile rendering;
+- semantic document fallback;
+- explicit unsupported/deferred/missing body variants.
+
+This is the contract a Tauri, Electron, or native reader frontend should use.
+It prevents the reader from accidentally treating a useful semantic
+`EntryDocument` as the final visual body for dictionaries whose first-class
+rendering depends on HC-derived behavior or stored HTML fragments.
 
 ### Entry
 
-`Entry` is the resolved dictionary entry body plus metadata and diagnostics.
-Entry resolution must be body-source-aware. A native body pointer does not
-always mean the pointer can be sliced directly from `HONMON.DIC`.
+`Entry` remains the semantic compatibility object for decoded text, metadata,
+and diagnostics. Entry resolution must be body-source-aware. A native body
+pointer does not always mean the pointer can be sliced directly from
+`HONMON.DIC`.
 
 An entry may be:
 
@@ -142,15 +179,15 @@ or undecoded binary bytes as dictionary text.
 
 ### EntryDocument
 
-`EntryDocument` is the semantic middle layer:
+`EntryDocument` is the semantic middle layer, not the first-class visual
+contract:
 
 ```text
 raw body bytes or sidecar payload
   -> spans and controls
   -> EntryDocument
   -> resource resolution and diagnostics
-  -> renderer profile
-  -> HTML or plain text
+  -> semantic HTML, plain text, snippets, or debug inspection
 ```
 
 The document should contain:
@@ -200,6 +237,14 @@ A diagnostic should have:
 
 Friendly APIs should continue through recoverable diagnostics. Debug and audit
 APIs should make diagnostics easy to enumerate.
+
+### HomeSurface
+
+`HomeSurface` should model the native opening surfaces exposed by a package:
+MENU, HANREI, Panels, title/index browsing, native search, fallback/full-text
+search, and unsupported-package placeholders. Surfaces should carry status
+values such as available, deferred, unsupported, or missing, plus target tokens
+where later resolution is possible.
 
 ### BodySource
 
@@ -264,10 +309,10 @@ The search-to-render path should be:
 Dictionary.search(query, profile)
   -> SearchResults
   -> SearchHit
-  -> body-source-aware entry resolver
-  -> Entry
-  -> EntryDocument
-  -> renderer
+  -> EntryTarget
+  -> body-source-aware target resolver
+  -> EntryView
+  -> VisualBody
 ```
 
 The resolver should:
@@ -276,7 +321,9 @@ The resolver should:
 - determine the active body source;
 - resolve direct body streams through safe component bounds;
 - resolve supported dense-anchor sidecars through typed providers;
-- return clean placeholders and diagnostics for unsupported sources;
+- preserve exact HTML when a supported sidecar/body store provides it;
+- return clean unsupported/deferred visual bodies and diagnostics for
+  unsupported sources;
 - avoid treating anchor records as readable body text;
 - expose detailed inspection data only through debug APIs.
 
@@ -350,6 +397,9 @@ lv_package_t
 lv_dictionary_t
 lv_search_results_t
 lv_search_hit_t
+lv_entry_target_t
+lv_entry_view_t
+lv_visual_body_t
 lv_entry_t
 lv_entry_document_t
 lv_rendered_html_t
@@ -398,6 +448,25 @@ lv_status_t lv_search_results_hit(
     lv_search_results_t *results,
     size_t index,
     lv_search_hit_t **out
+);
+
+lv_status_t lv_search_hit_target(lv_search_hit_t *hit, lv_entry_target_t **out);
+lv_status_t lv_entry_target_serialize(
+    lv_entry_target_t *target,
+    lv_string_t **out_json
+);
+lv_status_t lv_entry_target_deserialize(
+    const char *json,
+    lv_entry_target_t **out
+);
+lv_status_t lv_dictionary_entry_view_for_target(
+    lv_dictionary_t *dictionary,
+    lv_entry_target_t *target,
+    lv_entry_view_t **out
+);
+lv_status_t lv_entry_view_visual_body(
+    lv_entry_view_t *view,
+    lv_visual_body_t **out
 );
 
 lv_status_t lv_search_hit_entry(lv_search_hit_t *hit, lv_entry_t **out);

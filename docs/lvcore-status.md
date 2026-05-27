@@ -15,10 +15,11 @@ implemented as reader paths.
 | SSED package detection and loading | Active target | Includes SSEDINFO/SSEDDATA parsing, component reads, and package diagnostics. |
 | Direct body-stream SSED | Supported for observed reader cases | Search hits can dereference to entries and render friendly/plain/debug output. |
 | Dense/sidecar SSED | Supported where structural providers are known | Treated as SSED body-source variants, not as LVED or LVLMultiView. |
-| SSED native indexes/search/titles | Active target with current sampled misses closed | Exact/forward/backward lookup, grouped rows, title fallback, and debug diagnostics are modeled. |
+| SSED native indexes/search/titles | Active target with current sampled misses closed | Exact/forward/backward lookup, grouped rows, title fallback, and debug diagnostics are modeled. Partial/full-text search are future reader modes, not current lvcore SSED paths. |
 | SSED links/media/resources/gaiji | Active target with current known blockers closed | Media/resource bytes remain untouched and require explicit resource APIs. |
-| LVED_SQLITE3 | Detected/classified only | Separate SQLCipher/SQLite family; no lvcore reader path yet. |
-| LVLMultiView | Detected/classified only | Separate SQLite/viewer-resource family; no lvcore reader path yet. |
+| LVED_SQLITE3 | Detected/classified only | Separate SQLCipher/SQLite family. It is a future reader-driver target, but no lvcore reader path exists yet. |
+| LVLMultiView | Detected/classified only | Separate SQLite/viewer-resource family. It is a future reader-driver target, but no lvcore reader path exists yet. |
+| Hourei SQLite | Toolkit-only today | Separate plain-SQLite law-browser family. lvcore has no reader path yet. |
 | Writer/importer behavior | Out of scope | Writer research stays in `logovista-tools`. |
 
 ## Current SSED Reader Position
@@ -52,6 +53,10 @@ Current lvcore SSED coverage includes:
 - package-family detection for SSED, LVED, and LVLMultiView;
 - SSEDINFO/SSEDDATA parsing, component reads, Windows LogoFontCipher handling,
   and observed Mac OS X `HONMON.DIN` decryption;
+- reader-first `EntryTarget`, `EntryView`, `VisualBody`, and `HomeSurface`
+  contracts. Public targets carry round-trippable opaque tokens for frontend
+  navigation/history/bookmark use; debug output exposes decoded internals only
+  when requested;
 - text-span parsing with friendly, semantic, and LogoVista-like reader render
   profiles plus explicit inspector/debug output;
 - native exact/forward/backward index lookup;
@@ -59,7 +64,8 @@ Current lvcore SSED coverage includes:
 - direct body-stream, dense-anchor, dense-marker, renderer-sidecar, and
   supported SQLite sidecar body-source handling;
 - structured `SearchResults`, `SearchHit`, `EntryDocument`, `LinkTarget`, and
-  `ResourceRef` concepts;
+  `ResourceRef` concepts. `EntryDocument` is now the semantic/debug fallback
+  document; `VisualBody` is the first-class reader display body;
 - `COLSCR.DIC`, `PCMDATA.DIC`, sidecar BLOB media, GA16/GAI16, image-backed
   gaiji, and Unicode gaiji resource handling;
 - reason-level diagnostics for unsupported or malformed structures.
@@ -100,6 +106,9 @@ entry, render, and resource APIs.
   package layers, LVED, LVLMultiView, and wrapper/resource files. Focused
   dictionary-family/subsystem reports such as SIZK and Panels are toolkit
   features, not lvcore package-family targets.
-- lvcore reader compatibility currently targets SSED.
-- LVED/LVLMultiView being unimplemented in lvcore does not mean the toolkit
-  cannot classify or inspect those families.
+- lvcore reader compatibility currently targets SSED. The future reader
+  roadmap includes LVED_SQLITE3 and LVLMultiView drivers, but current Python
+  code does not implement those body/search/render paths.
+- LVED/LVLMultiView/Hourei being unimplemented in lvcore does not mean the
+  toolkit cannot classify, inspect, or render generic showcases for those
+  families.

@@ -7,7 +7,7 @@ validation, scorecards, corpus baselines, and diff judgment.
 Run from the repository root:
 
 ```bash
-export LV_CORPUS_PATH=/path/to/LOGOVISTA_SSED_DICTS_WINDOWS
+export LV_CORPUS_PATH=/path/to/ssed-corpus
 export PYTHONPATH=src/lvcore-experimental:src/lvcore-audit
 
 python3 -m lvcore_audit corpus "$LV_CORPUS_PATH" --jobs 0 --full \

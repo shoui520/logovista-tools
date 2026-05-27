@@ -229,7 +229,7 @@ generated entry page.
 Use:
 
 ```bash
-logovista-tools multiview /path/to/LOGOVISTA_LVLMULTI_DICTS_WINDOWS --jobs 12 --out-dir out/multiview
+logovista-tools multiview /path/to/multiview-corpus --jobs 12 --out-dir out/multiview
 ```
 
 The command writes one `multiview.json` report per package and a corpus

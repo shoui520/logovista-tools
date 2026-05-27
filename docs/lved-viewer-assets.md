@@ -7,7 +7,7 @@ how modern LogoVista dictionaries are searched, browsed, and rendered.
 Private extraction output lives under:
 
 ```text
-/home/shoui/Agents/CodexMax/LogoVista/reports/lved-viewer-assets-v1/
+/path/to/private/reports/lved-viewer-assets-v1/
 ```
 
 No extracted proprietary template, image, executable, or dictionary text is

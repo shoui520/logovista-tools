@@ -127,6 +127,11 @@ and non-SSED reader status are tracked separately in
   local `.key` validation, and full local corpus schema/feature inspection for
   73 SQLCipher payloads. Toolkit support treats `LVED_SQLITE3` as a separate
   SQLite-backed family rather than a failed SSED/HONMON package.
+- `scan` title discovery now covers SSED, LVED_SQLITE3, LVLMultiView, and
+  Hourei rows. Encrypted LVED_SQLITE3 scan titles use the local `.key` file and
+  a bounded page-level SQLite probe over title-bearing `info` rows instead of a
+  full database decrypt. LVLMultiView title discovery prefers
+  `menuData.xml` when the SSEDINFO facade title is a placeholder.
 - Retained `LVED_SQLITE3` resource decoding for all observed `res/tree.idx`,
   `res/*.idx`, and `*INDEX.DIC` side files: 22 SQLite content navigation trees,
   one GENIUS53 auxiliary hex tree, and two GENIUS53 compressed SSED indexes.
@@ -200,12 +205,11 @@ and non-SSED reader status are tracked separately in
   non-SSED models instead of being treated as failed SSED/HONMON packages.
 - `dump-package-models`, a corpus-scale model harness with package-family
   target discovery, process-level parallelism, path-aware progress output,
-  resumable deterministic model paths, and clean failure JSON. The current
-  local corpus model pass completed 261 targets with zero failures:
+  resumable deterministic model paths, and clean failure JSON. An earlier
+  combined model pass completed 261 then-observed targets with zero failures:
   202 SSED, 45 then-observed SQLCipher/LVED payloads, and 14 LVLMultiView
-  packages. The newer dedicated `LVED_SQLITE3` corpus pass covers 73
-  SQLCipher payloads, and Hourei SQLite is now separately detected by the
-  shared model-target discovery layer.
+  packages. Dedicated newer passes cover 73 LVED_SQLITE3 payloads and the
+  separate Hourei SQLite package family.
 - Chunked decoded model output via `--chunked`: `package.json` plus JSONL files
   for components, entries, title/index/menu samples, gaiji, media,
   dereferences, issues, and metrics. Chunked `package.json` files keep the
@@ -235,6 +239,12 @@ and non-SSED reader status are tracked separately in
   compatibility normalization, and fold katakana to hiragana for Japanese
   lookup keys. Duplicate simple keys and large tagged groups may span adjacent
   leaves, matching observed LogoVista index behavior.
+- Writer index generation keeps broad lookup aliases and exact/grouped lookup
+  rows separate. `FHINDEX.DIC` / `BHINDEX.DIC` simple rows carry all emitted
+  aliases for broad forward/backward lookup, while `FKINDEX.DIC` /
+  `BKINDEX.DIC` tagged rows use one exact display row per entry. This mirrors
+  observed corpus conventions and avoids the previous failure mode where
+  alias-heavy packages bloated exact indexes.
 - The writer has a JMdict-specific authoring path that maps JMdict XML to
   LogoVista-equivalent SSED structures: normal body entries, forward/backward
   title/index streams, `KWTITLE.DIC` / `KWINDEX.DIC` keyword rows,

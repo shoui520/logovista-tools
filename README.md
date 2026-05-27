@@ -17,7 +17,7 @@ No dictionary data is included in this repository.
 | Track | Scope | Status |
 |---|---|---|
 | `logovista-tools` | Research toolkit, package classifiers, decoded model reports, extractors, verification, and experimental plain-SSED writer primitives. | See [Project Status and Roadmap](docs/status.md). |
-| `src/lvcore-experimental` | Independent reader-core prototype. It is reader-only and currently targets SSED reader behavior. | See [lvcore Status](docs/lvcore-status.md). |
+| `src/lvcore-experimental` | Independent reader-core prototype. It is reader-only. Current implementation targets SSED reader behavior while keeping LVED_SQLITE3 and LVLMultiView as explicit deferred package families for the future reader. | See [lvcore Status](docs/lvcore-status.md). |
 | Format notes | Public, behavior-level format documentation derived from observed structures. | See [Format Notes](spec/README.md). |
 
 ## Toolkit Package-Family Status
@@ -43,10 +43,10 @@ This table is about `src/lvcore-experimental`, not the toolkit.
 
 | Family / Layer | lvcore status |
 |---|---|
-| SSED reader path | Active compatibility target. The current proof of concept opens, searches, dereferences, and renders known SSED reader cases with diagnostics. The sibling `lvcore-audit` package owns corpus validation and scorecards. |
+| SSED reader path | Active compatibility target. The current proof of concept opens, performs exact/forward/backward native index search, dereferences, and returns reader-first entry views with diagnostics. The sibling `lvcore-audit` package owns corpus validation and scorecards. |
 | Dense/sidecar SSED | Treated as SSED body-source variants, not as LVED or LVLMultiView. |
-| Modern LogoVista `LVED_SQLITE3` | Detected/classified only in lvcore; not implemented as a lvcore reader path. |
-| LVLMultiView | Detected/classified only in lvcore; not implemented as a lvcore reader path. |
+| Modern LogoVista `LVED_SQLITE3` | Detected/classified only in current lvcore; intended as a future reader package driver, not an SSED body-source variant. |
+| LVLMultiView | Detected/classified only in current lvcore; intended as a future reader package driver, not an SSED body-source variant. |
 | Writer/importer behavior | Out of scope for lvcore. |
 
 The detailed lvcore status table, current counters, boundaries, and audit
@@ -140,9 +140,13 @@ The full command reference is in [docs/commands.md](docs/commands.md).
 | [lvcore Status](docs/lvcore-status.md) | Reader-core status table, boundaries, and audit counters. |
 | [HC Renderer Parity Matrix](docs/hc-renderer-parity.md) | HC renderer family status, package-level visual parity locks, and remaining hook gaps. |
 | [Package Families](docs/package-families.md) | SSED package layers, non-SSED families, and file lookup behavior. |
+| [LVED_SQLITE3 Corpus Findings](docs/lved-sqlite3-corpus.md) | Schema, search, retained-resource, and renderer-readiness findings for SQLCipher-backed LogoVista packages. |
+| [LVLMultiView Corpus Findings](docs/multiview-findings.md) | Facade, payload, menu, resource, and showcase findings for LVLMultiView packages. |
+| [Hourei Corpus Findings](docs/hourei-findings.md) | LogoVista電子法令 Professional layout, search, HTML body, and resource findings. |
 | [Corpus Findings](docs/corpus-findings.md) | Observed behavior from real dictionaries and platform comparisons. |
+| [Documentation Coverage Map](docs/source-coverage.md) | Source-to-doc map and currently underdocumented areas. |
 | [Legal and Data Policy](docs/legal.md) | Repository scope and data-handling policy. |
-| [Format Notes Index](spec/README.md) | Spec-style notes for containers, text streams, indexes, media, gaiji, LVED, and LVLMultiView. |
+| [Format Notes Index](spec/README.md) | Spec-style notes for containers, text streams, indexes, media, gaiji, LVED_SQLITE3, LVLMultiView, and Hourei. |
 
 ## Development
 

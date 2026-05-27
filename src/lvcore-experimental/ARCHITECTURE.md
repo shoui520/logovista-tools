@@ -30,20 +30,24 @@ dictionary handles, and concrete sub-stores without Python mixin inheritance.
 
 ## Layering
 
-The body pipeline is:
+The reader-first pipeline is:
 
 ```text
-raw HONMON/body bytes
-  -> text/opcode spans
-  -> control behavior atlas
-  -> EntryDocument tree
-  -> resource/gaiji/media resolver + diagnostics
-  -> render profile
-  -> friendly HTML / semantic HTML / LogoVista-like HTML / plain text / debug HTML
+SearchHit / MENU target / Panel target / stored EntryTarget
+  -> body-source-aware target resolver
+  -> EntryView
+  -> VisualBody
+  -> reader display or explicit deferred/unsupported diagnostics
 ```
 
-Friendly output is the default. Raw offsets, raw opcodes, raw bytes, component
-internals, and index page internals are explicit inspection/debug features.
+`EntryDocument` is still produced for semantic fallback output, snippets,
+plain text, and diagnostics, but it is no longer the primary app display
+contract. A reader application should first look at `EntryView.visual_body`.
+If the body is preserved sidecar HTML, the visual body carries that exact HTML.
+If the body is a raw SSED stream, the visual body is explicitly deferred to an
+HC/profile renderer instead of pretending semantic HTML is visually complete.
+Raw offsets, raw opcodes, raw bytes, component internals, and index page
+internals are explicit inspection/debug features.
 
 HTML rendering has reader profiles plus explicit inspection output:
 
@@ -74,6 +78,10 @@ Package
 Dictionary
 SearchResults
 SearchHit
+EntryTarget
+EntryView
+VisualBody
+HomeSurface
 Entry
 EntryDocument
 RenderedHtml
@@ -87,9 +95,40 @@ Inspector
 The Python API is still experimental, but these concepts are the future Rust
 and C ABI shape.
 
+## Entry Targets And Views
+
+`EntryTarget` is the opaque frontend/storeable navigation unit. Search hits,
+MENU rows, Panel cells, HANREI resources, direct SSED addresses, and dense
+sidecar rows should all be representable as targets. Public target JSON carries
+a versioned token that can be stored and later restored through
+`EntryTarget.from_dict()` / `EntryTarget.from_token()`. Debug serialization can
+show the decoded address, title pointer, sidecar row, menu id, panel id, or
+resource name, but public top-level fields remain reader-facing.
+
+`EntryView` is the app-facing entry result. It contains the target, display
+heading, body-source label, resources, diagnostics, optional semantic document,
+and one `VisualBody`.
+
+`VisualBody` currently has four shapes:
+
+- `preserved_html`: exact HTML from a supported dense/sidecar source;
+- `ssed_stream`: an SSED body stream slice that still needs HC/profile
+  rendering for first-class visual parity;
+- `semantic_document`: semantic/plain fallback output;
+- `unsupported`: a visible unsupported/deferred body with diagnostics.
+
+This split prevents dense anchor records or semantic fallback output from being
+mistaken for first-class renderer parity.
+
+`HomeSurface` describes the native opening surfaces a reader can show before
+search: MENU, HANREI, Panels, native search, title/index browsing, fallback
+search, or unsupported-package surfaces. A surface may be `available`,
+`deferred`, `unsupported`, or `missing`, and may carry an `EntryTarget` for
+later resolution.
+
 ## Documents
 
-`EntryDocument` is the center of rendering. It contains:
+`EntryDocument` is the semantic document layer. It contains:
 
 - block nodes such as paragraphs, headings, examples, media, and unknown blocks;
 - inline nodes such as text, gaiji, media references, emphasis, links, and
@@ -109,12 +148,11 @@ body-source internals, gaiji codes, and resource payload identifiers. Debug
 span output is bounded by default: it reports offsets, lengths, hashes, and
 small previews instead of unbounded body-byte dumps.
 
-Sidecar HTML bodies are parsed into normal text/style/break spans before
-document construction. Raw sidecar HTML is not carried on the span timeline or
-deferred to renderer-time sanitization. If a sidecar row also has a plain body
-column, lvcore prefers the plain body. If HTML is the only body form, the parser
-preserves readable text plus supported inline emphasis while dropping unknown
-HTML structure instead of exposing raw markup as reader text.
+Sidecar HTML bodies have two paths. The reader-first visual path preserves the
+decoded HTML in `VisualBody(kind=preserved_html)` when the sidecar schema is a
+supported body resolver. The semantic/debug path also parses the same row into
+normal text/style/break spans for snippets, diagnostics, and fallback output.
+Raw sidecar HTML is not placed on the span timeline as a fake text span.
 
 Node records deliberately use simple enum-like strings plus tuples/lists of
 children. This maps cleanly to Rust enums and to a future opaque C ABI where
@@ -229,8 +267,10 @@ while debug rendering may expose decoded payloads and pointer details.
 ## Search
 
 Native LogoVista/EPWING-style index search remains a core reader capability.
-Future enhanced/fuzzy/full-text app search can be added as a separate profile,
-but it should not replace native forward/backward index traversal.
+The current Python proof of concept implements exact, forward, backward, and
+combined native lookup. Future Rust work should add package-native partial
+(`逐次一致`) and full-text (`全文検索`) modes where the package family exposes
+them, while keeping fuzzy/enhanced app search as a separate profile.
 
 Reader-facing search and entry enumeration use lazy scans by default. Full
 index materialization remains available through audit/inspection paths. Scans
@@ -244,15 +284,16 @@ The current Python proof of concept exposes reader-facing `SearchResults` and
 ```text
 Package.search(query, profile)
   -> SearchResults
-  -> Package.entry_for_hit(SearchHit)
-  -> Entry.document()
-  -> friendly HTML / plain text
+  -> SearchHit.target
+  -> Package.entry_view_for_target(EntryTarget)
+  -> EntryView.visual_body
 ```
 
 Friendly hit dictionaries expose headings, heading source, title status,
-display keys, matched keys, and diagnostics. Component names, raw page numbers,
-row numbers, body/title pointers, title-resolution traces, and parsed row
-internals are debug/inspection output only.
+display keys, matched keys, diagnostics, and a public round-trippable target
+token. Component names, raw page numbers, row numbers, body/title pointers,
+title-resolution traces, and parsed row internals are debug/inspection output
+only.
 
 Current search profiles are:
 
@@ -265,6 +306,10 @@ Current search profiles are:
   natural display key where possible;
 - `native`: default reader lookup combining exact, forward, and backward paths
   while deduplicating hits that resolve to the same body/title target.
+
+Partial and full-text modes are not currently implemented in lvcore's SSED
+reader path. They should be added as explicit reader modes, not hidden behind a
+slow whole-package scan.
 
 Query normalization is intentionally conservative: Unicode compatibility
 normalization, whitespace/dash separator removal, fullwidth/halfwidth ASCII

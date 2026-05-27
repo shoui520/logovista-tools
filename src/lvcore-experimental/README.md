@@ -43,9 +43,15 @@ Current scope:
 - collect recoverable diagnostics instead of leaking raw failures into
   friendly output;
 - keep raw inspection/debug output explicit.
+- expose reader-first `EntryTarget`, `EntryView`, `VisualBody`, and
+  `HomeSurface` contracts for frontend navigation, history/bookmarks,
+  display-body selection, and native home surfaces. The older `Entry` /
+  `EntryDocument` API remains available as a semantic/debug compatibility
+  path, but it is not the first-class visual contract.
 
-LVED and LVLMultiView are only detected for now. SSED is the active
-implementation target.
+LVED_SQLITE3 and LVLMultiView are only detected/classified for now. Hourei is
+documented and handled by the toolkit, but is not currently a lvcore package
+family detector. SSED is the active implementation target.
 
 Run directly from the repo:
 
@@ -105,11 +111,12 @@ PYTHONPATH=src/lvcore-experimental \
   python3 src/lvcore-experimental/examples/debug_inspection.py /path/to/_DCT_DICT term
 ```
 
-The normal dictionary-app path does not need spans, opcodes, index pages, or
-component offsets:
+The normal dictionary-app path starts from native search hits or home-surface
+targets and resolves them to `EntryView`. It does not need spans, opcodes,
+index pages, component offsets, or sidecar table names:
 
 ```python
-from lvcore import SearchProfile, detect_family, open_package
+from lvcore import EntryTarget, SearchProfile, detect_family, open_package
 
 path = "/path/to/_DCT_DICT"
 family = detect_family(path)
@@ -118,13 +125,39 @@ body_source = package.body_source()
 results = package.search("term", profile=SearchProfile.NATIVE, limit=5)
 
 for hit in results.hits:
-    heading = hit.heading
-    title_status = hit.title_status
-    entry = package.entry_for_hit(hit)
-    html = entry.html()
-    text = entry.plain_text()
-    diagnostics = entry.diagnostics()
+    target_json = hit.target.to_dict()
+    restored_target = EntryTarget.from_dict(target_json)
+    view = package.entry_view_for_target(restored_target)
+    heading = view.heading
+    visual = view.visual_body
+    diagnostics = view.diagnostics
 ```
+
+`EntryTarget.to_dict()` includes a versioned opaque token by default. A
+frontend can store that public JSON for history, bookmarks, panels, menus, or
+cross-view navigation and pass it back through `EntryTarget.from_dict()` before
+calling `entry_view_for_target(...)`. The token contains enough package-local
+addressing data to resolve the target, while top-level public JSON still hides
+raw debug internals.
+
+`EntryView.visual_body` is the first-class display contract:
+
+- `preserved_html`: exact HTML preserved from a supported dense/sidecar body
+  source;
+- `ssed_stream`: raw SSED body slice that needs HC/profile rendering for
+  first-class visual parity;
+- `semantic_document`: readable semantic fallback document;
+- `unsupported`: explicit unsupported/missing body with diagnostics.
+
+`EntryDocument` remains available as `view.semantic_document` for diagnostics,
+plain text, snippets, and basic fallback rendering.
+
+Home/interface surfaces are available through `package.home_surfaces()` or
+`dictionary.home_surfaces()`. SSED packages currently report MENU, HANREI,
+Panels, native search, title/index browsing, and fallback-search surfaces with
+`available`, `deferred`, `unsupported`, or `missing` style statuses. MENU and
+HANREI/Panels targets are represented as `EntryTarget` values even when the
+full interaction/rendering path is deferred.
 
 Raw inspection is a separate, explicit path:
 
