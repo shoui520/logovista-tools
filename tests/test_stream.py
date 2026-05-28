@@ -30,6 +30,13 @@ from logovista_tools.entries import (
     tokens_to_text,
 )
 from logovista_tools.encyclopedia import parse_encyclopedia_index
+from logovista_tools.figure import (
+    figure_bitmap_to_png,
+    figure_bitmap_to_rgba,
+    parse_figure_dimensions,
+    parse_figure_pointer,
+    read_figure_bitmap,
+)
 from logovista_tools.gaiji_report import (
     SqliteSource,
     TextTable,
@@ -2566,4 +2573,37 @@ def test_parse_monoscr_pointer_and_render_png() -> None:
     assert pointer.relative_offset == 39
     assert read_monoscr_bitmap(Reader(), pointer) == bytes(bitmap)
     png = monoscr_bitmap_to_png(bytes(bitmap))
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_parse_figure_descriptor_pointer_and_render_png() -> None:
+    element = SsedInfoElement(0, 0, 0xD0, 1200, 1201, b"", "FIGURE.DIC")
+    dimensions = parse_figure_dimensions(b"\x00\x01" + _bcd(2, 4) + _bcd(9, 4))
+
+    assert dimensions is not None
+    assert dimensions.width == 9
+    assert dimensions.height == 2
+    assert dimensions.row_stride == 2
+    assert dimensions.bitmap_bytes == 4
+
+    stream = b"\x00" * 17 + b"\x80\x80\x40\x00"
+
+    class Reader:
+        expanded_size = len(stream)
+
+        def read(self, offset: int, size: int) -> bytes:
+            return stream[offset : offset + size]
+
+    pointer = parse_figure_pointer(_bcd(1200, 4) + _bcd(17, 2), element)
+
+    assert pointer is not None
+    assert pointer.relative_offset == 17
+    bitmap = read_figure_bitmap(Reader(), pointer, dimensions)
+    assert bitmap == b"\x80\x80\x40\x00"
+
+    rgba = figure_bitmap_to_rgba(bitmap, dimensions)
+    assert rgba[:4] == b"\x00\x00\x00\xff"
+    assert rgba[4:8] == b"\x00\x00\x00\x00"
+    assert rgba[8 * 4 : 9 * 4] == b"\x00\x00\x00\xff"
+    png = figure_bitmap_to_png(bitmap, dimensions)
     assert png.startswith(b"\x89PNG\r\n\x1a\n")

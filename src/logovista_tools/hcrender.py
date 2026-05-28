@@ -40,6 +40,14 @@ from .entries import (
     iter_entry_slices_reader,
     normalize_fullwidth_ascii,
 )
+from .figure import (
+    figure_bitmap_to_png,
+    figure_element,
+    find_figure_path,
+    parse_figure_dimensions,
+    parse_figure_pointer,
+    read_figure_bitmap,
+)
 from .gaiji import (
     ga16_preferred_code_for_index,
     is_bitmap_gaiji_resource_name,
@@ -314,6 +322,12 @@ HC_RENDER_BASE_CSS = """
   max-height: 1.05em;
   object-fit: contain;
   vertical-align: -0.12em;
+}
+:where(.lv-hc-render .lv-hc-figure) {
+  display: inline-block;
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
 }
 :where(.lv-hc-render .img_inline),
 :where(.lv-hc-render .lv-hc-media.img_inline) {
@@ -1141,6 +1155,7 @@ class HcRenderOptions:
     include_debug_metadata: bool = False
     entry_start_offset: int = 0
     media_image_resolver: Callable[[MediaPointer], str | None] | None = None
+    figure_image_resolver: Callable[[bytes, bytes], str | None] | None = None
     monoscr_image_resolver: Callable[[dict[str, int]], str | None] | None = None
     sounddata_ids: frozenset[int] = frozenset()
     movie_ids: frozenset[str] = frozenset()
@@ -3838,6 +3853,25 @@ def _monoscr_target(pointer: dict[str, int] | None) -> dict[str, Any] | None:
         "address_key": f"{block:08d}:{offset:04d}",
         "resource_id": f"monoscr:{block:08d}:{offset:04d}",
     }
+
+
+def _figure_target(pointer: dict[str, int] | None, descriptor_payload: bytes) -> dict[str, Any] | None:
+    if pointer is None:
+        return None
+    dimensions = parse_figure_dimensions(descriptor_payload)
+    block = pointer["block"]
+    offset = pointer["offset"]
+    target: dict[str, Any] = {
+        "component": "FIGURE.DIC",
+        "kind": "monochrome-figure",
+        "block": block,
+        "offset": offset,
+        "address_key": f"{block:08d}:{offset:04d}",
+        "resource_id": f"figure:{block:08d}:{offset:04d}",
+    }
+    if dimensions is not None:
+        target.update(dimensions.as_dict())
+    return target
 
 
 def _audio_target(pointer: PcmPointer | None) -> dict[str, Any] | None:
@@ -7651,6 +7685,44 @@ def _make_monoscr_image_resolver(source: DictionarySource, dict_out: Path) -> Ca
         filename = f"{parsed.block:08d}_{parsed.offset:04d}.png"
         out_path = media_dir / filename
         png = monoscr_bitmap_to_png(bitmap)
+        if not out_path.exists() or out_path.read_bytes() != png:
+            out_path.write_bytes(png)
+        rel = _relative_browser_path(out_path, dict_out)
+        cache[key] = rel
+        return rel
+
+    return resolve
+
+
+def _make_figure_image_resolver(source: DictionarySource, dict_out: Path) -> Callable[[bytes, bytes], str | None] | None:
+    figure_path = find_figure_path(source.idx)
+    if figure_path is None:
+        return None
+    _title, elements = parse_ssedinfo(source.idx)
+    element = figure_element(elements)
+    if element is None:
+        return None
+    reader = SsedRandomReader(figure_path)
+    media_dir = dict_out / "media" / "figure"
+    media_dir.mkdir(parents=True, exist_ok=True)
+    cache: dict[tuple[bytes, bytes], str | None] = {}
+
+    def resolve(descriptor_payload: bytes, pointer_payload: bytes) -> str | None:
+        key = (descriptor_payload, pointer_payload)
+        if key in cache:
+            return cache[key]
+        dimensions = parse_figure_dimensions(descriptor_payload)
+        pointer = parse_figure_pointer(pointer_payload, element)
+        if dimensions is None or pointer is None:
+            cache[key] = None
+            return None
+        bitmap = read_figure_bitmap(reader, pointer, dimensions)
+        if bitmap is None:
+            cache[key] = None
+            return None
+        filename = f"{pointer.block:08d}_{pointer.offset:04d}_{dimensions.width}x{dimensions.height}.png"
+        out_path = media_dir / filename
+        png = figure_bitmap_to_png(bitmap, dimensions)
         if not out_path.exists() or out_path.read_bytes() != png:
             out_path.write_bytes(png)
         rel = _relative_browser_path(out_path, dict_out)
@@ -15324,6 +15396,48 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     "target": target,
                     "status": "resolved_address" if target else "unresolved_target",
                 }
+                figure_src = (
+                    options.figure_image_resolver(ctx.payload, target_payload)
+                    if op == 0x64
+                    and ctx is not None
+                    and ctx.start_op == 0x44
+                    and target_payload
+                    and options.figure_image_resolver
+                    else None
+                )
+                if figure_src:
+                    figure_pointer = _decode_pointer_payload(target_payload, packed_bcd=True)
+                    figure_target = _figure_target(figure_pointer, ctx.payload)
+                    media.append(
+                        {
+                            "control": "1f64",
+                            "kind": "figure-image",
+                            "target": figure_target,
+                            "status": "resolved_image",
+                        }
+                    )
+                    _close_context_styles(ctx, options)
+                    label = "".join(ctx.parts)
+                    alt = _plain_from_html(label)
+                    attrs = [
+                        'class="lv-hc-media lv-hc-figure"',
+                        f'src="{_escape_attr(figure_src)}"',
+                        f'alt="{_escape_attr(alt)}"',
+                        'data-lv-media-kind="figure"',
+                        'data-lv-media-status="resolved_image"',
+                    ]
+                    if figure_target:
+                        attrs.append(f'data-lv-resource="{_escape_attr(figure_target["resource_id"])}"')
+                        attrs.append(f'data-lv-block="{figure_target["block"]}"')
+                        attrs.append(f'data-lv-offset="{figure_target["offset"]}"')
+                        if "width" in figure_target:
+                            attrs.append(f'width="{figure_target["width"]}"')
+                        if "height" in figure_target:
+                            attrs.append(f'height="{figure_target["height"]}"')
+                    ctx.parent.append(f"<img {' '.join(attrs)}>")
+                    stats["figure_images"] += 1
+                    i += 2 + arg_len
+                    continue
                 monoscr_src = options.monoscr_image_resolver(target) if op == 0x64 and target and options.monoscr_image_resolver else None
                 if monoscr_src:
                     monoscr_target = _monoscr_target(target)
@@ -19559,6 +19673,7 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
     html_path = dict_out / "raw_honmon_entries.html"
     image_sources, html_templates, stylesheet, copied_assets, renderer_assets = _prepare_hc_render_assets(source, dict_out, renderer)
     media_image_resolver = _make_colscr_image_resolver(source, dict_out)
+    figure_image_resolver = _make_figure_image_resolver(source, dict_out)
     monoscr_image_resolver = _make_monoscr_image_resolver(source, dict_out)
     sounddata_index = load_sounddata_index(source.idx)
     color_samples = load_color_sample_map(source.idx)
@@ -19570,6 +19685,7 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
         renderer_code=renderer_code,
         vertical=bool(getattr(args, "_effective_vertical", getattr(args, "vertical", False))),
         media_image_resolver=media_image_resolver,
+        figure_image_resolver=figure_image_resolver,
         monoscr_image_resolver=monoscr_image_resolver,
         sounddata_ids=frozenset(sounddata_index.records) if sounddata_index is not None else frozenset(),
         movie_ids=movie_ids_for_idx(source.idx),
@@ -19750,6 +19866,7 @@ def _render_hc_index_hit(
     reader = SsedRandomReader(source.honmon)
     target_offset = _target_relative_offset(source, hit)
     media_image_resolver = _make_colscr_image_resolver(source, dict_out)
+    figure_image_resolver = _make_figure_image_resolver(source, dict_out)
     monoscr_image_resolver = _make_monoscr_image_resolver(source, dict_out)
     color_samples = load_color_sample_map(source.idx)
     options = HcRenderOptions(
@@ -19760,6 +19877,7 @@ def _render_hc_index_hit(
         renderer_code=renderer_code,
         vertical=vertical,
         media_image_resolver=media_image_resolver,
+        figure_image_resolver=figure_image_resolver,
         monoscr_image_resolver=monoscr_image_resolver,
         sounddata_ids=sounddata_ids,
         movie_ids=movie_ids_for_idx(source.idx),

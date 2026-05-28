@@ -384,16 +384,19 @@ writes portable `.wav` files using the same `--write-audio` interface as
 
 `FIGURE.DIC` and `MONOSCR.DIC` are both observed as compressed SSED resource
 components with component type `0xd0`, but they should not be treated as one
-proven format. The current evidence separates them:
+decoded format. The current evidence separates them:
 
-- KOJIEN6 `MONOSCR.DIC` is a monochrome bitmap store referenced by HONMON
-  `1f44` / `1f64` pairs. `1f44` carries a constant display-cell payload, and
-  `1f64` carries a packed-BCD pointer into `MONOSCR.DIC`. The target bytes
+- KQSYNONM/ROYALEGR-style `FIGURE.DIC` is a variable-size monochrome figure
+  store. HONMON `1f44` carries a ten-byte descriptor: bytes 0..1 are the
+  observed figure-kind field `0001`, bytes 2..5 are packed-BCD height, and
+  bytes 6..9 are packed-BCD width. The matching `1f64` payload is a six-byte
+  packed-BCD block/offset pointer into `FIGURE.DIC`. The pointed payload is
+  1bpp, MSB-first, with each row padded to `(width + 7) // 8` bytes. The
+  toolkit materializes these figures as transparent PNGs for HC output.
+- KOJIEN6 `MONOSCR.DIC` is a separate monochrome bitmap store referenced by
+  HONMON `1f44` / `1f64` pairs. `1f44` carries a constant display-cell payload,
+  and `1f64` carries a packed-BCD pointer into `MONOSCR.DIC`. The target bytes
   decode as a 64x64 1bpp bitmap cell.
-- Older `FIGURE.DIC` streams observed so far use the same component type, but
-  the KOJIEN6 `MONOSCR.DIC` record model does not produce coherent output for
-  them. Keep them as named unresolved figure streams until their own pointer
-  and record grammar is recovered.
 
 Neither stream is a `COLSCR.DIC` image store:
 
@@ -402,9 +405,10 @@ Neither stream is a `COLSCR.DIC` image store:
 - observed payloads do not decode as PNG/JPEG/GIF/BMP records from the stream
   start.
 
-For KOJIEN6, toolkit rendering materializes referenced `MONOSCR.DIC` bitmap
-cells as transparent PNGs and emits them inline rather than leaking the
-internal `1f44` label or treating the `1f64` payload as a normal entry link.
+Toolkit rendering materializes referenced `FIGURE.DIC` and `MONOSCR.DIC`
+bitmap payloads as transparent PNGs and emits them inline rather than leaking
+the internal `1f44` descriptor or treating the `1f64` payload as a normal entry
+link.
 
 ## `COLSMPL.DIC`
 

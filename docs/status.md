@@ -128,10 +128,12 @@ and non-SSED reader status are tracked separately in
   missing search fallbacks, and true display-unresolved codes.
 - Standalone `SPINDEX.DIC` inspection for observed Windows and Mac OS X
   auxiliary suffix-index resources.
-- `FIGURE.DIC` is recognized as a compressed type-`0xd0` figure/resource
-  component. Its generic record grammar is still unresolved, so toolkit output
-  should report it as a named resource stream rather than inventing raster
-  image output.
+- `FIGURE.DIC` is decoded for the observed KQSYNONM/ROYALEGR-style
+  type-`0xd0` figure resources. HONMON `1f44` carries a ten-byte descriptor
+  with packed-BCD dimensions in height/width order; `1f64` carries the
+  six-byte packed-BCD `FIGURE.DIC` pointer. The pointed payload is a row-padded
+  1bpp monochrome bitmap, and HC rendering materializes it as a PNG figure
+  image.
 - KOJIEN6 `MONOSCR.DIC` is decoded separately from older `FIGURE.DIC` streams:
   HONMON `1f44` / `1f64` pairs resolve to 64x64 1bpp monochrome bitmap cells,
   and HC012C rendering emits inline PNG glyphs instead of leaking internal

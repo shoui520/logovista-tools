@@ -383,6 +383,38 @@ def test_kojien6_monoscr_link_pair_renders_inline_bitmap_not_lvaddr_link() -> No
     assert rendered.stats["monoscr_images"] == 1
 
 
+def test_figure_link_pair_renders_variable_bitmap_not_lvaddr_link() -> None:
+    body = (
+        b"\x1f\x44"
+        + bytes.fromhex("00010000000200000009")
+        + jis_ascii_text("figure")
+        + b"\x1f\x64"
+        + bytes.fromhex("000012000017")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            figure_image_resolver=lambda descriptor, pointer: "media/figure/00001200_0017_9x2.png"
+            if descriptor == bytes.fromhex("00010000000200000009")
+            and pointer == bytes.fromhex("000012000017")
+            else None,
+        ),
+    )
+
+    assert 'class="lv-hc-media lv-hc-figure"' in rendered.html
+    assert 'src="media/figure/00001200_0017_9x2.png"' in rendered.html
+    assert 'width="9"' in rendered.html
+    assert 'height="2"' in rendered.html
+    assert 'href="lvaddr://1200/17"' not in rendered.html
+    assert ">figure</a>" not in rendered.html
+    assert rendered.media[0]["kind"] == "figure-image"
+    assert rendered.media[0]["target"]["component"] == "FIGURE.DIC"
+    assert rendered.media[0]["target"]["width"] == 9
+    assert rendered.media[0]["target"]["height"] == 2
+    assert rendered.stats["figure_images"] == 1
+
+
 def test_hc_render_common_media_close_state_is_not_unknown() -> None:
     rendered = render_hc_body(jis_ascii("A") + b"\x1f\x6d" + jis_ascii("B"))
 

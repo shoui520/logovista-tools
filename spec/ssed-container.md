@@ -89,9 +89,10 @@ sidecar that is not listed in the main `SSEDINFO` catalog.
 `FIGURE.DIC` and `MONOSCR.DIC` are observed as component type `0xd0`, but they
 should not be collapsed into one decoded format. KOJIEN6 `MONOSCR.DIC` is a
 64x64 1bpp monochrome bitmap store referenced by HONMON `1f44` / `1f64`
-pairs. Older `FIGURE.DIC` streams remain named figure resources with
-unresolved record grammar. Both are distinct from `COLSCR.DIC` because they do
-not use the `data` wrapper described for the color image store.
+pairs. KQSYNONM/ROYALEGR-style `FIGURE.DIC` uses the same control pair, but
+`1f44` carries packed-BCD height/width and `1f64` points to a variable-size
+row-padded 1bpp bitmap payload. Both are distinct from `COLSCR.DIC` because
+they do not use the `data` wrapper described for the color image store.
 
 `COLSMPL.DIC` is observed as component type `0xe0`. KOJIEN6 stores fixed
 2048-byte color-sample records. Each record prefix decodes to compact Munsell

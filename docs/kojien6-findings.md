@@ -165,6 +165,8 @@ Named gaps:
 - exact proprietary KOJIEN6 screen-menu chrome and transitions beyond the
   decoded clickable screen-map proof;
 - exact `SDicGetColorMap` Munsell-to-RGB conversion;
-- older `FIGURE.DIC` type-`0xd0` record/image grammar;
+- older `FIGURE.DIC` type-`0xd0` resources are separate from `MONOSCR.DIC`;
+  the observed KQSYNONM/ROYALEGR form is decoded as variable-size row-padded
+  1bpp figure bitmaps rather than KOJIEN6 64x64 cells;
 - exact product-level KOJIEN6 HC012C visual parity beyond the shared movie,
   picture, audio, link, gaiji, and text-control semantics currently modeled.
