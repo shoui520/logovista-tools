@@ -118,7 +118,8 @@ evidence for controls and bridge behavior.
 
 Loose media/resource side files are not always declared as SSED components.
 Observed examples include Britannica `whatday/*.body` / `*.top` HTML fragments,
-Britannica `top/top_*.dat` CP932 address/image lists, PROYAL53 `dat/*`
+Britannica `top/top_*.dat` CP932 address/image lists, Britannica
+`Bri20xx.db` chronology helper SQLite tables, PROYAL53 `dat/*`
 LogoFontCipher-wrapped WAVE files, and LVLMultiView law `Resources/*`
 LogoFontCipher-wrapped PDFs. Treat these as package resources addressed by
 their surrounding renderer/UI metadata, not as `HONMON.DIC` body streams.
@@ -379,12 +380,13 @@ the same conservative text-stream logic used for body/title text.
 `Panel.html` and `Cell.html` are viewer templates for presenting the Panel
 tree/cells. They do not define the binary record grammar. The Windows reader
 also advertises Panel availability through `EXINFO.INI` `GENERAL/PANELXML` and
-renderer panel lifecycle hooks. A reader that does not implement the original
-UI can still expose the decoded Panel rows as an optional navigation API
-without merging them into ordinary entry body rendering. The practical API
-shape is a flat navigation row stream plus optional grouping by panel id:
-inline menu cells point to other panels or direct addresses, and BIN rows point
-to body/menu/catalog addresses.
+renderer panel lifecycle hooks; this field may name product-specific XML files
+such as `Bri2017Panels_win.xml`, not only `Panels.xml`. A reader that does not
+implement the original UI can still expose the decoded Panel rows as an
+optional navigation API without merging them into ordinary entry body rendering.
+The practical API shape is a flat navigation row stream plus optional grouping
+by panel id: inline menu cells point to other panels or direct addresses, and
+BIN rows point to body/menu/catalog addresses.
 
 Observed Windows `vlpljbl*` names are not one format. Content classification
 is required before interpreting them:

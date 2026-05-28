@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from logovista_tools.cli import _panel_metadata_paths
 from logovista_tools.panels import (
     PanelBinParseError,
     PanelCellReference,
@@ -155,6 +156,19 @@ def test_iter_panel_data_references(tmp_path: Path) -> None:
     assert refs[0].panel_type == "contents"
     assert refs[0].data_type == "bin"
     assert refs[0].filename == "Panel\\goju\\All-A.bin"
+
+
+def test_panel_metadata_paths_honor_exinfo_panelxml(tmp_path: Path) -> None:
+    idx = tmp_path / "DICT.IDX"
+    idx.write_bytes(b"SSEDINFO")
+    (tmp_path / "EXINFO.INI").write_text(
+        "[GENERAL]\nPANELXML=BritannicaPanels_win.xml\n",
+        encoding="cp932",
+    )
+    declared = tmp_path / "BritannicaPanels_win.xml"
+    declared.write_text("<panels />", encoding="utf-8")
+
+    assert _panel_metadata_paths(tmp_path, idx=idx) == [declared]
 
 
 def test_iter_panel_cells_extracts_inline_navigation_grid(tmp_path: Path) -> None:

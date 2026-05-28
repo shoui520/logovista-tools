@@ -182,10 +182,20 @@ def _first_plain_line(value: str, fallback: str) -> str:
     return fallback
 
 
-def _panel_metadata_paths(root: Path) -> list[Path]:
+def _panel_metadata_paths(root: Path, idx: Path | None = None) -> list[Path]:
+    candidates = list(PANEL_METADATA_CANDIDATES)
+    if idx is not None:
+        try:
+            exinfo = load_exinfo_for_idx(idx)
+        except Exception:
+            exinfo = None
+        if exinfo is not None:
+            declared_panel = exinfo.general.get("PANELXML", "").strip()
+            if declared_panel:
+                candidates.insert(0, declared_panel)
     found: list[Path] = []
     for base in (root, root.parent):
-        for candidate in PANEL_METADATA_CANDIDATES:
+        for candidate in candidates:
             path = resolve_case_insensitive_path(base, candidate)
             if path is not None and path.is_file() and path not in found:
                 found.append(path)
@@ -647,12 +657,13 @@ def _menu_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
 
 
 def _panel_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
-    metadata_paths = _panel_metadata_paths(builder.source.idx.parent)
+    metadata_paths = _panel_metadata_paths(builder.source.idx.parent, idx=builder.source.idx)
     inline_cells: list[dict[str, Any]] = []
     panel_rows: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
     seeded = 0
     body_rows_seen = 0
+    inline_body_rows_seen = 0
     for metadata_path in metadata_paths:
         metadata_cells = []
         try:
@@ -661,13 +672,15 @@ def _panel_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
                 row = panel_cell_navigation_row(cell, elements=builder.elements).as_dict()
                 row["metadata"] = str(metadata_path)
                 if row.get("target_kind") == "body":
+                    inline_body_rows_seen += 1
                     try:
                         block = int(row["block"])
                         offset = int(row["offset"])
                         key = str(((row.get("target") or {}) if isinstance(row.get("target"), dict) else {}).get("address_key") or _address_key(block, offset))
                         row["target_key"] = key
-                        builder.enqueue(block, offset, label=str(row.get("label") or cell.title), source="panel-cell")
-                        seeded += 1
+                        if inline_body_rows_seen <= int(builder.args.panel_row_limit):
+                            builder.enqueue(block, offset, label=str(row.get("label") or cell.title), source="panel-cell")
+                            seeded += 1
                     except (TypeError, ValueError):
                         row["target_key"] = None
                 inline_cells.append(row)
@@ -1157,7 +1170,7 @@ def _hanrei_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
                 {"label": path.relative_to(target).as_posix(), "href": f"hanrei/HANREI/{path.relative_to(target).as_posix()}"}
                 for path in sorted(target.rglob("*.html"))[:limit]
             ]
-        entry = links[0]["href"] if links else "hanrei/HANREI/index.html"
+        entry = links[0]["href"] if links else ""
         rows.append({"kind": "html_directory", "source": "HANREI", "entry": entry, "links": links[:limit]})
     mac_root_hanrei = resolve_case_insensitive_path(root, "hanrei.html")
     mac_bundles = _mac_hanrei_bundle_paths(root)

@@ -15,6 +15,7 @@ from logovista_tools.reader_demo import (
     _hanrei_data,
     _hanrei_links_from_file,
     _menu_html,
+    _panel_metadata_paths,
     _panels_html,
     _rewrite_local_asset_refs,
 )
@@ -150,6 +151,19 @@ def test_panels_html_preserves_cell_hierarchy() -> None:
     assert 'data-panel-id="10100000"' in rendered
 
 
+def test_reader_demo_panel_metadata_paths_honor_exinfo_panelxml(tmp_path: Path) -> None:
+    idx = tmp_path / "DICT.IDX"
+    idx.write_bytes(b"SSEDINFO")
+    (tmp_path / "EXINFO.INI").write_text(
+        "[GENERAL]\nPANELXML=BRI2019Panels.xml\n",
+        encoding="cp932",
+    )
+    declared = tmp_path / "BRI2019Panels.xml"
+    declared.write_text("<panels />", encoding="utf-8")
+
+    assert _panel_metadata_paths(tmp_path, idx=idx) == [declared]
+
+
 def test_menu_html_keeps_toc_navigation_buttons_clickable() -> None:
     menu = {
         "components": [{"component": "TOC.DIC", "status": "ok"}],
@@ -185,6 +199,24 @@ def test_menu_html_keeps_toc_navigation_buttons_clickable() -> None:
 
     assert 'data-nav-row-key="TOC.DIC:1" data-nav-target-key="TOC.DIC:2"' in rendered
     assert 'data-entry-key="00000002:0000">Root / Child</button>' in rendered
+
+
+def test_hanrei_data_does_not_invent_missing_index_for_empty_directory(tmp_path: Path) -> None:
+    package = tmp_path / "dict"
+    package.mkdir()
+    (package / "DICT.IDX").write_bytes(b"SSEDINFO")
+    (package / "HANREI").mkdir()
+    builder = SimpleNamespace(
+        source=SimpleNamespace(idx=package / "DICT.IDX"),
+        out_dir=tmp_path / "out",
+        args=SimpleNamespace(hanrei_page_limit=10),
+    )
+
+    data = _hanrei_data(builder)
+
+    assert data["sources"][0]["kind"] == "html_directory"
+    assert data["sources"][0]["entry"] == ""
+    assert data["sources"][0]["links"] == []
 
 
 def test_menu_html_embeds_menu_target_previews() -> None:

@@ -93,9 +93,11 @@ from .lved import (
 from .lvcrypto import decrypt_logofont_cipher_auto_file_to_path
 from .loose_media import (
     classify_loose_decoded_resource,
+    is_britannica_chronology_db_candidate,
     is_britannica_top_dat_path,
     is_britannica_whatday_path,
     iter_candidate_files as iter_loose_media_candidate_files,
+    parse_britannica_chronology_db,
     parse_britannica_top_dat,
     parse_britannica_whatday_file,
     write_decoded_resource,
@@ -729,6 +731,12 @@ def _loose_media_item_to_json(path: Path, args: argparse.Namespace) -> dict[str,
             "kind": "britannica_top_dat",
             **decoded.to_dict(include_text=args.include_text, limit=args.limit),
         }
+    if is_britannica_chronology_db_candidate(path):
+        decoded = parse_britannica_chronology_db(path)
+        return {
+            "kind": "britannica_chronology_sqlite",
+            **decoded.to_dict(include_text=args.include_text, limit=args.limit),
+        }
     resource = classify_loose_decoded_resource(path)
     if resource is None:
         return {
@@ -987,7 +995,7 @@ def _casefolded_relative(root: Path, relative: str) -> Path | None:
     return current
 
 
-def _panel_metadata_paths(root: Path) -> list[Path]:
+def _panel_metadata_paths(root: Path, idx: Path | None = None) -> list[Path]:
     candidates = [
         "Panels.xml",
         "Panels.plist",
@@ -995,6 +1003,15 @@ def _panel_metadata_paths(root: Path) -> list[Path]:
         "Panel/Panels.xml",
         "Panel/Panels.plist",
     ]
+    if idx is not None:
+        try:
+            exinfo = load_exinfo_for_idx(idx)
+        except Exception:
+            exinfo = None
+        if exinfo is not None:
+            declared_panel = exinfo.general.get("PANELXML", "").strip()
+            if declared_panel:
+                candidates.insert(0, declared_panel)
     found: list[Path] = []
     for base in (root, root.parent):
         for candidate in candidates:
@@ -1081,10 +1098,16 @@ def _decode_panels_for_root(
     args: argparse.Namespace,
 ) -> dict[str, Any]:
     if root.is_file():
-        metadata_paths = [root] if root.name.lower() in {"panels.xml", "panels.plist", "menu_.plist"} else []
+        name = root.name.casefold()
+        metadata_paths = (
+            [root]
+            if name in {"panels.xml", "panels.plist", "menu_.plist"}
+            or (root.suffix.casefold() in {".xml", ".plist"} and "panel" in name)
+            else []
+        )
         root = root.parent
     else:
-        metadata_paths = _panel_metadata_paths(root)
+        metadata_paths = _panel_metadata_paths(root, idx=idx)
     references: list[dict[str, Any]] = []
     inline_cells: list[dict[str, Any]] = []
     navigation_rows: list[dict[str, Any]] = []

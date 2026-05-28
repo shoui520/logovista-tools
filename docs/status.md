@@ -206,9 +206,10 @@ and non-SSED reader status are tracked separately in
   roles, `menuData.xml` href resolution, static HTML/viewer-file reporting,
   and encrypted PDF resource detection where present.
 - Loose media/resource decoders for Britannica `whatday` HTML fragments,
-  Britannica `top/top_*.dat` address/image lists, PROYAL53 `dat/*`
-  LogoFontCipher WAVE payloads, LVLMultiView MOROKU law PDFs, and extensionless
-  renderer SQLite sidecars such as CJJC160.
+  Britannica `top/top_*.dat` address/image lists including split 2017 media
+  folders, Britannica `D_InternationalChronology` SQLite helpers, PROYAL53
+  `dat/*` LogoFontCipher WAVE payloads, LVLMultiView MOROKU law PDFs, and
+  extensionless renderer SQLite sidecars such as CJJC160.
 - SIZK / NHK 文学のしずく focused dictionary-family inspection for the observed
   30 Windows-corpus dictionaries, including EXINFO-declared `shizuku.uni`,
   `HTMLs/b121`-`b124` template selectors, tiny four-entry HONMON streams,

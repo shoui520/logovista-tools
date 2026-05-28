@@ -9878,6 +9878,39 @@ def test_hc008b_profile_records_medical_expert_subset_without_claiming_parity() 
     assert "visual_parity_unverified" in data["named_gaps"]
 
 
+def test_britannica_profile_records_state_marker_subset_without_claiming_parity() -> None:
+    for code in ("00D7", "00DE"):
+        row = HcRendererClassification(
+            path=Path(f"HC{code}.dll"),
+            code=code,
+            expected_numeric_index=f"0000{code}.idx",
+            size=1,
+            sha256=None,
+            pe=PeSummary(kind="unknown"),
+            exinfo_html_dll=None,
+            exinfo_declares_this=None,
+            numeric_indexes=(),
+            expected_numeric_index_present=False,
+            vlpljbl_siblings=(),
+            dic_tokens=(),
+            vlpljbl_tokens=(),
+            html_templates=("Media/HTMLs/%d-%d.html",),
+            sql_snippets=(),
+            image_templates=(),
+            features={"custom_dib_export": True, "headword_modifier": True, "panel_hooks": True},
+        )
+
+        data = build_hc_behavior_profile(row).as_dict()
+
+        assert "HC_BRITANNICA_state_gaiji_marker_suppression" in data["implemented_semantics"]
+        assert "HC_BRITANNICA_midashi_state_sections_and_line_links" in data["implemented_semantics"]
+        assert data["exact_hc_parity"] is False
+        assert "custom_dib_export" not in data["named_gaps"]
+        assert "modify_headword_hook" in data["named_gaps"]
+        assert "visual_parity_unverified" in data["named_gaps"]
+        assert any(hook["name"] == "britannica_panel_media_html" for hook in data["hook_behaviors"])
+
+
 def test_hc00de_profile_records_britannica_state_marker_subset_without_claiming_parity() -> None:
     row = HcRendererClassification(
         path=Path("HC00DE.dll"),

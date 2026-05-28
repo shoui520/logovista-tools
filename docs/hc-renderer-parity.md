@@ -56,12 +56,12 @@ browser/app output normalization, not a claim of exact HC runtime parity.
 | `common_controls_plus_named_hooks` | 0 |
 | `exact_body_sidecar_supported_hc_hooks_unprofiled` | 11 |
 | `needs_marker_branch_decode` | 0 |
-| `decoded_branch_subset_visual_incomplete` | 63 |
+| `decoded_branch_subset_visual_incomplete` | 64 |
 | `reference_render_parity_confirmed` | 35 |
 
 | Family | Families |
 |---|---:|
-| Britannica panel/media renderer | 3 |
+| Britannica panel/media renderer | 4 |
 | GEN HTMLs vertical renderer | 1 |
 | SQL search/helper renderer | 1 |
 | SQL-hook raw-HONMON renderer | 28 |
@@ -319,6 +319,7 @@ The order below is heuristic. It weights package count, renderer-specific gaiji 
 | 69 | `HC0132` | `95b5f32cd9f2` | `_DCT_NGFINANC` | 1 | `reference_render_parity_confirmed` | body-loop, gaiji=2, tmpl=26, decoded finance `1f09` section ladder, honbun/gogi/sansho/kanren/example/kaisetsu classes, lineLink, hankakuMidashi state | `modify_headword_hook` | visual output locked by reviewed reference renders; recover only named nonvisual/product hooks with intentional re-review |
 | 70 | `HC02BF` | `9633e65277fa` | `_DCT_KQLATINO` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=16, tmpl=22, renderer_specific_gaiji_comparisons_seen, section_control_seen_in_body_loop | `modify_headword_hook`, `panel_lifecycle_hook`, `sql_or_search_hook` | sample more entries; promote only additional recovered branches |
 | 71 | `HC00D5` | `9bc17aca00e4` | `_DCT_BRI2016` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, `1f09` 0001/0003 state sections consumed without generic placeholders, `1f41` midashi, `1f42`/`1f43` lineLink, B421/B422 Britannica renderer-state marker suppression | `modify_headword_hook`, `panel_lifecycle_hook`, `media_html_template_replacement`, `visual_parity_unverified` | recover Media/HTMLs/template behavior and exact Panel UI lifecycle before any parity claim |
+| 71a | `HC00D7` | `7fdbab3b56a8` | `_DCT_Bri2017` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, `1f09` 0001/0003 state sections consumed without generic placeholders, `1f41` midashi, `1f42`/`1f43` lineLink, B421/B422 Britannica renderer-state marker suppression; recovered package uses EXINFO `PANELXML=Bri2017Panels_win.xml` and split `_Media_top`/`_Media_thumb`/`_Media_mini`/`_Media_full` directories | `custom_dib_export`, `modify_headword_hook`, `panel_lifecycle_hook`, `media_html_template_replacement`, `visual_parity_unverified` | recover Media/HTMLs/template behavior, custom-DIB branch reachability, and exact Panel UI lifecycle before any parity claim |
 | 72 | `HC0092` | `9f4f3d448970` | `_DCT_KCOMPEJ2` | 1 | `reference_render_parity_confirmed` | body-loop, gaiji=1, tmpl=16, decoded `1f09` lineinfo branch, hankaku/hankakuMidashi state, lineLink/media templates, b12x/b13x marker-image strings |  | visual output locked by reviewed reference renders; recover only named nonvisual/product hooks with intentional re-review |
 | 73 | `HC00AB` | `a1e7ee73966f` | `_DCT_GKYOJIJK` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=4, tmpl=16, decoded honbun hanging/normal-margin `1f09` section ladder, `1f41` midashi, hankaku state, lineLink/media templates, state close controls | `visual_parity_unverified` | recover fixed HTML/body fallback loading, exact footer/table generation, generated custom-character DIB output, and representative visual parity |
 | 74 | `HC0147` | `a5a2c4bcaec4` | `_DCT_YUCOGPSY` | 1 | `decoded_branch_subset_visual_incomplete` | body-loop, gaiji=12, tmpl=27, decoded BCD `1f09` contents/bunken/cyosha section ladder, A12E/B141-B145 template-image gaiji, B160-B164 padding markers, B15C/B15D URL spans, `1f10` rubar/overline branch, lineLink templates | `modify_headword_hook`, `panel_lifecycle_hook`, `visual_parity_unverified` | recover Panel lifecycle, modifyHeadword behavior, generated custom-character DIB output, exact bibliography anchor bookkeeping, and representative visual parity |

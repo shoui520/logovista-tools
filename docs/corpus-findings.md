@@ -2611,10 +2611,10 @@ audio; decrypting the file gives the app-ready `.wav` payload directly. The
 filenames are part of the resource identity and should be preserved with a
 `.wav` suffix on export.
 
-### Britannica Loose Media Text Files
+### Britannica Loose Media And Chronology Helpers
 
-Observed Britannica media companion packages use plaintext side files outside
-the SSED catalog:
+Observed Britannica media companion packages use plaintext side files and
+SQLite helper DBs outside the SSED catalog:
 
 - `whatday/M-D.body` and `whatday/M-D.top` are CP932 HTML fragments keyed by
   month/day. The fragments contain table markup and `lved.addrXXXXXXXX:YYYY`
@@ -2624,22 +2624,32 @@ the SSED catalog:
   CP932 five-line record lists. Each record contains an item id, display title,
   short description, hexadecimal body address, and image filename. The image
   filename resolves against sibling `thumb/`, `mini/`, and `full/` media
-  directories.
+  directories. The 2017 media set can store these as split sibling directories
+  such as `_Media_top`, `_Media_thumb`, `_Media_mini`, and `_Media_full` rather
+  than one parent with `top/`, `thumb/`, `mini/`, and `full/` children.
+- `ROSQLNAME=Bri20xx.db` helper DBs contain a single
+  `D_InternationalChronology` table. These are ancillary chronology/search
+  helpers, not body stores. Their `Value` column uses the same Britannica inline
+  `＃＃Ｓblock:offsetlabelＥ＃＃` metadata; the loose-media decoder expands those
+  markers to `lvaddr://` links and exposes the row date/category fields.
 
-The current local files decode as:
+The recovered Britannica set decodes as:
 
 ```text
-whatday .body fragments:         366
-whatday .top fragments:          366
-whatday lved.addr references:  7,555
-top/*.dat files:                   6
-top/*.dat records:               241
-top records with image matches:  241
+whatday .body fragments:             2,928
+whatday .top fragments:              2,928
+whatday address references:         59,525
+top_*.dat files:                        21
+top_*.dat records:                     712
+top records with image matches:        712
+chronology SQLite DBs:                   6
+chronology rows:                    18,832
+chronology address references:      25,017
 ```
 
-These are auxiliary media/navigation resources, not encrypted component
-stores. The parser preserves the HTML/text payloads and separately exposes the
-resolved address and image relationships.
+These are auxiliary media/navigation resources, not encrypted component stores.
+The parser preserves the HTML/text payloads and separately exposes the resolved
+address, image, date, and category relationships.
 
 ### SPINDEX.DIC
 

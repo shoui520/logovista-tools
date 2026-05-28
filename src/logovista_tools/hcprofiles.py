@@ -128,7 +128,7 @@ def _family_for_code(code: str | None, renderer: HcRendererClassification | None
         return "ejje_search_sidecar_renderer"
     if code == "0C80":
         return "britannica_yearbook_array_renderer"
-    if code in {"00D3", "00D5", "00DE"}:
+    if code in {"00D3", "00D5", "00D7", "00DE"}:
         return "britannica_panel_media_renderer"
     if code in {"013A", "0137", "013F", "0142", "0146", "0147", "02BE", "02BF", "02C1", "02C2", "02C4", "02C5", "02C7", "02C9", "02CB", "02CC", "02CD", "02D1"}:
         return "panel_enabled_renderer"
@@ -436,7 +436,7 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes="Body/media rows use array number indirection rather than the common f_DataId-only shape.",
             )
         )
-    if code in {"00D3", "00D5", "00DE"}:
+    if code in {"00D3", "00D5", "00D7", "00DE"}:
         rows.append(
             HcHookBehavior(
                 name="britannica_panel_media_html",
@@ -2594,7 +2594,7 @@ def build_hc_behavior_profile(
         implemented.add("HC_GEN_YEAR_section_icons_and_template_markers")
     if code == "00C4":
         implemented.add("HC00C4_section_icon_and_gaiji_layout")
-    if code in {"00D3", "00D5", "00DE"}:
+    if code in {"00D3", "00D5", "00D7", "00DE"}:
         implemented.add("HC_BRITANNICA_state_gaiji_marker_suppression")
         implemented.add("HC_BRITANNICA_midashi_state_sections_and_line_links")
     if code == "005C":

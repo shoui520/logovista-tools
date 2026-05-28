@@ -7,7 +7,10 @@ from logovista_tools.loose_media import (
     classify_loose_decoded_resource,
     expand_britannica_inline_address_markers,
     iter_candidate_files,
+    is_britannica_chronology_db_candidate,
+    is_britannica_top_dat_path,
     normalize_britannica_whatday_table,
+    parse_britannica_chronology_db,
     parse_britannica_top_dat,
     parse_britannica_whatday_file,
     parse_lved_address,
@@ -122,6 +125,98 @@ def test_parse_britannica_top_dat_resolves_image_siblings(tmp_path: Path) -> Non
     assert [item.name for item in decoded.records[0].image_paths] == ["sample.jpg", "sample.jpg"]
 
 
+def test_parse_britannica_split_top_dat_resolves_split_media_siblings(tmp_path: Path) -> None:
+    top = tmp_path / "_DCT_BRI2017_Media_top"
+    thumb = tmp_path / "_DCT_BRI2017_Media_thumb"
+    mini = tmp_path / "_DCT_BRI2017_Media_mini"
+    full = tmp_path / "_DCT_BRI2017_Media_full"
+    top.mkdir()
+    thumb.mkdir()
+    mini.mkdir()
+    full.mkdir()
+    (thumb / "sample.jpg").write_bytes(b"thumb")
+    (mini / "sample.jpg").write_bytes(b"mini")
+    (full / "sample.jpg").write_bytes(b"full")
+    path = top / "top_art.dat"
+    path.write_bytes(
+        "001\r\nTitle\r\nDescription\r\n0000002a:0010\r\nsample.jpg\r\n\r\n".encode("cp932")
+    )
+
+    assert is_britannica_top_dat_path(path)
+    decoded = parse_britannica_top_dat(path)
+
+    assert decoded.category == "art"
+    assert [item.parent.name for item in decoded.records[0].image_paths] == [
+        "_DCT_BRI2017_Media_thumb",
+        "_DCT_BRI2017_Media_mini",
+        "_DCT_BRI2017_Media_full",
+    ]
+
+
+def test_parse_britannica_chronology_db_expands_inline_links(tmp_path: Path) -> None:
+    package = tmp_path / "_DCT_BRI2019P"
+    package.mkdir()
+    db_path = package / "Bri2019.db"
+    con = sqlite3.connect(db_path)
+    con.execute(
+        """
+        create table D_InternationalChronology (
+          INC_Code text,
+          INC_Type_Code text,
+          INC_Type_Name text,
+          Year_Type text,
+          Leap_Type text,
+          Year integer,
+          Month integer,
+          Day integer,
+          Sub_Disp_Order integer,
+          Jpn_Year text,
+          Year_Sub_Code_1 text,
+          Year_Sub_Name_1 text,
+          Year_Sub_Code_2 text,
+          Year_Sub_Name_2 text,
+          Year_Sub_Code_3 text,
+          Year_Sub_Name_3 text,
+          Value text
+        )
+        """
+    )
+    con.execute(
+        "insert into D_InternationalChronology values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            "1",
+            "WOR",
+            "世界史",
+            "0",
+            "0",
+            1901,
+            12,
+            5,
+            10,
+            "明治34",
+            "A",
+            "区分",
+            "",
+            "",
+            "",
+            "",
+            "＃＃Ｓ0001bea5:0724モーツァルトＥ＃＃死去",
+        ),
+    )
+    con.commit()
+    con.close()
+
+    assert is_britannica_chronology_db_candidate(db_path)
+    decoded = parse_britannica_chronology_db(db_path)
+
+    assert decoded.records[0].type_code == "WOR"
+    assert decoded.records[0].year == 1901
+    assert 'href="lvaddr://0001bea5/0724"' in decoded.records[0].html
+    assert "＃＃Ｓ" not in decoded.records[0].html
+    assert decoded.records[0].references[0].address is not None
+    assert decoded.records[0].year_subs == (("A", "区分"),)
+
+
 def test_parse_lved_address_rejects_non_address() -> None:
     assert parse_lved_address("plain.html") is None
     assert parse_lved_address("lved.addr0000002a:0010").block == 0x2A
@@ -174,10 +269,14 @@ def test_iter_candidate_files_finds_targeted_families(tmp_path: Path) -> None:
     (tmp_path / "whatday" / "1-1.top").write_text("<BODY></BODY>", encoding="utf-8")
     (tmp_path / "top").mkdir()
     (tmp_path / "top" / "top_art.dat").write_text("", encoding="utf-8")
+    (tmp_path / "_DCT_BRI2017_Media_top").mkdir()
+    (tmp_path / "_DCT_BRI2017_Media_top" / "top_nature.dat").write_text("", encoding="utf-8")
+    (tmp_path / "_DCT_BRI2019P").mkdir()
+    (tmp_path / "_DCT_BRI2019P" / "Bri2019.db").write_bytes(b"SQLite format 3\x00")
     (tmp_path / "Resources").mkdir()
     (tmp_path / "Resources" / "minji").write_bytes(b"x" * 16)
     (tmp_path / "ignore.txt").write_text("x", encoding="utf-8")
 
     names = sorted(path.name for path in iter_candidate_files([tmp_path]))
 
-    assert names == ["1-1.top", "minji", "top_art.dat"]
+    assert names == ["1-1.top", "Bri2019.db", "minji", "top_art.dat", "top_nature.dat"]

@@ -1476,6 +1476,7 @@ catalog.
 ```bash
 logovista-tools loose-media /path/to/_DCT_BRI2017P_Media_whatday
 logovista-tools loose-media /path/to/_DCT_BRI2016_Media/top --json
+logovista-tools loose-media /path/to/_DCT_BRI2019P --include-text --json
 logovista-tools loose-media /path/to/_DCT_PROYAL53/dat --write-decoded --out-dir loose-media
 logovista-tools loose-media /path/to/multiview-corpus --write-decoded
 ```
@@ -1486,7 +1487,12 @@ Handled families:
   month/day identity and decoded `lved.addrXXXXXXXX:YYYY` address links.
 - Britannica `top/top_*.dat`: CP932 five-line records containing id, title,
   description, hexadecimal body address, and image filename. Image names are
-  resolved against sibling `thumb/`, `mini/`, and `full/` directories.
+  resolved against sibling `thumb/`, `mini/`, and `full/` directories. Split
+  media layouts such as `_Media_top` plus `_Media_thumb`/`_Media_mini`/
+  `_Media_full` are handled as the same feature.
+- Britannica `Bri20xx.db` chronology helpers: SQLite
+  `D_InternationalChronology` rows with date/category fields and inline
+  `＃＃Ｓblock:offsetlabelＥ＃＃` address markers expanded to `lvaddr://` links.
 - PROYAL53 `dat/*`: extensionless LogoFontCipher-wrapped `RIFF/WAVE` audio
   files exported as `.wav`.
 - LVLMultiView law `Resources/inshizei`, `minji`, `zenkoku`, and `zeihou`:

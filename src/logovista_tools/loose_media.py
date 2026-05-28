@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import html
 import re
+import sqlite3
+from collections import Counter
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
@@ -29,6 +31,7 @@ from .windows import file_magic_kind
 
 
 LVED_ADDR_RE = re.compile(r"lved\.addr(?P<block>[0-9A-Fa-f]{8}):(?P<offset>[0-9A-Fa-f]{4})")
+LVADDR_URL_RE = re.compile(r"lvaddr://(?P<block>[0-9A-Fa-f]{8})/(?P<offset>[0-9A-Fa-f]{4})")
 BRITANNICA_INLINE_ADDR_RE = re.compile(
     r"(?:##S|＃＃Ｓ)(?P<block>[0-9A-Fa-f]{8}):(?P<offset>[0-9A-Fa-f]{4})(?P<label>.*?)(?:E##|Ｅ＃＃)"
 )
@@ -155,6 +158,67 @@ class BritannicaTopDat:
 
 
 @dataclass(frozen=True)
+class BritannicaChronologyRecord:
+    """One row from Britannica ``D_InternationalChronology`` helper DBs."""
+
+    index: int
+    inc_code: str
+    type_code: str
+    type_name: str
+    year_type: str
+    leap_type: str
+    year: int | None
+    month: int | None
+    day: int | None
+    sub_display_order: int | None
+    japanese_year: str
+    year_subs: tuple[tuple[str, str], ...]
+    html: str
+    text: str
+    references: tuple[HtmlReference, ...]
+
+    def to_dict(self, *, include_text: bool = False) -> dict[str, object]:
+        row: dict[str, object] = {
+            "index": self.index,
+            "inc_code": self.inc_code,
+            "type_code": self.type_code,
+            "type_name": self.type_name,
+            "year_type": self.year_type,
+            "leap_type": self.leap_type,
+            "year": self.year,
+            "month": self.month,
+            "day": self.day,
+            "sub_display_order": self.sub_display_order,
+            "japanese_year": self.japanese_year,
+            "year_subs": [{"code": code, "name": name} for code, name in self.year_subs],
+            "references": [ref.to_dict() for ref in self.references],
+        }
+        if include_text:
+            row["html"] = self.html
+            row["text"] = self.text
+        return row
+
+
+@dataclass(frozen=True)
+class BritannicaChronologyDb:
+    """Decoded Britannica chronology SQLite helper database."""
+
+    path: Path
+    records: tuple[BritannicaChronologyRecord, ...]
+
+    def to_dict(self, *, include_text: bool = False, limit: int | None = None) -> dict[str, object]:
+        records = self.records if limit is None else self.records[:limit]
+        by_type = Counter(record.type_code for record in self.records)
+        return {
+            "path": str(self.path),
+            "name": self.path.name,
+            "records": len(self.records),
+            "type_counts": dict(sorted(by_type.items())),
+            "items": [record.to_dict(include_text=include_text) for record in records],
+        }
+
+
+@dataclass(frozen=True)
 class LooseDecodedResource:
     """A loose resource with optional LogoFontCipher decoding."""
 
@@ -198,6 +262,8 @@ class _HtmlReferenceParser(HTMLParser):
 
 def parse_lved_address(value: str) -> LooseAddress | None:
     match = LVED_ADDR_RE.search(value)
+    if match is None:
+        match = LVADDR_URL_RE.search(value)
     if match is None:
         return None
     raw = match.group(0)
@@ -280,6 +346,15 @@ def render_britannica_html_fragment(fragment: str) -> str:
     return rendered.strip()
 
 
+def _plain_text_from_html(fragment: str) -> tuple[str, tuple[HtmlReference, ...]]:
+    parser = _HtmlReferenceParser()
+    parser.feed(fragment)
+    plain = " ".join(
+        " ".join(html.unescape(part).split()) for part in parser.text_parts if part.strip()
+    ).strip()
+    return plain, tuple(parser.references)
+
+
 def parse_top_address(value: str) -> LooseAddress:
     match = TOP_ADDRESS_RE.fullmatch(value.strip())
     if match is None:
@@ -308,11 +383,7 @@ def parse_britannica_whatday_file(path: Path) -> BritannicaWhatdayFile:
     if match is None:
         raise ValueError(f"not a Britannica whatday file name: {path.name}")
     text, encoding = decode_loose_text(path.read_bytes())
-    parser = _HtmlReferenceParser()
-    parser.feed(text)
-    plain = " ".join(
-        " ".join(html.unescape(part).split()) for part in parser.text_parts if part.strip()
-    ).strip()
+    plain, references = _plain_text_from_html(text)
     return BritannicaWhatdayFile(
         path=path,
         month=int(match.group("month")),
@@ -321,7 +392,7 @@ def parse_britannica_whatday_file(path: Path) -> BritannicaWhatdayFile:
         encoding=encoding,
         html=render_britannica_html_fragment(text),
         text=plain,
-        references=tuple(parser.references),
+        references=references,
     )
 
 
@@ -329,17 +400,64 @@ def is_britannica_whatday_path(path: Path) -> bool:
     return path.is_file() and WHATDAY_NAME_RE.fullmatch(path.name) is not None
 
 
-def resolve_sibling_image_paths(dat_path: Path, image_name: str) -> tuple[Path, ...]:
+def _is_britannica_split_top_dir(path: Path) -> bool:
+    return path.name.casefold().endswith("_media_top")
+
+
+def _cached_casefolded_directory(
+    root: Path, cache: dict[Path, CaseFoldedDirectory] | None
+) -> CaseFoldedDirectory:
+    if cache is None:
+        return CaseFoldedDirectory.from_path(root)
+    try:
+        key = root.resolve()
+    except OSError:
+        key = root
+    directory = cache.get(key)
+    if directory is None:
+        directory = CaseFoldedDirectory.from_path(root)
+        cache[key] = directory
+    return directory
+
+
+def _britannica_sibling_image_candidates(dat_path: Path, image_name: str) -> list[Path]:
+    if dat_path.parent.name.casefold() == "top":
+        root = dat_path.parent.parent
+        return [
+            root / "thumb" / image_name,
+            root / "mini" / image_name,
+            root / "full" / image_name,
+            root / image_name,
+        ]
+    if _is_britannica_split_top_dir(dat_path.parent):
+        base = dat_path.parent.name[: -len("_top")]
+        root = dat_path.parent.parent
+        return [
+            root / f"{base}_thumb" / image_name,
+            root / f"{base}_mini" / image_name,
+            root / f"{base}_full" / image_name,
+            dat_path.parent / image_name,
+            root / base / image_name,
+        ]
     root = dat_path.parent.parent
-    candidates = [
+    return [
         root / "thumb" / image_name,
         root / "mini" / image_name,
         root / "full" / image_name,
         root / image_name,
     ]
+
+
+def resolve_sibling_image_paths(
+    dat_path: Path,
+    image_name: str,
+    *,
+    directory_cache: dict[Path, CaseFoldedDirectory] | None = None,
+) -> tuple[Path, ...]:
+    candidates = _britannica_sibling_image_candidates(dat_path, image_name)
     found: list[Path] = []
     for candidate in candidates:
-        actual = CaseFoldedDirectory.from_path(candidate.parent).find(candidate.name)
+        actual = _cached_casefolded_directory(candidate.parent, directory_cache).find(candidate.name)
         if actual is not None and actual.is_file() and actual not in found:
             found.append(actual)
     return tuple(found)
@@ -352,6 +470,7 @@ def parse_britannica_top_dat(path: Path) -> BritannicaTopDat:
     text, encoding = decode_loose_text(path.read_bytes())
     lines = [line.rstrip("\r") for line in text.splitlines()]
     records: list[BritannicaTopRecord] = []
+    directory_cache: dict[Path, CaseFoldedDirectory] = {}
     cursor = 0
     while cursor < len(lines):
         while cursor < len(lines) and not lines[cursor].strip():
@@ -370,7 +489,11 @@ def parse_britannica_top_dat(path: Path) -> BritannicaTopDat:
                 description=description,
                 address=parse_top_address(address),
                 image_name=image_name,
-                image_paths=resolve_sibling_image_paths(path, image_name),
+                image_paths=resolve_sibling_image_paths(
+                    path,
+                    image_name,
+                    directory_cache=directory_cache,
+                ),
             )
         )
         cursor += 5
@@ -380,7 +503,88 @@ def parse_britannica_top_dat(path: Path) -> BritannicaTopDat:
 
 
 def is_britannica_top_dat_path(path: Path) -> bool:
-    return path.is_file() and path.parent.name.lower() == "top" and BRITANNICA_TOP_NAME_RE.fullmatch(path.name) is not None
+    return (
+        path.is_file()
+        and (path.parent.name.casefold() == "top" or _is_britannica_split_top_dir(path.parent))
+        and BRITANNICA_TOP_NAME_RE.fullmatch(path.name) is not None
+    )
+
+
+def is_britannica_chronology_db_candidate(path: Path) -> bool:
+    return (
+        path.is_file()
+        and path.suffix.casefold() == ".db"
+        and path.parent.name.casefold().startswith("_dct_bri")
+        and path.name.casefold().startswith("bri")
+    )
+
+
+def parse_britannica_chronology_db(path: Path) -> BritannicaChronologyDb:
+    con = sqlite3.connect(path)
+    con.row_factory = sqlite3.Row
+    try:
+        tables = {
+            str(row[0])
+            for row in con.execute("select name from sqlite_master where type='table'")
+        }
+        if "D_InternationalChronology" not in tables:
+            raise ValueError(f"{path.name} does not contain D_InternationalChronology")
+        rows = con.execute(
+            """
+            select
+              INC_Code,
+              INC_Type_Code,
+              INC_Type_Name,
+              Year_Type,
+              Leap_Type,
+              Year,
+              Month,
+              Day,
+              Sub_Disp_Order,
+              Jpn_Year,
+              Year_Sub_Code_1,
+              Year_Sub_Name_1,
+              Year_Sub_Code_2,
+              Year_Sub_Name_2,
+              Year_Sub_Code_3,
+              Year_Sub_Name_3,
+              Value
+            from D_InternationalChronology
+            order by Year, Month, Day, Sub_Disp_Order, INC_Code
+            """
+        ).fetchall()
+    finally:
+        con.close()
+
+    records: list[BritannicaChronologyRecord] = []
+    for index, row in enumerate(rows):
+        rendered = render_britannica_html_fragment(str(row["Value"] or ""))
+        text, references = _plain_text_from_html(rendered)
+        year_subs = tuple(
+            (str(row[f"Year_Sub_Code_{number}"] or ""), str(row[f"Year_Sub_Name_{number}"] or ""))
+            for number in (1, 2, 3)
+            if row[f"Year_Sub_Code_{number}"] or row[f"Year_Sub_Name_{number}"]
+        )
+        records.append(
+            BritannicaChronologyRecord(
+                index=index,
+                inc_code=str(row["INC_Code"] or ""),
+                type_code=str(row["INC_Type_Code"] or ""),
+                type_name=str(row["INC_Type_Name"] or ""),
+                year_type=str(row["Year_Type"] or ""),
+                leap_type=str(row["Leap_Type"] or ""),
+                year=row["Year"],
+                month=row["Month"],
+                day=row["Day"],
+                sub_display_order=row["Sub_Disp_Order"],
+                japanese_year=str(row["Jpn_Year"] or ""),
+                year_subs=year_subs,
+                html=rendered,
+                text=text,
+                references=references,
+            )
+        )
+    return BritannicaChronologyDb(path=path, records=tuple(records))
 
 
 def output_extension_for_kind(kind: str) -> str:
@@ -485,7 +689,12 @@ def iter_candidate_files(roots: Iterable[Path]) -> Iterable[Path]:
         for path in sorted(root.rglob("*")):
             if not path.is_file() or is_metadata_noise_path(path):
                 continue
-            if is_britannica_whatday_path(path) or is_britannica_top_dat_path(path) or should_consider_loose_resource(path):
+            if (
+                is_britannica_whatday_path(path)
+                or is_britannica_top_dat_path(path)
+                or is_britannica_chronology_db_candidate(path)
+                or should_consider_loose_resource(path)
+            ):
                 yield path
 
 
