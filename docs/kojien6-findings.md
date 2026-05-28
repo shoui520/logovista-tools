@@ -72,6 +72,31 @@ block range. The parser now distinguishes `embedded_components` from
 unreferenced trailing bytes, so the nonzero payload after the descriptor is
 accounted for instead of treated as residual junk.
 
+All five KOJIEN6 `MULTI*.DIC` descriptors now account for their referenced
+embedded selector slices with zero unreferenced nonzero payload bytes. Observed
+descriptor labels include area/period/keyword selectors, country/genre
+selectors, seasonal selectors, and kanji selectors such as notation,
+radical, and residual stroke count.
+
+## Index Components
+
+KOJIEN6 uses the standard forward/backward title/index families plus large
+keyword and cross-reference indexes. Full scans with the current parser
+produce zero unknown leaf bytes:
+
+```text
+FKINDEX.DIC  leaf rows 478,844  search groups 175,331
+FHINDEX.DIC  leaf rows 349,392
+BKINDEX.DIC  leaf rows 478,844  search groups 175,331
+BHINDEX.DIC  leaf rows 349,392
+KWINDEX.DIC  leaf rows 4,501,825
+CRINDEX.DIC  leaf rows 61,278
+```
+
+This confirms that the large KOJIEN6 `KWINDEX.DIC` is covered by the existing
+type-`0x80` direct-row keyword model rather than requiring a separate page
+grammar.
+
 ## Audio And Video
 
 KOJIEN6 body text uses ordinary `1f4a` / `1f6a` PCMDATA audio controls, but the
