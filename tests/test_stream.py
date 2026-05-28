@@ -104,7 +104,7 @@ from logovista_tools.rendererdb import (
 )
 from logovista_tools.decoded_model import static_package_resources_for_idx, windows_sidecars_for_idx
 from logovista_tools.resources import load_image_resource_profile, relative_image_source
-from logovista_tools.scrmenu import parse_screen_menu_stream
+from logovista_tools.scrmenu import parse_screen_menu_stream, screen_menu_hotspot_href
 from logovista_tools.lvcrypto import (
     decrypt_macos_logofont_cipher_bytes,
     decrypt_logofont_cipher_auto_file_to_path,
@@ -2544,6 +2544,7 @@ def test_parse_scrmenu_decodes_screens_hotspots_and_direct_targets() -> None:
     assert screen.hotspots[0].target_direct_index == 0
     assert screen.direct_targets[0].destination.target is not None
     assert screen.direct_targets[0].destination.target.component == "HONMON.DIC"
+    assert screen_menu_hotspot_href(screen, screen.hotspots[0]) == "lvaddr://00000300/0034"
 
 
 def test_parse_monoscr_pointer_and_render_png() -> None:

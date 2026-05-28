@@ -2158,6 +2158,7 @@ KOJIEN6:
 
 ```bash
 logovista-tools screen-menu /path/to/LogoVista --dict KOJIEN6 --out-dir screen-menu
+logovista-tools screen-menu /path/to/LogoVista --dict KOJIEN6 --out-dir screen-menu --write-html
 logovista-tools screen-menu /path/to/DICT/DICT.IDX --json --limit 0
 ```
 
@@ -2167,11 +2168,21 @@ Hotspot rectangles are stored as x/y/width/height BCD words. Hotspot
 destinations point into `SCRMENU.DIC`; the toolkit classifies each as either a
 screen jump or a jump to a direct target record where possible.
 
+With `--write-html`, the command writes a proof page that materializes the
+`COLSCR.DIC` screen backgrounds and overlays clickable hotspot rectangles.
+Screen jumps point to generated screen pages; body targets use the standard
+`lvaddr://` link form.
+
 Output layout:
 
 ```text
 screen-menu/
   screen-menu-summary.json
+  KOJIEN6/
+    html/
+      index.html
+      screen_00.html
+      media/
 ```
 
 Useful options:
@@ -2180,6 +2191,7 @@ Useful options:
 --dict NAME                         inspect only matching dictionary ids
 --limit N                           sample screen limit; use 0 for all screens in JSON
 --json                              emit a machine-readable summary
+--write-html                        write clickable screen-menu proof HTML under --out-dir
 --jobs N                            inspect packages in parallel
 ```
 

@@ -150,6 +150,8 @@ Supported:
 - `encyclop.idx` sidecar parsing;
 - `SCRMENU.DIC` screen-menu parsing with background images, hotspots,
   screen jumps, and direct body targets;
+- `SCRMENU.DIC` proof HTML generation with `COLSCR.DIC` backgrounds,
+  clickable screen-to-screen hotspots, and `lvaddr://` body-target links;
 - `_PCM_U` audio resolution and MP3 extraction;
 - `_MOVIE` discovery and movie-link rendering metadata;
 - `COLSMPL.DIC` Munsell/label parsing and `1f14` color-sample renderer
@@ -160,7 +162,8 @@ Supported:
 
 Named gaps:
 
-- exact KOJIEN6 screen-menu frontend recreation from `SCRMENU.DIC`;
+- exact proprietary KOJIEN6 screen-menu chrome and transitions beyond the
+  decoded clickable screen-map proof;
 - exact `SDicGetColorMap` Munsell-to-RGB conversion;
 - older `FIGURE.DIC` type-`0xd0` record/image grammar;
 - exact product-level KOJIEN6 HC012C visual parity beyond the shared movie,

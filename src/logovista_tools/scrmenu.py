@@ -1,14 +1,15 @@
-"""KOJIEN6-style ``SCRMENU.DIC`` screen-menu parsing."""
+"""KOJIEN6-style ``SCRMENU.DIC`` screen-menu parsing and proof rendering."""
 
 from __future__ import annotations
 
+import html
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .colscr import decode_bcd_decimal
-from .navigation import NavigationTarget, resolve_component_target
-from .ssed import SsedInfoElement, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
+from .colscr import MediaPointer, decode_bcd_decimal, find_colscr_path, read_colscr_record
+from .navigation import NavigationTarget, lvaddr_href, resolve_component_target
+from .ssed import SsedInfoElement, SsedRandomReader, expand_sseddata_file, find_case_insensitive, parse_ssedinfo
 
 
 SCRMENU_TYPE = 0x10
@@ -347,3 +348,173 @@ def load_screen_menu(idx: Path) -> ScreenMenuParseResult | None:
     if path is None:
         return None
     return parse_screen_menu_stream(expand_sseddata_file(path), elements=elements)
+
+
+def screen_menu_hotspot_href(
+    screen: ScreenMenuScreen,
+    hotspot: ScreenMenuHotspot,
+    *,
+    screens: tuple[ScreenMenuScreen, ...] | list[ScreenMenuScreen] | None = None,
+) -> str:
+    if hotspot.target_screen_index is not None:
+        return f"screen_{hotspot.target_screen_index:02d}.html"
+    if hotspot.target_direct_screen_index is not None and hotspot.target_direct_index is not None:
+        direct_screen = screen
+        if screens is not None:
+            try:
+                direct_screen = screens[hotspot.target_direct_screen_index]
+            except IndexError:
+                return "#unresolved"
+        try:
+            direct = direct_screen.direct_targets[hotspot.target_direct_index]
+        except IndexError:
+            return "#unresolved"
+        target = direct.destination.target
+        if target is not None and target.kind == "body":
+            return lvaddr_href(target.block, target.offset)
+    return "#unresolved"
+
+
+def _screen_image_key(screen: ScreenMenuScreen) -> str:
+    if screen.image is None:
+        return f"screen_{screen.screen_index:02d}"
+    return f"{screen.image.block:08d}_{screen.image.offset:04d}"
+
+
+def _write_screen_menu_image(
+    *,
+    screen: ScreenMenuScreen,
+    reader: SsedRandomReader | None,
+    media_dir: Path,
+) -> str | None:
+    if reader is None or screen.image is None:
+        return None
+    parsed = read_colscr_record(
+        reader,
+        MediaPointer(payload=screen.image.payload, block=screen.image.block, offset=screen.image.offset),
+    )
+    if parsed is None:
+        return None
+    record, image = parsed
+    name = f"screen_{screen.screen_index:02d}_{_screen_image_key(screen)}.{record.extension}"
+    path = media_dir / name
+    path.write_bytes(image)
+    return f"media/{name}"
+
+
+def _screen_menu_html_page(
+    *,
+    title: str,
+    screen: ScreenMenuScreen,
+    screens: tuple[ScreenMenuScreen, ...],
+    image_src: str | None,
+    screen_count: int,
+) -> str:
+    width = screen.width or 800
+    height = screen.height or 600
+    previous_href = f"screen_{screen.screen_index - 1:02d}.html" if screen.screen_index > 0 else ""
+    next_href = f"screen_{screen.screen_index + 1:02d}.html" if screen.screen_index + 1 < screen_count else ""
+    nav_links = [
+        '<a href="index.html">index</a>',
+        f'<a href="{previous_href}">previous</a>' if previous_href else '<span>previous</span>',
+        f'<a href="{next_href}">next</a>' if next_href else '<span>next</span>',
+    ]
+    hotspot_html = []
+    for index, hotspot in enumerate(screen.hotspots, start=1):
+        href = screen_menu_hotspot_href(screen, hotspot, screens=screens)
+        rect = hotspot.rect
+        label = f"hotspot {index}: {href}"
+        hotspot_html.append(
+            (
+                f'<a class="hotspot" href="{html.escape(href, quote=True)}" '
+                f'aria-label="{html.escape(label, quote=True)}" title="{html.escape(label, quote=True)}" '
+                f'style="left:{rect.x}px;top:{rect.y}px;width:{rect.width}px;height:{rect.height}px"></a>'
+            )
+        )
+    background = (
+        f'<img class="background" src="{html.escape(image_src, quote=True)}" alt="">'
+        if image_src
+        else '<div class="missing-background">missing background image</div>'
+    )
+    return f"""<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>{html.escape(title)} screen {screen.screen_index:02d}</title>
+<style>
+body {{ margin: 0; padding: 16px; font-family: sans-serif; background: #f4f4f4; color: #222; }}
+.nav {{ display: flex; gap: 12px; margin-bottom: 12px; font-size: 14px; }}
+.nav span {{ color: #999; }}
+.stage {{ position: relative; width: {width}px; height: {height}px; background: #fff; box-shadow: 0 1px 4px #0002; }}
+.background {{ position: absolute; inset: 0; width: {width}px; height: {height}px; object-fit: contain; }}
+.missing-background {{ display: grid; place-items: center; width: 100%; height: 100%; color: #777; }}
+.hotspot {{ position: absolute; display: block; box-sizing: border-box; border: 1px solid transparent; }}
+.hotspot:hover, .hotspot:focus {{ border-color: #2d6cdf; background: rgba(45, 108, 223, 0.16); outline: none; }}
+</style>
+</head>
+<body>
+<nav class="nav">{''.join(nav_links)}</nav>
+<main class="stage">
+{background}
+{''.join(hotspot_html)}
+</main>
+</body>
+</html>
+"""
+
+
+def write_screen_menu_html(idx: Path, out_dir: Path) -> dict[str, Any]:
+    title, _elements = parse_ssedinfo(idx)
+    parsed = load_screen_menu(idx)
+    if parsed is None:
+        return {"status": "missing", "screens_written": 0, "image_files_written": 0, "index_path": None}
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    media_dir = out_dir / "media"
+    media_dir.mkdir(parents=True, exist_ok=True)
+
+    colscr_path = find_colscr_path(idx)
+    reader = SsedRandomReader(colscr_path) if colscr_path is not None else None
+
+    image_files = 0
+    screen_pages: list[str] = []
+    for screen in parsed.screens:
+        image_src = _write_screen_menu_image(screen=screen, reader=reader, media_dir=media_dir)
+        if image_src is not None:
+            image_files += 1
+        page_name = f"screen_{screen.screen_index:02d}.html"
+        (out_dir / page_name).write_text(
+            _screen_menu_html_page(
+                title=title,
+                screen=screen,
+                screens=parsed.screens,
+                image_src=image_src,
+                screen_count=len(parsed.screens),
+            ),
+            encoding="utf-8",
+        )
+        screen_pages.append(page_name)
+
+    links = "\n".join(
+        f'<li><a href="{html.escape(page, quote=True)}">{html.escape(page)}</a></li>' for page in screen_pages
+    )
+    (out_dir / "index.html").write_text(
+        f"""<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><title>{html.escape(title)} screen menu</title></head>
+<body>
+<h1>{html.escape(title)} screen menu</h1>
+<p>Screens: {len(screen_pages)}</p>
+<ol>{links}</ol>
+</body>
+</html>
+""",
+        encoding="utf-8",
+    )
+
+    return {
+        "status": "written",
+        "screens_written": len(screen_pages),
+        "image_files_written": image_files,
+        "index_path": str(out_dir / "index.html"),
+    }

@@ -128,7 +128,7 @@ from .reader_demo import add_reader_demo_args, generate_reader_demo
 from .repacker import add_repacker_args, repack_sources
 from .rendererdb import extract_rendererdb_for_sources
 from .resources import ImageResource, load_image_resource_profile
-from .scrmenu import find_screen_menu_path, load_screen_menu
+from .scrmenu import find_screen_menu_path, load_screen_menu, write_screen_menu_html
 from .spindex import discover_spindex_files, inspect_spindex
 from .sizk import discover_sizk_packages, inspect_sizk_package, write_sizk_report
 from .ssed import (
@@ -934,6 +934,13 @@ def _screen_menu_source_row(source: Any, args: argparse.Namespace) -> dict[str, 
 def cmd_screen_menu(args: argparse.Namespace) -> int:
     sources = select_sources(args)
     rows = [_screen_menu_source_row(source, args) for source in sources]
+    if args.write_html:
+        if args.out_dir is None:
+            raise ValueError("screen-menu --write-html requires --out-dir")
+        for source, row in zip(sources, rows):
+            if row.get("status") != "parsed":
+                continue
+            row["html"] = write_screen_menu_html(source.idx, args.out_dir / source.dict_id / "html")
     if args.out_dir:
         args.out_dir.mkdir(parents=True, exist_ok=True)
         write_json(args.out_dir / "screen-menu-summary.json", rows)
@@ -2855,6 +2862,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_screen_menu.add_argument("--out-dir", type=Path, help="Write summary JSON to this directory.")
     p_screen_menu.add_argument("--limit", type=int, default=20, help="Sample screen limit; use 0 for all rows in JSON.")
     p_screen_menu.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    p_screen_menu.add_argument(
+        "--write-html",
+        action="store_true",
+        help="Write a clickable screen-menu HTML proof page under --out-dir.",
+    )
     add_jobs_argument(p_screen_menu)
     p_screen_menu.set_defaults(func=cmd_screen_menu)
 
