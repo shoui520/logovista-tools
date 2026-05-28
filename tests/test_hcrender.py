@@ -47,6 +47,11 @@ from logovista_tools.hcrender import (
 )
 from logovista_tools.colscr import MediaPointer
 from logovista_tools.hcprofiles import build_hc_behavior_profile
+from logovista_tools.pdfspread import (
+    find_pdfspread_database,
+    lookup_pdfspread,
+    pdfspread_lookup_side,
+)
 from logovista_tools.resources import load_image_resource_profile, relative_image_source
 from logovista_tools.ssed import SsedRandomReader
 from logovista_tools.windows import (
@@ -89,6 +94,61 @@ def test_hc_render_internal_link_uses_end_payload_target() -> None:
     assert 'href="lvaddr://00000001/0032"' in rendered.html
     assert rendered.links[0]["target"] == {"block": 1, "offset": 32}
     assert rendered.stats["links"] == 1
+
+
+def test_hc03e9_pdfspread_renderer_embeds_resolved_pdf() -> None:
+    body = b"\x1f\x09\x00\x01" + jis_text("はじめまして") + jis_text("００００００１７")
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="03E9",
+            pdf_spread_resolver=lambda page_id: f"media/pdfspread/{page_id.translate(str.maketrans('０１２３４５６７８９', '0123456789'))}_right.pdf",
+        ),
+    )
+
+    assert 'class="lv-hc-pdfspread"' in rendered.html
+    assert 'data-lv-page-id="００００００１７"' in rendered.html
+    assert 'media/pdfspread/00000017_right.pdf' in rendered.html
+    assert rendered.media == ({"kind": "pdfspread", "page_id": "００００００１７", "src": "media/pdfspread/00000017_right.pdf"},)
+    assert rendered.named_behavior_gaps == ()
+
+
+def test_hc03e9_pdfspread_renderer_reports_missing_resolver() -> None:
+    rendered = render_hc_body(jis_text("００００００１８"), HcRenderOptions(renderer_code="03E9"))
+
+    assert "PDF page unavailable" in rendered.html
+    assert "hc03e9_pdfspread_resolver_missing" in rendered.named_behavior_gaps
+
+
+def test_pdfspread_lookup_uses_hc03e9_right_left_rules(tmp_path: Path) -> None:
+    db = tmp_path / "HKRKIKHY2.db"
+    con = sqlite3.connect(db)
+    con.execute("create table PDFSpread (IDRight text primary key, IDLeft text, PDF blob)")
+    con.execute("insert into PDFSpread values (?, ?, ?)", ("００００００２０", "００００００１９", b"%PDF-left"))
+    con.execute("insert into PDFSpread values (?, ?, ?)", ("００００００１７", "００００００１６", b"%PDF-special-right"))
+    con.commit()
+    con.close()
+    (tmp_path / "._HKRKIKHY2.db").write_bytes(b"metadata")
+
+    assert find_pdfspread_database(tmp_path) == db.resolve()
+    assert pdfspread_lookup_side("００００００１９") == "Left"
+    assert pdfspread_lookup_side("００００００１８") == "Right"
+    assert pdfspread_lookup_side("００００００１７") == "Right"
+    assert lookup_pdfspread(db, "００００００１９").pdf == b"%PDF-left"  # type: ignore[union-attr]
+    assert lookup_pdfspread(db, "００００００１７").pdf == b"%PDF-special-right"  # type: ignore[union-attr]
+
+
+def test_effective_renderer_code_uses_exinfo_htmldll_without_binary(tmp_path: Path) -> None:
+    idx = tmp_path / "HKRKIKHY.IDX"
+    honmon = tmp_path / "HONMON.DIC"
+    idx.write_bytes(b"")
+    honmon.write_bytes(b"")
+    (tmp_path / "EXINFO.INI").write_text("[GENERAL]\nHTMLDLL=HC03E9.dll\n", encoding="cp932")
+    source = DictionarySource("HKRKIKHY", idx, "title", honmon, 1, {})
+
+    assert _effective_renderer_code_for_source(source, None) == "03E9"
+    assert _renderer_behavior_gaps(None, "03E9") == []
 
 
 def test_hc_index_hit_serializes_resolved_navigation_targets() -> None:

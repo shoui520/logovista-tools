@@ -146,6 +146,7 @@ from logovista_tools.windows import (
     parse_aux_index_text,
     parse_exinfo,
     sqlite_role_for_tables,
+    sqlite_storage_for_path,
     vlpljbl_suffix,
 )
 from logovista_tools.writer import encode_sseddata_literal
@@ -203,6 +204,20 @@ def test_auto_decrypt_selects_macos_logofont_cipher(tmp_path) -> None:
     encrypted = _encrypt_macos_logofont(plaintext)
     source = tmp_path / "HONMON.DIN"
     out = tmp_path / "HONMON.DIC"
+    source.write_bytes(encrypted)
+
+    written, storage = decrypt_logofont_cipher_auto_file_to_path(source, out)
+
+    assert storage == "macos_logofont_cipher"
+    assert written == len(plaintext)
+    assert out.read_bytes() == plaintext
+
+
+def test_auto_decrypt_selects_macos_logofont_sqlite_payload(tmp_path) -> None:
+    plaintext = b"SQLite format 3\x00" + (b"x" * 4096)
+    encrypted = _encrypt_macos_logofont(plaintext)
+    source = tmp_path / "HKRKIKHY.db"
+    out = tmp_path / "HKRKIKHY.sqlite"
     source.write_bytes(encrypted)
 
     written, storage = decrypt_logofont_cipher_auto_file_to_path(source, out)
@@ -1517,6 +1532,10 @@ def test_vlpljbl_magic_and_sqlite_roles() -> None:
         )
         == "sqlite_android_index_metadata"
     )
+    assert (
+        sqlite_role_for_tables(({"name": "PDFSpread", "columns": ["IDRight", "IDLeft", "PDF"]},))
+        == "sqlite_pdf_spread_store"
+    )
 
 
 def test_discover_android_body_database_and_media_schema(tmp_path) -> None:
@@ -1594,6 +1613,40 @@ def test_discover_sqlite_sidecars_follows_exinfo_and_common_dirs(tmp_path) -> No
     model_roles = {Path(row["path"]).name: row["role"] for row in model_sidecars["sqlite_sidecars"]}
     assert model_roles["Template.db"] == "sqlite_ancillary"
     assert model_roles["Body.db"] == "sqlite_renderer_body"
+
+
+def test_discover_mac_pdfspread_and_encrypted_search_sidecars(tmp_path) -> None:
+    idx = tmp_path / "HKRKIKHY.IDX"
+    idx.write_bytes(b"")
+
+    search_plain = tmp_path / "search.sqlite"
+    con = sqlite3.connect(search_plain)
+    con.execute("create table SearchAll (ID text primary key, Block text, Offset text, SearchDisplay text, MSearch text, HSearch text)")
+    con.execute("create table SearchIndex (IndexH text, IndexK text, IndexDisplay text, ID text, Block text, Offset text)")
+    con.execute("create table SearchTitle (Title text, TitleDisplay text, ID text, Block text, Offset text)")
+    con.commit()
+    con.close()
+    search_db = tmp_path / "HKRKIKHY.db"
+    search_db.write_bytes(_encrypt_macos_logofont(search_plain.read_bytes()))
+    search_plain.unlink()
+
+    pdf_db = tmp_path / "HKRKIKHY2.db"
+    con = sqlite3.connect(pdf_db)
+    con.execute("create table PDFSpread (IDRight text primary key, IDLeft text, PDF blob)")
+    con.commit()
+    con.close()
+    (tmp_path / "._HKRKIKHY2.db").write_bytes(b"metadata")
+
+    rows = discover_sqlite_sidecars(idx)
+    by_name = {row.path.name: row for row in rows}
+
+    assert sqlite_storage_for_path(search_db) == "macos_logofont_cipher"
+    assert by_name["HKRKIKHY.db"].storage == "macos_logofont_cipher"
+    assert by_name["HKRKIKHY.db"].role == "sqlite_block_offset_title_index"
+    assert by_name["HKRKIKHY2.db"].storage == "plain"
+    assert by_name["HKRKIKHY2.db"].role == "sqlite_pdf_spread_store"
+    assert "._HKRKIKHY2.db" not in by_name
+    assert discover_renderer_sidecars(idx) == []
 
 
 def test_rendererdb_lowercase_content_and_t_media_schema(tmp_path) -> None:

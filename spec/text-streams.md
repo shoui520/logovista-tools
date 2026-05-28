@@ -22,6 +22,32 @@ Observed Android `HONMON.DIW` decrypts to the same `SSEDDATA` grammar with an
 Android wrapper prefix/pad. The expanded text stream is handled like ordinary
 HONMON after decryption.
 
+One observed Mac OS X SSED package uses ordinary `HONMON.DIC` records only as
+PDF page anchors. `EXINFO.INI` declares `HTMLDLL=HC03E9.dll`, and the matching
+Mac renderer bundle (`Epwing2Html000003e9`) decodes the visible body text,
+extracts an eight-fullwidth-digit page id, and looks up a PDF BLOB in a plain
+SQLite sidecar table:
+
+```sql
+PDFSpread(IDRight text primary key, IDLeft text, PDF blob)
+```
+
+The side selection is part of the renderer behavior, not the SSED stream
+format: pages `17`, `69`, `177`, `241`, `295`, `305`, and `369` use
+`IDRight`; other even pages use `IDRight`; other odd pages use `IDLeft`. The
+renderer writes the selected PDF BLOB to a cache file and returns that file
+path to the viewer. Toolkit output resolves the same row and embeds/exposes the
+PDF resource instead of displaying the raw numeric anchor.
+
+The same package also carries an encrypted SQLite search/helper sidecar. The
+Mac viewer decrypts it with the Mac LogoFontCipher variant: the obfuscated
+static bytes decode to `LogoFontCipher`; the AES-128-CBC key is the first 16
+ASCII bytes of the SHA-256 hex digest of that string, the IV is all zeroes, and
+PKCS#7 padding is used. The decrypted schema contains `SearchAll`,
+`SearchIndex`, and `SearchTitle` tables with block/offset/page-id references.
+That database is search/navigation evidence; the PDF body payloads live in the
+separate plain `PDFSpread` database.
+
 Text is mostly JIS X 0208 pairs:
 
 ```text

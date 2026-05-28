@@ -147,12 +147,16 @@ Decrypt an observed LogoFontCipher file without SSED expansion:
 logovista-tools decrypt HONMON.DIC honmon.ssed
 logovista-tools decrypt HONMON.DIN honmon.ssed
 logovista-tools decrypt vlpljblF vlpljblF.sqlite
+logovista-tools decrypt HKRKIKHY.db HKRKIKHY.sqlite
 ```
 
 Use this for sidecars that decrypt to another container such as SQLite or for
 manual inspection of encrypted SSED components. For encrypted `HONMON.DIC` /
 `HONMON.DIN`, `info`, `expand`, `entries`, and `audit-honmon` already decrypt
 transparently when the optional crypto dependency is installed.
+The auto selector handles both observed Windows LogoFontCipher payloads and
+the Mac LogoFontCipher variant when the decrypted prefix is `SSEDDATA` or
+SQLite.
 The command streams input to output, so large sidecars such as DAIJIRN4's
 610 MB `vlpljblb` do not need to be loaded into memory.
 
@@ -260,6 +264,9 @@ semantics that are now understood:
 - KOJIEN6-style `1f39` / `1f59` movie/video ranges, resolving the embedded
   eight-digit movie ID against sibling `_MOVIE` resources and preserving the
   recovered `lved.movi` target in metadata;
+- Mac `HC03E9` PDFSpread bodies, where HONMON carries an eight-fullwidth-digit
+  page anchor and the visible body is a PDF BLOB selected from a
+  `PDFSpread(IDRight, IDLeft, PDF)` SQLite table;
 - Unicode gaiji first, then image-backed gaiji, then a safe placeholder;
 - private renderer directive suppression with metadata counts;
 - vertical-rendering hints as classes/metadata rather than hard-coded layout.
@@ -316,9 +323,10 @@ raw_honmon_entries.html
 
 When a body-capable renderer sidecar is present, `hc-render` automatically runs
 the schema-backed sidecar resolver for clear `t_contents`, `HONBUN`, Android
-body DB, media table, and ziptomedia cases, writing its own nested
-`rendererdb/` output. `--compare-rendererdb` remains available as an explicit
-request, but it is no longer required for dense renderer-sidecar packages.
+body DB, PDFSpread PDF page stores, media table, and ziptomedia cases, writing
+its own nested `rendererdb/` output. `--compare-rendererdb` remains available
+as an explicit request, but it is no longer required for dense renderer-sidecar
+packages.
 
 The summary separates `exact_body_html_available`,
 `reference_render_parity_confirmed`, and `exact_hc_parity`.

@@ -39,9 +39,9 @@ Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, SPINDEX.DIC,
           DICPROF.INI
 Mac OS X  EXINFO.INI, root `hanrei.html` plus `*_HELP.localized` help bundles,
           AppleDouble `._*` metadata, encrypted `HONMON.DIN`, extensionless
-          ZipCrypto `HONMON` wrappers for declared `HONMON.DIN`, and observed
-          HANREI/SPINDEX-style auxiliary resources inside an otherwise normal
-          SSED catalog
+          ZipCrypto `HONMON` wrappers for declared `HONMON.DIN`, observed
+          PDFSpread SQLite/PDF page sidecars, and observed HANREI/SPINDEX-style
+          auxiliary resources inside an otherwise normal SSED catalog
 ```
 
 `NoPlatform` is not an observed retail LogoVista wrapper. It is the model value
@@ -52,8 +52,8 @@ SQLite `.db` sidecars are not a package-family marker by themselves. They occur
 across Android, Windows, iOS/no-platform, and app-bundle layouts. The observed
 roles include body/render caches, media BLOB stores, examples/idioms,
 link-reference rows, kanji support tables, template navigation/filter tables,
-and ancillary metadata. Treat them by schema and declaration context, not by
-extension or platform.
+PDF page stores, search/full-text helper tables, and ancillary metadata. Treat
+them by schema and declaration context, not by extension or platform.
 
 Separate non-SSED package families include:
 

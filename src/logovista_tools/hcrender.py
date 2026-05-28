@@ -66,6 +66,7 @@ from .monoscr import (
 from .navigation import NavigationResolver, lvaddr_href
 from .parallel import parallel_map_ordered, worker_args
 from .pcmdata import PcmPointer, parse_pcm_pointer
+from .pdfspread import extract_pdfspread_page_id, find_pdfspread_database, lookup_pdfspread
 from .sounddata import load_sounddata_index, parse_sounddata_marker_at, sounddata_target
 from .rendererdb import (
     block_offset_body_tables,
@@ -332,6 +333,13 @@ HC_RENDER_BASE_CSS = """
 :where(.lv-hc-render .img_inline),
 :where(.lv-hc-render .lv-hc-media.img_inline) {
   max-height: none;
+}
+:where(.lv-hc-render .lv-hc-pdfspread) {
+  display: block;
+  width: min(100%, 1100px);
+  height: 85vh;
+  min-height: 720px;
+  border: 0;
 }
 :where(.lv-hc-render .lv-hc-link),
 :where(.lv-hc-render .lv-hc-audio) {
@@ -1157,6 +1165,7 @@ class HcRenderOptions:
     media_image_resolver: Callable[[MediaPointer], str | None] | None = None
     figure_image_resolver: Callable[[bytes, bytes], str | None] | None = None
     monoscr_image_resolver: Callable[[dict[str, int]], str | None] | None = None
+    pdf_spread_resolver: Callable[[str], str | None] | None = None
     sounddata_ids: frozenset[int] = frozenset()
     movie_ids: frozenset[str] = frozenset()
     color_samples: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -4519,6 +4528,92 @@ def _decode_jis_text_bytes(data: bytes) -> str:
     return "".join(parts)
 
 
+def _hc03e9_decoded_body_text(data: bytes) -> str:
+    """Decode the text-bearing pairs that HC03E9 uses as PDFSpread anchors."""
+
+    parts: list[str] = []
+    offset = 0
+    while offset < len(data):
+        byte = data[offset]
+        if byte == 0x1F:
+            offset += 2 + control_arg_length(data, offset)
+            continue
+        if offset + 1 < len(data) and 0x21 <= byte <= 0x7E and 0x21 <= data[offset + 1] <= 0x7E:
+            text = decode_jis_pair(data[offset : offset + 2])
+            if text:
+                parts.append(text)
+            offset += 2
+            continue
+        if offset + 1 < len(data) and 0xA1 <= byte <= 0xFE:
+            offset += 2
+            continue
+        offset += 1
+    return "".join(parts)
+
+
+def _render_hc03e9_pdfspread_body(data: bytes, options: HcRenderOptions) -> HcRenderResult:
+    """Render HKRKIKHY-style HONMON page anchors through PDFSpread."""
+
+    stats: Counter[str] = Counter()
+    gaps: set[str] = set()
+    text = _hc03e9_decoded_body_text(data)
+    page_id = extract_pdfspread_page_id(text)
+    if page_id is None:
+        stats["hc03e9_missing_pdfspread_page_id"] += 1
+        gaps.add("hc03e9_missing_pdfspread_page_id")
+        html_body = '<div class="hc03e9-pdfspread-unresolved">PDF page unavailable</div>'
+        return HcRenderResult(
+            html=f'<div class="lv-hc-render hc03e9">{html_body}</div>',
+            plain="PDF page unavailable",
+            stats=dict(stats),
+            named_behavior_gaps=tuple(sorted(gaps)),
+        )
+    stats["hc03e9_pdfspread_page_anchors"] += 1
+    if options.pdf_spread_resolver is None:
+        stats["hc03e9_pdfspread_resolver_missing"] += 1
+        gaps.add("hc03e9_pdfspread_resolver_missing")
+        html_body = (
+            f'<div class="hc03e9-pdfspread-unresolved" data-lv-page-id="{_escape_attr(page_id)}">'
+            "PDF page unavailable</div>"
+        )
+        return HcRenderResult(
+            html=f'<div class="lv-hc-render hc03e9">{html_body}</div>',
+            plain="PDF page unavailable",
+            stats=dict(stats),
+            named_behavior_gaps=tuple(sorted(gaps)),
+        )
+    src = options.pdf_spread_resolver(page_id)
+    if not src:
+        stats["hc03e9_pdfspread_lookup_misses"] += 1
+        gaps.add("hc03e9_pdfspread_lookup_miss")
+        html_body = (
+            f'<div class="hc03e9-pdfspread-unresolved" data-lv-page-id="{_escape_attr(page_id)}">'
+            "PDF page unavailable</div>"
+        )
+        return HcRenderResult(
+            html=f'<div class="lv-hc-render hc03e9">{html_body}</div>',
+            plain="PDF page unavailable",
+            stats=dict(stats),
+            named_behavior_gaps=tuple(sorted(gaps)),
+        )
+    stats["hc03e9_pdfspread_embeds"] += 1
+    escaped_src = _escape_attr(src)
+    html_body = (
+        f'<object class="lv-hc-pdfspread" data="{escaped_src}" type="application/pdf" '
+        f'data-lv-page-id="{_escape_attr(page_id)}">'
+        f'<a href="{escaped_src}">Open PDF page</a>'
+        "</object>"
+    )
+    media = ({"kind": "pdfspread", "page_id": page_id, "src": src},)
+    return HcRenderResult(
+        html=f'<div class="lv-hc-render hc03e9">{html_body}</div>',
+        plain="PDF page",
+        stats=dict(stats),
+        media=media,
+        named_behavior_gaps=tuple(sorted(gaps)),
+    )
+
+
 def _media_filename_label_at(data: bytes, offset: int, *, max_pairs: int = 96) -> str:
     parts: list[str] = []
     index = offset
@@ -7222,6 +7317,19 @@ def _legacy_renderer_code_for_source(source: DictionarySource) -> str | None:
     return None
 
 
+def _declared_renderer_code_for_source(source: DictionarySource) -> str | None:
+    """Return the HC code declared by EXINFO even when the binary is absent."""
+
+    exinfo = load_exinfo_for_idx(source.idx)
+    if exinfo is None:
+        return None
+    html_dll = exinfo.general.get("HTMLDLL", "")
+    match = re.search(r"HC([0-9A-Fa-f]{4})", html_dll)
+    if match is None:
+        return None
+    return match.group(1).upper()
+
+
 def _normalise_hc_css(css: str) -> str:
     css = re.sub(r'(?is)@charset\s+["\'][^"\']+["\']\s*;', "", css)
     for placeholder, replacement in HC_CSS_DEFAULTS.items():
@@ -7592,7 +7700,11 @@ def _prepare_hc_render_assets(
     _add_package_directory_image_sources(source, "Templates", output_sources)
     copied += _add_hc_bitmap_gaiji_sources(source, dict_out, output_sources)
 
-    renderer_code = (renderer.code if renderer is not None else _legacy_renderer_code_for_source(source))
+    renderer_code = (
+        renderer.code
+        if renderer is not None
+        else _declared_renderer_code_for_source(source) or _legacy_renderer_code_for_source(source)
+    )
     renderer_code_upper = (renderer_code or "").upper()
     if renderer_code_upper == "015D":
         copied += _copy_package_directory_assets(source, "HANREI/image", dict_out)
@@ -7732,6 +7844,32 @@ def _make_figure_image_resolver(source: DictionarySource, dict_out: Path) -> Cal
     return resolve
 
 
+def _make_pdfspread_resolver(source: DictionarySource, dict_out: Path) -> Callable[[str], str | None] | None:
+    db_path = find_pdfspread_database(source.idx)
+    if db_path is None:
+        return None
+    media_dir = dict_out / "media" / "pdfspread"
+    media_dir.mkdir(parents=True, exist_ok=True)
+    cache: dict[str, str | None] = {}
+
+    def resolve(page_id: str) -> str | None:
+        if page_id in cache:
+            return cache[page_id]
+        row = lookup_pdfspread(db_path, page_id)
+        if row is None:
+            cache[page_id] = None
+            return None
+        filename = f"{row.page_number:08d}_{row.side.lower()}.pdf"
+        out_path = media_dir / filename
+        if not out_path.exists() or out_path.read_bytes() != row.pdf:
+            out_path.write_bytes(row.pdf)
+        rel = _relative_browser_path(out_path, dict_out)
+        cache[page_id] = rel
+        return rel
+
+    return resolve
+
+
 def _write_hc_html_header(html_out: Any, *, stylesheet: str | None, vertical: bool) -> None:
     body_class = "v" if vertical else "h"
     html_out.write(
@@ -7763,6 +7901,9 @@ def _effective_renderer_code_for_source(
         return renderer.code
     if source.dict_id.upper() == "ARCHSIC3":
         return "ARCHSIC3"
+    declared = _declared_renderer_code_for_source(source)
+    if declared is not None:
+        return declared
     return _legacy_renderer_code_for_source(source)
 
 
@@ -9530,6 +9671,8 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         return _render_hc0088_body(data, options)
     if _renderer_code(options) == "00A0":
         return _render_hc00a0_body(data, options)
+    if _renderer_code(options) == "03E9":
+        return _render_hc03e9_pdfspread_body(data, options)
     section_rules = _renderer_section_rules(options)
     active_section_image_rules: set[str] = set()
     root_parts: list[str] = []
@@ -19574,8 +19717,12 @@ def _renderer_for_source(source: DictionarySource, *, compute_hash: bool = False
     return classify_hc_renderer_file(candidates[0], compute_hash=compute_hash) if candidates else None
 
 
-def _renderer_behavior_gaps(renderer: HcRendererClassification | None) -> list[str]:
+def _renderer_behavior_gaps(renderer: HcRendererClassification | None, renderer_code: str | None = None) -> list[str]:
     if renderer is None:
+        if renderer_code in {"0088", "03E9", "ARCHSIC3"}:
+            return []
+        if renderer_code:
+            return [f"hc{renderer_code.lower()}_renderer_binary_unavailable"]
         return ["no_hc_renderer_plugin_declared"]
     gaps: list[str] = []
     for feature, gap in (
@@ -19606,6 +19753,7 @@ def _schema_backed_sidecars(source: DictionarySource) -> dict[str, Any]:
     clear_search_roles = {
         "sqlite_search_index",
         "sqlite_category_search_index",
+        "sqlite_block_offset_title_index",
         "sqlite_search_or_fulltext",
         "sqlite_search_or_conjugation",
     }
@@ -19617,7 +19765,13 @@ def _schema_backed_sidecars(source: DictionarySource) -> dict[str, Any]:
             "role": row.role,
             "tables": list(row.tables),
             "hc_render_support": (
-                "entry_body_or_media" if row.role in supported_roles else "classified_search_helper" if row.role in clear_search_roles else "classified_only"
+                "entry_body_or_media"
+                if row.role in supported_roles
+                else "pdf_spread_body"
+                if row.role == "sqlite_pdf_spread_store"
+                else "classified_search_helper"
+                if row.role in clear_search_roles
+                else "classified_only"
             ),
         }
         for row in rows
@@ -19675,6 +19829,7 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
     media_image_resolver = _make_colscr_image_resolver(source, dict_out)
     figure_image_resolver = _make_figure_image_resolver(source, dict_out)
     monoscr_image_resolver = _make_monoscr_image_resolver(source, dict_out)
+    pdf_spread_resolver = _make_pdfspread_resolver(source, dict_out)
     sounddata_index = load_sounddata_index(source.idx)
     color_samples = load_color_sample_map(source.idx)
     options = HcRenderOptions(
@@ -19687,6 +19842,7 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
         media_image_resolver=media_image_resolver,
         figure_image_resolver=figure_image_resolver,
         monoscr_image_resolver=monoscr_image_resolver,
+        pdf_spread_resolver=pdf_spread_resolver,
         sounddata_ids=frozenset(sounddata_index.records) if sounddata_index is not None else frozenset(),
         movie_ids=movie_ids_for_idx(source.idx),
         color_samples=color_samples,
@@ -19868,6 +20024,7 @@ def _render_hc_index_hit(
     media_image_resolver = _make_colscr_image_resolver(source, dict_out)
     figure_image_resolver = _make_figure_image_resolver(source, dict_out)
     monoscr_image_resolver = _make_monoscr_image_resolver(source, dict_out)
+    pdf_spread_resolver = _make_pdfspread_resolver(source, dict_out)
     color_samples = load_color_sample_map(source.idx)
     options = HcRenderOptions(
         gaiji_map=source.gaiji_map,
@@ -19879,6 +20036,7 @@ def _render_hc_index_hit(
         media_image_resolver=media_image_resolver,
         figure_image_resolver=figure_image_resolver,
         monoscr_image_resolver=monoscr_image_resolver,
+        pdf_spread_resolver=pdf_spread_resolver,
         sounddata_ids=sounddata_ids,
         movie_ids=movie_ids_for_idx(source.idx),
         color_samples=color_samples,
@@ -20059,7 +20217,7 @@ def extract_hc_render_for_source(source: DictionarySource, out_dir: Path, args: 
         rendererdb_summary=rendererdb_summary,
         raw_gaps=raw_summary.get("raw_honmon_named_behavior_gaps", {}),
     )
-    behavior_gaps = _renderer_behavior_gaps(renderer)
+    behavior_gaps = _renderer_behavior_gaps(renderer, renderer_code)
     if not profile.exact_body_html_available:
         behavior_gaps.extend(raw_summary.get("raw_honmon_named_behavior_gaps", {}).keys())
     final_html_path: Path | None = None
@@ -20105,6 +20263,7 @@ def extract_hc_render_for_source(source: DictionarySource, out_dir: Path, args: 
                 "HONBUN",
                 "Android-style body SQLite tables",
                 "media/t_media blob tables",
+                "PDFSpread PDF page BLOB tables",
                 "ziptomedia references",
             ],
             "exact_body_html_available": profile.exact_body_html_available,

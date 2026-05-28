@@ -230,7 +230,8 @@ def decrypt_logofont_cipher_auto_file_to_path(path: Path, out: Path, *, chunk_si
     with path.open("rb") as infile:
         prefix = infile.read(4096)
     try:
-        if decrypt_macos_logofont_cipher_prefix(prefix, size=min(len(prefix), 4096)).startswith(b"SSEDDATA"):
+        macos_prefix = decrypt_macos_logofont_cipher_prefix(prefix, size=min(len(prefix), 4096))
+        if macos_prefix.startswith((b"SSEDDATA", b"SQLite format 3\x00")):
             written = decrypt_macos_logofont_cipher_file_to_path(path, out, chunk_size=chunk_size)
             return written, "macos_logofont_cipher"
     except LogoVistaCryptoError:

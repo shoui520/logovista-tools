@@ -62,6 +62,11 @@ and non-SSED reader status are tracked separately in
   declares `HONMON.DIN` in `SSEDINFO`, stores it as member `HONMON.DIN` inside
   `HONMON`, and uses a `casKet<eight-hex-stem>` password before the normal Mac
   LogoFontCipher/SSEDDATA path.
+- Observed Mac OS X `HC03E9` PDFSpread body rendering. HONMON records contain
+  fullwidth page anchors; `HKRKIKHY2.db`-style `PDFSpread(IDRight, IDLeft, PDF)`
+  tables provide the visible PDF page bodies; companion encrypted search DBs
+  decrypt with the same Mac LogoFontCipher AES-CBC variant and classify as
+  block/offset title/full-text helpers.
 - Corpus-wide `vlpljbl*` classification by suffix, raw/decrypted magic,
   SQLite schema, and inferred role. Observed roles include decryptor binaries,
   fonts, renderer body DBs, media stores, search indexes, row-ordered `HONBUN`,

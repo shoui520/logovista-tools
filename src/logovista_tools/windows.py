@@ -24,9 +24,11 @@ from .lvcrypto import (
     LogoVistaCryptoUnavailable,
     decrypt_logofont_cipher_file_to_path,
     decrypt_logofont_cipher_prefix,
+    decrypt_macos_logofont_cipher_file_to_path,
+    decrypt_macos_logofont_cipher_prefix,
 )
 from .navigation import resolve_component_target as resolve_navigation_component_target
-from .ssed import SsedInfoElement, find_case_insensitive, read_file_prefix
+from .ssed import SsedInfoElement, find_case_insensitive, is_metadata_noise_path, read_file_prefix
 
 
 SQLITE_MAGIC = b"SQLite format 3\x00"
@@ -324,8 +326,21 @@ def sqlite_storage_for_path(path: Path) -> str | None:
         if decrypt_logofont_cipher_prefix(prefix, size=64).startswith(SQLITE_MAGIC):
             return "logofont_cipher"
     except (LogoVistaCryptoError, LogoVistaCryptoUnavailable, ValueError):
+        pass
+    try:
+        if decrypt_macos_logofont_cipher_prefix(prefix, size=64).startswith(SQLITE_MAGIC):
+            return "macos_logofont_cipher"
+    except (LogoVistaCryptoError, LogoVistaCryptoUnavailable, ValueError):
         return None
     return None
+
+
+def decrypt_sqlite_storage_to_path(path: Path, out: Path, storage: str) -> int:
+    if storage == "logofont_cipher":
+        return decrypt_logofont_cipher_file_to_path(path, out)
+    if storage == "macos_logofont_cipher":
+        return decrypt_macos_logofont_cipher_file_to_path(path, out)
+    raise ValueError(f"unsupported encrypted SQLite storage: {storage}")
 
 
 def sqlite_sidecar_classification_to_json(row: SqliteSidecarClassification) -> dict[str, Any]:
@@ -910,6 +925,8 @@ def _sqlite_table_role(name: str, columns: set[str]) -> str:
     lower = name.lower()
     if lower == "android_metadata":
         return "platform_metadata"
+    if lower == "pdfspread" and {"idright", "pdf"} <= columns:
+        return "pdf_spread_store"
     if lower == "indexinfo":
         return "index_metadata"
     if lower == "info":
@@ -1041,6 +1058,8 @@ def sqlite_role_for_tables(tables: tuple[dict[str, Any], ...]) -> str:
         return "sqlite_template_navigation"
     if any(name.startswith("t_kyz_") for name in names):
         return "sqlite_category_search_index"
+    if role_values <= {"pdf_spread_store"}:
+        return "sqlite_pdf_spread_store"
     if role_values <= {"media_store"}:
         return "sqlite_media_store"
     if "honbun" in names:
@@ -1197,6 +1216,21 @@ def sqlite_has_supported_sidecar_schema(path: Path) -> bool:
     return role in RENDERER_BODY_SQLITE_ROLES
 
 
+def sqlite_has_supported_sidecar_schema_for_storage(path: Path, storage: str) -> bool:
+    try:
+        if storage == "plain":
+            tables = sqlite_table_schema_summaries(path)
+        else:
+            with tempfile.TemporaryDirectory(prefix="lv-sqlite-sidecar-") as tmp:
+                decrypted = Path(tmp) / f"{path.name}.sqlite"
+                decrypt_sqlite_storage_to_path(path, decrypted, storage)
+                tables = sqlite_table_schema_summaries(decrypted)
+        role = sqlite_role_for_tables(tables)
+    except (sqlite3.Error, LogoVistaCryptoError, LogoVistaCryptoUnavailable, ValueError):
+        return False
+    return role in RENDERER_BODY_SQLITE_ROLES
+
+
 def _resolve_sidecar_reference(root: Path, name: str) -> Path | None:
     candidates = [
         root / name,
@@ -1234,7 +1268,11 @@ def discover_sqlite_sidecar_files(idx: Path, exinfo: Exinfo | None = None) -> li
         if not directory.is_dir():
             continue
         for child in sorted(directory.iterdir()):
-            if child.is_file() and child.suffix.lower() in {".db", ".sqlite", ".sqlite3"}:
+            if (
+                child.is_file()
+                and not is_metadata_noise_path(child)
+                and child.suffix.lower() in {".db", ".sqlite", ".sqlite3"}
+            ):
                 candidates.append(child.resolve())
     rows: list[Path] = []
     seen: set[Path] = set()
@@ -1263,7 +1301,7 @@ def classify_sqlite_sidecar_file(path: Path) -> SqliteSidecarClassification:
         else:
             with tempfile.TemporaryDirectory(prefix="lv-sqlite-sidecar-") as tmp:
                 decrypted = Path(tmp) / f"{path.name}.sqlite"
-                decrypt_logofont_cipher_file_to_path(path, decrypted)
+                decrypt_sqlite_storage_to_path(path, decrypted, storage)
                 tables = sqlite_table_schema_summaries(decrypted)
         role = sqlite_role_for_tables(tables)
     except sqlite3.Error:
@@ -1306,7 +1344,16 @@ def discover_renderer_sidecars(idx: Path, exinfo: Exinfo | None = None) -> list[
         storage = sqlite_storage_for_path(candidate)
         if storage is None:
             continue
-        if storage == "plain" and not sqlite_has_supported_sidecar_schema(candidate):
-            continue
+        if storage == "plain":
+            if not sqlite_has_supported_sidecar_schema(candidate):
+                continue
+        elif not is_vlpljbl_path(candidate):
+            if not sqlite_has_supported_sidecar_schema_for_storage(candidate, storage):
+                continue
+        else:
+            # Encrypted vlpljbl* files are the classic renderer-sidecar shape.
+            # Avoid an extra discovery-time full decrypt; rendererdb handling
+            # will decrypt and classify the selected sidecar once.
+            pass
         rows.append(RendererSidecar(path=candidate, storage=storage))
     return rows

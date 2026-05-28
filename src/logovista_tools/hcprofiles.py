@@ -116,6 +116,8 @@ def _rendererdb_ok(rendererdb_summary: dict[str, Any] | None) -> bool:
 def _family_for_code(code: str | None, renderer: HcRendererClassification | None) -> str:
     if code is None:
         return "no_hc_renderer"
+    if code == "03E9":
+        return "mac_pdfspread_renderer"
     if code == "0088":
         return "legacy_template_css_renderer"
     if code in {"015A", "015B", "015C", "015D", "015E", "015F"}:
@@ -161,6 +163,27 @@ def _known_code_hooks(code: str | None) -> list[HcHookBehavior]:
                 notes=(
                     "This is a legacy package-resource renderer profile, not an HC DLL. "
                     "The category-to-MM mapping is shared by the package stylesheet, Templates images, and SQL table families."
+                ),
+            )
+        )
+    if code == "03E9":
+        rows.append(
+            HcHookBehavior(
+                name="hc03e9_pdfspread_body_lookup",
+                status="implemented_when_pdfspread_present",
+                evidence=(
+                    "EXINFO HTMLDLL=HC03E9.dll",
+                    "Mac Bundle000003e9 Epwing2Html000003e9 searchBodyData: code path",
+                    "HKRKIKHY2.db PDFSpread(IDRight, IDLeft, PDF) schema",
+                    "HONMON bodies contain fullwidth eight-digit page anchors",
+                ),
+                implementation=(
+                    "raw HONMON page anchor decoding, HC03E9 right/left page selection, "
+                    "PDFSpread PDF BLOB extraction, and standalone object/embed HTML"
+                ),
+                notes=(
+                    "The Mac renderer returns a PDF cache path instead of decorated body HTML. "
+                    "The encrypted HKRKIKHY.db search database is separate from the PDF body store."
                 ),
             )
         )
@@ -2408,7 +2431,12 @@ def build_hc_behavior_profile(
         "private_renderer_directive_suppression",
     }
     hooks = _known_code_hooks(code)
-    if rendererdb_ok:
+    has_pdfspread = "sqlite_pdf_spread_store" in roles
+    if code == "03E9" and has_pdfspread:
+        implemented.add("HC03E9_pdfspread_body_lookup")
+        body_strategy = "pdfspread_sqlite_pdf_blob"
+        body_status = "pdfspread_body_blob"
+    elif rendererdb_ok:
         implemented.add("schema_backed_exact_entry_html")
         body_strategy = "rendererdb_html"
         body_status = "exact_entry_body_html"

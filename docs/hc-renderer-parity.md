@@ -17,6 +17,15 @@ spans without inventing a link target. A focused recheck of the raw-gap
 packages from the current sweep leaves only the named `no_hc_renderer_plugin_declared`
 classification for those dictionaries.
 
+Mac renderer note: one observed Mac OS X SSED package declares `HC03E9` through
+`EXINFO.INI` but ships the executable renderer as a Mac bundle rather than as a
+Windows `HC????.dll`. Code-level analysis of the bundle shows that the body
+path resolves an eight-fullwidth-digit HONMON page anchor into
+`PDFSpread(IDRight, IDLeft, PDF)` and returns a cached PDF path. The toolkit
+implements this PDFSpread body lookup and classifies the companion encrypted
+search database separately; this is a Mac renderer profile, not a Windows PE
+HC-family row.
+
 Standalone-output note: raw-HONMON `1f4a`/`1f6a` audio links keep the recovered
 HC `lved.sond:...` template in `data-lv-original-href`, but generated HTML uses
 safe `#lv-audio-...` fragment hrefs. Exact renderer-sidecar links are similarly
