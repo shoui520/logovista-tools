@@ -48,6 +48,13 @@ from .gaiji import (
 )
 from .hcprofiles import build_hc_behavior_profile
 from .indexes import INDEX_TYPES, scan_index_component_reader
+from .monoscr import (
+    find_monoscr_path,
+    monoscr_bitmap_to_png,
+    monoscr_element,
+    parse_monoscr_pointer,
+    read_monoscr_bitmap,
+)
 from .navigation import NavigationResolver, lvaddr_href
 from .parallel import parallel_map_ordered, worker_args
 from .pcmdata import PcmPointer, parse_pcm_pointer
@@ -298,6 +305,15 @@ HC_RENDER_BASE_CSS = """
     #ccc 3px,
     #ccc 6px
   );
+}
+:where(.lv-hc-render .lv-hc-monoscr) {
+  display: inline-block;
+  width: 1.05em;
+  height: 1.05em;
+  max-width: 1.05em;
+  max-height: 1.05em;
+  object-fit: contain;
+  vertical-align: -0.12em;
 }
 :where(.lv-hc-render .img_inline),
 :where(.lv-hc-render .lv-hc-media.img_inline) {
@@ -1125,6 +1141,7 @@ class HcRenderOptions:
     include_debug_metadata: bool = False
     entry_start_offset: int = 0
     media_image_resolver: Callable[[MediaPointer], str | None] | None = None
+    monoscr_image_resolver: Callable[[dict[str, int]], str | None] | None = None
     sounddata_ids: frozenset[int] = frozenset()
     movie_ids: frozenset[str] = frozenset()
     color_samples: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -1318,6 +1335,7 @@ HC_PACKED_BCD_LINK_RENDERERS = frozenset(
         "00C4",
         "00C5",
         "00C6",
+        "012C",
         "012D",
         "012E",
         "012F",
@@ -3804,6 +3822,21 @@ def _media_target(pointer: MediaPointer | None) -> dict[str, Any] | None:
         "block": pointer.block,
         "offset": pointer.offset,
         "resource_id": f"colscr:{pointer.block:08d}:{pointer.offset:04d}",
+    }
+
+
+def _monoscr_target(pointer: dict[str, int] | None) -> dict[str, Any] | None:
+    if pointer is None:
+        return None
+    block = pointer["block"]
+    offset = pointer["offset"]
+    return {
+        "component": "MONOSCR.DIC",
+        "kind": "monochrome-image",
+        "block": block,
+        "offset": offset,
+        "address_key": f"{block:08d}:{offset:04d}",
+        "resource_id": f"monoscr:{block:08d}:{offset:04d}",
     }
 
 
@@ -7582,6 +7615,44 @@ def _make_colscr_image_resolver(source: DictionarySource, dict_out: Path) -> Cal
         out_path = media_dir / filename
         if not out_path.exists() or out_path.read_bytes() != image:
             out_path.write_bytes(image)
+        rel = _relative_browser_path(out_path, dict_out)
+        cache[key] = rel
+        return rel
+
+    return resolve
+
+
+def _make_monoscr_image_resolver(source: DictionarySource, dict_out: Path) -> Callable[[dict[str, int]], str | None] | None:
+    monoscr_path = find_monoscr_path(source.idx)
+    if monoscr_path is None:
+        return None
+    _title, elements = parse_ssedinfo(source.idx)
+    element = monoscr_element(elements)
+    if element is None:
+        return None
+    reader = SsedRandomReader(monoscr_path)
+    media_dir = dict_out / "media" / "monoscr"
+    media_dir.mkdir(parents=True, exist_ok=True)
+    cache: dict[tuple[int, int], str | None] = {}
+
+    def resolve(pointer: dict[str, int]) -> str | None:
+        key = (int(pointer["block"]), int(pointer["offset"]))
+        if key in cache:
+            return cache[key]
+        packed_bcd = bytes.fromhex(f"{key[0]:08d}{key[1]:04d}")
+        parsed = parse_monoscr_pointer(packed_bcd, element)
+        if parsed is None:
+            cache[key] = None
+            return None
+        bitmap = read_monoscr_bitmap(reader, parsed)
+        if bitmap is None:
+            cache[key] = None
+            return None
+        filename = f"{parsed.block:08d}_{parsed.offset:04d}.png"
+        out_path = media_dir / filename
+        png = monoscr_bitmap_to_png(bitmap)
+        if not out_path.exists() or out_path.read_bytes() != png:
+            out_path.write_bytes(png)
         rel = _relative_browser_path(out_path, dict_out)
         cache[key] = rel
         return rel
@@ -15253,6 +15324,37 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                     "target": target,
                     "status": "resolved_address" if target else "unresolved_target",
                 }
+                monoscr_src = options.monoscr_image_resolver(target) if op == 0x64 and target and options.monoscr_image_resolver else None
+                if monoscr_src:
+                    monoscr_target = _monoscr_target(target)
+                    media.append(
+                        {
+                            "control": "1f64",
+                            "kind": "monoscr-image",
+                            "target": monoscr_target,
+                            "status": "resolved_image",
+                        }
+                    )
+                    if ctx is not None:
+                        _close_context_styles(ctx, options)
+                    label = "".join(ctx.parts) if ctx else ""
+                    alt = _plain_from_html(label)
+                    attrs = [
+                        'class="lv-hc-media lv-hc-monoscr"',
+                        f'src="{_escape_attr(monoscr_src)}"',
+                        f'alt="{_escape_attr(alt)}"',
+                        'data-lv-media-kind="monoscr"',
+                        'data-lv-media-status="resolved_image"',
+                    ]
+                    if monoscr_target:
+                        attrs.append(f'data-lv-resource="{_escape_attr(monoscr_target["resource_id"])}"')
+                        attrs.append(f'data-lv-block="{monoscr_target["block"]}"')
+                        attrs.append(f'data-lv-offset="{monoscr_target["offset"]}"')
+                    parent = ctx.parent if ctx else _current_parts(root_parts, contexts)
+                    parent.append(f"<img {' '.join(attrs)}>")
+                    stats["monoscr_images"] += 1
+                    i += 2 + arg_len
+                    continue
                 links.append(link)
                 if ctx is not None:
                     _close_context_styles(ctx, options)
@@ -19457,6 +19559,7 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
     html_path = dict_out / "raw_honmon_entries.html"
     image_sources, html_templates, stylesheet, copied_assets, renderer_assets = _prepare_hc_render_assets(source, dict_out, renderer)
     media_image_resolver = _make_colscr_image_resolver(source, dict_out)
+    monoscr_image_resolver = _make_monoscr_image_resolver(source, dict_out)
     sounddata_index = load_sounddata_index(source.idx)
     color_samples = load_color_sample_map(source.idx)
     options = HcRenderOptions(
@@ -19467,6 +19570,7 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
         renderer_code=renderer_code,
         vertical=bool(getattr(args, "_effective_vertical", getattr(args, "vertical", False))),
         media_image_resolver=media_image_resolver,
+        monoscr_image_resolver=monoscr_image_resolver,
         sounddata_ids=frozenset(sounddata_index.records) if sounddata_index is not None else frozenset(),
         movie_ids=movie_ids_for_idx(source.idx),
         color_samples=color_samples,
@@ -19646,6 +19750,7 @@ def _render_hc_index_hit(
     reader = SsedRandomReader(source.honmon)
     target_offset = _target_relative_offset(source, hit)
     media_image_resolver = _make_colscr_image_resolver(source, dict_out)
+    monoscr_image_resolver = _make_monoscr_image_resolver(source, dict_out)
     color_samples = load_color_sample_map(source.idx)
     options = HcRenderOptions(
         gaiji_map=source.gaiji_map,
@@ -19655,6 +19760,7 @@ def _render_hc_index_hit(
         renderer_code=renderer_code,
         vertical=vertical,
         media_image_resolver=media_image_resolver,
+        monoscr_image_resolver=monoscr_image_resolver,
         sounddata_ids=sounddata_ids,
         movie_ids=movie_ids_for_idx(source.idx),
         color_samples=color_samples,

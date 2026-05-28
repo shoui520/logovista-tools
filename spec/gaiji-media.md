@@ -380,23 +380,31 @@ The `pcmdata` toolkit command treats this as `container_kind: "sounddata"` and
 writes portable `.wav` files using the same `--write-audio` interface as
 `PCMDATA.DIC`.
 
-## `FIGURE.DIC`
+## `FIGURE.DIC` And `MONOSCR.DIC`
 
-`FIGURE.DIC` and `MONOSCR.DIC` are observed as compressed SSED resource
-components with component type `0xd0`. They are not `COLSCR.DIC` image stores:
+`FIGURE.DIC` and `MONOSCR.DIC` are both observed as compressed SSED resource
+components with component type `0xd0`, but they should not be treated as one
+proven format. The current evidence separates them:
+
+- KOJIEN6 `MONOSCR.DIC` is a monochrome bitmap store referenced by HONMON
+  `1f44` / `1f64` pairs. `1f44` carries a constant display-cell payload, and
+  `1f64` carries a packed-BCD pointer into `MONOSCR.DIC`. The target bytes
+  decode as a 64x64 1bpp bitmap cell.
+- Older `FIGURE.DIC` streams observed so far use the same component type, but
+  the KOJIEN6 `MONOSCR.DIC` record model does not produce coherent output for
+  them. Keep them as named unresolved figure streams until their own pointer
+  and record grammar is recovered.
+
+Neither stream is a `COLSCR.DIC` image store:
 
 - the expanded stream does not begin with the `data` wrapper used by
   `COLSCR.DIC`;
 - observed payloads do not decode as PNG/JPEG/GIF/BMP records from the stream
-  start;
-- simple raster guesses produce incoherent output and should not be treated as
-  a decoded image grammar.
+  start.
 
-The current safe classification is therefore: named figure/resource stream,
-record grammar unresolved. Readers and exporters should keep the bytes
-available for diagnostics, count the component explicitly, and avoid producing
-fake images until a record table, pointer relationship, or container grammar is
-understood.
+For KOJIEN6, toolkit rendering materializes referenced `MONOSCR.DIC` bitmap
+cells as transparent PNGs and emits them inline rather than leaking the
+internal `1f44` label or treating the `1f64` payload as a normal entry link.
 
 ## `COLSMPL.DIC`
 

@@ -35,6 +35,8 @@ def component_kind(component_type: int, filename: str = "") -> str:
         return "index"
     if component_type == 0xD2:
         return "media-image"
+    if upper == "MONOSCR.DIC":
+        return "monochrome-image"
     if component_type == 0xD8:
         return "media-audio"
     if component_type in {0xF1, 0xF2}:

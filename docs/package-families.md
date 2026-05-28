@@ -158,13 +158,15 @@ and BIN structures from Windows packages, but the subsystem itself is just
 package-local resource data.
 
 `FIGURE.DIC` and `MONOSCR.DIC` are observed as compressed type-`0xd0` SSED
-resource components. They are not the same media store as `COLSCR.DIC`, and
-current public evidence does not support treating the expanded bytes as a
-coherent raster image format. `COLSMPL.DIC` is a compressed type-`0xe0`
-color-sample resource stream. Its 2048-byte records decode to Munsell color
-notation plus JIS color-name labels, and HONMON `1f14` / `1f15` controls point
-to these samples. Exact official color-map RGB conversion is still a renderer
-gap, so generated standalone swatches must mark RGB as estimated.
+resource components, but they are not treated as the same proven format.
+KOJIEN6 `MONOSCR.DIC` is decoded as a 64x64 1bpp bitmap-cell store referenced
+by HONMON `1f44` / `1f64` pairs. Older `FIGURE.DIC` streams remain named
+figure resources with unresolved record grammar. `COLSMPL.DIC` is a compressed
+type-`0xe0` color-sample resource stream. Its 2048-byte records decode to
+Munsell color notation plus JIS color-name labels, and HONMON `1f14` / `1f15`
+controls point to these samples. Exact official color-map RGB conversion is
+still a renderer gap, so generated standalone swatches must mark RGB as
+estimated.
 
 Loose `_PCM_U` and `_MOVIE` sibling resource directories are also SSED package
 resources when referenced by the dictionary body. KOJIEN6 declares normal

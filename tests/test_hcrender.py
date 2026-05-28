@@ -356,6 +356,33 @@ def test_kojien6_color_sample_control_renders_structured_swatch_without_payload_
     assert "unknown_control_1f14" not in rendered.named_behavior_gaps
 
 
+def test_kojien6_monoscr_link_pair_renders_inline_bitmap_not_lvaddr_link() -> None:
+    body = (
+        b"\x1f\x44"
+        + bytes.fromhex("00010000006400000064")
+        + jis_ascii_text("ALT")
+        + b"\x1f\x64"
+        + bytes.fromhex("001077090039")
+    )
+
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="012C",
+            monoscr_image_resolver=lambda target: "media/monoscr/00107709_0039.png"
+            if target == {"block": 107709, "offset": 39}
+            else None,
+        ),
+    )
+
+    assert 'class="lv-hc-media lv-hc-monoscr"' in rendered.html
+    assert 'src="media/monoscr/00107709_0039.png"' in rendered.html
+    assert 'href="lvaddr://107709/39"' not in rendered.html
+    assert ">ALT</a>" not in rendered.html
+    assert rendered.media[0]["kind"] == "monoscr-image"
+    assert rendered.stats["monoscr_images"] == 1
+
+
 def test_hc_render_common_media_close_state_is_not_unknown() -> None:
     rendered = render_hc_body(jis_ascii("A") + b"\x1f\x6d" + jis_ascii("B"))
 

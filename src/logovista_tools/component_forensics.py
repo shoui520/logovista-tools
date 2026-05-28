@@ -50,6 +50,7 @@ from .pcmdata import (
     unreferenced_gaps,
 )
 from .profiles import ProfileTarget, discover_profile_targets, safe_relative
+from .monoscr import MONOSCR_BITMAP_BYTES, MONOSCR_HEIGHT, MONOSCR_WIDTH
 from .scrmenu import parse_screen_menu_stream
 from .ssed import BLOCK_SIZE, SsedInfoElement, SsedRandomReader, expand_sseddata_file, find_case_insensitive, parse_sseddata_header
 from .titles import TITLE_TYPES
@@ -79,7 +80,9 @@ def component_role(filename: str, component_type: int) -> str | None:
         return "colscr"
     if component_type == PCMDATA_TYPE or upper == "PCMDATA.DIC":
         return "pcmdata"
-    if component_type == 0xD0 or upper in {"FIGURE.DIC", "MONOSCR.DIC"}:
+    if upper == "MONOSCR.DIC":
+        return "monoscr"
+    if component_type == 0xD0 or upper == "FIGURE.DIC":
         return "figure_resource"
     if component_type == 0xE0 or upper == "COLSMPL.DIC":
         return "color_sample"
@@ -1100,6 +1103,15 @@ def special_resource_report(roots: list[Path], element: Any, source: Path, data:
                 "direct_target_count": parsed.stats.get("direct_targets", 0),
                 "image_record_count": parsed.stats.get("image_records", 0),
                 "unknown_controls": parsed.stats.get("unknown_controls", 0),
+            }
+        )
+    if element.filename.upper() == "MONOSCR.DIC":
+        row.update(
+            {
+                "bitmap_width": MONOSCR_WIDTH,
+                "bitmap_height": MONOSCR_HEIGHT,
+                "bitmap_bytes": MONOSCR_BITMAP_BYTES,
+                "cell_count_floor": len(data) // MONOSCR_BITMAP_BYTES,
             }
         )
     return row

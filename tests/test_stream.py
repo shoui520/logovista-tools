@@ -60,6 +60,7 @@ from logovista_tools.indexes import (
     parse_tagged_leaf_page,
 )
 from logovista_tools.menus import build_menu_tree, parse_menu_destination, parse_menu_stream, resolve_menu_destination
+from logovista_tools.monoscr import monoscr_bitmap_to_png, parse_monoscr_pointer, read_monoscr_bitmap
 from logovista_tools.multi import parse_multi_descriptor
 from logovista_tools.pcmdata import (
     detect_shared_wave_stream,
@@ -2543,3 +2544,25 @@ def test_parse_scrmenu_decodes_screens_hotspots_and_direct_targets() -> None:
     assert screen.hotspots[0].target_direct_index == 0
     assert screen.direct_targets[0].destination.target is not None
     assert screen.direct_targets[0].destination.target.component == "HONMON.DIC"
+
+
+def test_parse_monoscr_pointer_and_render_png() -> None:
+    element = SsedInfoElement(0, 0, 0xD0, 100, 100, b"", "MONOSCR.DIC")
+    bitmap = bytearray(512)
+    bitmap[0] = 0x80
+    bitmap[9] = 0x40
+    stream = b"\x00" * 39 + bytes(bitmap)
+
+    class Reader:
+        expanded_size = len(stream)
+
+        def read(self, offset: int, size: int) -> bytes:
+            return stream[offset : offset + size]
+
+    pointer = parse_monoscr_pointer(_bcd(100, 4) + _bcd(39, 2), element)
+
+    assert pointer is not None
+    assert pointer.relative_offset == 39
+    assert read_monoscr_bitmap(Reader(), pointer) == bytes(bitmap)
+    png = monoscr_bitmap_to_png(bytes(bitmap))
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")

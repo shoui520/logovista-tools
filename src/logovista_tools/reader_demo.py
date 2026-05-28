@@ -27,6 +27,7 @@ from .hcrender import (
     _effective_renderer_code_for_source,
     _find_index_hits_for_source,
     _make_colscr_image_resolver,
+    _make_monoscr_image_resolver,
     _prepare_hc_render_assets,
     _renderer_for_source,
     render_hc_target_body,
@@ -286,6 +287,7 @@ class _ReaderDemoBuilder:
             renderer_code=self.renderer_code,
             vertical=bool(args.vertical),
             media_image_resolver=_make_colscr_image_resolver(source, out_dir),
+            monoscr_image_resolver=_make_monoscr_image_resolver(source, out_dir),
             movie_ids=movie_ids_for_idx(source.idx),
             color_samples=load_color_sample_map(source.idx),
         )

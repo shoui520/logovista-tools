@@ -104,9 +104,14 @@ structured color-sample renderer metadata. The RGB values in standalone HTML
 are marked as estimates because the official Munsell-to-RGB bridge itself is
 not yet recovered.
 
-`MONOSCR.DIC` is a type-`0xd0` monochrome figure/resource stream. It should be
-kept distinct from `COLSCR.DIC`; the expanded bytes do not use the `data`
-wrapper, and the current toolkit does not invent raster output for it.
+`MONOSCR.DIC` is a type-`0xd0` monochrome bitmap-cell stream. KOJIEN6 HONMON
+uses `1f44` / `1f64` pairs for these cells: `1f44` carries the constant
+display-cell payload `00010000006400000064`, and `1f64` carries a six-byte
+packed-BCD pointer into `MONOSCR.DIC`. The pointer target decodes as a 64x64
+1bpp bitmap. The toolkit materializes referenced cells as transparent PNGs for
+HC012C output and keeps this support specific to `MONOSCR.DIC`; older
+`FIGURE.DIC` streams with the same component type are not assumed to share the
+same practical grammar.
 
 ## Current Support Status
 
@@ -124,12 +129,14 @@ Supported:
 - `_MOVIE` discovery and movie-link rendering metadata;
 - `COLSMPL.DIC` Munsell/label parsing and `1f14` color-sample renderer
   metadata;
+- `MONOSCR.DIC` 64x64 1bpp bitmap-cell decoding for `1f44` / `1f64` HC012C
+  inline glyph output;
 - `COLSCR.DIC` image extraction.
 
 Named gaps:
 
 - exact KOJIEN6 screen-menu frontend recreation from `SCRMENU.DIC`;
 - exact `SDicGetColorMap` Munsell-to-RGB conversion;
-- complete `MONOSCR.DIC` record/image grammar;
+- older `FIGURE.DIC` type-`0xd0` record/image grammar;
 - exact product-level KOJIEN6 HC012C visual parity beyond the shared movie,
   picture, audio, link, gaiji, and text-control semantics currently modeled.

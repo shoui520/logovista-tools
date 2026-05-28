@@ -86,13 +86,12 @@ Component types observed so far:
 component type `0x02` and, in KCOMPEJ2, as a loose one-block `SSEDDATA`
 sidecar that is not listed in the main `SSEDINFO` catalog.
 
-`FIGURE.DIC` and `MONOSCR.DIC` are observed as component type `0xd0`. They are
-compressed `SSEDDATA` components and should be kept distinct from
-`COLSCR.DIC`: observed type-`0xd0` payloads do not use the `data` wrapper
-described for `COLSCR.DIC`, and naive raster interpretations of the expanded
-bytes are not coherent image decodes. Treat this as a monochrome
-figure/resource stream whose generic record grammar is not yet decoded, not as
-a body stream or as a bitmap format.
+`FIGURE.DIC` and `MONOSCR.DIC` are observed as component type `0xd0`, but they
+should not be collapsed into one decoded format. KOJIEN6 `MONOSCR.DIC` is a
+64x64 1bpp monochrome bitmap store referenced by HONMON `1f44` / `1f64`
+pairs. Older `FIGURE.DIC` streams remain named figure resources with
+unresolved record grammar. Both are distinct from `COLSCR.DIC` because they do
+not use the `data` wrapper described for the color image store.
 
 `COLSMPL.DIC` is observed as component type `0xe0`. KOJIEN6 stores fixed
 2048-byte color-sample records. Each record prefix decodes to compact Munsell

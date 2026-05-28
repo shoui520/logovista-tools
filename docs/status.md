@@ -132,11 +132,14 @@ and non-SSED reader status are tracked separately in
   component. Its generic record grammar is still unresolved, so toolkit output
   should report it as a named resource stream rather than inventing raster
   image output.
-- `MONOSCR.DIC` is recognized as the same type-`0xd0` monochrome
-  figure/resource family. `COLSMPL.DIC` is parsed as a type-`0xe0`
-  color-sample resource store with 2048-byte Munsell/label records linked to
-  `1f14` / `1f15` renderer controls. Exact official Munsell-to-RGB conversion
-  remains unresolved, so standalone swatch colors are explicit estimates.
+- KOJIEN6 `MONOSCR.DIC` is decoded separately from older `FIGURE.DIC` streams:
+  HONMON `1f44` / `1f64` pairs resolve to 64x64 1bpp monochrome bitmap cells,
+  and HC012C rendering emits inline PNG glyphs instead of leaking internal
+  labels or normal `lvaddr` links.
+- `COLSMPL.DIC` is parsed as a type-`0xe0` color-sample resource store with
+  2048-byte Munsell/label records linked to `1f14` / `1f15` renderer controls.
+  Exact official Munsell-to-RGB conversion remains unresolved, so standalone
+  swatch colors are explicit estimates.
 - KOJIEN6 `SCRMENU.DIC` is parsed as a type-`0x10` screen-menu stream with
   screen groups, `COLSCR.DIC` background-image pointers, hotspot rectangles,
   screen jumps, and direct body-target records. It remains a distinct
