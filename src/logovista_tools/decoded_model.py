@@ -28,7 +28,13 @@ from .gaiji import (
 from .gaiji_readiness import extract_gaiji_readiness
 from .indexes import INDEX_TYPES, collect_index_body_offsets_for_idx, extract_indexes_for_idx
 from .hourei import discover_hourei_packages, inspect_hourei_package
-from .lved import discover_lved_payloads, inspect_lved_roots
+from .lved import (
+    android_dictinfo_for_payload,
+    discover_lved_payloads,
+    infer_lved_dict_code,
+    inspect_lved_roots,
+    is_android_lved_sqlcipher_payload,
+)
 from .menus import extract_menus_for_idx
 from .model_readiness import build_model_readiness
 from .model_types import (
@@ -462,7 +468,7 @@ def discover_package_model_targets(roots: list[Path], dict_ids: set[str] | None 
     for payload in discover_lved_payloads(roots):
         if is_metadata_noise_path(payload):
             continue
-        dict_id = payload.parent.name.removeprefix("_DCT_")
+        dict_id = infer_lved_dict_code(payload) or payload.parent.name.removeprefix("_DCT_").lstrip(".")
         if wanted and dict_id.upper() not in wanted:
             continue
         resolved = payload.resolve()
@@ -1582,7 +1588,8 @@ def _deferred_family_common(
 
 def dump_lved_deferred_model(payload: Path, args: argparse.Namespace) -> dict[str, Any]:
     package = payload.parent
-    dict_id = package.name.removeprefix("_DCT_")
+    dict_id = infer_lved_dict_code(payload) or package.name.removeprefix("_DCT_").lstrip(".")
+    android_info = android_dictinfo_for_payload(payload)
     report = inspect_lved_roots([payload], jobs=1)
     payload_rows = report.get("payloads", [])
     components = [
@@ -1605,14 +1612,15 @@ def dump_lved_deferred_model(payload: Path, args: argparse.Namespace) -> dict[st
         "sqlcipher_payloads": len(payload_rows),
         "main_data": payload.name.lower() == "main.data",
         "dbc": payload.suffix.lower() == ".dbc",
+        "android_sqlcipher_db": is_android_lved_sqlcipher_payload(payload),
         "res_dir": (package / "res").is_dir(),
     }
     return _deferred_family_common(
         dict_id=dict_id,
-        title="",
+        title=android_info.title if android_info is not None else "",
         package_path=package,
         package_family=PackageFamily.LVED_SQLCIPHER,
-        platform=PlatformWrapper.WINDOWS,
+        platform=PlatformWrapper.ANDROID if is_android_lved_sqlcipher_payload(payload) else PlatformWrapper.WINDOWS,
         body_source=BodySource.LVED_SQLCIPHER,
         markers=markers,
         families={"lved": report},

@@ -127,6 +127,11 @@ and non-SSED reader status are tracked separately in
   local `.key` validation, and full local corpus schema/feature inspection for
   73 SQLCipher payloads. Toolkit support treats `LVED_SQLITE3` as a separate
   SQLite-backed family rather than a failed SSED/HONMON package.
+- Android package support now covers both observed Android forms:
+  `LVEDINFO`/`HONMON.DIW` SSED packages and Android hidden-package
+  `DICT.db` SQLCipher payloads with `dictinfo.xml` title/key metadata. Android
+  runtime font references are external dependencies, not unresolved dictionary
+  resources.
 - `scan` title discovery now covers SSED, LVED_SQLITE3, LVLMultiView, and
   Hourei rows. Encrypted LVED_SQLITE3 scan titles use the local `.key` file and
   a bounded page-level SQLite probe over title-bearing `info` rows instead of a

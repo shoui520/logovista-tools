@@ -58,6 +58,14 @@ def make_lved_package(root: Path, name: str) -> Path:
     return package
 
 
+def make_android_lved_package(root: Path, name: str) -> Path:
+    package = root / "SQLite" / f".{name}"
+    (package / "resource").mkdir(parents=True)
+    (package / f"{name}.db").write_bytes(bytes(range(256)) * 16)
+    (package / "resource" / "conf.ini").write_text("[dict]\n", encoding="utf-8")
+    return package
+
+
 def make_multiview_package(root: Path, name: str) -> Path:
     package = root / f"_DCT_{name}"
     package.mkdir()
@@ -91,6 +99,7 @@ def make_hourei_package(root: Path) -> Path:
 
 def test_discover_package_model_targets_classifies_deferred_families(tmp_path: Path) -> None:
     make_lved_package(tmp_path, "TESTLVED")
+    make_android_lved_package(tmp_path, "TESTANDROID")
     make_multiview_package(tmp_path, "TESTMULTI")
     make_hourei_package(tmp_path)
 
@@ -98,6 +107,7 @@ def test_discover_package_model_targets_classifies_deferred_families(tmp_path: P
     by_id = {target.dict_id: target for target in targets}
 
     assert by_id["TESTLVED"].family_hint == "lved_sqlcipher"
+    assert by_id["TESTANDROID"].family_hint == "lved_sqlcipher"
     assert by_id["TESTMULTI"].family_hint == "multiview_sqlite"
     assert by_id["HOUREI"].family_hint == "hourei_sqlite"
 

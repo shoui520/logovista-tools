@@ -87,26 +87,30 @@ logovista-tools scan /path/to/LogoVista --json
 
 The scanner uses the shared package-target discovery layer. It detects:
 
-- SSED packages by parseable `.IDX` / `.idx` files with `SSEDINFO` catalogs,
-- `LVED_SQLITE3` payloads by `main.data` / `.dbc` files and lightweight payload
+- SSED packages by parseable `.IDX` / `.idx` files with `SSEDINFO` or Android
+  `LVEDINFO` catalogs,
+- `LVED_SQLITE3` payloads by `main.data` / `.dbc` files, plus Android
+  hidden-package `DICT.db` SQLCipher payloads, using lightweight payload
   classification,
 - LVLMultiView packages by `menuData.xml` plus `*lvdat` / `*lvbat` payloads,
 - LogoVista電子法令 Professional / Hourei packages by `_DataBase/hore_base.db`,
   `_DataBase/hore_search_a.db`, `_DataBase/horejo_base.db`, and
   `_Programs/LVMultiView.exe`.
 
-SSED rows include `HONMON.DIC` / `HONMON.DIN` readiness where available. Mac
-OS X packages that declare `HONMON.DIN` but store an extensionless ZipCrypto
-`HONMON` wrapper are resolved automatically when the package has the observed
-eight-hex renderer/index stem needed for the `casKet<stem>` password.
-Rows for SSED, LVED_SQLITE3, LVLMultiView, and Hourei include a `title` and
-`title_source` in JSON output. LVED_SQLITE3 title probing reads plaintext
-SQLite directly. Encrypted LVED_SQLITE3 payloads are probed with the local
-`.key` file by decrypting only the SQLite pages needed to read title-bearing
-`info` rows; `scan` does not decrypt the whole payload by default. Use
-`--decode-titles` only to allow a slow full-decrypt fallback if the bounded
-page-level probe cannot identify a title. Use `lved --inspect-sqlite` when you
-need full decrypted schema or feature inspection with local keys.
+SSED rows include `HONMON.DIC`, `HONMON.DIN`, and Android `HONMON.DIW`
+readiness where available. Mac OS X packages that declare `HONMON.DIN` but
+store an extensionless ZipCrypto `HONMON` wrapper are resolved automatically
+when the package has the observed eight-hex renderer/index stem needed for the
+`casKet<stem>` password. Rows for SSED, LVED_SQLITE3, LVLMultiView, and Hourei
+include a `title` and `title_source` in JSON output. LVED_SQLITE3 title probing
+reads plaintext SQLite directly. Encrypted desktop LVED_SQLITE3 payloads are
+probed with the local `.key` file by decrypting only the SQLite pages needed to
+read title-bearing `info` rows; Android SQLCipher packages use viewer
+`dictinfo.xml` metadata for title and key derivation. `scan` does not decrypt
+the whole payload by default. Use `--decode-titles` only to allow a slow
+full-decrypt fallback if the bounded page-level probe cannot identify a title.
+Use `lved --inspect-sqlite` when you need full decrypted schema or feature
+inspection with local keys or Android metadata.
 Use `profile` when you need a redacted inventory that also records incomplete
 packages with missing body components or missing declared components.
 
@@ -645,9 +649,10 @@ file.
 ### `lved`
 
 Inspect modern LogoVista `LVED_SQLITE3` packages whose body data lives in
-SQLCipher `main.data` or `.dbc` payloads rather than SSED/HONMON. The command
-keeps the historical `lved` name, but the format distinction is the decrypted
-SQLite3 data model rather than the viewer executable name.
+SQLCipher `main.data`, `.dbc`, or Android hidden-package `DICT.db` payloads
+rather than SSED/HONMON. The command keeps the historical `lved` name, but the
+format distinction is the decrypted SQLite3 data model rather than the viewer
+executable name.
 
 ```bash
 logovista-tools lved /path/to/lved-sqlite3-corpus --json
@@ -683,9 +688,16 @@ or exactly one `.key` file in the payload directory, the command uses that key
 automatically for validation and `--write-decrypted`. Reports include only the
 key file name/match rule, never the key text.
 
+For Android SQLCipher packages, the command can also use nearby viewer
+`dictinfo.xml` metadata. The metadata supplies the numeric dictionary id,
+dictionary code, title, and font references; the derived key is tested locally
+but never emitted. Android font names are reported as external runtime
+dependencies, not as missing dictionary resources.
+
 `--write-decrypted` requires exactly one discovered payload and a local `.key`,
-`--dict-id`, or `--key-file`. Memory dumps can validate candidates, but the
-command does not use memory-dump-only recovery to write decrypted output.
+Android `dictinfo.xml` metadata, `--dict-id`, or `--key-file`. Memory dumps can
+validate candidates, but the command does not use memory-dump-only recovery to
+write decrypted output.
 
 Report fields include payload classification, size, SHA-256, sampled entropy,
 inferred dictionary code, and key-validation status. With `--inspect-sqlite`,

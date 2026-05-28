@@ -6,8 +6,9 @@ SSED/HONMON dictionaries documented elsewhere in this repository. The toolkit
 still uses `lved` as the command/module shorthand because recovered viewer
 names and older reports use LVED-related names, but LogoVista also reused
 `lved` internally for older SSED-era viewers. In this document, the useful
-format claim is therefore the storage model: SQLCipher `main.data` / `*.dbc`
-payloads that decrypt to ordinary SQLite3 databases.
+format claim is therefore the storage model: SQLCipher `main.data`, `*.dbc`,
+or Android hidden-package `DICT.db` payloads that decrypt to ordinary SQLite3
+databases.
 
 Observed corpus shape:
 
@@ -23,7 +24,9 @@ The full-corpus schema/feature summary lives in
 The payload is not `SSEDINFO`, not `SSEDDATA`, and not an expanded HONMON body
 stream. The observed files have these traits:
 
-- filename `main.data` in Windows packages or `*.dbc` in mobile packages;
+- filename `main.data` in desktop packages, `*.dbc` in some mobile packages,
+  or Android hidden-package `DICT.db` with `resource/conf.ini` /
+  `resource/property.data`;
 - size is a multiple of 4096 bytes;
 - first bytes do not contain the plaintext `SQLite format 3` header;
 - entropy is close to random data;
@@ -54,7 +57,10 @@ sqlite3_column_blob
 ```
 
 The viewer opens the dictionary main data path, derives a SQLCipher key from
-dictionary metadata, and passes that key to `sqlite3_key`.
+dictionary metadata, and passes that key to `sqlite3_key`. Android packages
+store the required numeric dictionary id and dictionary code in viewer
+`dictinfo.xml`; local `.key` files are analysis conveniences, not dictionary
+resources.
 
 The observed key construction is deterministic and is implemented by
 `derive_lved_sqlcipher_key(dict_id, dict_code)`:

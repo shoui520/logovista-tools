@@ -5,6 +5,8 @@ from pathlib import Path
 from logovista_tools.cli import cmd_lved
 from logovista_tools.decoded_model import dump_package_model_for_path
 from logovista_tools.lved import (
+    android_dictinfo_for_payload,
+    discover_lved_payloads,
     discover_lved_key_file,
     derive_lved_sqlcipher_key,
     infer_lved_dict_code,
@@ -13,7 +15,9 @@ from logovista_tools.lved import (
     inspect_lved_retained_resources,
     inspect_lved_sqlite_database,
     inspect_lved_roots,
+    is_android_lved_sqlcipher_payload,
     is_lved_payload_name,
+    lved_payload_title,
     lved_sqlite_database_title,
     render_lved_sqlite_showcase,
     search_lved_sqlite_database,
@@ -26,6 +30,62 @@ def test_lved_payload_name_detection() -> None:
     assert is_lved_payload_name(Path("OXFPEU4.dbc"))
     assert not is_lved_payload_name(Path("main.data:Zone.Identifier"))
     assert not is_lved_payload_name(Path("HONMON.DIC"))
+
+
+def test_android_lved_payload_discovery_and_dictinfo_metadata(tmp_path) -> None:
+    package = tmp_path / "SQLite" / ".HAIKSAI5"
+    (package / "resource").mkdir(parents=True)
+    payload = package / "HAIKSAI5.db"
+    payload.write_bytes(bytes(range(256)) * 16)
+    (package / "resource" / "conf.ini").write_text("[dict]\n", encoding="utf-8")
+    dictinfo = tmp_path / "android viewer" / "decomp" / "res" / "xml" / "dictinfo.xml"
+    dictinfo.parent.mkdir(parents=True)
+    dictinfo.write_text(
+        """
+        <dicts>
+          <dict id="825">
+            <code>HAIKSAI5</code>
+            <name>HAIKSAI5</name>
+            <title>角川 合本俳句歳時記 第五版</title>
+            <font>android-font.ttf</font>
+          </dict>
+        </dicts>
+        """,
+        encoding="utf-8",
+    )
+
+    assert is_android_lved_sqlcipher_payload(payload)
+    assert is_lved_payload_name(payload)
+    assert discover_lved_payloads([tmp_path]) == [payload.resolve()]
+    assert infer_lved_dict_code(payload) == "HAIKSAI5"
+    assert lved_payload_title(payload) == ("角川 合本俳句歳時記 第五版", "android_dictinfo")
+    info = android_dictinfo_for_payload(payload)
+    assert info is not None
+    assert info.dict_id == 825
+    assert info.fonts == ("android-font.ttf",)
+
+
+def test_android_lved_inspection_uses_dictinfo_key_without_emitting_key(tmp_path) -> None:
+    package = tmp_path / "SQLite" / ".SSKOKU10"
+    (package / "resource").mkdir(parents=True)
+    payload = package / "SSKOKU10.db"
+    payload.write_bytes(bytes(range(256)) * 16)
+    (package / "resource" / "property.data").write_bytes(b"")
+    dictinfo = tmp_path / "dictinfo.xml"
+    dictinfo.write_text(
+        "<dicts><dict id=\"827\"><code>SSKOKU10</code><title>新選国語辞典 第十版</title></dict></dicts>",
+        encoding="utf-8",
+    )
+
+    report = inspect_lved_roots([tmp_path], jobs=1)
+    rendered = json.dumps(report, ensure_ascii=False)
+    row = report["payloads"][0]
+
+    assert row["kind"] == "android.db"
+    assert row["android_dictinfo"]["dict_id"] == 827
+    assert row["android_dictinfo"]["dict_code"] == "SSKOKU10"
+    assert row["validation"][0]["source"] == "android_dictinfo_metadata"
+    assert derive_lved_sqlcipher_key(827, "SSKOKU10") not in rendered
 
 
 def test_infer_lved_dict_code() -> None:

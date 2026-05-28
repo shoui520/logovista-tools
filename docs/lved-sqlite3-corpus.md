@@ -12,7 +12,9 @@ or dictionary row text is committed.
 
 ## Corpus Shape
 
-The inspected corpus contains 73 `main.data` / `*.dbc` payloads.
+The inspected desktop corpus contains 73 `main.data` / `*.dbc` payloads. A
+separate Android pass observed hidden-package `DICT.db` SQLCipher payloads that
+use the same decrypted SQLite3 table model and viewer metadata key derivation.
 
 All 73:
 
@@ -538,3 +540,28 @@ end-user behavior. Still open:
 
 These are the next SQLCipher-specific targets before claiming a usable
 `LVED_SQLITE3` reader path.
+
+## Android LVED_SQLITE3
+
+Android `LVED_SQLITE3` packages use a different outer layout from desktop
+packages, but the decrypted payload is the same reader-facing SQLite3 family.
+The observed Android shape is:
+
+```text
+.DICTCODE/
+  DICTCODE.db
+  resource/conf.ini or resource/property.data
+  resource/...
+  manual/...
+```
+
+The Android viewer `dictinfo.xml` supplies the numeric dictionary id,
+dictionary code, title, and runtime font names. `logovista-tools` uses that
+metadata to derive and validate the SQLCipher key when no local `.key` file is
+present. The derived key is not emitted in reports.
+
+In the Android-exclusive pass, all observed `DICTCODE.db` SQLCipher payloads
+opened with this metadata-derived key and exposed the core LVED tables:
+`list`, `content`, `media`, `info`, `search`, and FTS shadow tables. Some also
+include `sound`. Android font names are external viewer dependencies and are
+not counted as unresolved dictionary resources.

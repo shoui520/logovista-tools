@@ -77,12 +77,14 @@ from .hourei import (
 from .indexes import extract_indexes_for_idx
 from .ir import extract_ir_for_args
 from .lved import (
+    android_dictinfo_for_payload,
     classify_lved_payload,
     decrypt_lved_sqlcipher4_to_path,
     derive_lved_sqlcipher_key,
     discover_lved_key_file,
     infer_lved_dict_code,
     inspect_lved_roots,
+    is_android_lved_sqlcipher_payload,
     lved_payload_title,
     read_lved_key_file,
 )
@@ -291,7 +293,13 @@ def cmd_scan(args: argparse.Namespace) -> int:
                     "title_source": title_source,
                     "path": str(target.path),
                     "payload": str(target.path),
-                    "payload_kind": "dbc" if target.path.suffix.lower() == ".dbc" else "main.data",
+                    "payload_kind": (
+                        "android.db"
+                        if is_android_lved_sqlcipher_payload(target.path)
+                        else "dbc"
+                        if target.path.suffix.lower() == ".dbc"
+                        else "main.data"
+                    ),
                     "classification": classification,
                     "size": stat.st_size,
                     "scan_status": "detected" if error is None else "error",
@@ -457,14 +465,22 @@ def cmd_lved(args: argparse.Namespace) -> int:
             if local_key is not None:
                 decrypt_key = read_lved_key_file(local_key.path)
             else:
-                if args.dict_id is None:
-                    print("--write-decrypted requires --dict-id, --key-file, or a local .key beside the payload", file=sys.stderr)
-                    return 1
-                code = args.dict_code or payloads[0].get("inferred_dict_code")
-                if not code:
-                    print("--write-decrypted requires --dict-code when it cannot be inferred", file=sys.stderr)
-                    return 1
-                decrypt_key = derive_lved_sqlcipher_key(args.dict_id, code)
+                android_info = android_dictinfo_for_payload(Path(payloads[0]["path"]))
+                if android_info is not None:
+                    decrypt_key = derive_lved_sqlcipher_key(android_info.dict_id, android_info.dict_code)
+                else:
+                    if args.dict_id is None:
+                        print(
+                            "--write-decrypted requires --dict-id, --key-file, a local .key beside the payload, "
+                            "or Android dictinfo.xml metadata",
+                            file=sys.stderr,
+                        )
+                        return 1
+                    code = args.dict_code or payloads[0].get("inferred_dict_code")
+                    if not code:
+                        print("--write-decrypted requires --dict-code when it cannot be inferred", file=sys.stderr)
+                        return 1
+                    decrypt_key = derive_lved_sqlcipher_key(args.dict_id, code)
         written = decrypt_lved_sqlcipher4_to_path(
             Path(payloads[0]["path"]),
             args.write_decrypted,

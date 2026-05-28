@@ -14,6 +14,7 @@ import re
 import sqlite3
 import shutil
 import struct
+import xml.etree.ElementTree as ET
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -129,6 +130,15 @@ class LvedKeyFile:
 
 
 @dataclass(frozen=True)
+class AndroidDictInfo:
+    dict_id: int
+    dict_code: str
+    title: str
+    name: str
+    fonts: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class LvedTextTreeRow:
     line_no: int
     raw_target: str
@@ -184,7 +194,36 @@ def is_lved_payload_name(path: Path) -> bool:
     name = path.name.lower()
     if name.endswith(":zone.identifier"):
         return False
-    return name == "main.data" or name.endswith(".dbc")
+    return name == "main.data" or name.endswith(".dbc") or is_android_lved_sqlcipher_payload(path)
+
+
+def _normalise_lved_dict_code(value: str) -> str:
+    return value.strip().removeprefix("_DCT_").lstrip(".").upper()
+
+
+def is_android_lved_sqlcipher_payload(path: Path) -> bool:
+    """Return true for Android LVED_SQLITE3 ``.db`` payload layout.
+
+    Android packages also contain plaintext SSED helper databases, so this
+    deliberately requires the modern Android package resource marker rather
+    than accepting every same-name ``.db`` in a hidden directory.
+    """
+
+    if path.suffix.casefold() != ".db" or path.name.casefold() == "thumbs.db":
+        return False
+    parent_code = _normalise_lved_dict_code(path.parent.name)
+    if not parent_code or _normalise_lved_dict_code(path.stem) != parent_code:
+        return False
+    try:
+        stat = path.stat()
+        with path.open("rb") as handle:
+            header = handle.read(16)
+    except OSError:
+        return False
+    if stat.st_size % LVED_SQLCIPHER_PAGE_SIZE or header == b"SQLite format 3\x00":
+        return False
+    resource = path.parent / "resource"
+    return (resource / "conf.ini").is_file() or (resource / "property.data").is_file()
 
 
 def discover_lved_payloads(roots: Iterable[Path]) -> list[Path]:
@@ -207,14 +246,117 @@ def discover_lved_payloads(roots: Iterable[Path]) -> list[Path]:
 
 
 def infer_lved_dict_code(path: Path) -> str | None:
+    if is_android_lved_sqlcipher_payload(path):
+        return _normalise_lved_dict_code(path.stem)
     if path.suffix.lower() == ".dbc":
         return path.stem.upper()
     for part in (path.parent.name, path.parent.parent.name if path.parent.parent else ""):
-        upper = part.upper()
+        upper = _normalise_lved_dict_code(part)
         if upper.startswith("_DCT_") and len(upper) > 5:
             return upper[5:]
         if re.fullmatch(r"[A-Z0-9]{4,16}", upper) and upper not in {"DIC", "DATA"}:
             return upper
+    return None
+
+
+def parse_android_dictinfo(path: Path) -> dict[str, AndroidDictInfo]:
+    """Parse Android viewer ``dictinfo.xml`` metadata keyed by dictionary code."""
+
+    tree = ET.parse(path)
+    root = tree.getroot()
+    rows: dict[str, AndroidDictInfo] = {}
+    for element in root.iter():
+        if element.tag.casefold() != "dict":
+            continue
+        code = _normalise_lved_dict_code(element.findtext("code") or element.get("code") or "")
+        raw_id = element.get("id") or element.findtext("id") or ""
+        if not code or not raw_id:
+            continue
+        try:
+            dict_id = int(raw_id)
+        except ValueError:
+            continue
+        title = (element.findtext("title") or element.findtext("name") or "").strip()
+        name = (element.findtext("name") or title).strip()
+        fonts = tuple(
+            value.strip()
+            for value in (
+                element.findtext("font"),
+                element.findtext("multi_font"),
+                element.findtext("font_bold"),
+            )
+            if value and value.strip()
+        )
+        rows[code] = AndroidDictInfo(dict_id=dict_id, dict_code=code, title=title, name=name, fonts=fonts)
+    return rows
+
+
+def _candidate_android_dictinfo_bases(path: Path) -> list[Path]:
+    seed = path if path.is_dir() else path.parent
+    bases: list[Path] = []
+    current = seed
+    for _ in range(4):
+        bases.append(current)
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return bases
+
+
+def discover_android_dictinfo_files(roots: Iterable[Path]) -> list[Path]:
+    """Find nearby Android ``dictinfo.xml`` files without hardcoded corpus paths."""
+
+    seen: set[Path] = set()
+    found: list[Path] = []
+    for root in roots:
+        candidates: list[Path] = []
+        if root.is_file() and root.name.casefold() == "dictinfo.xml":
+            candidates.append(root)
+        for base in _candidate_android_dictinfo_bases(root):
+            if not base.exists():
+                continue
+            if base.is_file() and base.name.casefold() == "dictinfo.xml":
+                candidates.append(base)
+                continue
+            if not base.is_dir():
+                continue
+            direct = base / "dictinfo.xml"
+            if direct.is_file():
+                candidates.append(direct)
+            # Only recurse into plausible Android corpus/package roots.  This
+            # keeps direct payload inspection fast and prevents accidental home
+            # directory walks when callers pass a broad parent.
+            try:
+                child_names = {child.name.casefold() for child in base.iterdir()}
+            except OSError:
+                child_names = set()
+            if {"sqlite", "ssed"} & child_names or base.name.casefold() in {"android viewer", "resources", "res", "xml"}:
+                candidates.extend(path for path in base.rglob("dictinfo.xml") if path.is_file())
+        for candidate in candidates:
+            try:
+                resolved = candidate.resolve()
+            except OSError:
+                resolved = candidate
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            found.append(resolved)
+    return sorted(found, key=lambda item: str(item))
+
+
+def android_dictinfo_for_payload(path: Path) -> AndroidDictInfo | None:
+    code = infer_lved_dict_code(path)
+    if not code:
+        return None
+    for info_path in discover_android_dictinfo_files([path]):
+        try:
+            rows = parse_android_dictinfo(info_path)
+        except (ET.ParseError, OSError):
+            continue
+        row = rows.get(code)
+        if row is not None:
+            return row
     return None
 
 
@@ -817,6 +959,10 @@ def lved_payload_title(path: Path, *, full_decode_sqlcipher: bool = False) -> tu
         return title, "plaintext_sqlite_info" if title else "plaintext_sqlite_no_title"
     if classification != "sqlcipher_lved_candidate":
         return None, f"{classification}_no_title"
+
+    android_info = android_dictinfo_for_payload(path)
+    if android_info is not None and android_info.title:
+        return android_info.title, "android_dictinfo"
 
     key_file = discover_lved_key_file(path)
     if key_file is None:
@@ -3164,9 +3310,15 @@ def inspect_lved_payload(path: Path) -> LvedPayload:
     size = path.stat().st_size
     with path.open("rb") as handle:
         header = handle.read(32)
+    if is_android_lved_sqlcipher_payload(path):
+        kind = "android.db"
+    elif path.suffix.lower() == ".dbc":
+        kind = "dbc"
+    else:
+        kind = "main.data"
     return LvedPayload(
         path=path,
-        kind="dbc" if path.suffix.lower() == ".dbc" else "main.data",
+        kind=kind,
         size=size,
         pages_4096=size // LVED_SQLCIPHER_PAGE_SIZE,
         mod_4096=size % LVED_SQLCIPHER_PAGE_SIZE,
@@ -3358,6 +3510,25 @@ def _inspect_lved_payload_task(
         "validation": [],
     }
     validation_keys: list[tuple[str, str]] = []
+    android_info = android_dictinfo_for_payload(path)
+    if android_info is not None:
+        row["android_dictinfo"] = {
+            "detected": True,
+            "dict_id": android_info.dict_id,
+            "dict_code": android_info.dict_code,
+            "title": android_info.title,
+            "name": android_info.name,
+            "fonts": list(android_info.fonts),
+            "key_derivation": "lved_sqlcipher_metadata",
+        }
+        validation_keys.append(
+            (
+                "android_dictinfo_metadata",
+                derive_lved_sqlcipher_key(android_info.dict_id, android_info.dict_code),
+            )
+        )
+    else:
+        row["android_dictinfo"] = {"detected": False}
     if explicit_key:
         validation_keys.append(("explicit_key", explicit_key))
     key_file = discover_lved_key_file(path)

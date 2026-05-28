@@ -8,7 +8,7 @@ The `.IDX` file is the catalog for the compressed components. It starts with:
 
 ```text
 offset  size  meaning
-0x00    8     ASCII magic: SSEDINFO
+0x00    8     ASCII magic: SSEDINFO; Android SSED packages can use LVEDINFO
 0x0c    1     dictionary title byte length
 0x0d    var   CP932 dictionary title
 0x4d    1     component count
@@ -42,10 +42,14 @@ layout is unchanged. These packages have absent declared component files and
 readable data in LogoFontCipher-encrypted SQLite payloads; see
 [LVLMultiView Packages](multiview.md).
 
+Observed Android SSED packages may use `LVEDINFO` as the catalog magic while
+keeping the normal SSEDINFO record layout. This is an Android wrapper marker,
+not the modern `LVED_SQLITE3` SQLCipher package family by itself.
+
 Component types observed so far:
 
 ```text
-0x00  HONMON.DIC / HONMON.DIN body/main text component
+0x00  HONMON.DIC / HONMON.DIN / HONMON.DIW body/main text component
 0x01  MENU.DIC
 0x03  KWTITLE.DIC
 0x04  FKTITLE.DIC
@@ -91,7 +95,8 @@ The exact semantic names vary by dictionary, but the broad pattern is stable:
 title components store readable headword/title streams, index components store
 binary search data and pointers, and the type-`0x00` HONMON component often
 stores bodies. Windows packages normally name this component `HONMON.DIC`;
-observed Mac OS X SSED packages can name the same component `HONMON.DIN`.
+observed Mac OS X SSED packages can name the same component `HONMON.DIN`;
+observed Android SSED packages can name it `HONMON.DIW`.
 `NKGORIN2` additionally stores the declared `HONMON.DIN` as a ZipCrypto member
 inside an extensionless package file named `HONMON`; after archive unwrapping,
 the member decrypts/expands as ordinary Mac LogoFontCipher `SSEDDATA`.
@@ -173,6 +178,11 @@ variants are currently documented:
   IV;
 - the observed Mac OS X SSED `HONMON.DIN` variant uses the first 16 ASCII bytes
   of the SHA-256 hex digest as the AES-128 key and a zero IV.
+- the observed Android SSED `HONMON.DIW` variant uses the Android viewer's
+  BouncyCastle `PBEWITHSHAAND256BITAES-CBC-BC` key derivation with password
+  `resworbncidnatsivogol--emulator`, then AES/CBC/PKCS5Padding. The decrypted
+  bytes are wrapped as `LV_` + `SSEDDATA` and include a two-byte alignment pad
+  before the chunk-offset table.
 
 Both variants use PKCS#7 padding when padding is present. Readers should
 validate that decrypted bytes start with `SSEDDATA` before treating the payload

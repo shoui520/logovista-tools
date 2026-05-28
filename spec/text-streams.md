@@ -2,12 +2,13 @@
 
 Expanded `HONMON.DIC` / `HONMON.DIN`, entry slicing, dense HONMON tables, database-backed body payloads, and outliers.
 
-## Expanded `HONMON.DIC` / `HONMON.DIN`
+## Expanded `HONMON.DIC` / `HONMON.DIN` / `HONMON.DIW`
 
 After SSED expansion, the main body component is not Shift-JIS and not UTF-8.
 Windows packages normally name it `HONMON.DIC`; the observed Mac OS X SSED
-package names the same type of component `HONMON.DIN`. The expanded payload is
-an EPWING/JIS-like stream.
+package names the same type of component `HONMON.DIN`; observed Android SSED
+packages can name it `HONMON.DIW`. The expanded payload is an EPWING/JIS-like
+stream after any platform wrapper encryption is removed.
 
 One observed Mac OS X package (`NKGORIN2`) declares `HONMON.DIN` in `SSEDINFO`
 but stores the component on disk as an extensionless ZipCrypto wrapper named
@@ -16,6 +17,10 @@ from the product's eight-hex renderer/index stem as `casKet<stem>` (for
 `NKGORIN2`, `casKet0000012e`). After unwrapping, the member is still the normal
 Mac LogoFontCipher AES-CBC `SSEDDATA` payload and follows the same expansion
 rules as other `HONMON.DIN` files.
+
+Observed Android `HONMON.DIW` decrypts to the same `SSEDDATA` grammar with an
+Android wrapper prefix/pad. The expanded text stream is handled like ordinary
+HONMON after decryption.
 
 Text is mostly JIS X 0208 pairs:
 

@@ -55,7 +55,9 @@ material around the raw core:
 NoPlatform raw SSED core plus portable resource dirs such as res/, resources/,
           templates/, img/; no reader-specific EXINFO/HC/vlpljbl/plist sidecars
 iOS       DictList.plist, Gaiji.plist, GaijiS.plist, img/, html/, *.sql
-Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
+Android   LVEDINFO `.IDX` catalogs, encrypted `HONMON.DIW`, plaintext helper
+          `DICT.db` / `DICT_indexinfo.db`, resource/conf.ini,
+          resource/kmkimges/, manual/, innerdata/
 Windows   EXINFO.INI, DICPROF.INI, HC*.dll, Templates/, HANREI/,
           SPINDEX.DIC, vlpljbl*, *.chm
 Mac OS X  EXINFO.INI, root `hanrei.html` plus `*_HELP.localized` help bundles,
@@ -69,8 +71,9 @@ Separate non-SSED package families include:
 
 ```text
 LVED_SQLITE3
-          main.data / *.dbc SQLCipher payloads, WebView2 viewer files,
-          SQLCipher runtime and plugin/assembly resources
+          main.data / *.dbc SQLCipher payloads, Android `.DICT/DICT.db`
+          SQLCipher payloads with dictinfo.xml metadata, WebView2 viewer
+          files, SQLCipher runtime and plugin/assembly resources
 MultiView SSEDINFO-like *.IDX facade, menuData.xml, LOGOVISTAMULTIVIEW,
           *lvbat/*lvdat LogoFontCipher SQLite payloads, Templates/, Resources/
 Hourei    LogoVista電子法令 Professional plain SQLite law-browser layout with
@@ -80,13 +83,15 @@ Hourei    LogoVista電子法令 Professional plain SQLite law-browser layout wit
 ## LVED_SQLITE3
 
 Observed `LVED_SQLITE3` products are a separate package family. Their primary
-payloads are SQLCipher databases such as `main.data` or `.dbc`, not SSED
-`HONMON.DIC` streams. `logovista-tools` classifies and inspects those packages
-separately instead of forcing them into the SSED model. Some payload
-directories retain SSED-style indexes/resources, so those parsers must remain
-available as feature providers when present. The public format notes for this
-family live in [LVED_SQLITE3 Packages](../spec/lved-main-data.md), with corpus
-findings in [LVED_SQLITE3 Corpus Findings](lved-sqlite3-corpus.md).
+payloads are SQLCipher databases such as `main.data`, `.dbc`, or Android
+hidden-package `DICT.db` files, not SSED `HONMON.DIC` streams.
+`logovista-tools` classifies and inspects those packages separately instead of
+forcing them into the SSED model. Android SQLCipher packages use viewer
+`dictinfo.xml` metadata for title and key derivation when no local `.key` file
+is present. Some payload directories retain SSED-style indexes/resources, so
+those parsers must remain available as feature providers when present. The
+public format notes for this family live in [LVED_SQLITE3 Packages](../spec/lved-main-data.md),
+with corpus findings in [LVED_SQLITE3 Corpus Findings](lved-sqlite3-corpus.md).
 
 ## LVLMultiView
 

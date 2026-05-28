@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import math
 import tempfile
 import zipfile
 from dataclasses import dataclass
@@ -30,9 +31,16 @@ CHUNK_SIZE = 0x8000
 WINDOW_SIZE = 0xFF0
 SSEDDATA_MAGIC = b"SSEDDATA"
 SSEDINFO_MAGIC = b"SSEDINFO"
+ANDROID_LVEDINFO_MAGIC = b"LVEDINFO"
 
-HONMON_COMPONENT_NAMES = {"HONMON.DIC", "HONMON.DIN", "HONMON"}
+HONMON_COMPONENT_NAMES = {"HONMON.DIC", "HONMON.DIN", "HONMON.DIW", "HONMON"}
 MAC_HONMON_ZIP_PASSWORD_PREFIX = "casKet"
+ANDROID_DIW_PREFIX = b"LV_"
+ANDROID_DIW_PASSWORD = "resworbncidnatsivogol--emulator"
+ANDROID_DIW_IV = bytes.fromhex("24c015a337a525ae70d000cf0a41eb40")
+ANDROID_DIW_SALT = bytes(
+    [0xE4, 0x4D, 0x20, 0x8A, 0x8F, 0xDB, 0x4A, 0xD4, 0x1F, 0x58, 0xDD, 0xE7, 0x61, 0x8B, 0xC8, 0x8F, 0xE1, 0x34, 0xAC, 0x6D]
+)
 
 
 def read_file_prefix(path: Path, size: int) -> bytes:
@@ -258,7 +266,7 @@ def _parse_ssedinfo_records(
 
 def parse_ssedinfo_with_layout(path: Path) -> tuple[str, list[SsedInfoElement], SsedInfoLayout]:
     data = path.read_bytes()
-    if data[:8] != SSEDINFO_MAGIC:
+    if data[:8] not in {SSEDINFO_MAGIC, ANDROID_LVEDINFO_MAGIC}:
         raise ValueError(f"not SSEDINFO: {path}")
 
     title_len = data[12]
@@ -302,9 +310,106 @@ def is_sseddata_bytes(data: bytes) -> bool:
     return data[:8] == SSEDDATA_MAGIC
 
 
+def _pkcs12_password_bytes(password: str) -> bytes:
+    return password.encode("utf-16-be") + b"\x00\x00"
+
+
+def _pkcs12_adjust(blocks: bytearray, offset: int, block: bytes) -> None:
+    carry = block[-1] + blocks[offset + len(block) - 1] + 1
+    blocks[offset + len(block) - 1] = carry & 0xFF
+    carry >>= 8
+    for index in range(len(block) - 2, -1, -1):
+        carry += block[index] + blocks[offset + index]
+        blocks[offset + index] = carry & 0xFF
+        carry >>= 8
+
+
+def _repeat_to_block_multiple(data: bytes, block_size: int) -> bytes:
+    if not data:
+        return b""
+    length = block_size * math.ceil(len(data) / block_size)
+    return (data * (length // len(data) + 1))[:length]
+
+
+def _derive_android_diw_aes_key() -> bytes:
+    """Match BouncyCastle ``PBEWITHSHAAND256BITAES-CBC-BC`` key bytes."""
+
+    u = 20
+    v = 64
+    target_len = 32
+    diversifier = b"\x01" * v
+    salt = _repeat_to_block_multiple(ANDROID_DIW_SALT, v)
+    password = _repeat_to_block_multiple(_pkcs12_password_bytes(ANDROID_DIW_PASSWORD), v)
+    blocks = bytearray(salt + password)
+    out = bytearray()
+    for _round in range(math.ceil(target_len / u)):
+        digest = hashlib.sha1(diversifier + blocks).digest()
+        for _iteration in range(1023):
+            digest = hashlib.sha1(digest).digest()
+        out.extend(digest)
+        adjust = (digest * math.ceil(v / len(digest)))[:v]
+        for offset in range(0, len(blocks), v):
+            _pkcs12_adjust(blocks, offset, adjust)
+    return bytes(out[:target_len])
+
+
+def _android_diw_cipher():
+    try:
+        from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ValueError("Android HONMON.DIW decryption requires the cryptography package") from exc
+    return Cipher(
+        algorithms.AES(_derive_android_diw_aes_key()),
+        modes.CBC(ANDROID_DIW_IV),
+        backend=default_backend(),
+    )
+
+
+def decrypt_android_diw_bytes(data: bytes) -> bytes:
+    """Decrypt Android ``HONMON.DIW`` into an SSEDDATA byte stream."""
+
+    if len(data) % 16:
+        raise ValueError("Android HONMON.DIW length is not an AES block multiple")
+    decryptor = _android_diw_cipher().decryptor()
+    decrypted = decryptor.update(data) + decryptor.finalize()
+    pad = decrypted[-1] if decrypted else 0
+    if 0 < pad <= 16 and decrypted.endswith(bytes([pad]) * pad):
+        decrypted = decrypted[:-pad]
+    if decrypted.startswith(ANDROID_DIW_PREFIX):
+        decrypted = decrypted[len(ANDROID_DIW_PREFIX) :]
+    if (
+        decrypted.startswith(SSEDDATA_MAGIC)
+        and len(decrypted) >= 70
+        and int.from_bytes(decrypted[64:68], "big") == 0
+        and int.from_bytes(decrypted[66:70], "big") > 0
+    ):
+        decrypted = decrypted[:64] + decrypted[66:]
+    return decrypted
+
+
+def decrypt_android_diw_prefix(data: bytes, *, size: int = 64) -> bytes:
+    if len(data) < 16:
+        return b""
+    take = min(len(data), 16 * math.ceil((size + len(ANDROID_DIW_PREFIX)) / 16))
+    take -= take % 16
+    if take <= 0:
+        return b""
+    decryptor = _android_diw_cipher().decryptor()
+    decrypted = decryptor.update(data[:take])
+    if decrypted.startswith(ANDROID_DIW_PREFIX):
+        decrypted = decrypted[len(ANDROID_DIW_PREFIX) :]
+    return decrypted[:size]
+
+
 def sseddata_storage_for_bytes(data: bytes) -> str:
     if is_sseddata_bytes(data):
         return "plain"
+    try:
+        if decrypt_android_diw_prefix(data).startswith(SSEDDATA_MAGIC):
+            return "android_honmon_diw"
+    except ValueError:
+        pass
     try:
         if decrypt_logofont_cipher_prefix(data).startswith(SSEDDATA_MAGIC):
             return "logofont_cipher"
@@ -322,6 +427,12 @@ def sseddata_storage_for_file(path: Path) -> str:
 def load_sseddata_bytes(data: bytes) -> tuple[bytes, str]:
     if is_sseddata_bytes(data):
         return data, "plain"
+    try:
+        decrypted = decrypt_android_diw_bytes(data)
+        if is_sseddata_bytes(decrypted):
+            return decrypted, "android_honmon_diw"
+    except ValueError:
+        pass
     try:
         for storage, decrypt in (
             ("logofont_cipher", decrypt_logofont_cipher_bytes),
@@ -349,7 +460,9 @@ def parse_sseddata_header(path: Path) -> dict[str, int | bytes | str]:
     storage = "plain"
     if not is_sseddata_bytes(data):
         storage = sseddata_storage_for_bytes(data)
-        if storage == "logofont_cipher":
+        if storage == "android_honmon_diw":
+            data = decrypt_android_diw_prefix(read_file_prefix(path, BLOCK_SIZE), size=64)
+        elif storage == "logofont_cipher":
             data = decrypt_logofont_cipher_prefix(data, size=64)
         elif storage == "macos_logofont_cipher":
             data = decrypt_macos_logofont_cipher_prefix(data, size=64)
@@ -510,7 +623,7 @@ class SsedRandomReader:
 def command_info(args: argparse.Namespace) -> None:
     path = args.path
     data = read_file_prefix(path, 8)
-    if data == b"SSEDINFO":
+    if data in {SSEDINFO_MAGIC, ANDROID_LVEDINFO_MAGIC}:
         title, elements = parse_ssedinfo(path)
         print(f"title: {title}")
         print(f"elements: {len(elements)}")

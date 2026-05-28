@@ -31,7 +31,9 @@ NoPlatform raw SSED core plus portable resource dirs such as res/, resources/,
 iOS       DictList.plist, Gaiji.plist, GaijiS.plist, resourcesCopy.plist,
           gaijiicon.plist, img/, html/, OTHER/, *.sql; can also carry
           eight-hex auxiliary .idx trees
-Android   *.db, resource/conf.ini, resource/kmkimges/, manual/, innerdata/
+Android   LVEDINFO `.IDX`, encrypted `HONMON.DIW`, plaintext helper
+          `DICT.db` / `DICT_indexinfo.db`, resource/conf.ini,
+          resource/kmkimges/, manual/, innerdata/
 Windows   EXINFO.INI, HC*.dll, Templates/, HANREI/, SPINDEX.DIC,
           sibling *_GAIJI/, *.chm, vlpljbl*; some packages also carry
           DICPROF.INI
@@ -413,10 +415,11 @@ raw dictionary source, and using it alone loses format information.
 
 There is now a separately observed `LVED_SQLITE3` package family. These
 products do not expose a normal SSED/HONMON body core. Their `main.data`
-Windows payload or `.dbc` mobile payload is a SQLCipher page database and must
-be classified as that package family, not as a broken SSED dictionary. Some
-payload directories still carry SSED-style indexes/resources as auxiliary
-feature files. See [LVED_SQLITE3 Packages](lved-main-data.md).
+desktop payload, `.dbc` mobile payload, or Android hidden-package `DICT.db`
+payload is a SQLCipher page database and must be classified as that package
+family, not as a broken SSED dictionary. Some payload directories still carry
+SSED-style indexes/resources as auxiliary feature files. See
+[LVED_SQLITE3 Packages](lved-main-data.md).
 
 There is also an observed LVLMultiView package family. These packages expose an
 SSEDINFO-magic `.IDX` facade that declares normal-looking components, but the

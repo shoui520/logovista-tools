@@ -110,9 +110,12 @@ from logovista_tools.lvcrypto import (
     macos_logofont_cipher_key_iv,
 )
 from logovista_tools.ssed import (
+    ANDROID_DIW_IV,
     CaseFoldedDirectory,
     SsedRandomReader,
     SsedInfoElement,
+    _derive_android_diw_aes_key,
+    decrypt_android_diw_bytes,
     find_case_insensitive,
     iter_files_with_suffix,
     load_sseddata_bytes,
@@ -172,6 +175,16 @@ def test_macos_logofont_cipher_decrypts_pkcs7_payload() -> None:
     assert decrypt_macos_logofont_cipher_bytes(encrypted) == plaintext
     assert sseddata_storage_for_bytes(encrypted) == "macos_logofont_cipher"
     assert load_sseddata_bytes(encrypted) == (plaintext, "macos_logofont_cipher")
+
+
+def test_android_honmon_diw_decrypts_lved_wrapped_sseddata() -> None:
+    plaintext = _minimal_sseddata(b"android")
+    wrapped = b"LV_" + plaintext[:64] + b"\x00\x00" + plaintext[64:]
+    encrypted = _encrypt_android_diw(wrapped)
+
+    assert decrypt_android_diw_bytes(encrypted) == plaintext
+    assert sseddata_storage_for_bytes(encrypted) == "android_honmon_diw"
+    assert load_sseddata_bytes(encrypted) == (plaintext, "android_honmon_diw")
 
 
 def test_auto_decrypt_selects_macos_logofont_cipher(tmp_path) -> None:
@@ -256,6 +269,17 @@ def _encrypt_macos_logofont(payload: bytes) -> bytes:
     return encryptor.update(padded) + encryptor.finalize()
 
 
+def _encrypt_android_diw(payload: bytes) -> bytes:
+    pytest.importorskip("cryptography")
+    from cryptography.hazmat.primitives import padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    padder = padding.PKCS7(128).padder()
+    padded = padder.update(payload) + padder.finalize()
+    encryptor = Cipher(algorithms.AES(_derive_android_diw_aes_key()), modes.CBC(ANDROID_DIW_IV)).encryptor()
+    return encryptor.update(padded) + encryptor.finalize()
+
+
 def test_parse_ssedinfo_supports_shifted_multiview_catalog(tmp_path) -> None:
     title = "模範六法".encode("cp932")
     header = bytearray(0x7F)
@@ -278,6 +302,25 @@ def test_parse_ssedinfo_supports_shifted_multiview_catalog(tmp_path) -> None:
     assert layout.trailing_bytes == 4
     assert [element.filename for element in elements] == ["HONMON.DIC", "FKINDEX.DIC"]
     assert parse_ssedinfo(path)[1][1].type == 0x90
+
+
+def test_parse_ssedinfo_accepts_android_lvedinfo_catalog(tmp_path) -> None:
+    title = "Android辞書".encode("cp932")
+    header = bytearray(0x80)
+    header[:8] = b"LVEDINFO"
+    header[12] = len(title)
+    header[13 : 13 + len(title)] = title
+    header[0x4D] = 1
+    data = bytes(header)
+    data += _ssedinfo_record(type_byte=0x00, start=2, end=2, data=b"\x02\x00\x00\x00", filename=b"HONMON.DIW")
+    path = tmp_path / "ANDROID.IDX"
+    path.write_bytes(data)
+
+    parsed_title, elements, layout = parse_ssedinfo_with_layout(path)
+
+    assert parsed_title == "Android辞書"
+    assert elements[0].filename == "HONMON.DIW"
+    assert layout.component_count_offset == 0x4D
 
 
 def test_discover_dictionaries_accepts_macos_honmon_din(tmp_path) -> None:
