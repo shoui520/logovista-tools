@@ -28,6 +28,7 @@ from logovista_tools.entries import (
     tokens_to_html,
     tokens_to_text,
 )
+from logovista_tools.encyclopedia import parse_encyclopedia_index
 from logovista_tools.gaiji_report import (
     SqliteSource,
     TextTable,
@@ -2413,3 +2414,41 @@ def test_parse_multi_descriptor_records_and_component_refs() -> None:
     assert descriptor.records[0].refs[0].block_count == 0x1026
     assert descriptor.records[0].refs[1].component_type == 0xA1
     assert descriptor.records[0].refs[1].flags.hex() == "010000000003"
+
+
+def test_parse_multi_descriptor_models_embedded_component_slices() -> None:
+    data = bytearray(4096)
+    data[0:2] = (1).to_bytes(2, "big")
+    data[0x10:0x12] = bytes.fromhex("0100")
+    data[0x12:0x18] = bytes.fromhex("4331386c2331")
+    data[0x30:0x40] = bytes.fromhex("a1000000006500000001000000000000")
+    data[2048:2052] = b"\x00\x01\x02\x03"
+
+    descriptor = parse_multi_descriptor(bytes(data), gaiji="drop", parent_start_block=100)
+
+    assert descriptor.descriptor_bytes == 0x40
+    assert descriptor.embedded_components[0].component_type == 0xA1
+    assert descriptor.embedded_components[0].relative_start == 2048
+    assert descriptor.embedded_components[0].relative_end == 4096
+    assert descriptor.embedded_nonzero_bytes == 3
+    assert descriptor.unreferenced_nonzero_bytes == 0
+
+
+def test_parse_lvedbrsr_encyclopedia_index_sidecar(tmp_path: Path) -> None:
+    path = tmp_path / "encyclop.idx"
+    path.write_text(
+        "#LVEDBRSR encyclopedia#Ver.1.0 2008.01.07\t\t\n"
+        "#図・写真\t\t\n"
+        "00000000\t00000000\t図・写真\t\t\n"
+        "00000000\t00000000\t\t動物\t\n"
+        "000059f9\t000006dc\t\t\t哺乳類\n",
+        encoding="cp932",
+    )
+
+    parsed = parse_encyclopedia_index(path)
+
+    assert parsed.sections[0].title == "図・写真"
+    assert [row.depth for row in parsed.rows] == [0, 1, 2]
+    assert parsed.rows[-1].label == "哺乳類"
+    assert parsed.rows[-1].block == 0x59F9
+    assert parsed.rows[-1].offset == 0x06DC

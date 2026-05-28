@@ -55,6 +55,7 @@ def test_reader_demo_uses_dense_honmon_dereference_renderer(monkeypatch, tmp_pat
             links=(),
             media=(),
             audio=(),
+            video=(),
             private_directives=(),
             named_behavior_gaps=(),
             body_source="rendererdb_t_contents_data_id",

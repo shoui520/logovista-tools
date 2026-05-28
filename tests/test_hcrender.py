@@ -318,6 +318,18 @@ def test_hc_render_pcmdata_audio_uses_sound_icon_when_asset_is_available() -> No
     assert rendered.stats["audio_images"] == 1
 
 
+def test_kojien6_movie_control_renders_video_link_without_payload_leak() -> None:
+    payload = bytes.fromhex("120199990160012006400480000000000000")
+    body = b"\x1f\x39" + payload + jis_fullwidth_ascii("62020013") + jis_text("アーヘン大聖堂") + b"\x1f\x59"
+
+    rendered = render_hc_body(body, HcRenderOptions(renderer_code="012C", movie_ids=frozenset({"62020013"})))
+
+    assert "12019999" not in rendered.html
+    assert 'data-lv-resource="movie:62020013"' in rendered.html
+    assert rendered.video[0]["status"] == "resolved_movie_file"
+    assert rendered.video[0]["target"]["movie_id"] == "62020013"
+
+
 def test_hc_render_common_media_close_state_is_not_unknown() -> None:
     rendered = render_hc_body(jis_ascii("A") + b"\x1f\x6d" + jis_ascii("B"))
 

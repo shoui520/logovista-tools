@@ -45,6 +45,7 @@ from .entries import (
     extract_dictionary,
     print_entries_to_terminal,
 )
+from .encyclopedia import find_encyclopedia_index, parse_encyclopedia_index
 from .extract import add_extract_args, cmd_extract
 from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
@@ -788,6 +789,50 @@ def cmd_loose_media(args: argparse.Namespace) -> int:
         elif row.get("content_kind"):
             extra = f" {row.get('storage')}->{row.get('content_kind')}"
         print(f"  {label}: {path}{extra}")
+    return 0
+
+
+def _encyclopedia_source_row(source: Any, args: argparse.Namespace) -> dict[str, Any]:
+    path = find_encyclopedia_index(source.idx.parent)
+    if path is None:
+        return {
+            "dict_id": source.dict_id,
+            "dict_title": source.title,
+            "status": "missing",
+            "path": None,
+            "sections": [],
+            "rows": 0,
+            "target_rows": 0,
+            "items": [],
+        }
+    parsed = parse_encyclopedia_index(path)
+    row_limit = None if args.limit == 0 else args.limit
+    row = parsed.as_dict(row_limit=row_limit)
+    row.update({"dict_id": source.dict_id, "dict_title": source.title, "status": "parsed"})
+    return row
+
+
+def cmd_encyclopedia(args: argparse.Namespace) -> int:
+    sources = select_sources(args)
+    rows = [_encyclopedia_source_row(source, args) for source in sources]
+    if args.out_dir:
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        write_json(args.out_dir / "encyclopedia-index-summary.json", rows)
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return 0
+    for row in rows:
+        print(
+            f"{row['dict_id']:12s} status={row['status']:7s} "
+            f"sections={len(row.get('sections') or []):3d} rows={row.get('rows', 0):4d} "
+            f"targets={row.get('target_rows', 0):4d}"
+        )
+        for item in (row.get("items") or [])[: args.limit or 10]:
+            indent = "  " * int(item.get("depth") or 0)
+            target = ""
+            if item.get("has_target"):
+                target = f" -> {int(item['block']):08x}:{int(item['offset']):04x}"
+            print(f"  {indent}{item.get('label')}{target}")
     return 0
 
 
@@ -2657,6 +2702,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_loose_media.set_defaults(func=cmd_loose_media)
 
+    p_encyclopedia = sub.add_parser("encyclopedia-index", help="Parse LVEDBRSR encyclop.idx navigation sidecars.")
+    p_encyclopedia.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_encyclopedia.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
+    p_encyclopedia.add_argument("--out-dir", type=Path, help="Write summary JSON to this directory.")
+    p_encyclopedia.add_argument("--limit", type=int, default=20, help="Sample row limit; use 0 for all rows in JSON.")
+    p_encyclopedia.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    add_jobs_argument(p_encyclopedia)
+    p_encyclopedia.set_defaults(func=cmd_encyclopedia)
+
     p_panels = sub.add_parser("panels", help="Decode LogoVista Panel XML/plist metadata and Panel BIN tables.")
     p_panels.add_argument(
         "root",
@@ -2685,7 +2739,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_colscr_args(p_colscr)
     p_colscr.set_defaults(func=cmd_colscr)
 
-    p_pcmdata = sub.add_parser("pcmdata", help="Inspect or extract PCMDATA.DIC audio/media records.")
+    p_pcmdata = sub.add_parser("pcmdata", help="Inspect or extract PCMDATA.DIC, SoundData, or _PCM_U audio/media records.")
     add_pcmdata_args(p_pcmdata)
     p_pcmdata.set_defaults(func=cmd_pcmdata)
 

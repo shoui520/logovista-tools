@@ -120,6 +120,8 @@ MEDIA_OPS = {0x3C, 0x4D}
 IMAGE_FILENAME_LABEL_SUFFIXES = (".bmp", ".gif", ".jpg", ".jpeg", ".png")
 AUDIO_START_OPS = {0x4A}
 AUDIO_END_OPS = {0x6A}
+VIDEO_START_OPS = {0x39}
+VIDEO_END_OPS = {0x59}
 PRIVATE_START_OPS = {0xE2}
 PRIVATE_END_OPS = {0xE3}
 VERTICAL_HINT_OPS = {0x36, 0x37, 0x4B, 0x4C}
@@ -1107,6 +1109,7 @@ class HcRenderOptions:
     entry_start_offset: int = 0
     media_image_resolver: Callable[[MediaPointer], str | None] | None = None
     sounddata_ids: frozenset[int] = frozenset()
+    movie_ids: frozenset[str] = frozenset()
     template_heading: str | None = None
     template_subheading: str | None = None
     reader_style: str = WINDOWS_READER_STYLE
@@ -1122,6 +1125,7 @@ class HcRenderResult:
     links: tuple[dict[str, Any], ...] = ()
     media: tuple[dict[str, Any], ...] = ()
     audio: tuple[dict[str, Any], ...] = ()
+    video: tuple[dict[str, Any], ...] = ()
     private_directives: tuple[dict[str, Any], ...] = ()
     named_behavior_gaps: tuple[str, ...] = ()
 
@@ -1133,6 +1137,7 @@ class HcRenderResult:
             "links": list(self.links),
             "media": list(self.media),
             "audio": list(self.audio),
+            "video": list(self.video),
             "private_directives": list(self.private_directives),
             "named_behavior_gaps": list(self.named_behavior_gaps),
         }
@@ -1151,6 +1156,7 @@ class HcTargetRenderResult:
     links: tuple[dict[str, Any], ...]
     media: tuple[dict[str, Any], ...]
     audio: tuple[dict[str, Any], ...]
+    video: tuple[dict[str, Any], ...]
     private_directives: tuple[dict[str, Any], ...]
     named_behavior_gaps: tuple[str, ...]
     body_source: str
@@ -3812,6 +3818,41 @@ def _audio_original_href(target: dict[str, Any] | None) -> str:
     if target is None:
         return "lved.sond:unresolved"
     return f"lved.sond:{target['resource_id']}"
+
+
+FULLWIDTH_DIGITS = str.maketrans("０１２３４５６７８９", "0123456789")
+
+
+def _movie_id_from_label(label: str) -> str | None:
+    text = _plain_from_html(label).strip().translate(FULLWIDTH_DIGITS)
+    match = re.match(r"([0-9]{8})", text)
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def _movie_target(movie_id: str | None, options: HcRenderOptions) -> dict[str, Any] | None:
+    if not movie_id:
+        return None
+    status = "resolved_movie_file" if not options.movie_ids or movie_id in options.movie_ids else "unresolved_movie_file"
+    return {
+        "component": "MOVIE",
+        "movie_id": movie_id,
+        "resource_id": f"movie:{movie_id}",
+        "status": status,
+    }
+
+
+def _movie_href(target: dict[str, Any] | None) -> str:
+    if target is None:
+        return "#lv-movie-unresolved"
+    return f"#lv-movie-{_safe_href_token(str(target['resource_id']))}"
+
+
+def _movie_original_href(target: dict[str, Any] | None) -> str:
+    if target is None:
+        return "lved.movi:unresolved"
+    return f"lved.movi:{target['movie_id']}"
 
 
 def _sounddata_audio_html(target: dict[str, Any], status: str, options: HcRenderOptions, stats: Counter[str]) -> str:
@@ -9321,6 +9362,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     links: list[dict[str, Any]] = []
     media: list[dict[str, Any]] = []
     audio: list[dict[str, Any]] = []
+    video: list[dict[str, Any]] = []
     private_directives: list[dict[str, Any]] = []
     gaps: set[str] = set()
     halfwidth_depth = 0
@@ -15160,6 +15202,42 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if op in VIDEO_START_OPS:
+                contexts.append(_Context(kind="video", start_op=op, payload=payload, parent=_current_parts(root_parts, contexts), start_offset=i))
+                stats["video_links"] += 1
+                i += 2 + arg_len
+                continue
+
+            if op in VIDEO_END_OPS:
+                ctx = _pop_context(contexts, "video")
+                if ctx is not None:
+                    _close_context_styles(ctx, options)
+                label = "".join(ctx.parts) if ctx else ""
+                movie_id = _movie_id_from_label(label)
+                target = _movie_target(movie_id, options)
+                video_status = target["status"] if target else "unresolved_movie_id"
+                video.append(
+                    {
+                        "start_control": f"1f{ctx.start_op:02x}" if ctx else None,
+                        "end_control": f"1f{op:02x}",
+                        "target": target,
+                        "status": video_status,
+                    }
+                )
+                attrs = [
+                    'class="lv-hc-video"',
+                    f'href="{_escape_attr(_movie_href(target))}"',
+                    f'data-lv-original-href="{_escape_attr(_movie_original_href(target))}"',
+                    f'data-lv-video-status="{_escape_attr(video_status)}"',
+                ]
+                if target:
+                    attrs.append(f'data-lv-resource="{_escape_attr(target["resource_id"])}"')
+                    attrs.append(f'data-lv-movie-id="{_escape_attr(str(target["movie_id"]))}"')
+                parent = ctx.parent if ctx else _current_parts(root_parts, contexts)
+                parent.append(f"<a {' '.join(attrs)}>{label or 'movie'}</a>")
+                i += 2 + arg_len
+                continue
+
             if op in AUDIO_END_OPS:
                 ctx = _pop_context(contexts, "audio")
                 pointer = parse_pcm_pointer(ctx.payload if ctx else payload)
@@ -19186,6 +19264,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         links=tuple(links),
         media=tuple(media),
         audio=tuple(audio),
+        video=tuple(video),
         private_directives=tuple(private_directives),
         named_behavior_gaps=tuple(sorted(gaps)),
     )
@@ -19292,6 +19371,8 @@ def _has_entry_body_sidecar(schema_sidecars: dict[str, Any]) -> bool:
 
 
 def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: argparse.Namespace) -> dict[str, Any]:
+    from .movies import movie_ids_for_idx
+
     renderer = getattr(args, "_hc_renderer", None)
     renderer_code = _effective_renderer_code_for_source(source, renderer)
     reader = SsedRandomReader(source.honmon)
@@ -19309,6 +19390,7 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
         vertical=bool(getattr(args, "_effective_vertical", getattr(args, "vertical", False))),
         media_image_resolver=media_image_resolver,
         sounddata_ids=frozenset(sounddata_index.records) if sounddata_index is not None else frozenset(),
+        movie_ids=movie_ids_for_idx(source.idx),
     )
     totals: Counter[str] = Counter()
     emitted = 0
@@ -19450,6 +19532,7 @@ def render_hc_target_body(
         links=raw_result.links,
         media=raw_result.media,
         audio=raw_result.audio,
+        video=raw_result.video,
         private_directives=raw_result.private_directives,
         named_behavior_gaps=raw_result.named_behavior_gaps,
         body_source=body_source,
@@ -19478,6 +19561,8 @@ def _render_hc_index_hit(
     boundary_offsets: Iterable[int] | None = None,
     sounddata_ids: frozenset[int] = frozenset(),
 ) -> dict[str, Any]:
+    from .movies import movie_ids_for_idx
+
     reader = SsedRandomReader(source.honmon)
     target_offset = _target_relative_offset(source, hit)
     media_image_resolver = _make_colscr_image_resolver(source, dict_out)
@@ -19490,6 +19575,7 @@ def _render_hc_index_hit(
         vertical=vertical,
         media_image_resolver=media_image_resolver,
         sounddata_ids=sounddata_ids,
+        movie_ids=movie_ids_for_idx(source.idx),
     )
     rendered = render_hc_target_body(
         source,

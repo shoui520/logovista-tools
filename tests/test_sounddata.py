@@ -3,9 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from logovista_tools.entries import DictionarySource
 from logovista_tools.hcrender import HcRenderOptions, render_hc_body
-from logovista_tools.pcmdata import extract_pcmdata_for_source
+from logovista_tools.lvcrypto import logofont_cipher_key_iv
+from logovista_tools.pcmdata import PcmPointer, extract_pcmdata_for_source
+from logovista_tools.pcmu import load_pcmu_index, read_pcmu_record
 from logovista_tools.sounddata import (
     iter_sounddata_references,
     load_sounddata_index,
@@ -37,6 +41,18 @@ def wave_bytes(payload: bytes = b"\x80\x81\x82\x83") -> bytes:
     chunks = b"fmt " + len(fmt_payload).to_bytes(4, "little") + fmt_payload
     chunks += b"data" + len(payload).to_bytes(4, "little") + payload
     return b"RIFF" + (4 + len(chunks)).to_bytes(4, "little") + b"WAVE" + chunks
+
+
+def encrypt_logofont(data: bytes) -> bytes:
+    pytest.importorskip("cryptography")
+    from cryptography.hazmat.primitives import padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    key, iv = logofont_cipher_key_iv()
+    padder = padding.PKCS7(128).padder()
+    padded = padder.update(data) + padder.finalize()
+    encryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).encryptor()
+    return encryptor.update(padded) + encryptor.finalize()
 
 
 def test_wavefile_map_indexes_concatenated_sounddata(tmp_path: Path) -> None:
@@ -151,3 +167,33 @@ def test_pcmdata_command_falls_back_to_sounddata_store(tmp_path: Path) -> None:
     written = sorted((tmp_path / "out" / "TEST" / "audio").glob("*.wav"))
     assert len(written) == 1
     assert written[0].read_bytes() == raw
+
+
+def test_pcmu_wavefile_map_resolves_logofont_encrypted_mp3_by_pcm_pointer(tmp_path: Path) -> None:
+    package = tmp_path / "_DCT_TEST"
+    pcmu = tmp_path / "_DCT_TEST_PCM_U"
+    package.mkdir()
+    pcmu.mkdir()
+    mp3 = b"ID3\x03\x00\x00\x00\x00\x00\x00" + b"\xff\xfb\x90d" + b"\x55" * 32
+    (pcmu / "00000001").write_bytes(encrypt_logofont(mp3))
+    (pcmu / "WaveFile.map").write_text("00000001\t100\r\n", encoding="ascii")
+    (package / "TEST.IDX").write_bytes(b"")
+
+    index = load_pcmu_index(package / "TEST.IDX")
+    assert index is not None
+    pointer = PcmPointer(
+        payload=b"",
+        kind=0x0201,
+        flags=0,
+        start_block=100,
+        start_offset=0,
+        end_block=100,
+        end_offset=0,
+    )
+    decoded = read_pcmu_record(index, pointer)
+
+    assert decoded is not None
+    map_record, raw, record, _chunks = decoded
+    assert map_record.stem == "00000001"
+    assert raw.startswith(b"ID3")
+    assert record.codec == "mp3"

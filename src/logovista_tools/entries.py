@@ -165,6 +165,8 @@ def control_tag_for_start(op: int) -> str | None:
         0x0E: "sup",
         0x10: "italic",
         0x12: "em",
+        0x14: "private",
+        0x39: "movie",
         0x3B: "url",
         0x3C: "media",
         0x41: "head",
@@ -187,6 +189,8 @@ def control_tag_for_end(op: int) -> str | None:
         0x0F: "sup",
         0x11: "italic",
         0x13: "em",
+        0x15: "private",
+        0x59: "movie",
         0x5B: "url",
         0x5C: "media",
         0x61: "head",
@@ -278,7 +282,7 @@ def decode_tokens(
             if start_tag is not None:
                 if op == 0x04:
                     halfwidth_depth += 1
-                if op == 0xE2:
+                if start_tag == "private":
                     private_depth += 1
                 if not private_depth or op == 0xE2:
                     if start_tag != "private":
@@ -288,7 +292,7 @@ def decode_tokens(
             elif end_tag is not None:
                 if op == 0x05 and halfwidth_depth:
                     halfwidth_depth -= 1
-                if op == 0xE3:
+                if end_tag == "private":
                     if private_depth:
                         private_depth -= 1
                 elif not private_depth:

@@ -33,6 +33,7 @@ from .hcrender import (
 from .indexes import scan_index_component_reader
 from .menus import MENU_LIKE_NAMES, MENU_LIKE_TYPES, build_menu_tree, parse_menu_stream, resolve_menu_record_destinations
 from .multi import parse_multi_descriptor
+from .movies import movie_ids_for_idx
 from .navigation import NavigationResolver, NavigationTarget, address_key
 from .panels import (
     PanelBinParseError,
@@ -43,6 +44,7 @@ from .panels import (
     parse_panel_bin_file,
 )
 from .pcmdata import detect_shared_wave_stream, find_pcmdata_path, parse_pcmdata_record, portable_audio_bytes
+from .pcmu import load_pcmu_index, read_pcmu_record
 from .sounddata import load_sounddata_index, portable_sounddata_audio_bytes, read_sounddata_record
 from .ssed import (
     BLOCK_SIZE,
@@ -283,6 +285,7 @@ class _ReaderDemoBuilder:
             renderer_code=self.renderer_code,
             vertical=bool(args.vertical),
             media_image_resolver=_make_colscr_image_resolver(source, out_dir),
+            movie_ids=movie_ids_for_idx(source.idx),
         )
         self.queue: deque[tuple[_QueuedAddress, int]] = deque()
         self.queued: set[str] = set()
@@ -291,6 +294,7 @@ class _ReaderDemoBuilder:
         self.audio_dir = out_dir / "audio"
         self.pcmdata_path = find_pcmdata_path(source.idx)
         self.pcm_reader = SsedRandomReader(self.pcmdata_path) if self.pcmdata_path is not None else None
+        self.pcmu_index = load_pcmu_index(source.idx)
         self.sounddata_index = load_sounddata_index(source.idx)
         if self.sounddata_index is not None:
             self.options = replace(self.options, sounddata_ids=frozenset(self.sounddata_index.records))
@@ -429,6 +433,32 @@ class _ReaderDemoBuilder:
             self.audio_files[resource_id] = rel
             return rel
         if self.pcm_reader is None:
+            if self.pcmu_index is not None:
+                pointer = None
+                try:
+                    from .pcmdata import PcmPointer
+
+                    pointer = PcmPointer(
+                        payload=b"",
+                        kind=int(target.get("kind") or 0),
+                        flags=int(target.get("flags") or 0),
+                        start_block=int(target["start_block"]),
+                        start_offset=int(target["start_offset"]),
+                        end_block=int(target["end_block"]),
+                        end_offset=int(target["end_offset"]),
+                    )
+                except (KeyError, TypeError, ValueError):
+                    pointer = None
+                if pointer is not None:
+                    decoded = read_pcmu_record(self.pcmu_index, pointer)
+                    if decoded is not None:
+                        map_record, raw, record, _chunks = decoded
+                        self.audio_dir.mkdir(parents=True, exist_ok=True)
+                        name = f"{_safe_id(_audio_target_key(target) or resource_id).replace(':', '_')}_{map_record.stem}.{record.extension}"
+                        (self.audio_dir / name).write_bytes(portable_audio_bytes(record, raw))
+                        rel = f"audio/{name}"
+                        self.audio_files[resource_id] = rel
+                        return rel
             return None
         try:
             start_block = int(target["start_block"])
@@ -786,7 +816,12 @@ def _auxiliary_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
         elif upper.startswith("MULTI") or element.type == 0xFF:
             try:
                 reader = SsedRandomReader(path)
-                descriptor = parse_multi_descriptor(reader.read(0, reader.expanded_size), gaiji="unicode", gaiji_map=builder.source.gaiji_map)
+                descriptor = parse_multi_descriptor(
+                    reader.read(0, reader.expanded_size),
+                    gaiji="unicode",
+                    gaiji_map=builder.source.gaiji_map,
+                    parent_start_block=element.start,
+                )
                 multi_descriptors.append({"component": element.filename, **descriptor.as_dict()})
             except Exception as exc:
                 failures.append({"component": element.filename, "reason": f"multi_parse_failed: {exc}"})

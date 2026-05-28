@@ -29,13 +29,14 @@ DICT.IDX
 HONMON.DIC
 HONMON.DIN
 MENU.DIC
+SCRMENU.DIC
 KWTITLE.DIC / KWINDEX.DIC
 FKTITLE.DIC / FKINDEX.DIC
 FHTITLE.DIC / FHINDEX.DIC
 BKTITLE.DIC / BKINDEX.DIC
 TOC.DIC / RIGHT.DIC / IDXJUMP.DIC
 MULTI*.DIC / MUL*.DIC
-COLSCR.DIC / PCMDATA.DIC
+COLSCR.DIC / COLSMPL.DIC / MONOSCR.DIC / PCMDATA.DIC
 GA16HALF / GA16FULL
 DICT.uni / DICT.UNI
 ```
@@ -136,21 +137,31 @@ link-reference DBs, kanji-support DBs, template navigation/filter DBs, and
 ancillary helper DBs. Classification should be schema-first; only body-capable
 SQLite roles should be used as entry-body providers.
 
-`SPINDEX.DIC`, `HANREI/`, root `hanrei.html`, and `*_HELP.localized` help
-bundles are auxiliary resource families rather than Windows-only markers.
-`hanrei.html` in observed Mac OS X SSED packages is a small frameset pointing
-into the localized help bundle.
+`SPINDEX.DIC`, LVEDBRSR `encyclop.idx`, `HANREI/`, root `hanrei.html`, and
+`*_HELP.localized` help bundles are auxiliary resource families rather than
+Windows-only markers. `hanrei.html` in observed Mac OS X SSED packages is a
+small frameset pointing into the localized help bundle. `encyclop.idx` is a
+CP932 tab-indented navigation sidecar used by KOJIEN6 to expose multimedia,
+table, literary, abbreviation, and color-sample browse surfaces when no normal
+`MENU.DIC` is present.
 
 Panels are an optional LogoVista navigation/UI subsystem, not a package family
 and not a Windows platform marker. The observed corpus work decoded Panel XML
 and BIN structures from Windows packages, but the subsystem itself is just
 package-local resource data.
 
-`FIGURE.DIC` is observed as a compressed type-`0xd0` SSED resource component.
-It is not the same media store as `COLSCR.DIC`, and current public evidence does
-not support treating the expanded bytes as a coherent raster image format.
-Until its record grammar is decoded, it should be reported as an unresolved
-figure/resource stream rather than rendered as fake image output.
+`FIGURE.DIC` and `MONOSCR.DIC` are observed as compressed type-`0xd0` SSED
+resource components. They are not the same media store as `COLSCR.DIC`, and
+current public evidence does not support treating the expanded bytes as a
+coherent raster image format. `COLSMPL.DIC` is a compressed type-`0xe0`
+color-sample resource stream. Until these record grammars are decoded, they
+should be reported as named unresolved resource streams rather than rendered as
+fake image output.
+
+Loose `_PCM_U` and `_MOVIE` sibling resource directories are also SSED package
+resources when referenced by the dictionary body. KOJIEN6 declares normal
+PCMDATA-style audio ranges but stores the physical encrypted MP3 payloads in
+`_PCM_U`; it uses `1f39`/`1f59` movie links whose IDs map to `_MOVIE` files.
 
 ## Writer Target Boundary
 

@@ -59,6 +59,8 @@ def component_role(filename: str, component_type: int) -> str | None:
         return "honmon"
     if component_type == MENU_TYPE or upper == "MENU.DIC":
         return "menu"
+    if component_type == 0x10 or upper == "SCRMENU.DIC":
+        return "screen_menu"
     if component_type in TITLE_TYPES or upper.endswith("TITLE.DIC"):
         return "title"
     if component_type in INDEX_TYPES:
@@ -75,6 +77,10 @@ def component_role(filename: str, component_type: int) -> str | None:
         return "colscr"
     if component_type == PCMDATA_TYPE or upper == "PCMDATA.DIC":
         return "pcmdata"
+    if component_type == 0xD0 or upper in {"FIGURE.DIC", "MONOSCR.DIC"}:
+        return "figure_resource"
+    if component_type == 0xE0 or upper == "COLSMPL.DIC":
+        return "color_sample"
     return None
 
 
@@ -1023,7 +1029,12 @@ def ga16_report(roots: list[Path], element: Any, source: Path) -> dict[str, Any]
 
 
 def multi_report(roots: list[Path], element: Any, source: Path, data: bytes, gaiji_profile: Any) -> dict[str, Any]:
-    descriptor = parse_multi_descriptor(data, gaiji="h-placeholder", gaiji_map=gaiji_profile.map)
+    descriptor = parse_multi_descriptor(
+        data,
+        gaiji="h-placeholder",
+        gaiji_map=gaiji_profile.map,
+        parent_start_block=element.start,
+    )
     return {
         "filename": element.filename,
         "role": "multi",
@@ -1033,6 +1044,51 @@ def multi_report(roots: list[Path], element: Any, source: Path, data: bytes, gai
         "expanded_bytes": len(data),
         "descriptor": descriptor.as_dict(),
     }
+
+
+def _sample_resource_label(record: bytes) -> str | None:
+    for offset in (20, 16, 0):
+        field = record[offset : offset + 128].split(b"\x00", 1)[0]
+        text = field.decode("cp932", errors="ignore")
+        text = "".join(char for char in text if char.isprintable()).strip()
+        if text and any(ord(char) > 0x7F for char in text):
+            return text
+    return None
+
+
+def special_resource_report(roots: list[Path], element: Any, source: Path, data: bytes) -> dict[str, Any]:
+    control_ops: Counter[str] = Counter()
+    pos = 0
+    while True:
+        pos = data.find(b"\x1f", pos)
+        if pos < 0 or pos + 1 >= len(data):
+            break
+        control_ops[f"1f{data[pos + 1]:02x}"] += 1
+        pos += 2
+
+    row: dict[str, Any] = {
+        "filename": element.filename,
+        "role": component_role(element.filename, element.type) or "resource",
+        "type": f"{element.type:02x}",
+        "start_block": element.start,
+        "end_block": element.end,
+        "block_count": element.block_count,
+        "path": safe_relative(source, roots),
+        "expanded_bytes": len(data),
+        "nonzero_bytes": nonzero_count(data),
+        "control_op_counts": dict(sorted(control_ops.items())),
+    }
+    if element.type == 0xE0 or element.filename.upper() == "COLSMPL.DIC":
+        records = [data[offset : offset + BLOCK_SIZE] for offset in range(0, len(data), BLOCK_SIZE)]
+        labels = [label for record in records[:32] if (label := _sample_resource_label(record))]
+        row.update(
+            {
+                "record_size": BLOCK_SIZE,
+                "record_count": len(records),
+                "label_samples": labels[:16],
+            }
+        )
+    return row
 
 
 def uni_report(path: Path, roots: list[Path]) -> dict[str, Any]:
@@ -1270,7 +1326,7 @@ def component_forensics_for_target(
             )
             continue
         try:
-            if role in {"menu", "title", "text", "text_index", "index", "multi"}:
+            if role in {"menu", "title", "text", "text_index", "index", "multi", "screen_menu", "figure_resource", "color_sample"}:
                 data = expand_sseddata_file(source)
             else:
                 data = b""
@@ -1280,6 +1336,8 @@ def component_forensics_for_target(
                 row = index_component_report(roots, element, source, data, gaiji_profile)
             elif role == "multi":
                 row = multi_report(roots, element, source, data, gaiji_profile)
+            elif role in {"screen_menu", "figure_resource", "color_sample"}:
+                row = special_resource_report(roots, element, source, data)
             elif role == "ga16":
                 row = ga16_report(roots, element, source)
             elif role == "colscr":
@@ -1399,7 +1457,10 @@ def summarize_report(report: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         elif role == "multi":
             descriptor = component.get("descriptor", {})
             totals["multi_records"] += int(descriptor.get("record_count", 0) or 0)
-            totals["multi_trailing_nonzero_bytes"] += int(descriptor.get("trailing_nonzero_bytes", 0) or 0)
+            totals["multi_embedded_components"] += len(descriptor.get("embedded_components") or [])
+            totals["multi_embedded_nonzero_bytes"] += int(descriptor.get("embedded_nonzero_bytes", 0) or 0)
+            totals["multi_unreferenced_nonzero_bytes"] += int(descriptor.get("unreferenced_nonzero_bytes", 0) or 0)
+            totals["multi_external_reference_count"] += int(descriptor.get("external_reference_count", 0) or 0)
         elif role == "index":
             totals["index_nonzero_residual_bytes"] += int(component.get("nonzero_residual_bytes", 0) or 0)
             totals["index_trailing_component_nonzero"] += int(component.get("trailing_component_nonzero", 0) or 0)
@@ -1453,6 +1514,7 @@ def corpus_component_forensics_summary(reports: list[dict[str, Any]], out_dir: P
             or key.endswith("invalid_jis_pairs")
             or key.endswith("nonzero_residual_bytes")
             or key.endswith("nonzero_unparsed_bytes")
+            or key.endswith("unreferenced_nonzero_bytes")
             or key.endswith("invalid_referenced_records")
             or key.endswith("trailing_nonzero_bytes")
             or key.endswith("missing_glyph_bytes")

@@ -295,6 +295,28 @@ variant: its first 64 bytes contain a small prelude plus `fmt `/`data` headers,
 and all 235 referenced ranges are contiguous slices inside that shared data
 chunk.
 
+## Loose `_PCM_U` Audio Store
+
+KOJIEN6 declares a `PCMDATA.DIC` component in `SSEDINFO`, and its body still
+uses ordinary `1f4a` / `1f6a` PCMDATA audio ranges. The physical audio bytes,
+however, are shipped in a sibling `_PCM_U` directory rather than a loose
+`PCMDATA.DIC` file.
+
+The `_PCM_U` directory contains encrypted numeric files plus `WaveFile.map`.
+The map is ASCII text with one row per audio file:
+
+```text
+<8-digit-file-stem> <tab-or-space> <decimal-PCMDATA-start-block>
+```
+
+The decimal block value matches the start block recovered from the `1f4a`
+payload. Each numeric file decrypts with the Windows LogoFontCipher AES-CBC
+variant and yields a self-contained MP3 payload, usually beginning with `ID3`
+or an MPEG frame header. The toolkit treats `_PCM_U` as `container_kind:
+"pcmu"` inside the existing `pcmdata` command, so callers can use the same
+HONMON reference scan and `--write-audio` workflow as normal `PCMDATA.DIC`
+packages.
+
 ## Loose `Sound/SoundData` Audio Store
 
 MWALEARN does not declare a `PCMDATA.DIC` component. Instead it has a loose
@@ -360,8 +382,8 @@ writes portable `.wav` files using the same `--write-audio` interface as
 
 ## `FIGURE.DIC`
 
-`FIGURE.DIC` is observed as a compressed SSED resource component with component
-type `0xd0`. It is not a `COLSCR.DIC` image store:
+`FIGURE.DIC` and `MONOSCR.DIC` are observed as compressed SSED resource
+components with component type `0xd0`. They are not `COLSCR.DIC` image stores:
 
 - the expanded stream does not begin with the `data` wrapper used by
   `COLSCR.DIC`;
@@ -375,6 +397,26 @@ record grammar unresolved. Readers and exporters should keep the bytes
 available for diagnostics, count the component explicitly, and avoid producing
 fake images until a record table, pointer relationship, or container grammar is
 understood.
+
+## `COLSMPL.DIC`
+
+`COLSMPL.DIC` is observed as a compressed type-`0xe0` SSED component in
+KOJIEN6. The expanded stream is block-record oriented: observed records are
+2048 bytes each and contain color-name labels near the record header. The body
+stream has paired `1f14` / `1f15` controls near this resource family, and the
+KOJIEN6 renderer imports a color-map bridge. This is enough to classify the
+component as a color-sample resource store, but not enough to claim complete
+record semantics. The toolkit accounts for the component and control bytes
+without inventing image output or CSS values.
+
+## Loose `_MOVIE` Video Store
+
+KOJIEN6 uses a sibling `_MOVIE` directory for video resources. Body-stream
+`1f39` / `1f59` ranges expose an eight-digit movie ID in the visible label, and
+that ID maps directly to an `_MOVIE/<id>` file. Observed payloads are MPEG
+program/video streams. The HC renderer presents these through an `lved.movi`
+style bridge; toolkit HTML output records a structured video target rather
+than treating the ID text as ordinary dictionary prose.
 
 ## `.uni` Files
 

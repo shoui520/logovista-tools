@@ -671,10 +671,150 @@ def extract_pcmdata_for_source(source: Any, out_dir: Path, args: argparse.Namesp
     status(args, f"pcmdata: {source.dict_id}: scanning HONMON refs and PCMDATA ranges", verbose=True)
 
     if pcmdata_path is None:
+        from .pcmu import load_pcmu_index, read_pcmu_record
         from .sounddata import load_sounddata_index, extract_sounddata_for_source
 
         if load_sounddata_index(source.idx) is not None:
             return extract_sounddata_for_source(source, out_dir, args)
+        pcmu_index = load_pcmu_index(source.idx)
+        if pcmu_index is not None:
+            references, honmon_expanded_bytes, honmon_bytes_scanned, honmon_scan_complete = pcm_references_for_limit(
+                source.honmon,
+                args.limit,
+                source.gaiji_map,
+            )
+            media_dir = dict_out / "audio"
+            if args.write_audio:
+                media_dir.mkdir(parents=True, exist_ok=True)
+            valid_referenced_records = 0
+            invalid_referenced_records = 0
+            unreferenced_records = 0
+            total_payload_bytes = 0
+            codec_counts: Counter[str] = Counter()
+            media_type_counts: Counter[str] = Counter()
+            extension_counts: Counter[str] = Counter()
+            format_counts: Counter[str] = Counter()
+            referenced_blocks = {reference.pointer.start_block for reference in references}
+            with manifest_path.open("w", encoding="utf-8") as out:
+                row_index = 0
+                for reference in references:
+                    row_index += 1
+                    decoded = read_pcmu_record(pcmu_index, reference.pointer)
+                    if decoded is None:
+                        invalid_referenced_records += 1
+                        item = {
+                            "index": row_index,
+                            "source": "honmon",
+                            "valid": False,
+                            "reason": "missing_or_unparsed_pcmu_record",
+                            "honmon_position": reference.position,
+                            "label": reference.label,
+                            "payload": reference.pointer.payload.hex(),
+                            "kind": reference.pointer.kind,
+                            "flags": reference.pointer.flags,
+                            "block": reference.pointer.start_block,
+                            "offset": reference.pointer.start_offset,
+                        }
+                    else:
+                        map_record, raw, record, chunks = decoded
+                        valid_referenced_records += 1
+                        total_payload_bytes += record.content_size
+                        codec_counts[record.codec] += 1
+                        media_type_counts[record.media_type] += 1
+                        extension_counts[record.extension] += 1
+                        if record.format_tag is not None:
+                            format_counts[f"0x{record.format_tag:04x}"] += 1
+                        file = None
+                        if args.write_audio:
+                            name = f"{row_index:05d}_{map_record.stem}.{record.extension}"
+                            (media_dir / name).write_bytes(portable_audio_bytes(record, raw))
+                            file = f"audio/{name}"
+                        item = manifest_record(
+                            index=row_index,
+                            source="honmon",
+                            reference=reference,
+                            record=record,
+                            chunks=chunks,
+                            file=file,
+                        )
+                        item["pcmu"] = map_record.as_dict()
+                    out.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")))
+                    out.write("\n")
+                if args.include_unreferenced and not args.limit:
+                    for map_record in pcmu_index.rows:
+                        if map_record.start_block in referenced_blocks:
+                            continue
+                        dummy_pointer = PcmPointer(
+                            payload=b"",
+                            kind=0,
+                            flags=0,
+                            start_block=map_record.start_block,
+                            start_offset=0,
+                            end_block=map_record.start_block,
+                            end_offset=0,
+                        )
+                        decoded = read_pcmu_record(pcmu_index, dummy_pointer)
+                        if decoded is None:
+                            continue
+                        _map_record, raw, record, chunks = decoded
+                        row_index += 1
+                        unreferenced_records += 1
+                        total_payload_bytes += record.content_size
+                        codec_counts[record.codec] += 1
+                        media_type_counts[record.media_type] += 1
+                        extension_counts[record.extension] += 1
+                        if record.format_tag is not None:
+                            format_counts[f"0x{record.format_tag:04x}"] += 1
+                        file = None
+                        if args.write_audio:
+                            name = f"{row_index:05d}_unreferenced_{map_record.stem}.{record.extension}"
+                            (media_dir / name).write_bytes(portable_audio_bytes(record, raw))
+                            file = f"audio/{name}"
+                        item = manifest_record(
+                            index=row_index,
+                            source="unreferenced",
+                            reference=None,
+                            record=record,
+                            chunks=chunks,
+                            file=file,
+                        )
+                        item["block"] = map_record.start_block
+                        item["pcmu"] = map_record.as_dict()
+                        out.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")))
+                        out.write("\n")
+            summary = {
+                "dict_id": source.dict_id,
+                "dict_title": source.title,
+                "idx": str(source.idx),
+                "container_kind": "pcmu",
+                "honmon": str(source.honmon),
+                "honmon_expanded_bytes": honmon_expanded_bytes,
+                "honmon_bytes_scanned": honmon_bytes_scanned,
+                "honmon_scan_complete": honmon_scan_complete,
+                "pcmdata": None,
+                "sounddata": None,
+                "pcmu": {
+                    "directory": str(pcmu_index.directory),
+                    "map": str(pcmu_index.map_path),
+                    "records": len(pcmu_index.rows),
+                },
+                "audio_references": len(references),
+                "unique_referenced_records": len({reference.pointer.payload for reference in references}),
+                "duplicate_references": len(references) - len({reference.pointer.payload for reference in references}),
+                "valid_referenced_records": valid_referenced_records,
+                "invalid_referenced_records": invalid_referenced_records,
+                "unreferenced_records": unreferenced_records,
+                "total_content_bytes": total_payload_bytes,
+                "media_type_counts": dict(sorted(media_type_counts.items())),
+                "codec_counts": dict(sorted(codec_counts.items())),
+                "extension_counts": dict(sorted(extension_counts.items())),
+                "format_tag_counts": dict(sorted(format_counts.items())),
+                "audio_files_written": valid_referenced_records + unreferenced_records if args.write_audio else 0,
+                "manifest_path": str(manifest_path),
+                "warnings": [],
+            }
+            write_json(dict_out / "pcmdata_summary.json", summary)
+            return summary
         manifest_path.write_text("", encoding="utf-8")
         summary = {
             "dict_id": source.dict_id,
@@ -683,10 +823,11 @@ def extract_pcmdata_for_source(source: Any, out_dir: Path, args: argparse.Namesp
             "container_kind": None,
             "pcmdata": None,
             "sounddata": None,
+            "pcmu": None,
             "audio_references": 0,
             "valid_referenced_records": 0,
             "unreferenced_records": 0,
-            "warnings": ["No PCMDATA.DIC component or Sound/SoundData store found."],
+            "warnings": ["No PCMDATA.DIC component, Sound/SoundData store, or _PCM_U store found."],
             "manifest_path": str(manifest_path),
         }
         write_json(dict_out / "pcmdata_summary.json", summary)

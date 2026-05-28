@@ -14,6 +14,7 @@ reverse-engineering notes live in [`../spec`](../spec/README.md).
 | [LVLMultiView Corpus Findings](multiview-findings.md) | Observed LVLMultiView facade, payload, menu, and resource behavior. |
 | [Hourei Corpus Findings](hourei-findings.md) | Observed LogoVista電子法令 Professional package layout, search, body HTML, and resource behavior. |
 | [LVEDVIEWER Embedded Assets](lved-viewer-assets.md) | Private extraction summary for LVEDVIEWER product HTML/CSS/JS resources and product hook implications. |
+| [KOJIEN6 SSED Findings](kojien6-findings.md) | Advanced classic SSED findings: SCRMENU, encyclop.idx, embedded MULTI components, COLSMPL/MONOSCR, `_PCM_U`, and `_MOVIE`. |
 | [Package Families](package-families.md) | SSED package layers, non-SSED families, and lookup rules. |
 | [Corpus Findings](corpus-findings.md) | Observed behavior from real dictionaries. |
 | [Documentation Coverage Map](source-coverage.md) | Source-to-doc map plus intentionally underdocumented areas. |

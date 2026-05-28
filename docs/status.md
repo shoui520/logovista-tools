@@ -34,7 +34,8 @@ and non-SSED reader status are tracked separately in
   backward, keyword, cross-reference, body-only, alternate, and text-like
   index components, including `0xa1` MULTI selector indexes.
 - `MULTI*.DIC` selector descriptor parsing and cross-checking against declared
-  `SSEDINFO` component records.
+  `SSEDINFO` component records or embedded selector subcomponents inside the
+  parent `MULTI*.DIC` range.
 - Text-like `RIGHT.DIC`, `TOC.DIC`, and `IDXJUMP.DIC` sidecar decoding,
   including the `1f49` / `1f69` TOC link control pair.
 - Dictionary-local `.uni` gaiji mapping, including UTF-16 surrogate-pair
@@ -44,8 +45,8 @@ and non-SSED reader status are tracked separately in
   rendering, including packages where glyph slots are addressed by `.uni`
   record order rather than only by the sequential header range.
 - Full-corpus byte accounting for observed `MENU.DIC`, `*TITLE.DIC`,
-  `*INDEX.DIC`, `.uni`, `GA16*`, `COLSCR.DIC`, `PCMDATA.DIC`, and loose
-  `Sound/SoundData` audio stores.
+  `*INDEX.DIC`, `.uni`, `GA16*`, `COLSCR.DIC`, `PCMDATA.DIC`, loose
+  `Sound/SoundData`, and `_PCM_U` audio stores.
 
 ## Supported / Corpus-Inferred
 
@@ -103,6 +104,9 @@ and non-SSED reader status are tracked separately in
 - Structured `MENU.DIC` extraction with menu hierarchy, link labels,
   packed-BCD destination pointers, null/sentinel destinations, and named
   component/body targets.
+- KOJIEN6-style LVEDBRSR `encyclop.idx` sidecar parsing. The toolkit now
+  records encyclopedia sections, tab-indented navigation rows, labels, and
+  SSED block/offset targets independently from ordinary `MENU.DIC`.
 - `COLSCR.DIC` media pointer decoding and referenced BMP/JPEG/PNG extraction.
 - `PCMDATA.DIC` audio/media pointer decoding, unreferenced-record discovery,
   referenced-range byte coverage, and portable WAV/MP3 writing for classified
@@ -110,6 +114,11 @@ and non-SSED reader status are tracked separately in
 - MWALEARN-style loose `Sound/SoundData` decoding through `WaveFile.map`,
   A427/A428 HONMON sound-ID markers, and portable WAV writing through the same
   `pcmdata` command path.
+- KOJIEN6-style `_PCM_U` audio decoding through `WaveFile.map`, ordinary
+  `1f4a` HONMON PCMDATA ranges, LogoFontCipher-decrypted numeric MP3 resource
+  files, and portable MP3 writing through the same `pcmdata` command path.
+- KOJIEN6-style `_MOVIE` discovery and `1f39` / `1f59` movie-link rendering as
+  structured video targets rather than visible leaked movie IDs.
 - Package image discovery from iOS `img`, Windows `Templates` / `HANREI/img`,
   Android resource folders, platformless `res` / `resources` / `templates`
   folders, and sibling `*_GAIJI` companion directories.
@@ -123,6 +132,11 @@ and non-SSED reader status are tracked separately in
   component. Its generic record grammar is still unresolved, so toolkit output
   should report it as a named resource stream rather than inventing raster
   image output.
+- `MONOSCR.DIC` is recognized as the same type-`0xd0` monochrome
+  figure/resource family. `COLSMPL.DIC` is recognized as a type-`0xe0`
+  color-sample resource store linked to renderer color-map behavior. Both are
+  reported as named resource streams until their complete record grammars are
+  decoded.
 - Modern `LVED_SQLITE3` `main.data` / `.dbc` package-family classification,
   local `.key` validation, and full local corpus schema/feature inspection for
   73 SQLCipher payloads. Toolkit support treats `LVED_SQLITE3` as a separate

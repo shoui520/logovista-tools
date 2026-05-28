@@ -7,7 +7,7 @@
 `MENU.DIC` (`0x01`) is an EPWING-style menu/body stream, not an index page
 tree. Some products keep it as a one-block stub containing only `1f03` or
 `1f02 1f03`; KOJIEN7, OUKOKU11, KANJIGN5, HAFRAN, and KQCOLEXP show this
-minimal form in the local corpus.
+minimal form.
 
 Other products store readable menu trees. GENIUSEB, HAIKSAIJ, IBIO5, and
 NKGORIN2 all contain menu headings, section markers, and destination links.
@@ -49,7 +49,7 @@ menu_tree.json    nested menu records grouped by inferred section depth
 menus_summary.json component-level counts and parser statistics
 ```
 
-Representative target resolution from the local corpus:
+Representative target resolution:
 
 ```text
 GENIUSEB  destinations=79     resolved=79     null=0     unresolved=0
@@ -59,6 +59,34 @@ HKKIGAK6  destinations=5,163  resolved=5,101  null=62    unresolved=0
 KQEJMED2  destinations=99,157 resolved=99,130 null=27    unresolved=0
 NKGORIN2  destinations=10     resolved=10     null=0     unresolved=0
 ```
+
+## Screen Menus and Encyclopedia Sidecars
+
+KOJIEN6 does not ship a normal `MENU.DIC`. It declares `SCRMENU.DIC`
+component type `0x10`, plus a loose LVEDBRSR sidecar named `encyclop.idx`.
+These are separate structures:
+
+- `SCRMENU.DIC` is a compressed SSED component. Its expanded stream contains
+  screen/menu controls such as `1f4f`/`1f6f`, `1f4b`/`1f6b`, and
+  `1f4c`/`1f6c`/`1f4d`/`1f6d`. The generic record grammar is still under
+  analysis and should not be parsed as ordinary `MENU.DIC`.
+- `encyclop.idx` is a CP932 tab-indented navigation sidecar beginning with
+  `#LVEDBRSR encyclopedia#Ver.1.0 ...`. It is not `SSEDDATA`; it is reader
+  navigation metadata.
+
+Rows in `encyclop.idx` have this practical shape:
+
+```text
+<block-hex> <tab> <offset-hex> <tab> [tab-indented label columns]
+```
+
+Section headings are lines beginning with `#`. KOJIEN6 uses sections such as
+multimedia data, figures/photos, movies, audio, tables, literary/historical
+materials, alphabetic abbreviations, and color samples. Target rows point back
+to SSED block/offset addresses in the normal address space. The toolkit
+`encyclopedia-index` command parses this sidecar into sections, row depth,
+labels, and target block/offsets. It deliberately keeps this model separate
+from `MENU.DIC` until `SCRMENU.DIC` itself is decoded.
 
 ## Title Components
 
@@ -318,10 +346,10 @@ field until renderer behavior gives it a stronger name.
 
 ### MULTI Descriptor Components
 
-`MULTI*.DIC` components have type `0xff`. They are one-block selector
-descriptors for additional search modes, not text streams and not B-tree pages.
-They point at the associated `MUL*` title/index/menu components by type,
-logical start block, and block count.
+`MULTI*.DIC` components have type `0xff`. They are selector descriptors for
+additional search modes, not text streams and not B-tree pages. They point at
+associated `MUL*` title/index/menu components by type, logical start block, and
+block count.
 
 The descriptor header is:
 
@@ -353,9 +381,11 @@ offset  size  meaning
 0x0a    6     flags / selector metadata, preserved as raw hex
 ```
 
-Across the observed 19 `MULTI*.DIC` files, all references match a declared
-`SSEDINFO` element by component type, start block, and block count, and all
-trailing bytes after the declared selector records are zero. Examples:
+Two physical layouts are observed.
+
+In the older/simple layout, each selector reference matches a separate declared
+`SSEDINFO` element by component type, start block, and block count. Bytes after
+the declared selector records are zero. Examples:
 
 ```text
 GENIUSEB MULTI1  labels 単語1(成句)..単語4(成句)
@@ -369,6 +399,16 @@ EJJE100  MULTI1  label 分類
 The same descriptor can point multiple selector labels at the same component
 pair. That appears to model multi-field search UI slots, for example
 `単語1(成句)` through `単語4(成句)`.
+
+KOJIEN6 uses a second layout: the descriptor block is followed by embedded
+selector subcomponents inside the same physical `MULTI*.DIC` file. The
+references still use absolute logical blocks and block counts, but those
+logical ranges fall within the parent `MULTI*.DIC` block range rather than
+matching separate declared files. Those nonzero bytes are therefore embedded
+components, not trailing junk. The parser models them as
+`embedded_components` and keeps `unreferenced_nonzero_bytes` separate. KOJIEN6
+validates under this model: all nonzero bytes after the descriptors are
+accounted for as referenced embedded selector components.
 
 ### MULTI Selector Index Pages
 

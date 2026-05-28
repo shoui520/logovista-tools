@@ -307,7 +307,7 @@ def _cmd_pcmdata(argv: list[str]) -> int:
     return _cmd_extract(
         argv,
         command="pcmdata",
-        description="Inspect or extract PCMDATA.DIC or loose SoundData audio/media records.",
+        description="Inspect or extract PCMDATA.DIC, loose SoundData, or _PCM_U audio/media records.",
         add_args=add_pcmdata_args,
         task=_pcmdata_task,
         count_field="audio_references",

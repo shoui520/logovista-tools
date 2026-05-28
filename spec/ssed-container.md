@@ -51,6 +51,7 @@ Component types observed so far:
 ```text
 0x00  HONMON.DIC / HONMON.DIN / HONMON.DIW body/main text component
 0x01  MENU.DIC
+0x10  SCRMENU.DIC screen/menu navigation stream
 0x03  KWTITLE.DIC
 0x04  FKTITLE.DIC
 0x05  FHTITLE.DIC
@@ -72,9 +73,10 @@ Component types observed so far:
 0x91  FHINDEX.DIC
 0x92  FAINDEX.DIC alternate/simple forward index
 0xa1  MUL* multi-selector index
-0xd0  FIGURE.DIC figure/resource stream
+0xd0  FIGURE.DIC / MONOSCR.DIC monochrome figure/resource stream
 0xd2  COLSCR.DIC media/image resource stream
 0xd8  PCMDATA.DIC audio/media resource stream
+0xe0  COLSMPL.DIC color-sample resource stream
 0xf1  GA16FULL resource
 0xf2  GA16HALF resource
 0xff  MULTI*.DIC selector descriptor
@@ -84,12 +86,26 @@ Component types observed so far:
 component type `0x02` and, in KCOMPEJ2, as a loose one-block `SSEDDATA`
 sidecar that is not listed in the main `SSEDINFO` catalog.
 
-`FIGURE.DIC` is observed as component type `0xd0`. It is a compressed
-`SSEDDATA` component and should be kept distinct from `COLSCR.DIC`: observed
-`FIGURE.DIC` payloads do not use the `data` wrapper described for `COLSCR.DIC`,
-and naive raster interpretations of the expanded bytes are not coherent image
-decodes. Treat it as a figure/resource stream whose generic record grammar is
-not yet decoded, not as a body stream or as a bitmap format.
+`FIGURE.DIC` and `MONOSCR.DIC` are observed as component type `0xd0`. They are
+compressed `SSEDDATA` components and should be kept distinct from
+`COLSCR.DIC`: observed type-`0xd0` payloads do not use the `data` wrapper
+described for `COLSCR.DIC`, and naive raster interpretations of the expanded
+bytes are not coherent image decodes. Treat this as a monochrome
+figure/resource stream whose generic record grammar is not yet decoded, not as
+a body stream or as a bitmap format.
+
+`COLSMPL.DIC` is observed as component type `0xe0`. KOJIEN6 stores fixed
+2048-byte color-sample records whose labels decode as CP932/JIS color names.
+The component is tied to renderer color-map behavior and the `1f14` / `1f15`
+text-stream range, not to ordinary image extraction. The toolkit now identifies
+the stream shape but does not yet claim a complete color-value record grammar.
+
+`SCRMENU.DIC` is observed as component type `0x10`. It is an advanced
+screen/menu navigation stream used by KOJIEN6 instead of ordinary `MENU.DIC`.
+It is not a B-tree index page and it is not parsed by the generic `menus`
+command. Public navigation evidence for KOJIEN6 is currently recovered from
+the companion LVEDBRSR `encyclop.idx` sidecar; see
+[Menus, Titles, and Indexes](menus-titles-indexes.md).
 
 The exact semantic names vary by dictionary, but the broad pattern is stable:
 title components store readable headword/title streams, index components store

@@ -257,6 +257,9 @@ semantics that are now understood:
   when present. Generated standalone HTML rewrites the browser-facing link to a
   safe `#lv-audio-...` fragment and preserves the recovered HC
   `lved.sond:...` target in `data-lv-original-href`;
+- KOJIEN6-style `1f39` / `1f59` movie/video ranges, resolving the embedded
+  eight-digit movie ID against sibling `_MOVIE` resources and preserving the
+  recovered `lved.movi` target in metadata;
 - Unicode gaiji first, then image-backed gaiji, then a safe placeholder;
 - private renderer directive suppression with metadata counts;
 - vertical-rendering hints as classes/metadata rather than hard-coded layout.
@@ -1103,9 +1106,9 @@ component-forensics/
 
 Each report records declared component status, expanded byte sizes, structural
 coverage, residual nonzero bytes, unknown text controls/bytes, index page
-coverage, MULTI selector references, `.uni` record/trailer counts, GA16 glyph
-byte coverage, `COLSCR` media record coverage, and `PCMDATA` referenced-range
-coverage. It does not
+coverage, MULTI selector references and embedded selector payload accounting,
+`.uni` record/trailer counts, GA16 glyph byte coverage, `COLSCR` media record
+coverage, and `PCMDATA` referenced-range coverage. It does not
 emit dictionary body text, media payloads, gaiji bitmaps, or proprietary data.
 
 Useful options:
@@ -1573,20 +1576,22 @@ body stream first. Full runs without `--limit` still scan the complete stream.
 
 ### `pcmdata`
 
-Inspect or extract audio/media records stored in `PCMDATA.DIC` and referenced
-by raw `HONMON.DIC` controls. If a package has no `PCMDATA.DIC` but has the
-MWALEARN-style loose `Sound/SoundData` plus `Sound/WaveFile.map` store, the
-same command decodes that store instead.
+Inspect or extract audio/media records referenced by raw `HONMON.DIC`
+controls. The normal backing store is `PCMDATA.DIC`. If a package has no
+physical `PCMDATA.DIC`, the same command can also decode MWALEARN-style loose
+`Sound/SoundData` plus `Sound/WaveFile.map`, or KOJIEN6-style sibling
+`_PCM_U` encrypted MP3 resources plus `_PCM_U/WaveFile.map`.
 
 ```bash
 logovista-tools pcmdata /path/to/LogoVista --dict HAESPJPN --out-dir pcmdata
 logovista-tools pcmdata /path/to/DICT/DICT.IDX --write-audio --out-dir pcmdata
 logovista-tools pcmdata /path/to/_DCT_MWALEARN --dict MWALEARN --write-audio
+logovista-tools pcmdata /path/to/_DCT_KOJIEN6 --dict KOJIEN6 --write-audio
 ```
 
 Do not pass `PCMDATA.DIC` directly. The command needs the package `.IDX` or
 directory so it can scan `HONMON.DIC` audio controls and then resolve the
-target ranges in `PCMDATA.DIC` or `Sound/WaveFile.map`.
+target ranges in `PCMDATA.DIC`, `Sound/WaveFile.map`, or `_PCM_U/WaveFile.map`.
 
 Output layout:
 
@@ -1605,7 +1610,9 @@ logical block range, visible link label when present, codec, chunk layout,
 sample rate, channel count, bit depth, source (`honmon` or `unreferenced`), and
 optional output filename. For `SoundData`, the manifest records the A427/A428
 HONMON marker position, hexadecimal sound ID, `WaveFile.map` row, RIFF/WAVE
-chunk layout, and optional output filename.
+chunk layout, and optional output filename. For `_PCM_U`, the manifest records
+the matched decimal start block, encrypted numeric file stem, decrypted MP3
+classification, and optional output filename.
 
 Useful options:
 
@@ -1620,7 +1627,9 @@ Useful options:
 With `--limit`, `pcmdata` scans only enough `HONMON.DIC` bytes to find the
 requested audio references plus a small label lookahead. Complete runs without
 `--limit` still scan the whole body stream, and unreferenced record discovery
-remains disabled for limit-bounded runs.
+remains disabled for limit-bounded runs. `_PCM_U` records are addressable by
+the PCMDATA start block in the `1f4a` payload; they are not scanned as a
+sequential component.
 
 For `fmt `/`data` PCM records, `--write-audio` wraps the raw chunks in a
 standard `RIFF/WAVE` container. For MPEG Layer III records stored inside WAVE
@@ -2106,6 +2115,42 @@ When `--limit` is used, `menus` decodes incrementally and reads one extra menu
 record where possible before stopping. This keeps the requested final row from
 being the synthetic flush of a chopped prefix while avoiding full component
 expansion for normal browsing.
+
+### `encyclopedia-index`
+
+Parse LVEDBRSR `encyclop.idx` navigation sidecars such as the one used by
+KOJIEN6:
+
+```bash
+logovista-tools encyclopedia-index /path/to/LogoVista --dict KOJIEN6 --out-dir encyclopedia-index
+logovista-tools encyclopedia-index /path/to/DICT/DICT.IDX --json --limit 0
+```
+
+This is not a `MENU.DIC` parser. `encyclop.idx` is a CP932, tab-indented
+sidecar whose rows point back into the normal SSED block/offset address space.
+The command records section headings, row depth, display label, target block,
+target offset, and whether the row is target-bearing.
+
+Output layout:
+
+```text
+encyclopedia-index/
+  encyclopedia-index-summary.json
+```
+
+Useful options:
+
+```bash
+--dict NAME                         inspect only matching dictionary ids
+--limit N                           sample row limit; use 0 for all rows in JSON
+--json                              emit a machine-readable summary
+--jobs N                            inspect packages in parallel
+```
+
+KOJIEN6 also declares `SCRMENU.DIC`, a separate compressed type-`0x10`
+screen/menu stream. That component is reported as a known advanced menu
+resource, but its generic record grammar is not collapsed into `MENU.DIC`
+output.
 
 ### `indexes`
 

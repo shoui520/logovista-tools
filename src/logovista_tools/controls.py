@@ -11,10 +11,13 @@ from __future__ import annotations
 
 CONTROL_ARG_LENGTHS: dict[int, int] = {
     0x09: 2,
+    0x14: 2,
+    0x15: 0,
     0x1A: 2,
     0x1C: 2,
     0x36: 12,
     0x37: 10,
+    0x39: 18,
     0x3C: 18,
     0x41: 2,
     0x42: 0,
@@ -28,6 +31,7 @@ CONTROL_ARG_LENGTHS: dict[int, int] = {
     0x4D: 18,
     0x4E: 38,
     0x4F: 34,
+    0x59: 0,
     0x62: 6,
     0x63: 6,
     0x64: 6,
@@ -46,13 +50,17 @@ KNOWN_NONPRINTING_CONTROLS: frozenset[int] = frozenset(
         0x03,
         0x1A,
         0x1C,
+        0x14,
+        0x15,
         0x36,
         0x37,
+        0x39,
         0x48,
         0x4B,
         0x4C,
         0x4E,
         0x4F,
+        0x59,
         0xE4,
         0xE6,
     }
@@ -104,4 +112,3 @@ def control_arg_length(data: bytes, offset: int) -> int:
             return 48
         return 34
     return CONTROL_ARG_LENGTHS.get(op, 0)
-

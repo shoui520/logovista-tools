@@ -56,10 +56,13 @@ The stream also contains `0x1f` control opcodes. Important controls observed:
 1f 0e / 1f 0f     superscript start/end
 1f 10 / 1f 11     italic-ish start/end
 1f 12 / 1f 13     emphasis-ish start/end
+1f 14 xx xx       color-sample/private resource range start
+1f 15             color-sample/private resource range end
 1f 1a xx xx       tab/column position control
 1f 1c xx xx       media block layout control; observed before media refs
 1f 36 ...         HC renderer image/link descriptor; 12-byte payload
 1f 37 ...         HC renderer internal link descriptor; 10-byte payload
+1f 39 ...         HC renderer movie/video link start; 18-byte payload
 1f 3b / 1f 5b     URL span start/end
 1f 3c ...         HC renderer inline picture reference; 18-byte payload
 1f 5c             HC renderer picture/reference end
@@ -84,6 +87,7 @@ The stream also contains `0x1f` control opcodes. Important controls observed:
 1f 6d             media/reference end
 1f 4e ...         HC renderer variable descriptor; 38- or 40-byte payload
 1f 4f ...         HC renderer variable descriptor; 34- or 48-byte payload
+1f 59             HC renderer movie/video link end
 1f e0 xx xx       bold-ish start
 1f e1             bold-ish end
 1f e2 xx xx       private renderer directive start
@@ -135,6 +139,14 @@ the raw payload as the column/position value. `1f1c 2000` is observed in
 IPHYCHE5 immediately before `1f4d` media references; the current model tags it
 as `media_layout`. Both controls are nonprinting.
 
+`1f 14` / `1f 15` are a paired resource/private range observed in KOJIEN6.
+The start control has a two-byte payload such as `1e01` or `1e02`; the close
+control has no payload. The visible body between the pair is usually empty.
+The pair appears alongside `COLSMPL.DIC`, the type-`0xe0` color-sample
+component, and HC renderer color-map bridge strings. The toolkit accounts for
+the controls structurally and suppresses them in visible text, but does not yet
+claim the full color-sample renderer mapping.
+
 `1f 44` / `1f 64` are an extended link pair. The start control has a 10-byte
 payload; the end control has a 6-byte payload. ROYALEGR and KQSYNONM use this
 pair. Treating `1f44` as zero-argument leaks binary pointer bytes into the text
@@ -162,6 +174,14 @@ gaiji marker A427 starts an eight-JIS-cell hexadecimal sound ID and A428 ends
 it. The markers and ID are renderer control data, not display text. The ID
 resolves through `Sound/WaveFile.map` into the concatenated `Sound/SoundData`
 RIFF/WAVE store.
+
+KOJIEN6 uses `1f 39` / `1f 59` for movie/video links. The start control has an
+18-byte payload. Visible link text starts with an eight-fullwidth-digit movie
+ID, followed by a label and provider text; that ID resolves to a sibling
+`_MOVIE` resource file. The observed movie files are MPEG program/video
+payloads. The HC renderer emits an `lved.movi`-style link; toolkit HTML output
+rewrites it to a safe local fragment while preserving the recovered original
+target in metadata.
 
 `1f 04` / `1f 05` are a text-mode span pair, not a generic style pair.
 Compatible plain-text behavior treats them as `半角開始` / `半角終了`: JIS row-3
