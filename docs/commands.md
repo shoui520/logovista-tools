@@ -2152,6 +2152,38 @@ screen/menu stream. That component is reported as a known advanced menu
 resource, but its generic record grammar is not collapsed into `MENU.DIC`
 output.
 
+### `color-samples`
+
+Parse `COLSMPL.DIC` color-sample resources such as the stream used by KOJIEN6:
+
+```bash
+logovista-tools color-samples /path/to/LogoVista --dict KOJIEN6 --out-dir color-samples
+logovista-tools color-samples /path/to/DICT/DICT.IDX --json --limit 0
+```
+
+`COLSMPL.DIC` records are fixed 2048-byte records. The command decodes the
+compact Munsell notation prefix, the JIS color-name label, the `1eNN` sample
+key used by HONMON `1f14` controls for the first 99 records, and an explicitly
+marked estimated RGB value for standalone HTML swatches. The official
+`SDicGetColorMap` conversion is not recovered yet, so the decoded Munsell
+notation remains the exact format fact.
+
+Output layout:
+
+```text
+color-samples/
+  color-samples-summary.json
+```
+
+Useful options:
+
+```bash
+--dict NAME                         inspect only matching dictionary ids
+--limit N                           sample record limit; use 0 for all rows in JSON
+--json                              emit a machine-readable summary
+--jobs N                            inspect packages in parallel
+```
+
 ### `indexes`
 
 Extract lookup keys and pointer rows from expanded `*INDEX.DIC` components:

@@ -16,6 +16,7 @@ from logovista_tools.colscr import (
     parse_media_pointer,
     validate_bmp_header,
 )
+from logovista_tools.colorsamples import decode_munsell_notation, parse_color_sample_table
 from logovista_tools.entries import (
     DictionarySource,
     decode_tokens,
@@ -2452,3 +2453,25 @@ def test_parse_lvedbrsr_encyclopedia_index_sidecar(tmp_path: Path) -> None:
     assert parsed.rows[-1].label == "哺乳類"
     assert parsed.rows[-1].block == 0x59F9
     assert parsed.rows[-1].offset == 0x06DC
+
+
+def test_parse_colsmpl_color_sample_records_decode_munsell_and_labels() -> None:
+    assert decode_munsell_notation(bytes.fromhex("f24bf5d7c2f461f1f2")) == "2.5PB4/12"
+
+    first = bytearray(2048)
+    first[:6] = bytes.fromhex("f2d7c2f361f5")
+    first[20:22] = bytes.fromhex("4d75")
+    second = bytearray(2048)
+    second[:6] = bytes.fromhex("f5d9f461f1f4")
+    second[20:22] = bytes.fromhex("4056")
+
+    parsed = parse_color_sample_table(bytes(first) + bytes(second))
+
+    assert len(parsed.records) == 2
+    assert parsed.records[0].sample_key == "1e01"
+    assert parsed.records[0].munsell == "2PB3/5"
+    assert parsed.records[0].label == "藍"
+    assert parsed.records[0].estimated_rgb is not None
+    assert parsed.records[1].sample_key == "1e02"
+    assert parsed.records[1].munsell == "5R4/14"
+    assert parsed.records[1].label == "赤"

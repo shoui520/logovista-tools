@@ -330,6 +330,32 @@ def test_kojien6_movie_control_renders_video_link_without_payload_leak() -> None
     assert rendered.video[0]["target"]["movie_id"] == "62020013"
 
 
+def test_kojien6_color_sample_control_renders_structured_swatch_without_payload_leak() -> None:
+    body = b"\x1f\x14\x1e\x01\x1f\x15"
+    rendered = render_hc_body(
+        body,
+        HcRenderOptions(
+            renderer_code="012C",
+            color_samples={
+                "1e01": {
+                    "sample_key": "1e01",
+                    "label": "藍",
+                    "munsell": "2PB3/5",
+                    "estimated_rgb_hex": "123456",
+                }
+            },
+        ),
+    )
+
+    assert "1e01" in rendered.html
+    assert 'data-lv-color-label="藍"' in rendered.html
+    assert 'data-lv-munsell="2PB3/5"' in rendered.html
+    assert "background-color:#123456" in rendered.html
+    assert rendered.color_samples[0]["status"] == "resolved_munsell"
+    assert rendered.stats["color_samples"] == 1
+    assert "unknown_control_1f14" not in rendered.named_behavior_gaps
+
+
 def test_hc_render_common_media_close_state_is_not_unknown() -> None:
     rendered = render_hc_body(jis_ascii("A") + b"\x1f\x6d" + jis_ascii("B"))
 

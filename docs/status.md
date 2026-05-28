@@ -133,10 +133,10 @@ and non-SSED reader status are tracked separately in
   should report it as a named resource stream rather than inventing raster
   image output.
 - `MONOSCR.DIC` is recognized as the same type-`0xd0` monochrome
-  figure/resource family. `COLSMPL.DIC` is recognized as a type-`0xe0`
-  color-sample resource store linked to renderer color-map behavior. Both are
-  reported as named resource streams until their complete record grammars are
-  decoded.
+  figure/resource family. `COLSMPL.DIC` is parsed as a type-`0xe0`
+  color-sample resource store with 2048-byte Munsell/label records linked to
+  `1f14` / `1f15` renderer controls. Exact official Munsell-to-RGB conversion
+  remains unresolved, so standalone swatch colors are explicit estimates.
 - Modern `LVED_SQLITE3` `main.data` / `.dbc` package-family classification,
   local `.key` validation, and full local corpus schema/feature inspection for
   73 SQLCipher payloads. Toolkit support treats `LVED_SQLITE3` as a separate

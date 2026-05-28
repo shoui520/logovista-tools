@@ -143,9 +143,11 @@ as `media_layout`. Both controls are nonprinting.
 The start control has a two-byte payload such as `1e01` or `1e02`; the close
 control has no payload. The visible body between the pair is usually empty.
 The pair appears alongside `COLSMPL.DIC`, the type-`0xe0` color-sample
-component, and HC renderer color-map bridge strings. The toolkit accounts for
-the controls structurally and suppresses them in visible text, but does not yet
-claim the full color-sample renderer mapping.
+component, and HC renderer color-map bridge strings. For KOJIEN6, `1eNN`
+maps to the one-based BCD sample number in the first 99 `COLSMPL.DIC` records.
+The toolkit resolves this to structured color-sample metadata and can emit a
+standalone estimated swatch, while keeping exact official RGB conversion as a
+named HC renderer gap.
 
 `1f 44` / `1f 64` are an extended link pair. The start control has a 10-byte
 payload; the end control has a 6-byte payload. ROYALEGR and KQSYNONM use this

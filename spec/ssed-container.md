@@ -95,10 +95,12 @@ figure/resource stream whose generic record grammar is not yet decoded, not as
 a body stream or as a bitmap format.
 
 `COLSMPL.DIC` is observed as component type `0xe0`. KOJIEN6 stores fixed
-2048-byte color-sample records whose labels decode as CP932/JIS color names.
+2048-byte color-sample records. Each record prefix decodes to compact Munsell
+notation, and the label field at byte offset 20 decodes as a JIS color name.
 The component is tied to renderer color-map behavior and the `1f14` / `1f15`
-text-stream range, not to ordinary image extraction. The toolkit now identifies
-the stream shape but does not yet claim a complete color-value record grammar.
+text-stream range, not to ordinary image extraction. The exact official
+Munsell-to-RGB conversion remains renderer-side behavior rather than a direct
+value stored in the component.
 
 `SCRMENU.DIC` is observed as component type `0x10`. It is an advanced
 screen/menu navigation stream used by KOJIEN6 instead of ordinary `MENU.DIC`.

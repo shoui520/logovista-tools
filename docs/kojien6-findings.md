@@ -67,10 +67,16 @@ movie ID as ordinary prose.
 `COLSCR.DIC` remains the normal `data`-wrapped image store and decodes through
 the existing media parser.
 
-`COLSMPL.DIC` is a type-`0xe0` color-sample stream. Observed records are
-2048-byte blocks with readable color labels near the header. The paired
-`1f14` / `1f15` controls and HC color-map bridge strings show the intended
-renderer relationship, but the full record grammar is still named as a gap.
+`COLSMPL.DIC` is a type-`0xe0` color-sample stream. Records are 2048-byte
+blocks. The record prefix stores a compact Munsell color notation, and the
+field at byte offset 20 stores a JIS-encoded Japanese color-name label.
+HONMON `1f14` / `1f15` controls use `1eNN` sample keys, where `NN` is a
+one-based BCD sample number for the first 99 records. HC012C contains a
+`SDicGetColorMap` bridge and formats color samples as a `media` span with an
+RGB background. The toolkit now parses the exact Munsell/label data and emits
+structured color-sample renderer metadata. The RGB values in standalone HTML
+are marked as estimates because the official Munsell-to-RGB bridge itself is
+not yet recovered.
 
 `MONOSCR.DIC` is a type-`0xd0` monochrome figure/resource stream. It should be
 kept distinct from `COLSCR.DIC`; the expanded bytes do not use the `data`
@@ -88,12 +94,14 @@ Supported:
 - `encyclop.idx` sidecar parsing;
 - `_PCM_U` audio resolution and MP3 extraction;
 - `_MOVIE` discovery and movie-link rendering metadata;
+- `COLSMPL.DIC` Munsell/label parsing and `1f14` color-sample renderer
+  metadata;
 - `COLSCR.DIC` image extraction.
 
 Named gaps:
 
 - complete `SCRMENU.DIC` generic record grammar;
-- complete `COLSMPL.DIC` color-value semantics;
+- exact `SDicGetColorMap` Munsell-to-RGB conversion;
 - complete `MONOSCR.DIC` record/image grammar;
 - exact product-level KOJIEN6 HC012C visual parity beyond the shared movie,
   picture, audio, link, gaiji, and text-control semantics currently modeled.

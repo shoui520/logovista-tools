@@ -17,6 +17,7 @@ from typing import Any, Iterable
 
 from .body_boundaries import index_body_marker_boundaries_for_source, target_needs_index_boundaries
 from .ccaltstr import parse_ccaltstr_file
+from .colorsamples import load_color_sample_map
 from .entries import DictionarySource, decode_tokens, discover_dictionaries, tokens_to_text
 from .gaiji import load_gaiji_profile
 from .hcrender import (
@@ -286,6 +287,7 @@ class _ReaderDemoBuilder:
             vertical=bool(args.vertical),
             media_image_resolver=_make_colscr_image_resolver(source, out_dir),
             movie_ids=movie_ids_for_idx(source.idx),
+            color_samples=load_color_sample_map(source.idx),
         )
         self.queue: deque[tuple[_QueuedAddress, int]] = deque()
         self.queued: set[str] = set()

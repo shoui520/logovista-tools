@@ -31,6 +31,7 @@ from .body_boundaries import (
     target_slice_from_reader_and_index_boundaries,
 )
 from .colscr import MediaPointer, find_colscr_path, parse_media_pointer, read_colscr_record
+from .colorsamples import load_color_sample_map
 from .controls import KNOWN_NONPRINTING_CONTROLS, control_arg_length
 from .entries import (
     DictionarySource,
@@ -281,6 +282,22 @@ HC_RENDER_BASE_CSS = """
   min-height: 1em;
   border: 1px solid #999;
   vertical-align: -0.15em;
+}
+:where(.lv-hc-render .lv-hc-color-sample) {
+  display: inline-block;
+  min-width: 2em;
+  min-height: 1em;
+  border: 1px solid #777;
+  vertical-align: -0.12em;
+}
+:where(.lv-hc-render .lv-hc-color-sample-unresolved) {
+  background: repeating-linear-gradient(
+    45deg,
+    #eee,
+    #eee 3px,
+    #ccc 3px,
+    #ccc 6px
+  );
 }
 :where(.lv-hc-render .img_inline),
 :where(.lv-hc-render .lv-hc-media.img_inline) {
@@ -1110,6 +1127,7 @@ class HcRenderOptions:
     media_image_resolver: Callable[[MediaPointer], str | None] | None = None
     sounddata_ids: frozenset[int] = frozenset()
     movie_ids: frozenset[str] = frozenset()
+    color_samples: dict[str, dict[str, Any]] = field(default_factory=dict)
     template_heading: str | None = None
     template_subheading: str | None = None
     reader_style: str = WINDOWS_READER_STYLE
@@ -1126,6 +1144,7 @@ class HcRenderResult:
     media: tuple[dict[str, Any], ...] = ()
     audio: tuple[dict[str, Any], ...] = ()
     video: tuple[dict[str, Any], ...] = ()
+    color_samples: tuple[dict[str, Any], ...] = ()
     private_directives: tuple[dict[str, Any], ...] = ()
     named_behavior_gaps: tuple[str, ...] = ()
 
@@ -1138,6 +1157,7 @@ class HcRenderResult:
             "media": list(self.media),
             "audio": list(self.audio),
             "video": list(self.video),
+            "color_samples": list(self.color_samples),
             "private_directives": list(self.private_directives),
             "named_behavior_gaps": list(self.named_behavior_gaps),
         }
@@ -1165,6 +1185,7 @@ class HcTargetRenderResult:
     raw_media: tuple[dict[str, Any], ...]
     exact_rendererdb: dict[str, Any] | None
     output_vertical: bool
+    color_samples: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass
@@ -3853,6 +3874,36 @@ def _movie_original_href(target: dict[str, Any] | None) -> str:
     if target is None:
         return "lved.movi:unresolved"
     return f"lved.movi:{target['movie_id']}"
+
+
+def _color_sample_html(sample_key: str, record: dict[str, Any] | None) -> str:
+    attrs = [
+        'class="media lv-hc-color-sample"',
+        f'data-lv-color-sample="{_escape_attr(sample_key)}"',
+    ]
+    if record is None:
+        attrs[0] = 'class="media lv-hc-color-sample lv-hc-color-sample-unresolved"'
+        attrs.append('data-lv-color-sample-status="unresolved_sample_key"')
+        return f'<span {" ".join(attrs)}>??</span>'
+
+    label = str(record.get("label") or "")
+    munsell = str(record.get("munsell") or "")
+    rgb_hex = str(record.get("estimated_rgb_hex") or "")
+    title = " ".join(part for part in (label, munsell) if part)
+    attrs.append('data-lv-color-sample-status="resolved_munsell"')
+    if label:
+        attrs.append(f'data-lv-color-label="{_escape_attr(label)}"')
+    if munsell:
+        attrs.append(f'data-lv-munsell="{_escape_attr(munsell)}"')
+    if rgb_hex:
+        attrs.append(f'data-lv-rgb-estimated="{_escape_attr(rgb_hex)}"')
+        attrs.append(f'style="background-color:#{_escape_attr(rgb_hex)}"')
+    else:
+        attrs[0] = 'class="media lv-hc-color-sample lv-hc-color-sample-unresolved"'
+    if title:
+        attrs.append(f'title="{_escape_attr(title)}"')
+        attrs.append(f'aria-label="{_escape_attr(title)}"')
+    return f'<span {" ".join(attrs)}>&#12288;&#12288;</span>'
 
 
 def _sounddata_audio_html(target: dict[str, Any], status: str, options: HcRenderOptions, stats: Counter[str]) -> str:
@@ -9363,6 +9414,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
     media: list[dict[str, Any]] = []
     audio: list[dict[str, Any]] = []
     video: list[dict[str, Any]] = []
+    color_samples: list[dict[str, Any]] = []
     private_directives: list[dict[str, Any]] = []
     gaps: set[str] = set()
     halfwidth_depth = 0
@@ -15033,6 +15085,30 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
                 i += 2 + arg_len
                 continue
 
+            if op == 0x14:
+                sample_key = payload.hex()
+                record = options.color_samples.get(sample_key.lower())
+                marker = {
+                    "start_control": "1f14",
+                    "end_control": "1f15",
+                    "sample_key": sample_key,
+                    "status": "resolved_munsell" if record is not None else "unresolved_sample_key",
+                }
+                if record is not None:
+                    marker["record"] = record
+                color_samples.append(marker)
+                _current_parts(root_parts, contexts).append(_color_sample_html(sample_key, record))
+                stats["color_samples"] += 1
+                if record is None:
+                    gaps.add(f"unresolved_color_sample_{sample_key}")
+                i += 2 + arg_len
+                continue
+
+            if op == 0x15:
+                stats["color_sample_ends"] += 1
+                i += 2 + arg_len
+                continue
+
             if op in URL_START_OPS:
                 contexts.append(_Context(kind="url", start_op=op, payload=payload, parent=_current_parts(root_parts, contexts), start_offset=i))
                 i += 2 + arg_len
@@ -19265,6 +19341,7 @@ def render_hc_body(data: bytes, options: HcRenderOptions | None = None) -> HcRen
         media=tuple(media),
         audio=tuple(audio),
         video=tuple(video),
+        color_samples=tuple(color_samples),
         private_directives=tuple(private_directives),
         named_behavior_gaps=tuple(sorted(gaps)),
     )
@@ -19381,6 +19458,7 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
     image_sources, html_templates, stylesheet, copied_assets, renderer_assets = _prepare_hc_render_assets(source, dict_out, renderer)
     media_image_resolver = _make_colscr_image_resolver(source, dict_out)
     sounddata_index = load_sounddata_index(source.idx)
+    color_samples = load_color_sample_map(source.idx)
     options = HcRenderOptions(
         gaiji_map=source.gaiji_map,
         image_sources=image_sources,
@@ -19391,6 +19469,7 @@ def _render_raw_honmon_entries(source: DictionarySource, dict_out: Path, args: a
         media_image_resolver=media_image_resolver,
         sounddata_ids=frozenset(sounddata_index.records) if sounddata_index is not None else frozenset(),
         movie_ids=movie_ids_for_idx(source.idx),
+        color_samples=color_samples,
     )
     totals: Counter[str] = Counter()
     emitted = 0
@@ -19541,6 +19620,7 @@ def render_hc_target_body(
         raw_media=raw_result.media,
         exact_rendererdb=exact_record,
         output_vertical=output_vertical,
+        color_samples=raw_result.color_samples,
     )
 
 
@@ -19566,6 +19646,7 @@ def _render_hc_index_hit(
     reader = SsedRandomReader(source.honmon)
     target_offset = _target_relative_offset(source, hit)
     media_image_resolver = _make_colscr_image_resolver(source, dict_out)
+    color_samples = load_color_sample_map(source.idx)
     options = HcRenderOptions(
         gaiji_map=source.gaiji_map,
         image_sources=image_sources,
@@ -19576,6 +19657,7 @@ def _render_hc_index_hit(
         media_image_resolver=media_image_resolver,
         sounddata_ids=sounddata_ids,
         movie_ids=movie_ids_for_idx(source.idx),
+        color_samples=color_samples,
     )
     rendered = render_hc_target_body(
         source,

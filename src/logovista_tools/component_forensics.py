@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .colscr import iter_media_references, parse_colscr_image_header, read_colscr_record
+from .colorsamples import parse_color_sample_table
 from .controls import control_arg_length
 from .entries import control_tag_for_end, control_tag_for_start
 from .gaiji import (
@@ -1079,13 +1080,14 @@ def special_resource_report(roots: list[Path], element: Any, source: Path, data:
         "control_op_counts": dict(sorted(control_ops.items())),
     }
     if element.type == 0xE0 or element.filename.upper() == "COLSMPL.DIC":
-        records = [data[offset : offset + BLOCK_SIZE] for offset in range(0, len(data), BLOCK_SIZE)]
-        labels = [label for record in records[:32] if (label := _sample_resource_label(record))]
+        table = parse_color_sample_table(data)
         row.update(
             {
                 "record_size": BLOCK_SIZE,
-                "record_count": len(records),
-                "label_samples": labels[:16],
+                "record_count": len(table.records),
+                "mapped_sample_keys": len(table.by_sample_key),
+                "label_samples": [record.label for record in table.records[:16]],
+                "munsell_samples": [record.munsell for record in table.records[:16]],
             }
         )
     return row

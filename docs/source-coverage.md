@@ -13,7 +13,7 @@ disagrees.
 | `ssed.py`, `crypto.py`, `macos_zip.py` | [SSED Container](../spec/ssed-container.md), [Package Layers](../spec/package-layers.md), [Android Packages](android-packages.md) |
 | `entries.py`, `text.py`, `opcodes.py`, `hcrender.py` | [Text Streams and Body Storage](../spec/text-streams.md), [HC Renderer Parity Matrix](hc-renderer-parity.md) |
 | `indexes.py`, `titles.py`, `menus.py`, `encyclopedia.py`, `panels.py`, `windows.py` auxiliary-tree parsers | [Menus, Titles, and Indexes](../spec/menus-titles-indexes.md), [Package Layers](../spec/package-layers.md), [KOJIEN6 SSED Findings](kojien6-findings.md) |
-| `gaiji.py`, `ga16.py`, `colscr.py`, `pcmdata.py`, `sounddata.py`, `pcmu.py`, `movies.py`, `resources.py` | [Gaiji, Images, and Media](../spec/gaiji-media.md), [CLI Command Reference](commands.md), [KOJIEN6 SSED Findings](kojien6-findings.md) |
+| `gaiji.py`, `ga16.py`, `colscr.py`, `colorsamples.py`, `pcmdata.py`, `sounddata.py`, `pcmu.py`, `movies.py`, `resources.py` | [Gaiji, Images, and Media](../spec/gaiji-media.md), [CLI Command Reference](commands.md), [KOJIEN6 SSED Findings](kojien6-findings.md) |
 | `lved.py` | [LVED_SQLITE3 Packages](../spec/lved-main-data.md), [LVED_SQLITE3 Corpus Findings](lved-sqlite3-corpus.md), [Android Packages](android-packages.md) |
 | `multiview.py` | [LVLMultiView Packages](../spec/multiview.md), [LVLMultiView Corpus Findings](multiview-findings.md) |
 | `hourei.py` | [Hourei SQLite Packages](../spec/hourei.md), [Hourei Corpus Findings](hourei-findings.md) |

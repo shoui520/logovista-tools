@@ -31,6 +31,7 @@ from .cli_ux import (
     status,
 )
 from .colscr import extract_colscr_for_sources
+from .colorsamples import find_color_sample_path, load_color_sample_table
 from .component_forensics import extract_component_forensics_for_args
 from .decoded_model import (
     discover_package_model_targets,
@@ -583,10 +584,10 @@ def select_sources(args: argparse.Namespace):
     roots = args.root or [Path(".")]
     jobs = getattr(args, "jobs", 1)
     command = getattr(args, "command", "")
-    include_images = command not in {"titles", "indexes", "menus", "colscr", "pcmdata"}
+    include_images = command not in {"titles", "indexes", "menus", "colscr", "pcmdata", "color-samples"}
     if command == "entries":
         include_images = bool(getattr(args, "image_gaiji", False) or getattr(args, "html", False) or getattr(args, "section_image", None))
-    include_gaiji = command not in {"titles", "indexes", "menus", "colscr", "pcmdata"}
+    include_gaiji = command not in {"titles", "indexes", "menus", "colscr", "pcmdata", "color-samples"}
     status(args, f"{command_label(args)}: discovering dictionaries under {', '.join(str(root) for root in roots)}")
     sources = discover_dictionaries(
         roots,
@@ -833,6 +834,63 @@ def cmd_encyclopedia(args: argparse.Namespace) -> int:
             if item.get("has_target"):
                 target = f" -> {int(item['block']):08x}:{int(item['offset']):04x}"
             print(f"  {indent}{item.get('label')}{target}")
+    return 0
+
+
+def _color_samples_source_row(source: Any, args: argparse.Namespace) -> dict[str, Any]:
+    path = find_color_sample_path(source.idx)
+    if path is None:
+        return {
+            "dict_id": source.dict_id,
+            "dict_title": source.title,
+            "status": "missing",
+            "path": None,
+            "record_count": 0,
+            "mapped_sample_keys": 0,
+            "records": [],
+        }
+    table = load_color_sample_table(source.idx)
+    if table is None:
+        return {
+            "dict_id": source.dict_id,
+            "dict_title": source.title,
+            "status": "missing",
+            "path": str(path),
+            "record_count": 0,
+            "mapped_sample_keys": 0,
+            "records": [],
+        }
+    row_limit = None if args.limit == 0 else args.limit
+    row = table.as_dict(limit=row_limit)
+    row.update(
+        {
+            "dict_id": source.dict_id,
+            "dict_title": source.title,
+            "status": "parsed",
+            "path": str(path),
+        }
+    )
+    return row
+
+
+def cmd_color_samples(args: argparse.Namespace) -> int:
+    sources = select_sources(args)
+    rows = [_color_samples_source_row(source, args) for source in sources]
+    if args.out_dir:
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        write_json(args.out_dir / "color-samples-summary.json", rows)
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return 0
+    for row in rows:
+        print(
+            f"{row['dict_id']:12s} status={row['status']:7s} "
+            f"records={row.get('record_count', 0):4d} mapped={row.get('mapped_sample_keys', 0):3d}"
+        )
+        for item in (row.get("records") or [])[: args.limit or 10]:
+            rgb = item.get("estimated_rgb_hex") or "unresolved"
+            key = item.get("sample_key") or "-"
+            print(f"  {key:6s} {item.get('munsell', ''):12s} {rgb:10s} {item.get('label', '')}")
     return 0
 
 
@@ -2710,6 +2768,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_encyclopedia.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     add_jobs_argument(p_encyclopedia)
     p_encyclopedia.set_defaults(func=cmd_encyclopedia)
+
+    p_color_samples = sub.add_parser("color-samples", help="Parse COLSMPL.DIC Munsell color-sample records.")
+    p_color_samples.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_color_samples.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
+    p_color_samples.add_argument("--out-dir", type=Path, help="Write summary JSON to this directory.")
+    p_color_samples.add_argument("--limit", type=int, default=20, help="Sample record limit; use 0 for all rows in JSON.")
+    p_color_samples.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    add_jobs_argument(p_color_samples)
+    p_color_samples.set_defaults(func=cmd_color_samples)
 
     p_panels = sub.add_parser("panels", help="Decode LogoVista Panel XML/plist metadata and Panel BIN tables.")
     p_panels.add_argument(

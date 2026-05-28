@@ -401,13 +401,26 @@ understood.
 ## `COLSMPL.DIC`
 
 `COLSMPL.DIC` is observed as a compressed type-`0xe0` SSED component in
-KOJIEN6. The expanded stream is block-record oriented: observed records are
-2048 bytes each and contain color-name labels near the record header. The body
-stream has paired `1f14` / `1f15` controls near this resource family, and the
-KOJIEN6 renderer imports a color-map bridge. This is enough to classify the
-component as a color-sample resource store, but not enough to claim complete
-record semantics. The toolkit accounts for the component and control bytes
-without inventing image output or CSS values.
+KOJIEN6. The expanded stream is block-record oriented: records are 2048 bytes
+each. The nonzero record prefix stores compact Munsell notation:
+
+```text
+f0..f9  digits 0..9
+4b      decimal point
+61      slash
+c2/c7/d5/d7/d9/e8  B/G/N/P/R/Y hue letters
+```
+
+For example, prefix bytes `f2 4b f5 d7 c2 f4 61 f1 f2` decode to
+`2.5PB4/12`. The field at byte offset 20 is a JIS-encoded color-name label.
+
+HONMON uses paired `1f14` / `1f15` controls for color samples. The observed
+start payloads are `1eNN`, where `NN` is the one-based BCD sample number for
+the first 99 `COLSMPL.DIC` records. HC012C contains a `SDicGetColorMap` bridge
+and an HTML template shaped like a `media` span with an RGB background. The
+component itself stores Munsell notation, not direct RGB. Toolkit standalone
+HTML may emit an explicitly marked estimated RGB swatch, but exact official
+Munsell-to-RGB conversion remains a named renderer gap.
 
 ## Loose `_MOVIE` Video Store
 
