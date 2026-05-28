@@ -56,6 +56,13 @@ from .ssed import (
     parse_ssedinfo,
     resolve_case_insensitive_path,
 )
+from .windows import (
+    aux_index_row_to_json,
+    discover_numeric_aux_indexes,
+    iter_aux_index_specs,
+    load_exinfo_for_idx,
+    parse_aux_index_text,
+)
 
 
 PANEL_METADATA_CANDIDATES = (
@@ -111,7 +118,7 @@ def add_reader_demo_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--panel-row-limit", type=int, default=80, help="Maximum external Panel body rows to include.")
     parser.add_argument("--menu-row-limit", type=int, default=120, help="Maximum MENU.DIC rows to include.")
     parser.add_argument("--menu-preview-limit", type=int, default=80, help="Rows to show when a MENU row targets another MENU region.")
-    parser.add_argument("--index-row-limit", type=int, default=120, help="Rows to show from KW/MUL auxiliary indexes.")
+    parser.add_argument("--index-row-limit", type=int, default=120, help="Rows to show from native, EXINFO, numeric, and KW/MUL auxiliary indexes.")
     parser.add_argument("--hanrei-page-limit", type=int, default=40, help="Maximum HANREI pages/links to include.")
     parser.add_argument("--ccaltstr-row-limit", type=int, default=120, help="Maximum CCALTSTR alternate-string rows to include.")
     parser.add_argument("--link-depth", type=int, default=1, help="How many rounds of entry-internal links to pre-render.")
@@ -758,6 +765,48 @@ def _decode_text_component_lines(path: Path, gaiji_map: dict[str, str], limit: i
     return []
 
 
+def _aux_index_component(
+    builder: _ReaderDemoBuilder,
+    *,
+    component: str,
+    kind: str,
+    path: Path,
+    title: str = "",
+) -> dict[str, Any]:
+    row_limit = int(builder.args.index_row_limit)
+    parsed_rows = parse_aux_index_text(path, builder.elements)
+    rows: list[dict[str, Any]] = []
+    for row in parsed_rows[:row_limit]:
+        item = aux_index_row_to_json(row)
+        target = item.get("target")
+        if isinstance(target, dict) and target.get("kind") == "body":
+            key = _target_key(target)
+            if key:
+                item["target_key"] = key
+                try:
+                    builder.enqueue(
+                        int(target["block"]),
+                        int(target["offset"]),
+                        label=str(item.get("label") or title or component),
+                        source=f"aux:{component}",
+                    )
+                except (KeyError, TypeError, ValueError):
+                    pass
+        rows.append(item)
+    return {
+        "component": component,
+        "type": kind,
+        "title": title,
+        "path": str(path),
+        "rows": rows,
+        "summary": {
+            "rows_total": len(parsed_rows),
+            "rows_in_demo": len(rows),
+            "targets": sum(1 for row in parsed_rows if row.target is not None),
+        },
+    }
+
+
 def _auxiliary_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
     index_rows: list[dict[str, Any]] = []
     title_streams: list[dict[str, Any]] = []
@@ -765,6 +814,43 @@ def _auxiliary_data(builder: _ReaderDemoBuilder) -> dict[str, Any]:
     multi_descriptors: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
     seen_text_components: set[str] = set()
+    seen_aux_paths: set[Path] = set()
+    exinfo = load_exinfo_for_idx(builder.source.idx)
+    if exinfo is not None:
+        for spec in iter_aux_index_specs(exinfo):
+            if spec.path is None or not spec.path.is_file():
+                failures.append({"component": spec.info, "reason": "exinfo_aux_index_missing"})
+                continue
+            resolved = spec.path.resolve()
+            seen_aux_paths.add(resolved)
+            try:
+                index_rows.append(
+                    _aux_index_component(
+                        builder,
+                        component=spec.info or spec.path.name,
+                        kind="exinfo-text-index",
+                        path=spec.path,
+                        title=spec.name,
+                    )
+                )
+            except Exception as exc:
+                failures.append({"component": spec.info or spec.path.name, "reason": f"exinfo_aux_index_parse_failed: {exc}"})
+    for path in discover_numeric_aux_indexes(builder.source.idx):
+        resolved = path.resolve()
+        if resolved in seen_aux_paths:
+            continue
+        try:
+            index_rows.append(
+                _aux_index_component(
+                    builder,
+                    component=path.name,
+                    kind="numeric-text-index",
+                    path=path,
+                    title="",
+                )
+            )
+        except Exception as exc:
+            failures.append({"component": path.name, "reason": f"numeric_aux_index_parse_failed: {exc}"})
     for element in builder.elements:
         upper = element.filename.upper()
         path = find_case_insensitive(builder.source.idx.parent, element.filename)
@@ -1324,10 +1410,11 @@ def _auxiliary_html(auxiliary: dict[str, Any], entries: dict[str, _RenderedEntry
     parts = ["<section><h2>Auxiliary indexes/resources</h2>"]
     for component in auxiliary.get("index_rows") or []:
         rows = component.get("rows") or []
-        parts.append(
-            f'<h3>{html.escape(str(component.get("component")))} '
-            f'(type {html.escape(str(component.get("type")))})</h3>'
-        )
+        title = component.get("title")
+        heading = str(component.get("component"))
+        if title:
+            heading = f"{title} ({heading})"
+        parts.append(f'<h3>{html.escape(heading)} (type {html.escape(str(component.get("type")))})</h3>')
         if component.get("summary"):
             summary = component["summary"]
             parts.append(
@@ -1337,7 +1424,8 @@ def _auxiliary_html(auxiliary: dict[str, Any], entries: dict[str, _RenderedEntry
             )
         parts.append('<div class="nav-list">')
         for row in rows:
-            label = str(row.get("target_key") or row.get("key") or "(blank)")
+            path_label = " / ".join(str(item) for item in row.get("path") or [] if item)
+            label = path_label or str(row.get("label") or row.get("target_key") or row.get("key") or "(blank)")
             key = row.get("target_key")
             parts.append(_button(label, str(key) if key in entries else None, "aux-index-link"))
         parts.append("</div>")
@@ -1360,7 +1448,7 @@ def _auxiliary_html(auxiliary: dict[str, Any], entries: dict[str, _RenderedEntry
     if failures:
         parts.append("<h3>Auxiliary parse failures</h3><pre>" + html.escape(json.dumps(failures, ensure_ascii=False, indent=2)) + "</pre>")
     if len(parts) == 1:
-        parts.append('<p class="muted">No KW/MUL/RIGHT auxiliary components selected for this package.</p>')
+        parts.append('<p class="muted">No EXINFO/numeric/KW/MUL/RIGHT auxiliary components selected for this package.</p>')
     parts.append("</section>")
     return "\n".join(parts)
 

@@ -229,6 +229,12 @@ copies can carry them too. A same-code `.uni` file can be declared by
 `EXINFO.INI` for the auxiliary/renderer layer, so the gaiji basename is not
 guaranteed to match the main dictionary `.IDX` stem.
 
+`EXINFO.INI` can also declare nonnumeric auxiliary trees. GENDAI10 declares
+edition/appendix trees such as `1991.idx` through `2000.idx` and `20th.idx`.
+These files use the same CP932 tab-tree pointer grammar as eight-hex numeric
+auxiliary indexes and should be modeled as navigation surfaces, not rejected
+because their filenames are not renderer-code-shaped.
+
 ## CCALTSTR Alternate-String Tables
 
 Some Windows SSED packages carry `CCALTSTR.HA` and, less commonly,

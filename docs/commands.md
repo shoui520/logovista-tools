@@ -432,11 +432,14 @@ The page contains:
   TOC-to-TOC or MENU-to-MENU jumps either scroll to the embedded target row or
   open a bounded preview of the target menu region;
 - selected `KWINDEX.DIC`, `KWTITLE.DIC`, `MUL*.DIC`, `MULTI*.DIC`,
-  `RIGHT.DIC`, and `IDXJUMP.DIC` auxiliary resources where present. Some
-  packages carry `RIGHT.DIC` / `IDXJUMP.DIC` as loose sidecars rather than
-  declared catalog components; `reader-demo` samples those too. Auxiliary
-  text/title streams are sampled with bounded prefix reads so large title
-  components do not need to be fully expanded for a sidebar preview;
+  `RIGHT.DIC`, and `IDXJUMP.DIC` auxiliary resources where present. It also
+  embeds CP932 text-index trees declared by `EXINFO.INI` and sibling numeric
+  auxiliary `.idx` trees, so bundle packages such as GENDAI10 can show
+  year/appendix navigation in the generated page. Some packages carry
+  `RIGHT.DIC` / `IDXJUMP.DIC` as loose sidecars rather than declared catalog
+  components; `reader-demo` samples those too. Auxiliary text/title streams
+  are sampled with bounded prefix reads so large title components do not need
+  to be fully expanded for a sidebar preview;
 - `HANREI/` and `HANREI.chm` references where present. Loose HTML HANREI files
   are copied into the demo tree; CHM files are copied, and when `7z`/`7zz` is
   available their `.hhc` / `.hhk` sitemap files and HTML pages are extracted.
@@ -455,7 +458,8 @@ Useful sampling controls:
 
 - `--menu-row-limit` and `--menu-preview-limit` bound MENU/TOC rows and
   menu-target preview rows.
-- `--index-row-limit` bounds KW/MUL auxiliary index rows.
+- `--index-row-limit` bounds native, EXINFO-declared, numeric, and KW/MUL
+  auxiliary index rows.
 - `--hanrei-page-limit` bounds extracted/listed HANREI links.
 - `--ccaltstr-row-limit` bounds alternate-string rows shown in the sidebar.
 

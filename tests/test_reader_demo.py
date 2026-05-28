@@ -18,6 +18,7 @@ from logovista_tools.reader_demo import (
     _panels_html,
     _rewrite_local_asset_refs,
 )
+from logovista_tools.windows import AuxIndexRow
 
 
 def test_rewrite_local_asset_refs_uses_copied_templates(tmp_path: Path) -> None:
@@ -276,6 +277,54 @@ def test_auxiliary_data_includes_loose_right_dic(monkeypatch, tmp_path: Path) ->
         {"component": "RIGHT.DIC", "type": "loose", "lines": ["decoded:RIGHT.DIC"]}
     ]
     assert auxiliary["failures"] == []
+
+
+def test_auxiliary_data_includes_exinfo_text_indexes(monkeypatch, tmp_path: Path) -> None:
+    idx = tmp_path / "TEST.IDX"
+    idx.write_bytes(b"")
+    aux = tmp_path / "1991.idx"
+    aux.write_bytes(b"placeholder")
+    enqueued: list[tuple[int, int, str, str]] = []
+
+    class Builder:
+        elements = []
+        source = SimpleNamespace(idx=idx, gaiji_map={})
+        args = SimpleNamespace(index_row_limit=10)
+
+        def enqueue(self, block: int, offset: int, *, label: str, source: str, depth: int = 0) -> None:
+            enqueued.append((block, offset, label, source))
+
+    monkeypatch.setattr(
+        "logovista_tools.reader_demo.load_exinfo_for_idx",
+        lambda _idx: SimpleNamespace(path=tmp_path / "EXINFO.INI", general={}),
+    )
+    monkeypatch.setattr(
+        "logovista_tools.reader_demo.iter_aux_index_specs",
+        lambda _exinfo: [SimpleNamespace(index=0, name="1991年版", info="1991.idx", path=aux)],
+    )
+    monkeypatch.setattr(
+        "logovista_tools.reader_demo.parse_aux_index_text",
+        lambda _path, _elements: [
+            AuxIndexRow(
+                line_number=1,
+                block=2,
+                offset=90,
+                depth=1,
+                label="▽執筆者",
+                path=("1991年版", "巻頭特集", "▽執筆者"),
+                target={"kind": "body", "block": 2, "offset": 90},
+            )
+        ],
+    )
+    monkeypatch.setattr("logovista_tools.reader_demo.discover_numeric_aux_indexes", lambda _idx: [])
+
+    auxiliary = _auxiliary_data(Builder())
+
+    assert auxiliary["index_rows"][0]["component"] == "1991.idx"
+    assert auxiliary["index_rows"][0]["type"] == "exinfo-text-index"
+    assert auxiliary["index_rows"][0]["title"] == "1991年版"
+    assert auxiliary["index_rows"][0]["rows"][0]["target_key"] == "00000002:0090"
+    assert enqueued == [(2, 90, "▽執筆者", "aux:1991.idx")]
 
 
 def test_hanrei_links_parse_chm_sitemap_objects(tmp_path: Path) -> None:

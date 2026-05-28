@@ -464,6 +464,14 @@ sidecars; later `GEN20xx` packages use vertical renderers with numeric sidecar
 indexes. `BRINEN15` uses `HC0C80.dll`, which imports only font/path bridge APIs
 and uses SQL/plugin/user-data hooks plus the `vlpljblF` sidecar.
 
+The 現代用語の基礎知識 / GENDAIKNOWLEDGE product line has a dedicated audit in
+[GENDAIKNOWLEDGE SSED Findings](gendai-knowledge.md). The notable bundle case
+is `GENDAI10`: it remains one SSED package but exposes 11 EXINFO-declared
+non-numeric CP932 auxiliary text-index trees for the 1991-2000 editions and an
+appendix. Those trees use the same block/offset tab-tree grammar as numeric
+auxiliary indexes and must be modeled as navigation surfaces rather than as
+Windows-only side files.
+
 ## Corpus 0x1f Opcode Atlas
 
 The dedicated opcode atlas pass scans expanded SSED text-stream components:
