@@ -172,10 +172,11 @@ def relative_image_source(path: Path, package_hint: Path) -> str:
 
 
 def load_image_resource_profile(path: Path) -> ImageResourceProfile:
-    """Discover PNG resources, resource copy plists, and gaiji icon plists.
+    """Discover entry/resource PNGs, resource copy plists, and gaiji icon plists.
 
-    LogoVista packages commonly keep dictionary-specific icon PNGs in a sibling
-    ``img`` directory next to the dictionary directory. Windows packages can put
+    LogoVista packages commonly keep entry and UI resource PNGs in a sibling
+    ``img`` directory next to the dictionary directory. These are package
+    resources used by entries and bundled HTML surfaces. Windows packages can put
     dictionary-template assets in ``Templates``; platformless/core-SSED packages
     can use generic ``res`` / ``resources`` / ``templates`` directories; Android
     packages can use ``resource/kmkimges`` and omit plist manifests. Files ending
