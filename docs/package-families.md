@@ -145,6 +145,13 @@ CP932 tab-indented navigation sidecar used by KOJIEN6 to expose multimedia,
 table, literary, abbreviation, and color-sample browse surfaces when no normal
 `MENU.DIC` is present.
 
+`SCRMENU.DIC` is observed as a compressed type-`0x10` SSED navigation
+component. KOJIEN6 uses it as a screen-map menu: screen records point to
+`COLSCR.DIC` backgrounds, hotspots point either to another screen or to a
+direct body target record, and direct target records resolve to ordinary SSED
+body addresses. This makes it an SSED navigation surface, not a separate
+package family.
+
 Panels are an optional LogoVista navigation/UI subsystem, not a package family
 and not a Windows platform marker. The observed corpus work decoded Panel XML
 and BIN structures from Windows packages, but the subsystem itself is just

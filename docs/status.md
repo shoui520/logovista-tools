@@ -137,6 +137,10 @@ and non-SSED reader status are tracked separately in
   color-sample resource store with 2048-byte Munsell/label records linked to
   `1f14` / `1f15` renderer controls. Exact official Munsell-to-RGB conversion
   remains unresolved, so standalone swatch colors are explicit estimates.
+- KOJIEN6 `SCRMENU.DIC` is parsed as a type-`0x10` screen-menu stream with
+  screen groups, `COLSCR.DIC` background-image pointers, hotspot rectangles,
+  screen jumps, and direct body-target records. It remains a distinct
+  navigation surface rather than being coerced into ordinary `MENU.DIC`.
 - Modern `LVED_SQLITE3` `main.data` / `.dbc` package-family classification,
   local `.key` validation, and full local corpus schema/feature inspection for
   73 SQLCipher payloads. Toolkit support treats `LVED_SQLITE3` as a separate

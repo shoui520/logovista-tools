@@ -68,11 +68,29 @@ These are separate structures:
 
 - `SCRMENU.DIC` is a compressed SSED component. Its expanded stream contains
   screen/menu controls such as `1f4f`/`1f6f`, `1f4b`/`1f6b`, and
-  `1f4c`/`1f6c`/`1f4d`/`1f6d`. The generic record grammar is still under
-  analysis and should not be parsed as ordinary `MENU.DIC`.
+  `1f4c`/`1f6c`/`1f4d`/`1f6d`. It is a screen-map menu model rather than an
+  ordinary text/menu tree.
 - `encyclop.idx` is a CP932 tab-indented navigation sidecar beginning with
   `#LVEDBRSR encyclopedia#Ver.1.0 ...`. It is not `SSEDDATA`; it is reader
   navigation metadata.
+
+The recovered `SCRMENU.DIC` record grammar is:
+
+```text
+1f4c <2 bytes>                  screen group start
+1f4d <18 bytes> 1f6d            screen header/background image
+1f4f <34 bytes including 1f6f>  hotspot rectangle and destination
+1f6c                            screen group end
+1f4b <6 bytes> 1f6b             direct body-target record
+```
+
+The `1f4d` header stores BCD width/height at payload offsets 8 and 10 and a
+six-byte BCD `COLSCR.DIC` pointer at payload offset 12. The `1f4f` hotspot
+payload stores four BCD words at payload offset 6 as x, y, width, height, and
+a six-byte BCD destination pointer at payload offset 26. The hotspot
+destination points into `SCRMENU.DIC`, either to another screen start or to a
+`1f4b` direct target record. The `1f4b` payload is a BCD SSED address that
+resolves to the body component.
 
 Rows in `encyclop.idx` have this practical shape:
 
@@ -86,7 +104,7 @@ materials, alphabetic abbreviations, and color samples. Target rows point back
 to SSED block/offset addresses in the normal address space. The toolkit
 `encyclopedia-index` command parses this sidecar into sections, row depth,
 labels, and target block/offsets. It deliberately keeps this model separate
-from `MENU.DIC` until `SCRMENU.DIC` itself is decoded.
+from `MENU.DIC`.
 
 ## Title Components
 

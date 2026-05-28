@@ -27,9 +27,35 @@ The main differences from earlier classic SSED dictionaries are:
 ## Navigation
 
 KOJIEN6 uses `SCRMENU.DIC` and `encyclop.idx` instead of ordinary
-`MENU.DIC`. `SCRMENU.DIC` is a compressed SSED stream whose complete generic
-record grammar is not yet public-model complete. The toolkit therefore does
-not coerce it into `MENU.DIC` output.
+`MENU.DIC`. `SCRMENU.DIC` is a compressed SSED stream with screen-sized menu
+backgrounds, hotspot rectangles, screen-to-screen jumps, and leaf targets that
+resolve back to `HONMON.DIC`. The toolkit keeps it distinct from ordinary
+`MENU.DIC` because the UI model is a screen map rather than a text/menu tree.
+
+The recovered KOJIEN6 `SCRMENU.DIC` shape is:
+
+- 43 screen groups;
+- 43 `COLSCR.DIC` background-image pointers, all declaring 800x600 screens;
+- 643 hotspot records;
+- 498 direct `HONMON.DIC` leaf target records;
+- 84 hotspot jumps to another screen group;
+- 559 hotspot jumps to direct target records;
+- no unresolved hotspot, media, or body pointers in the observed package.
+
+The main controls are:
+
+```text
+1f4c .. 1f6c  screen group start/end
+1f4d .. 1f6d  screen image/header record
+1f4f .. 1f6f  hotspot record with x/y/width/height and SCRMENU destination
+1f4b .. 1f6b  direct body-target record
+```
+
+The `1f4d` payload stores declared width/height and a BCD pointer to a
+`COLSCR.DIC` background image. The `1f4f` payload stores four BCD words as
+x/y/width/height, then a BCD pointer into `SCRMENU.DIC`. That destination may
+point to another screen start or to a later `1f4b` direct target record. The
+`1f4b` payload stores a BCD SSED address that resolves to the body component.
 
 `encyclop.idx` is decoded today. It is a CP932 tab-indented LVEDBRSR navigation
 sidecar with section headings and target rows. Rows carry hexadecimal
@@ -92,6 +118,8 @@ Supported:
 - full HONMON control-byte accounting for the newly observed `1f14`/`1f15` and
   `1f39`/`1f59` pairs;
 - `encyclop.idx` sidecar parsing;
+- `SCRMENU.DIC` screen-menu parsing with background images, hotspots,
+  screen jumps, and direct body targets;
 - `_PCM_U` audio resolution and MP3 extraction;
 - `_MOVIE` discovery and movie-link rendering metadata;
 - `COLSMPL.DIC` Munsell/label parsing and `1f14` color-sample renderer
@@ -100,7 +128,7 @@ Supported:
 
 Named gaps:
 
-- complete `SCRMENU.DIC` generic record grammar;
+- exact KOJIEN6 screen-menu frontend recreation from `SCRMENU.DIC`;
 - exact `SDicGetColorMap` Munsell-to-RGB conversion;
 - complete `MONOSCR.DIC` record/image grammar;
 - exact product-level KOJIEN6 HC012C visual parity beyond the shared movie,

@@ -2148,9 +2148,40 @@ Useful options:
 ```
 
 KOJIEN6 also declares `SCRMENU.DIC`, a separate compressed type-`0x10`
-screen/menu stream. That component is reported as a known advanced menu
-resource, but its generic record grammar is not collapsed into `MENU.DIC`
-output.
+screen/menu stream. Use `screen-menu` for that component; it is not collapsed
+into `MENU.DIC` output.
+
+### `screen-menu`
+
+Parse `SCRMENU.DIC` advanced screen-menu resources such as the stream used by
+KOJIEN6:
+
+```bash
+logovista-tools screen-menu /path/to/LogoVista --dict KOJIEN6 --out-dir screen-menu
+logovista-tools screen-menu /path/to/DICT/DICT.IDX --json --limit 0
+```
+
+The command decodes screen groups, `COLSCR.DIC` background-image pointers,
+hotspot rectangles, screen-to-screen jumps, and direct body-target records.
+Hotspot rectangles are stored as x/y/width/height BCD words. Hotspot
+destinations point into `SCRMENU.DIC`; the toolkit classifies each as either a
+screen jump or a jump to a direct target record where possible.
+
+Output layout:
+
+```text
+screen-menu/
+  screen-menu-summary.json
+```
+
+Useful options:
+
+```bash
+--dict NAME                         inspect only matching dictionary ids
+--limit N                           sample screen limit; use 0 for all screens in JSON
+--json                              emit a machine-readable summary
+--jobs N                            inspect packages in parallel
+```
 
 ### `color-samples`
 

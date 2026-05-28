@@ -50,6 +50,7 @@ from .pcmdata import (
     unreferenced_gaps,
 )
 from .profiles import ProfileTarget, discover_profile_targets, safe_relative
+from .scrmenu import parse_screen_menu_stream
 from .ssed import BLOCK_SIZE, SsedInfoElement, SsedRandomReader, expand_sseddata_file, find_case_insensitive, parse_sseddata_header
 from .titles import TITLE_TYPES
 
@@ -1088,6 +1089,17 @@ def special_resource_report(roots: list[Path], element: Any, source: Path, data:
                 "mapped_sample_keys": len(table.by_sample_key),
                 "label_samples": [record.label for record in table.records[:16]],
                 "munsell_samples": [record.munsell for record in table.records[:16]],
+            }
+        )
+    if element.type == 0x10 or element.filename.upper() == "SCRMENU.DIC":
+        parsed = parse_screen_menu_stream(data)
+        row.update(
+            {
+                "screen_count": len(parsed.screens),
+                "hotspot_count": parsed.stats.get("hotspots", 0),
+                "direct_target_count": parsed.stats.get("direct_targets", 0),
+                "image_record_count": parsed.stats.get("image_records", 0),
+                "unknown_controls": parsed.stats.get("unknown_controls", 0),
             }
         )
     return row

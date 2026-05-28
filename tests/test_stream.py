@@ -103,6 +103,7 @@ from logovista_tools.rendererdb import (
 )
 from logovista_tools.decoded_model import static_package_resources_for_idx, windows_sidecars_for_idx
 from logovista_tools.resources import load_image_resource_profile, relative_image_source
+from logovista_tools.scrmenu import parse_screen_menu_stream
 from logovista_tools.lvcrypto import (
     decrypt_macos_logofont_cipher_bytes,
     decrypt_logofont_cipher_auto_file_to_path,
@@ -2475,3 +2476,70 @@ def test_parse_colsmpl_color_sample_records_decode_munsell_and_labels() -> None:
     assert parsed.records[1].sample_key == "1e02"
     assert parsed.records[1].munsell == "5R4/14"
     assert parsed.records[1].label == "赤"
+
+
+def _bcd(value: int, byte_count: int) -> bytes:
+    digits = f"{value:0{byte_count * 2}d}"
+    return bytes(int(digits[pos : pos + 2], 16) for pos in range(0, len(digits), 2))
+
+
+def test_parse_scrmenu_decodes_screens_hotspots_and_direct_targets() -> None:
+    elements = [
+        SsedInfoElement(0, 0, 0x10, 100, 100, b"", "SCRMENU.DIC"),
+        SsedInfoElement(1, 0, 0xD2, 200, 200, b"", "COLSCR.DIC"),
+        SsedInfoElement(2, 0, 0x00, 300, 300, b"", "HONMON.DIC"),
+    ]
+    image_payload = (
+        bytes.fromhex("15 00 00 00 00 00 00 00")
+        + _bcd(800, 2)
+        + _bcd(600, 2)
+        + _bcd(200, 4)
+        + _bcd(12, 2)
+    )
+    direct_offset = 64
+    hotspot_payload = (
+        bytes.fromhex("11 00 00 00 00 00")
+        + _bcd(18, 2)
+        + _bcd(117, 2)
+        + _bcd(242, 2)
+        + _bcd(308, 2)
+        + (b"\x00" * 12)
+        + _bcd(100, 4)
+        + _bcd(direct_offset, 2)
+        + b"\x1f\x6f"
+    )
+    body_pointer = _bcd(300, 4) + _bcd(34, 2)
+    data = (
+        b"\x1f\x4c\x00\x01"
+        + b"\x1f\x4d"
+        + image_payload
+        + b"\x1f\x6d"
+        + b"\x1f\x4f"
+        + hotspot_payload
+        + b"\x1f\x6c"
+        + b"\x1f\x4b"
+        + body_pointer
+        + b"\x1f\x6b"
+    )
+    assert direct_offset == data.index(b"\x1f\x4b")
+
+    parsed = parse_screen_menu_stream(data, elements=elements)
+
+    assert parsed.stats["unknown_controls"] == 0
+    assert parsed.stats["screens"] == 1
+    assert parsed.stats["image_records"] == 1
+    assert parsed.stats["hotspots"] == 1
+    assert parsed.stats["direct_targets"] == 1
+    assert parsed.stats["media_image_targets"] == 1
+    assert parsed.stats["body_targets"] == 1
+    assert parsed.stats["hotspot_direct_targets"] == 1
+    screen = parsed.screens[0]
+    assert (screen.width, screen.height) == (800, 600)
+    assert screen.image is not None
+    assert screen.image.target is not None
+    assert screen.image.target.component == "COLSCR.DIC"
+    assert screen.hotspots[0].rect.as_dict() == {"x": 18, "y": 117, "width": 242, "height": 308}
+    assert screen.hotspots[0].target_direct_screen_index == 0
+    assert screen.hotspots[0].target_direct_index == 0
+    assert screen.direct_targets[0].destination.target is not None
+    assert screen.direct_targets[0].destination.target.component == "HONMON.DIC"

@@ -105,8 +105,9 @@ value stored in the component.
 `SCRMENU.DIC` is observed as component type `0x10`. It is an advanced
 screen/menu navigation stream used by KOJIEN6 instead of ordinary `MENU.DIC`.
 It is not a B-tree index page and it is not parsed by the generic `menus`
-command. Public navigation evidence for KOJIEN6 is currently recovered from
-the companion LVEDBRSR `encyclop.idx` sidecar; see
+command. Its recovered controls describe screen groups, `COLSCR.DIC`
+background-image pointers, hotspot rectangles, screen jumps, and direct body
+targets; see
 [Menus, Titles, and Indexes](menus-titles-indexes.md).
 
 The exact semantic names vary by dictionary, but the broad pattern is stable:

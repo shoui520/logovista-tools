@@ -128,6 +128,7 @@ from .reader_demo import add_reader_demo_args, generate_reader_demo
 from .repacker import add_repacker_args, repack_sources
 from .rendererdb import extract_rendererdb_for_sources
 from .resources import ImageResource, load_image_resource_profile
+from .scrmenu import find_screen_menu_path, load_screen_menu
 from .spindex import discover_spindex_files, inspect_spindex
 from .sizk import discover_sizk_packages, inspect_sizk_package, write_sizk_report
 from .ssed import (
@@ -584,10 +585,10 @@ def select_sources(args: argparse.Namespace):
     roots = args.root or [Path(".")]
     jobs = getattr(args, "jobs", 1)
     command = getattr(args, "command", "")
-    include_images = command not in {"titles", "indexes", "menus", "colscr", "pcmdata", "color-samples"}
+    include_images = command not in {"titles", "indexes", "menus", "colscr", "pcmdata", "color-samples", "screen-menu"}
     if command == "entries":
         include_images = bool(getattr(args, "image_gaiji", False) or getattr(args, "html", False) or getattr(args, "section_image", None))
-    include_gaiji = command not in {"titles", "indexes", "menus", "colscr", "pcmdata", "color-samples"}
+    include_gaiji = command not in {"titles", "indexes", "menus", "colscr", "pcmdata", "color-samples", "screen-menu"}
     status(args, f"{command_label(args)}: discovering dictionaries under {', '.join(str(root) for root in roots)}")
     sources = discover_dictionaries(
         roots,
@@ -891,6 +892,76 @@ def cmd_color_samples(args: argparse.Namespace) -> int:
             rgb = item.get("estimated_rgb_hex") or "unresolved"
             key = item.get("sample_key") or "-"
             print(f"  {key:6s} {item.get('munsell', ''):12s} {rgb:10s} {item.get('label', '')}")
+    return 0
+
+
+def _screen_menu_source_row(source: Any, args: argparse.Namespace) -> dict[str, Any]:
+    path = find_screen_menu_path(source.idx)
+    if path is None:
+        return {
+            "dict_id": source.dict_id,
+            "dict_title": source.title,
+            "status": "missing",
+            "path": None,
+            "screen_count": 0,
+            "stats": {},
+            "screens": [],
+        }
+    parsed = load_screen_menu(source.idx)
+    if parsed is None:
+        return {
+            "dict_id": source.dict_id,
+            "dict_title": source.title,
+            "status": "missing",
+            "path": str(path),
+            "screen_count": 0,
+            "stats": {},
+            "screens": [],
+        }
+    row_limit = None if args.limit == 0 else args.limit
+    row = parsed.as_dict(limit=row_limit)
+    row.update(
+        {
+            "dict_id": source.dict_id,
+            "dict_title": source.title,
+            "status": "parsed",
+            "path": str(path),
+        }
+    )
+    return row
+
+
+def cmd_screen_menu(args: argparse.Namespace) -> int:
+    sources = select_sources(args)
+    rows = [_screen_menu_source_row(source, args) for source in sources]
+    if args.out_dir:
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        write_json(args.out_dir / "screen-menu-summary.json", rows)
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return 0
+    for row in rows:
+        stats = row.get("stats") or {}
+        print(
+            f"{row['dict_id']:12s} status={row['status']:7s} "
+            f"screens={row.get('screen_count', 0):3d} hotspots={stats.get('hotspots', 0):4d} "
+            f"direct={stats.get('direct_targets', 0):4d}"
+        )
+        print(
+            f"  targets: media={stats.get('media_image_targets', 0)} "
+            f"body={stats.get('body_targets', 0)} "
+            f"hotspot-screen={stats.get('hotspot_screen_targets', 0)} "
+            f"hotspot-direct={stats.get('hotspot_direct_targets', 0)} "
+            f"hotspot-unclassified={stats.get('hotspot_unclassified_screen_menu_targets', 0)} "
+            f"unresolved={stats.get('unresolved_targets', 0)}"
+        )
+        for screen in (row.get("screens") or [])[: args.limit or 10]:
+            image = ((screen.get("image") or {}).get("target") or {}).get("address_key")
+            print(
+                f"  screen {int(screen['screen_index']):02d} offset={int(screen['start_offset']):05d} "
+                f"size={screen.get('width')}x{screen.get('height')} image={image} "
+                f"hotspots={len(screen.get('hotspots') or [])} direct={len(screen.get('direct_targets') or [])}"
+            )
     return 0
 
 
@@ -2777,6 +2848,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_color_samples.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     add_jobs_argument(p_color_samples)
     p_color_samples.set_defaults(func=cmd_color_samples)
+
+    p_screen_menu = sub.add_parser("screen-menu", help="Parse SCRMENU.DIC advanced screen-menu records.")
+    p_screen_menu.add_argument("root", type=Path, nargs="*", help="Collection directory or direct .IDX path.")
+    p_screen_menu.add_argument("--dict", action="append", help="Only inspect matching dictionary id(s).")
+    p_screen_menu.add_argument("--out-dir", type=Path, help="Write summary JSON to this directory.")
+    p_screen_menu.add_argument("--limit", type=int, default=20, help="Sample screen limit; use 0 for all rows in JSON.")
+    p_screen_menu.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    add_jobs_argument(p_screen_menu)
+    p_screen_menu.set_defaults(func=cmd_screen_menu)
 
     p_panels = sub.add_parser("panels", help="Decode LogoVista Panel XML/plist metadata and Panel BIN tables.")
     p_panels.add_argument(
