@@ -2324,10 +2324,16 @@ Current source support:
 - LVED_SQLITE3 package directories with `main.data` / `main.dbc`, or direct
   payload files. Encrypted payloads require a matching local `.key` file.
 
-The backend emits a v6-style subbook layout with `CATALOGS`, `LANGUAGE`,
+The backend emits a v6-style subbook layout with `CATALOGS`,
 `DATA/HONMON2`, `DATA/HONMONG`, `DATA/HONMONS`, `GAIJI/GA16HALF`,
 `GAIJI/GA16FULL`, and an EBWin-compatible `.map` file. It does not target plain
 `HONMON`.
+
+SSED dense-HONMON packages with renderer SQLite sidecars are exported from the
+renderer body rows instead of raw numeric anchor records. EPWING menu output
+uses candidate controls for rows whose LogoVista targets resolve to exported
+entries; unresolved menu rows are emitted as non-clickable text with a
+diagnostic.
 
 Useful options:
 
@@ -2338,8 +2344,14 @@ Useful options:
 --drop-style-markers / --no-drop-style-markers
 --diagnostics-json PATH
 --limit N
+--progress-every N
+--quiet
 --jobs N
 ```
+
+`export` prints progress to stderr by default while keeping JSON/report data on
+stdout. This avoids the old opaque wait-until-complete behavior without
+breaking shell pipelines. `--quiet` suppresses progress output.
 
 Current limitations:
 

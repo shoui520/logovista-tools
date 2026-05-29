@@ -1923,7 +1923,6 @@ def cmd_repacker(args: argparse.Namespace) -> int:
 
 
 def cmd_export(args: argparse.Namespace) -> int:
-    status(args, f"export: writing {args.target} output to {args.out_dir}")
     report = run_export(args)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))

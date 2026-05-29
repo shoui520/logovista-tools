@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
@@ -31,8 +32,17 @@ from ..lved import (
     lved_payload_title,
     read_lved_key_file,
 )
-from ..menus import MENU_LIKE_NAMES, MENU_LIKE_TYPES, parse_menu_stream
+from ..lvcrypto import decrypt_logofont_cipher_file_to_path
+from ..menus import MENU_LIKE_NAMES, MENU_LIKE_TYPES, parse_menu_stream, resolve_menu_record_destinations
+from ..rendererdb import (
+    iter_honmon_id_records,
+    parse_decimal_int,
+    quote_identifier,
+    t_contents_columns,
+    table_exists,
+)
 from ..ssed import BLOCK_SIZE, SsedRandomReader, find_case_insensitive, parse_ssedinfo
+from ..windows import discover_renderer_sidecars, load_exinfo_for_idx
 from .html_flatten import html_to_export_body
 from .model import (
     ExportBody,
@@ -51,6 +61,17 @@ from .model import (
 class ExportSourceOptions:
     source_family: SourceFamily = SourceFamily.AUTO
     limit: int | None = None
+    progress: Callable[[str], None] | None = field(default=None, compare=False, repr=False)
+    progress_every: int = 1000
+
+
+def _progress(options: ExportSourceOptions, message: str) -> None:
+    if options.progress is not None:
+        options.progress(message)
+
+
+def _progress_interval(options: ExportSourceOptions) -> int:
+    return max(1, int(options.progress_every or 1000))
 
 
 def _token_events(tokens: list[object]) -> tuple[ExportBodyEvent, ...]:
@@ -104,7 +125,145 @@ def _gaiji_rows(idx: Path) -> tuple[ExportGaiji, ...]:
     return tuple(rows)
 
 
+def _renderer_sidecar_sqlite_path(sidecar_path: Path, storage: str, callback) -> Any:
+    if storage == "plain":
+        return callback(sidecar_path)
+    with TemporaryDirectory() as temp_dir:
+        decrypted = Path(temp_dir) / f"{sidecar_path.name}.sqlite"
+        decrypt_logofont_cipher_file_to_path(sidecar_path, decrypted)
+        return callback(decrypted)
+
+
+def _rendererdb_export_entries(
+    source,
+    reader: SsedRandomReader,
+    options: ExportSourceOptions,
+) -> tuple[list[ExportEntry], list[ExportDiagnostic]] | None:
+    """Return renderer-sidecar entries for dense HONMON packages when available."""
+
+    exinfo = load_exinfo_for_idx(source.idx)
+    sidecars = discover_renderer_sidecars(source.idx, exinfo)
+    if not sidecars:
+        return None
+
+    expanded = reader.read(0, reader.expanded_size)
+    raw_ids = list(iter_honmon_id_records(expanded, honmon_start_block=source.honmon_start_block))
+    if not raw_ids:
+        return None
+    ids_by_data_id = {record.data_id: record for record in raw_ids}
+    diagnostics: list[ExportDiagnostic] = [
+        ExportDiagnostic(
+            "info",
+            "rendererdb_dense_honmon_source",
+            f"HONMON contains {len(raw_ids)} dense ID anchor records; exporting renderer sidecar bodies instead of raw anchors.",
+        )
+    ]
+    interval = _progress_interval(options)
+
+    def build(db_path: Path) -> tuple[list[ExportEntry], list[ExportDiagnostic]] | None:
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        con.row_factory = sqlite3.Row
+        try:
+            if not table_exists(con, "t_contents"):
+                return None
+            columns = t_contents_columns(con)
+            data_id_col = columns.get("f_DataId")
+            html_col = columns.get("f_Html")
+            plain_col = columns.get("f_Plane")
+            title_col = columns.get("f_Title")
+            title_search_col = columns.get("f_Title_SS")
+            keyword_col = columns.get("f_Keyword")
+            if data_id_col is None or (html_col is None and plain_col is None):
+                return None
+            select_parts = [f"{quote_identifier(data_id_col)} as {quote_identifier('f_DataId')}"]
+            optional_cols = {
+                "f_Html": html_col,
+                "f_Plane": plain_col,
+                "f_Title": title_col,
+                "f_Title_SS": title_search_col,
+                "f_Keyword": keyword_col,
+            }
+            for canonical, actual in optional_cols.items():
+                if actual is not None:
+                    select_parts.append(f"{quote_identifier(actual)} as {quote_identifier(canonical)}")
+            total_row = con.execute(f"select count(*) from {quote_identifier('t_contents')}").fetchone()
+            total_rows = int(total_row[0]) if total_row else 0
+            _progress(
+                options,
+                f"export: using renderer sidecar {db_path.name} t_contents rows={total_rows:,} raw_ids={len(raw_ids):,}",
+            )
+            query = (
+                f"select {', '.join(select_parts)} from {quote_identifier('t_contents')} "
+                f"order by {quote_identifier(data_id_col)}"
+            )
+            entries: list[ExportEntry] = []
+            skipped_without_anchor = 0
+            for row_index, row in enumerate(con.execute(query), start=1):
+                if options.limit is not None and options.limit > 0 and len(entries) >= options.limit:
+                    diagnostics.append(ExportDiagnostic("info", "entry_limit", f"stopped after {options.limit} renderer sidecar entries"))
+                    break
+                data_id = parse_decimal_int(row["f_DataId"])
+                if data_id is None:
+                    continue
+                raw = ids_by_data_id.get(data_id)
+                if raw is None:
+                    skipped_without_anchor += 1
+                    continue
+                title_value = _sqlite_text(row["f_Title"]) if "f_Title" in row.keys() else ""
+                html_value = _sqlite_text(row["f_Html"]) if "f_Html" in row.keys() else ""
+                plain_value = _sqlite_text(row["f_Plane"]) if "f_Plane" in row.keys() else ""
+                title_plain = _html_to_plain(title_value) if title_value else ""
+                if not title_plain:
+                    title_plain = (plain_value or _html_to_plain(html_value)).strip().split("\n", 1)[0][:80]
+                if not title_plain:
+                    title_plain = f"data {data_id}"
+                if html_value:
+                    body = html_to_export_body(html_value, source_kind="rendererdb_t_contents_html")
+                else:
+                    body = ExportBody.text(plain_value, source_kind="rendererdb_t_contents_plain")
+                target = f"ssed:{source.idx.name}:{raw.marker_block}:{raw.marker_offset}"
+                keys = []
+                for value in (
+                    title_plain,
+                    _sqlite_text(row["f_Title_SS"]) if "f_Title_SS" in row.keys() else "",
+                    _sqlite_text(row["f_Keyword"]) if "f_Keyword" in row.keys() else "",
+                ):
+                    clean = " ".join(value.split()).strip()
+                    if clean and clean not in keys:
+                        keys.append(clean)
+                entries.append(
+                    ExportEntry(
+                        target=target,
+                        headword=title_plain,
+                        body=body,
+                        search_keys=tuple(keys),
+                    )
+                )
+                if len(entries) == 1 or len(entries) % interval == 0:
+                    _progress(options, f"export: decoded {len(entries):,} renderer sidecar entries ({row_index:,}/{total_rows:,} rows)")
+            if skipped_without_anchor:
+                diagnostics.append(
+                    ExportDiagnostic(
+                        "info",
+                        "rendererdb_rows_without_honmon_anchor",
+                        f"{skipped_without_anchor} t_contents rows did not have matching dense HONMON anchors.",
+                    )
+                )
+            if entries:
+                return entries, diagnostics
+            return None
+        finally:
+            con.close()
+
+    for sidecar in sidecars:
+        result = _renderer_sidecar_sqlite_path(sidecar.path, sidecar.storage, build)
+        if result is not None:
+            return result
+    return None
+
+
 def _load_ssed_export_book(path: Path, options: ExportSourceOptions) -> ExportBook:
+    _progress(options, f"export: discovering SSED package under {path}")
     sources = discover_dictionaries([path], jobs=1, include_gaiji=True, include_images=True)
     if not sources:
         raise ValueError(f"no SSED dictionary found under {path}")
@@ -113,47 +272,67 @@ def _load_ssed_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
     source = sources[0]
     title, elements = parse_ssedinfo(source.idx)
     reader = SsedRandomReader(source.honmon)
-    entries: list[ExportEntry] = []
+    _progress(
+        options,
+        f"export: SSED source {source.dict_id}: title={title!r} honmon={source.honmon.name} expanded={reader.expanded_size:,} bytes",
+    )
     diagnostics: list[ExportDiagnostic] = []
-    for entry_index, (start, end) in enumerate(iter_entry_slices_reader(reader), start=1):
-        if options.limit is not None and options.limit > 0 and len(entries) >= options.limit:
-            diagnostics.append(ExportDiagnostic("info", "entry_limit", f"stopped after {options.limit} entries"))
-            break
-        raw = reader.read(start, end - start)
-        tokens, stats = decode_tokens(
-            raw,
-            gaiji="placeholder",
-            gaiji_map=source.gaiji_map,
-            image_gaiji_keys=source.image_gaiji_keys,
-            preserve_image_gaiji=True,
-            preserve_media=True,
-            preserve_sections=True,
-        )
-        body_text = tokens_to_text(tokens)
-        heading = extract_heading(tokens, body_text) or f"entry {entry_index}"
-        block = source.honmon_start_block + start // BLOCK_SIZE
-        offset = start % BLOCK_SIZE
-        target = f"ssed:{source.idx.name}:{block}:{offset}"
-        entry_diags = []
-        if stats.get("unknown_controls"):
-            entry_diags.append(ExportDiagnostic("warning", "unknown_controls", f"{stats['unknown_controls']} unknown controls", source=target))
-        entries.append(
-            ExportEntry(
-                target=target,
-                headword=heading,
-                body=ExportBody(events=_token_events(tokens), source_kind="ssed_honmon_slice", diagnostics=tuple(entry_diags)),
-                search_keys=(heading,),
-                diagnostics=tuple(entry_diags),
+    rendererdb_result = _rendererdb_export_entries(source, reader, options)
+    if rendererdb_result is not None:
+        entries, rendererdb_diagnostics = rendererdb_result
+        diagnostics.extend(rendererdb_diagnostics)
+        _progress(options, f"export: decoded {len(entries):,} renderer sidecar entries total")
+    else:
+        entries = []
+        interval = _progress_interval(options)
+        _progress(options, "export: decoding SSED HONMON entries")
+        for entry_index, (start, end) in enumerate(iter_entry_slices_reader(reader), start=1):
+            if options.limit is not None and options.limit > 0 and len(entries) >= options.limit:
+                diagnostics.append(ExportDiagnostic("info", "entry_limit", f"stopped after {options.limit} entries"))
+                break
+            raw = reader.read(start, end - start)
+            tokens, stats = decode_tokens(
+                raw,
+                gaiji="placeholder",
+                gaiji_map=source.gaiji_map,
+                image_gaiji_keys=source.image_gaiji_keys,
+                preserve_image_gaiji=True,
+                preserve_media=True,
+                preserve_sections=True,
             )
-        )
+            body_text = tokens_to_text(tokens)
+            heading = extract_heading(tokens, body_text) or f"entry {entry_index}"
+            block = source.honmon_start_block + start // BLOCK_SIZE
+            offset = start % BLOCK_SIZE
+            target = f"ssed:{source.idx.name}:{block}:{offset}"
+            entry_diags = []
+            if stats.get("unknown_controls"):
+                entry_diags.append(ExportDiagnostic("warning", "unknown_controls", f"{stats['unknown_controls']} unknown controls", source=target))
+            entries.append(
+                ExportEntry(
+                    target=target,
+                    headword=heading,
+                    body=ExportBody(events=_token_events(tokens), source_kind="ssed_honmon_slice", diagnostics=tuple(entry_diags)),
+                    search_keys=(heading,),
+                    diagnostics=tuple(entry_diags),
+                )
+            )
+            if len(entries) == 1 or len(entries) % interval == 0:
+                _progress(options, f"export: decoded {len(entries):,} SSED entries ({end:,}/{reader.expanded_size:,} bytes)")
+        _progress(options, f"export: decoded {len(entries):,} SSED entries total")
 
     indexes: list[ExportIndex] = []
+    index_elements = [element for element in elements if element.type in INDEX_TYPES and element.start]
+    if index_elements:
+        _progress(options, f"export: scanning {len(index_elements):,} SSED index component(s)")
     for element in elements:
         if element.type not in INDEX_TYPES or not element.start:
             continue
         component = find_case_insensitive(source.idx.parent, element.filename)
         if component is None:
             continue
+        before_rows = len(indexes)
+        _progress(options, f"export: scanning index {element.filename} type=0x{element.type:02x}")
 
         def add_row(row: dict[str, Any]) -> None:
             if row.get("kind") != "leaf":
@@ -183,24 +362,44 @@ def _load_ssed_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
             emit_internal=False,
             emit_row=add_row,
         )
+        _progress(options, f"export: scanned index {element.filename}: +{len(indexes) - before_rows:,} row(s)")
 
     navigation: list[ExportNavigation] = []
+    menu_elements = [
+        element
+        for element in elements
+        if (element.type in MENU_LIKE_TYPES or element.filename.upper() in MENU_LIKE_NAMES) and element.start
+    ]
+    if menu_elements:
+        _progress(options, f"export: scanning {len(menu_elements):,} SSED menu/navigation component(s)")
     for element in elements:
         if (element.type not in MENU_LIKE_TYPES and element.filename.upper() not in MENU_LIKE_NAMES) or not element.start:
             continue
         component = find_case_insensitive(source.idx.parent, element.filename)
         if component is None:
             continue
+        before_rows = len(navigation)
+        _progress(options, f"export: scanning navigation {element.filename}")
         menu_reader = SsedRandomReader(component)
         parsed = parse_menu_stream(menu_reader.read(0, menu_reader.expanded_size), gaiji="unicode", gaiji_map=source.gaiji_map)
+        resolve_menu_record_destinations(parsed.records, elements)
         for record in parsed.records:
             label = record.label().strip()
             if not label:
                 continue
             target = None
             if record.destination and record.destination.target:
-                target = f"ssed-menu:{element.filename}:{record.destination.block}:{record.destination.offset}"
+                resolved = record.destination.target
+                if resolved.kind == "body":
+                    target = f"ssed:{source.idx.name}:{resolved.block}:{resolved.offset}"
             navigation.append(ExportNavigation(kind="menu", label=label, target=target))
+        _progress(options, f"export: scanned navigation {element.filename}: +{len(navigation) - before_rows:,} row(s)")
+
+    gaiji_rows = _gaiji_rows(source.idx)
+    _progress(
+        options,
+        f"export: built SSED export model entries={len(entries):,} indexes={len(indexes):,} navigation={len(navigation):,} gaiji={len(gaiji_rows):,}",
+    )
 
     return ExportBook(
         title=title,
@@ -210,7 +409,7 @@ def _load_ssed_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
         entries=tuple(entries),
         indexes=tuple(indexes),
         navigation=tuple(navigation),
-        gaiji=_gaiji_rows(source.idx),
+        gaiji=gaiji_rows,
         diagnostics=tuple(diagnostics),
     )
 
@@ -239,8 +438,9 @@ def _lved_payload_path(path: Path) -> Path:
     raise ValueError(f"no LVED_SQLITE3 payload found under {path}")
 
 
-def _with_lved_sqlite_path(payload: Path, callback):
+def _with_lved_sqlite_path(payload: Path, callback, options: ExportSourceOptions):
     classification = classify_lved_payload(payload)
+    _progress(options, f"export: LVED_SQLITE3 payload {payload.name}: class={classification}")
     if classification == "plaintext_sqlite":
         return callback(payload, "plaintext_sqlite")
     if classification != "sqlcipher_lved_candidate":
@@ -249,17 +449,21 @@ def _with_lved_sqlite_path(payload: Path, callback):
     if key_file is None:
         raise ValueError(f"encrypted LVED_SQLITE3 payload has no local .key file: {payload}")
     key = read_lved_key_file(key_file.path)
+    _progress(options, f"export: decrypting LVED_SQLITE3 payload using {key_file.path.name} ({key_file.match})")
     with TemporaryDirectory() as temp_dir:
         decrypted = Path(temp_dir) / "lved.sqlite3"
         decrypt_lved_sqlcipher4_to_path(payload, decrypted, key)
+        _progress(options, f"export: decrypted LVED_SQLITE3 payload to temporary SQLite database ({decrypted.stat().st_size:,} bytes)")
         return callback(decrypted, f"sqlcipher:{key_file.match}")
 
 
 def _load_lved_export_book(path: Path, options: ExportSourceOptions) -> ExportBook:
+    _progress(options, f"export: locating LVED_SQLITE3 payload under {path}")
     payload = _lved_payload_path(path)
 
     def build(sqlite_path: Path, storage: str) -> ExportBook:
         title, title_source = lved_payload_title(payload, full_decode_sqlcipher=False)
+        _progress(options, f"export: opening LVED_SQLITE3 database storage={storage} title_source={title_source}")
         con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
         con.row_factory = sqlite3.Row
         try:
@@ -267,8 +471,15 @@ def _load_lved_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
             if _sqlite_table_exists(con, "content"):
                 columns = _sqlite_columns(con, "content")
                 if {"id", "body"} <= {column.casefold() for column in columns}:
+                    total_rows = _sqlite_count(con, "content")
+                    if total_rows is None:
+                        _progress(options, "export: reading LVED content rows")
+                    else:
+                        limit_text = f" limit={options.limit:,}" if options.limit is not None and options.limit > 0 else ""
+                        _progress(options, f"export: reading LVED content rows total={total_rows:,}{limit_text}")
                     limit_sql = "" if options.limit is None or options.limit <= 0 else f" limit {int(options.limit)}"
-                    for row in con.execute(f"select id, body from content order by id{limit_sql}"):
+                    interval = _progress_interval(options)
+                    for row_index, row in enumerate(con.execute(f"select id, body from content order by id{limit_sql}"), start=1):
                         content_id = int(row["id"])
                         body_html = _sqlite_text(row["body"])
                         body = html_to_export_body(body_html, source_kind="lved_content_html")
@@ -281,6 +492,9 @@ def _load_lved_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
                                 search_keys=(heading,),
                             )
                         )
+                        if len(entries) == 1 or len(entries) % interval == 0:
+                            total_suffix = f"/{total_rows:,}" if total_rows is not None else ""
+                            _progress(options, f"export: decoded {len(entries):,}{total_suffix} LVED content row(s)")
             indexes = [
                 ExportIndex(mode="forward", key=entry.headword, target=entry.target, label=entry.headword)
                 for entry in entries
@@ -288,6 +502,7 @@ def _load_lved_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
             ]
             copyright_rows: list[ExportNavigation] = []
             if _sqlite_table_exists(con, "info"):
+                _progress(options, "export: scanning LVED info rows for copyright/about surfaces")
                 for row in con.execute("select id, name, body from info order by id"):
                     name = _sqlite_text(row["name"])
                     if "copyright" in name.casefold() or "著作権" in name or "about" in name.casefold() or "について" in name:
@@ -295,6 +510,10 @@ def _load_lved_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
             diagnostics = []
             if not entries:
                 diagnostics.append(ExportDiagnostic("warning", "lved_no_content_entries", "No exportable content table rows were found."))
+            _progress(
+                options,
+                f"export: built LVED export model entries={len(entries):,} indexes={len(indexes):,} copyright={len(copyright_rows):,}",
+            )
             return ExportBook(
                 title=title or payload.parent.name.removeprefix("_DCT_"),
                 source_family=SourceFamily.LVED_SQLITE3,
@@ -308,7 +527,7 @@ def _load_lved_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
         finally:
             con.close()
 
-    return _with_lved_sqlite_path(payload, build)
+    return _with_lved_sqlite_path(payload, build, options)
 
 
 def _sqlite_columns(con: sqlite3.Connection, table: str) -> list[str]:
@@ -317,6 +536,13 @@ def _sqlite_columns(con: sqlite3.Connection, table: str) -> list[str]:
 
 def _sqlite_table_exists(con: sqlite3.Connection, table: str) -> bool:
     return con.execute("select 1 from sqlite_master where type='table' and name=? limit 1", (table,)).fetchone() is not None
+
+
+def _sqlite_count(con: sqlite3.Connection, table: str) -> int | None:
+    try:
+        return int(con.execute(f"select count(*) from {_quote_sql_identifier(table)}").fetchone()[0])
+    except sqlite3.Error:
+        return None
 
 
 def _quote_sql_identifier(name: str) -> str:
@@ -375,7 +601,9 @@ def load_export_book(path: Path, options: ExportSourceOptions | None = None) -> 
     options = options or ExportSourceOptions()
     family = options.source_family
     if family == SourceFamily.AUTO:
+        _progress(options, f"export: detecting source family for {path}")
         family = _detect_source_family(path)
+    _progress(options, f"export: source family={family.value}")
     if family == SourceFamily.SSED:
         return _load_ssed_export_book(path, options)
     if family == SourceFamily.LVED_SQLITE3:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 import json
@@ -16,6 +17,7 @@ from ..writer import (
     be16,
     be32,
     encode_body_text,
+    encode_bcd_decimal,
     encode_ga16_resource,
     encode_simple_index_pages,
 )
@@ -27,6 +29,8 @@ class EpwingV6Options:
     include_media: bool = True
     drop_style_markers: bool = True
     gaiji_policy: str = "unicode-map,ga16"
+    progress: Callable[[str], None] | None = None
+    progress_every: int = 5000
 
 
 @dataclass(frozen=True)
@@ -68,6 +72,25 @@ def _pad_to_page(data: bytes) -> bytes:
 
 def _page_count(data: bytes) -> int:
     return max(1, (len(_pad_to_page(data)) // BLOCK_SIZE))
+
+
+def _progress(options: EpwingV6Options, message: str) -> None:
+    if options.progress is not None:
+        options.progress(message)
+
+
+def _progress_interval(options: EpwingV6Options) -> int:
+    return max(1, int(options.progress_every or 5000))
+
+
+def _write_bytes(path: Path, data: bytes, options: EpwingV6Options) -> None:
+    path.write_bytes(data)
+    _progress(options, f"export: wrote {path} ({len(data):,} bytes)")
+
+
+def _write_text(path: Path, text: str, options: EpwingV6Options) -> None:
+    path.write_text(text, encoding="utf-8")
+    _progress(options, f"export: wrote {path} ({len(text.encode('utf-8')):,} bytes)")
 
 
 def _safe_subbook_dir(source_id: str) -> str:
@@ -119,14 +142,7 @@ def _catalogs(book: ExportBook, subbook_dir: str) -> bytes:
     extra[53] = 0
     extra[54] = 0
     extra[55] = 0
-    return bytes(header + record + extra)
-
-
-def _language() -> bytes:
-    data = bytearray(16)
-    data[0:2] = be16(2)
-    data[2:4] = be16(1)
-    return bytes(data)
+    return _pad_to_page(bytes(header + record + extra))
 
 
 def _index_record(index_id: int, start_page: int, page_count: int, data: bytes = b"\x02\x01\x55\x40") -> bytes:
@@ -189,6 +205,19 @@ def _body_events_to_epwing(events: tuple[ExportBodyEvent, ...], gaiji: GaijiAllo
     return bytes(out)
 
 
+def _candidate_bytes(label: str, pointer: IndexPointer, gaiji: GaijiAllocator) -> bytes:
+    """Encode an EPWING menu/candidate item pointing to another text position."""
+
+    out = bytearray()
+    out.extend(b"\x1f\x43")
+    out.extend(encode_body_text(label, gaiji))
+    out.extend(b"\x1f\x63")
+    out.extend(encode_bcd_decimal(pointer.block, 8))
+    out.extend(encode_bcd_decimal(pointer.offset, 4))
+    out.extend(b"\x1f\x0a")
+    return bytes(out)
+
+
 def _entry_bytes(entry: ExportEntry, gaiji: GaijiAllocator, diagnostics: list[ExportDiagnostic]) -> bytes:
     out = bytearray()
     out.extend(b"\x1f\x09\x00\x01")
@@ -237,12 +266,14 @@ class EpwingV6Backend:
         self.options = options or EpwingV6Options()
 
     def write(self, book: ExportBook, out_dir: Path) -> EpwingV6ExportReport:
+        _progress(self.options, f"export: EPWING v6 backend preparing {out_dir}")
         out_dir.mkdir(parents=True, exist_ok=True)
         subbook_dir = _safe_subbook_dir(book.source_id)
         data_dir = out_dir / subbook_dir / "DATA"
         gaiji_dir = out_dir / subbook_dir / "GAIJI"
         data_dir.mkdir(parents=True, exist_ok=True)
         gaiji_dir.mkdir(parents=True, exist_ok=True)
+        _progress(self.options, f"export: EPWING subbook={subbook_dir} entries={len(book.entries):,}")
 
         diagnostics: list[ExportDiagnostic] = list(book.diagnostics)
         gaiji = GaijiAllocator()
@@ -253,7 +284,9 @@ class EpwingV6Backend:
         seen_endword_targets: set[tuple[str, int, int]] = set()
         target_positions: dict[str, IndexPointer] = {}
 
-        for entry in book.entries:
+        interval = _progress_interval(self.options)
+        _progress(self.options, "export: encoding entries into HONMON2 body stream")
+        for entry_index, entry in enumerate(book.entries, start=1):
             offset = len(body)
             pointer = IndexPointer(block=(offset // BLOCK_SIZE) + 1, offset=offset % BLOCK_SIZE)
             target_positions[entry.target] = pointer
@@ -261,8 +294,12 @@ class EpwingV6Backend:
             for key in entry.keys:
                 _append_index_target(word_targets, seen_word_targets, key, pointer)
                 _append_index_target(endword_targets, seen_endword_targets, key, pointer)
+            if entry_index == 1 or entry_index % interval == 0 or entry_index == len(book.entries):
+                _progress(self.options, f"export: encoded {entry_index:,}/{len(book.entries):,} entries ({len(body):,} body bytes)")
+        entry_body_page_count = max(1, (len(_pad_to_page(bytes(body))) - BLOCK_SIZE) // BLOCK_SIZE)
 
         unmatched_index_rows = 0
+        _progress(self.options, f"export: applying {len(book.indexes):,} source index row(s)")
         for index in book.indexes:
             pointer = target_positions.get(index.target)
             if pointer is None:
@@ -280,20 +317,38 @@ class EpwingV6Backend:
                     f"{unmatched_index_rows} source index rows pointed outside the exported entry set.",
                 )
             )
+        _progress(
+            self.options,
+            f"export: prepared index targets word={len(word_targets):,} endword={len(endword_targets):,} unmatched={unmatched_index_rows:,}",
+        )
 
         menu_start = 0
         menu_pages = 0
         if book.navigation:
+            _progress(self.options, f"export: encoding {len(book.navigation):,} navigation row(s)")
             body = bytearray(_pad_to_page(bytes(body)))
             menu_start = len(body) // BLOCK_SIZE + 1
             for node in book.navigation:
-                body.extend(encode_body_text(node.label, gaiji))
-                body.extend(b"\x1f\x0a")
+                pointer = target_positions.get(node.target or "")
+                if pointer is not None:
+                    body.extend(_candidate_bytes(node.label, pointer, gaiji))
+                else:
+                    body.extend(encode_body_text(node.label, gaiji))
+                    body.extend(b"\x1f\x0a")
+                    diagnostics.append(
+                        ExportDiagnostic(
+                            "warning",
+                            "epwing_menu_target_unmatched",
+                            f"Navigation item {node.label!r} does not point to an exported entry; emitted as non-clickable text.",
+                            source=node.target,
+                        )
+                    )
             menu_pages = _page_count(bytes(body[(menu_start - 1) * BLOCK_SIZE :]))
 
         copyright_start = 0
         copyright_pages = 0
         if book.copyright:
+            _progress(self.options, f"export: encoding {len(book.copyright):,} copyright/info row(s)")
             body = bytearray(_pad_to_page(bytes(body)))
             copyright_start = len(body) // BLOCK_SIZE + 1
             for node in book.copyright:
@@ -302,13 +357,15 @@ class EpwingV6Backend:
             copyright_pages = _page_count(bytes(body[(copyright_start - 1) * BLOCK_SIZE :]))
 
         body = bytearray(_pad_to_page(bytes(body)))
-        index_records: list[bytes] = []
+        index_records: list[bytes] = [_index_record(0x00, 2, entry_body_page_count, b"\x00\x00\x00\x00")]
         if word_targets:
+            _progress(self.options, f"export: writing forward index with {len(word_targets):,} target(s)")
             word_start = len(body) // BLOCK_SIZE + 1
             word_index = encode_simple_index_pages(word_targets, start_block=word_start, gaiji=gaiji)
             body.extend(word_index)
             index_records.append(_index_record(0x91, word_start, _page_count(word_index)))
         if endword_targets:
+            _progress(self.options, f"export: writing backward index with {len(endword_targets):,} target(s)")
             endword_start = len(body) // BLOCK_SIZE + 1
             endword_index = encode_simple_index_pages(endword_targets, start_block=endword_start, gaiji=gaiji, reverse_keys=True)
             body.extend(endword_index)
@@ -318,17 +375,17 @@ class EpwingV6Backend:
         if copyright_start:
             index_records.append(_index_record(0x02, copyright_start, max(1, copyright_pages), b"\x00\x00\x00\x00"))
         body[0:BLOCK_SIZE] = _index_table(index_records)
+        _progress(self.options, f"export: assembled HONMON2 with {len(index_records):,} index record(s)")
 
-        (data_dir / "HONMON2").write_bytes(_pad_to_page(bytes(body)))
-        (data_dir / "HONMONG").write_bytes(bytes(BLOCK_SIZE))
-        (data_dir / "HONMONS").write_bytes(bytes(BLOCK_SIZE))
-        (out_dir / "CATALOGS").write_bytes(_catalogs(book, subbook_dir))
-        (out_dir / "LANGUAGE").write_bytes(_language())
+        _write_bytes(data_dir / "HONMON2", _pad_to_page(bytes(body)), self.options)
+        _write_bytes(data_dir / "HONMONG", bytes(BLOCK_SIZE), self.options)
+        _write_bytes(data_dir / "HONMONS", bytes(BLOCK_SIZE), self.options)
+        _write_bytes(out_dir / "CATALOGS", _catalogs(book, subbook_dir), self.options)
 
-        (gaiji_dir / "GA16HALF").write_bytes(encode_ga16_resource(gaiji.half_assignments, width=8, start_code=gaiji.half_start))
-        (gaiji_dir / "GA16FULL").write_bytes(encode_ga16_resource(gaiji.full_assignments, width=16, start_code=gaiji.full_start))
+        _write_bytes(gaiji_dir / "GA16HALF", encode_ga16_resource(gaiji.half_assignments, width=8, start_code=gaiji.half_start), self.options)
+        _write_bytes(gaiji_dir / "GA16FULL", encode_ga16_resource(gaiji.full_assignments, width=16, start_code=gaiji.full_start), self.options)
         map_text = _map_lines(gaiji, book)
-        (out_dir / f"{subbook_dir}.map").write_text(map_text, encoding="utf-8")
+        _write_text(out_dir / f"{subbook_dir}.map", map_text, self.options)
 
         if self.options.include_media and book.resources:
             diagnostics.append(
@@ -352,5 +409,9 @@ class EpwingV6Backend:
             gaiji_map_entries=sum(1 for line in map_text.splitlines() if line and not line.startswith("#")),
             diagnostics=tuple(diagnostics),
         )
-        (out_dir / "logovista-export-report.json").write_text(json.dumps(report.as_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_text(out_dir / "logovista-export-report.json", json.dumps(report.as_dict(), ensure_ascii=False, indent=2), self.options)
+        _progress(
+            self.options,
+            f"export: finished EPWING v6 export entries={report.entries:,} indexes={report.indexes:,} diagnostics={len(report.diagnostics):,}",
+        )
         return report

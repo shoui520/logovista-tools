@@ -40,6 +40,12 @@ def is_verbose(args: argparse.Namespace | None) -> bool:
     return bool(getattr(args, "verbose", False) or getattr(args, "debug", False))
 
 
+def is_quiet(args: argparse.Namespace | None) -> bool:
+    if args is None:
+        return False
+    return bool(getattr(args, "quiet", False))
+
+
 def status(args: argparse.Namespace | None, message: str, *, verbose: bool = False) -> None:
     if verbose and not is_verbose(args):
         return
@@ -182,7 +188,8 @@ def run_with_friendly_errors(
     func: Callable[[argparse.Namespace], int],
 ) -> int:
     label = command_name(args)
-    status(args, f"{program}: running {label}")
+    if not is_quiet(args):
+        status(args, f"{program}: running {label}")
     if is_verbose(args):
         status(args, f"{program}: debug/verbose output enabled", verbose=True)
     try:
@@ -204,7 +211,8 @@ def run_with_friendly_errors(
             status(args, f"{program}: rerun with --verbose for a Python traceback")
         return 2
     if result == 0:
-        status(args, f"{program}: completed {label}")
+        if not is_quiet(args):
+            status(args, f"{program}: completed {label}")
     else:
         status(args, f"{program}: {label} exited with status {result}")
     return result

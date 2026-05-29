@@ -25,12 +25,19 @@ Useful options:
 --drop-style-markers / --no-drop-style-markers
 --diagnostics-json PATH
 --limit N
+--progress-every N
+--quiet
 --json
 ```
 
 `SOURCE` may be a direct SSED `.IDX`, a package directory, an LVED_SQLITE3
 package directory containing `main.data` / `main.dbc`, or a direct LVED_SQLITE3
 payload. Encrypted LVED_SQLITE3 payloads require a matching local `.key` file.
+
+The command prints progress to stderr by default. JSON output remains on stdout,
+so `--json` can still be redirected or piped safely. Use `--quiet` to suppress
+progress output, and `--progress-every` to control long entry/index row phase
+updates.
 
 ## Export IR
 
@@ -54,7 +61,6 @@ The backend currently emits an EPWING v6-style subbook layout:
 
 ```text
 CATALOGS
-LANGUAGE
 <SUBBOOK>.map
 <SUBBOOK>/
   DATA/
@@ -72,9 +78,13 @@ Current lowering behavior:
 
 - SSED plain `HONMON` text/control slices are lowered to conservative EPWING
   body text and directly mappable style controls.
+- SSED dense-HONMON packages with renderer SQLite sidecars are exported from
+  the renderer body rows, not from the raw numeric HONMON anchors.
 - LVED_SQLITE3 stored HTML is flattened into conservative body events.
-- Search keys are emitted into word and endword index records.
-- Menu and copyright surfaces are indexed where present.
+- Search keys are emitted into text, word, and endword index records.
+- Menu surfaces are emitted as EPWING candidate streams, so menu rows become
+  clickable when their LogoVista target resolves to an exported entry.
+- Copyright surfaces are indexed where present.
 - Unicode-first gaiji behavior is represented through an EBWin-compatible
   `.map`, with generated GA16 bitmap fallback files.
 
@@ -94,8 +104,11 @@ The exporter tests cover:
 - LVED_SQLITE3 source IR construction from a SQLite fixture.
 - EPWING v6 output structure, `CATALOGS`, `HONMON2`, `HONMONG`, `HONMONS`,
   GA16 resources, and `.map`.
-- Menu/copyright index record emission.
+- Text, menu, and copyright index record emission.
+- EPWING menu candidate control emission.
+- Dense HONMON sidecar-body export for `t_contents` fixtures.
 - CLI smoke export.
+- Default CLI progress output and `--quiet` suppression.
 
 Real corpus behavior remains authoritative. Synthetic fixtures only prove that
 the code path and baseline structures are internally coherent.
