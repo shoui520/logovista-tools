@@ -16,6 +16,7 @@ reverse-engineering notes live in [`../spec`](../spec/README.md).
 | [LVEDVIEWER Embedded Assets](lved-viewer-assets.md) | Private extraction summary for LVEDVIEWER product HTML/CSS/JS resources and product hook implications. |
 | [KOJIEN6 SSED Findings](kojien6-findings.md) | Advanced classic SSED findings: SCRMENU, encyclop.idx, embedded MULTI components, COLSMPL/MONOSCR, `_PCM_U`, and `_MOVIE`. |
 | [GENDAIKNOWLEDGE SSED Findings](gendai-knowledge.md) | 現代用語の基礎知識 annual/bundle package findings: GENDAI10 auxiliary year trees, GEN MULTI selectors, media, HANREI, and renderer status. |
+| [LogoVista Exporter](exporter.md) | Target-neutral export IR and initial EPWING v6 backend status. |
 | [Package Families](package-families.md) | SSED package layers, non-SSED families, and lookup rules. |
 | [Corpus Findings](corpus-findings.md) | Observed behavior from real dictionaries. |
 | [Documentation Coverage Map](source-coverage.md) | Source-to-doc map plus intentionally underdocumented areas. |

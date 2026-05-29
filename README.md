@@ -16,7 +16,7 @@ No dictionary data is included in this repository.
 
 | Track | Scope | Status |
 |---|---|---|
-| `logovista-tools` | Research toolkit, package classifiers, decoded model reports, extractors, verification, and experimental plain-SSED writer primitives. | See [Project Status and Roadmap](docs/status.md). |
+| `logovista-tools` | Research toolkit, package classifiers, decoded model reports, extractors, verification, experimental plain-SSED writer primitives, and the target-neutral exporter pipeline. | See [Project Status and Roadmap](docs/status.md). |
 | `src/lvcore-experimental` | Independent reader-core prototype. It is reader-only. Current implementation targets SSED reader behavior while keeping LVED_SQLITE3 and LVLMultiView as explicit deferred package families for the future reader. | See [lvcore Status](docs/lvcore-status.md). |
 | Format notes | Public, behavior-level format documentation derived from observed structures. | See [Format Notes](spec/README.md). |
 
@@ -143,6 +143,7 @@ The full command reference is in [docs/commands.md](docs/commands.md).
 | [LVED_SQLITE3 Corpus Findings](docs/lved-sqlite3-corpus.md) | Schema, search, retained-resource, and renderer-readiness findings for SQLCipher-backed LogoVista packages. |
 | [LVLMultiView Corpus Findings](docs/multiview-findings.md) | Facade, payload, menu, resource, and showcase findings for LVLMultiView packages. |
 | [Hourei Corpus Findings](docs/hourei-findings.md) | LogoVista電子法令 Professional layout, search, HTML body, and resource findings. |
+| [LogoVista Exporter](docs/exporter.md) | Target-neutral export IR and initial EPWING v6 backend status. |
 | [Corpus Findings](docs/corpus-findings.md) | Observed behavior from real dictionaries and platform comparisons. |
 | [Documentation Coverage Map](docs/source-coverage.md) | Source-to-doc map and currently underdocumented areas. |
 | [Legal and Data Policy](docs/legal.md) | Repository scope and data-handling policy. |

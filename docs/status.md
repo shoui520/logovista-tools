@@ -5,7 +5,8 @@ but the internal model is still being refined as the corpus grows.
 
 This page describes `logovista-tools`: the research toolkit, package
 classifiers, decoded model reports, extractors, verification tools, and
-experimental plain-SSED writer primitives. The clean reader-core proof of
+experimental plain-SSED writer primitives. It also tracks the new target-neutral
+exporter pipeline separately from the writer. The clean reader-core proof of
 concept has its own status page: [lvcore Status](lvcore-status.md).
 
 The important boundary: this is no longer mainly an exporter. Exporters are
@@ -303,6 +304,12 @@ and non-SSED reader status are tracked separately in
   body/title pointer row boundaries, and `.uni` / GA16 resource consistency.
   Its traversal model accounts for same-key and same-branch-prefix groups that
   continue across adjacent sibling leaf pages.
+- Initial target-neutral exporter pipeline. The first backend is EPWING v6 and
+  currently supports SSED and LVED_SQLITE3 source adapters, conservative body
+  event lowering, word/endword indexes, menu/copyright index surfaces,
+  Unicode-first EBWin `.map` gaiji output, and generated GA16 fallback files.
+  Native `HONMONG` / `HONMONS` media authoring and HC visual parity lowering
+  remain deferred.
 - Experimental standalone Python reader core in `src/lvcore-experimental`.
   This clean reimplementation is tracked separately in
   [lvcore Status](lvcore-status.md) so toolkit package-family support is not
@@ -819,6 +826,7 @@ Recently landed:
    bundles, and a model-derived capability matrix.
 10. First-class dereference records in Decoded Model v0 and chunked
     `dereferences.jsonl`.
+11. Initial target-neutral exporter pipeline and EPWING v6 backend scaffold.
 
 Next priorities:
 
@@ -843,5 +851,9 @@ Next priorities:
    for clean plain-HONMON SSED packages. It remains a reverse-engineering proof
    checkpoint, not the lvcore compatibility target and not an LVED/LVLMultiView
    writer.
-7. **lvcore reader work.** Track reader-core priorities separately in
+7. **Exporter research.** Harden the EPWING v6 backend against real corpus
+   exports, implement native media lowering where the EPWING representation is
+   understood, and keep future MDict/MDX and Yomitan backends behind the shared
+   Export IR rather than package-specific readers.
+8. **lvcore reader work.** Track reader-core priorities separately in
    [lvcore Status](lvcore-status.md).

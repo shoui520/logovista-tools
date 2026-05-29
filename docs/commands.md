@@ -66,6 +66,7 @@ This applies to commands that operate across many dictionaries or resources:
 `opcode-atlas`, `component-forensics`, `dump-ir`, `dump-package-models`, LVED
 payload inspection, LVLMultiView inspection, Hourei inspection, and SIZK SSED read-aloud
 inspection.
+`export` currently reserves `--jobs` for future target-specific export stages.
 `capability-matrix` is also corpus-oriented, but it reads already-generated
 report directories rather than re-scanning raw dictionary files.
 
@@ -2301,6 +2302,55 @@ When `--limit` is used, `indexes` scans pages through the random SSEDDATA reader
 and stops after the requested emitted row count. The component summary is marked
 with a partial warning when the limit stops the page scan before the full B-tree
 has been walked.
+
+## Exporter Commands
+
+The exporter commands lower supported LogoVista source packages into a
+target-neutral export IR, then write a target format. They are separate from
+the SSED writer and from historical lossless repacking.
+
+### `export epwing-v6`
+
+Export an SSED or LVED_SQLITE3 package to the initial EPWING v6 backend.
+
+```bash
+logovista-tools export epwing-v6 /path/to/source /tmp/epwing-out
+logovista-tools export epwing-v6 /path/to/source /tmp/epwing-out --json
+```
+
+Current source support:
+
+- SSED package directories or direct `.IDX` files.
+- LVED_SQLITE3 package directories with `main.data` / `main.dbc`, or direct
+  payload files. Encrypted payloads require a matching local `.key` file.
+
+The backend emits a v6-style subbook layout with `CATALOGS`, `LANGUAGE`,
+`DATA/HONMON2`, `DATA/HONMONG`, `DATA/HONMONS`, `GAIJI/GA16HALF`,
+`GAIJI/GA16FULL`, and an EBWin-compatible `.map` file. It does not target plain
+`HONMON`.
+
+Useful options:
+
+```bash
+--source-family auto|ssed|lved-sqlite3
+--gaiji-policy unicode-map,ga16
+--include-media / --no-include-media
+--drop-style-markers / --no-drop-style-markers
+--diagnostics-json PATH
+--limit N
+--jobs N
+```
+
+Current limitations:
+
+- HC visual parity is not ported to EPWING; unsupported visual/layout semantics
+  are reported as diagnostics.
+- Native `HONMONG` / `HONMONS` media control lowering is scaffolded but not yet
+  implemented.
+- LVLMultiView, Hourei, MDict/MDX, and Yomitan outputs are planned through the
+  same IR but are not implemented by this command yet.
+
+See [LogoVista Exporter](exporter.md) for the architecture and readiness notes.
 
 ## Experimental Writer Commands
 

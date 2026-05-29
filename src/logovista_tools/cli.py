@@ -48,6 +48,7 @@ from .entries import (
 )
 from .encyclopedia import find_encyclopedia_index, parse_encyclopedia_index
 from .extract import add_extract_args, cmd_extract
+from .exporter.cli import add_export_args, run_export
 from .fulldb import extract_fulldb_dictionary
 from .gaiji_report import extract_gaiji_reports
 from .gaiji import (
@@ -1921,6 +1922,20 @@ def cmd_repacker(args: argparse.Namespace) -> int:
     return 0 if changed == 0 and unsupported == 0 else 1
 
 
+def cmd_export(args: argparse.Namespace) -> int:
+    status(args, f"export: writing {args.target} output to {args.out_dir}")
+    report = run_export(args)
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        print(
+            f"export: target={args.target} title={report['title']} "
+            f"entries={report['entries']} indexes={report['indexes']} "
+            f"diagnostics={len(report['diagnostics'])}"
+        )
+    return 0
+
+
 def _vlpljbl_task(payload: tuple[Path, argparse.Namespace]) -> dict[str, Any]:
     path, args = payload
     row = classify_vlpljbl_file(
@@ -3454,6 +3469,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_dump_ir.add_argument("--json", action="store_true", help="Also print machine-readable summary JSON.")
     add_jobs_argument(p_dump_ir)
     p_dump_ir.set_defaults(include_raw=True, include_padding=True, index_boundaries=True, func=cmd_dump_ir)
+
+    p_export = sub.add_parser(
+        "export",
+        help="Export LogoVista packages through the target-neutral exporter pipeline.",
+    )
+    add_export_args(p_export)
+    p_export.set_defaults(func=cmd_export)
 
     p_write_plain = sub.add_parser(
         "write-plain",
