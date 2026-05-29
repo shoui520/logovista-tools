@@ -125,6 +125,7 @@ class ExportNavigation:
     label: str
     target: str | None = None
     children: tuple["ExportNavigation", ...] = ()
+    body: ExportBody | None = None
     diagnostics: tuple[ExportDiagnostic, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
@@ -133,6 +134,7 @@ class ExportNavigation:
             "label": self.label,
             "target": self.target,
             "children": [child.as_dict() for child in self.children],
+            "body": self.body.as_dict() if self.body is not None else None,
             "diagnostics": [diagnostic.as_dict() for diagnostic in self.diagnostics],
         }
 

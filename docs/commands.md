@@ -2327,13 +2327,20 @@ Current source support:
 The backend emits a v6-style subbook layout with `CATALOGS`,
 `DATA/HONMON2`, `DATA/HONMONG`, `DATA/HONMONS`, `GAIJI/GA16HALF`,
 `GAIJI/GA16FULL`, and an EBWin-compatible `.map` file. It does not target plain
-`HONMON`.
+`HONMON`, and it does not emit `LANGUAGE`; that file is optional EPWING
+language/character-code metadata and is not needed for this output.
+
+On rerun, the command replaces its generated subbook directory, `CATALOGS`,
+stale `LANGUAGE`, and generated `.map` file inside the output directory so old
+broken EPWING artifacts cannot remain active by accident.
 
 SSED dense-HONMON packages with renderer SQLite sidecars are exported from the
 renderer body rows instead of raw numeric anchor records. EPWING menu output
 uses candidate controls for rows whose LogoVista targets resolve to exported
 entries; unresolved menu rows are emitted as non-clickable text with a
-diagnostic.
+diagnostic. SSED copyright/about surfaces are extracted from `HANREI`
+HTML directories or `HANREI.chm` when `7z`/`7zz`/`7za` is available, and are
+emitted through the EPWING copyright surface rather than as normal entries.
 
 Useful options:
 

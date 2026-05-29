@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import json
 import re
+import shutil
 from typing import Any
 
 from ..ssed import BLOCK_SIZE
@@ -269,6 +270,11 @@ class EpwingV6Backend:
         _progress(self.options, f"export: EPWING v6 backend preparing {out_dir}")
         out_dir.mkdir(parents=True, exist_ok=True)
         subbook_dir = _safe_subbook_dir(book.source_id)
+        for stale in (out_dir / "CATALOGS", out_dir / "LANGUAGE", out_dir / f"{subbook_dir}.map", out_dir / subbook_dir):
+            if stale.is_dir():
+                shutil.rmtree(stale)
+            elif stale.exists():
+                stale.unlink()
         data_dir = out_dir / subbook_dir / "DATA"
         gaiji_dir = out_dir / subbook_dir / "GAIJI"
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -354,6 +360,9 @@ class EpwingV6Backend:
             for node in book.copyright:
                 body.extend(encode_body_text(node.label, gaiji))
                 body.extend(b"\x1f\x0a")
+                if node.body is not None:
+                    body.extend(_body_events_to_epwing(node.body.events, gaiji, diagnostics, node.target or "copyright"))
+                    body.extend(b"\x1f\x0a")
             copyright_pages = _page_count(bytes(body[(copyright_start - 1) * BLOCK_SIZE :]))
 
         body = bytearray(_pad_to_page(bytes(body)))

@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+import shutil
 import sqlite3
+import subprocess
 from tempfile import TemporaryDirectory
 from typing import Any
 
@@ -41,7 +43,7 @@ from ..rendererdb import (
     t_contents_columns,
     table_exists,
 )
-from ..ssed import BLOCK_SIZE, SsedRandomReader, find_case_insensitive, parse_ssedinfo
+from ..ssed import BLOCK_SIZE, SsedRandomReader, find_case_insensitive, is_metadata_noise_path, parse_ssedinfo, resolve_case_insensitive_path
 from ..windows import discover_renderer_sidecars, load_exinfo_for_idx
 from .html_flatten import html_to_export_body
 from .model import (
@@ -262,6 +264,130 @@ def _rendererdb_export_entries(
     return None
 
 
+_HTML_SUFFIXES = {".html", ".htm"}
+_COPYRIGHT_NEEDLES = ("copyright", "著作権")
+_ABOUT_NEEDLES = ("about", "について")
+
+
+def _decode_text_bytes(data: bytes) -> str:
+    for encoding in ("utf-8-sig", "utf-8", "cp932", "shift_jis", "euc_jp"):
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
+def _copyright_candidate_score(path: Path, text: str) -> int | None:
+    haystack = f"{path.as_posix().casefold()}\n{text[:2000].casefold()}"
+    if any(needle in haystack for needle in _COPYRIGHT_NEEDLES):
+        return 0
+    if any(needle in haystack for needle in _ABOUT_NEEDLES):
+        return 10
+    return None
+
+
+def _iter_html_files(root: Path) -> list[Path]:
+    if root.is_file() and root.suffix.casefold() in _HTML_SUFFIXES and not is_metadata_noise_path(root):
+        return [root]
+    if not root.is_dir():
+        return []
+    return [
+        path
+        for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix().casefold())
+        if path.is_file() and path.suffix.casefold() in _HTML_SUFFIXES and not is_metadata_noise_path(path)
+    ]
+
+
+def _copyright_from_html_roots(roots: list[Path]) -> list[tuple[int, Path, str]]:
+    candidates: list[tuple[int, Path, str]] = []
+    for root in roots:
+        for path in _iter_html_files(root):
+            try:
+                text = _decode_text_bytes(path.read_bytes())
+            except OSError:
+                continue
+            score = _copyright_candidate_score(path, text)
+            if score is not None:
+                candidates.append((score, path, text))
+    return candidates
+
+
+def _ssed_copyright_surfaces(root: Path, options: ExportSourceOptions) -> tuple[list[ExportNavigation], list[ExportDiagnostic]]:
+    """Extract copyright/about surfaces from SSED HANREI sources."""
+
+    diagnostics: list[ExportDiagnostic] = []
+    html_roots: list[Path] = []
+    hanrei_dir = resolve_case_insensitive_path(root, "HANREI")
+    if hanrei_dir is not None and hanrei_dir.is_dir():
+        html_roots.append(hanrei_dir)
+    root_hanrei = resolve_case_insensitive_path(root, "hanrei.html")
+    if root_hanrei is not None and root_hanrei.is_file():
+        html_roots.append(root_hanrei)
+    try:
+        for child in root.iterdir():
+            if child.is_dir() and child.name.casefold().endswith("_help.localized") and not is_metadata_noise_path(child):
+                html_roots.append(child)
+    except OSError:
+        pass
+
+    candidates = _copyright_from_html_roots(html_roots)
+    chm_path = resolve_case_insensitive_path(root, "HANREI.chm")
+    if chm_path is not None and chm_path.is_file():
+        seven_zip = shutil.which("7z") or shutil.which("7zz") or shutil.which("7za")
+        if seven_zip is None:
+            diagnostics.append(
+                ExportDiagnostic(
+                    "warning",
+                    "ssed_hanrei_chm_extract_unavailable",
+                    "HANREI.chm is present but no 7z/7zz/7za executable was found for extraction.",
+                    source=chm_path.name,
+                )
+            )
+        else:
+            with TemporaryDirectory() as temp_dir:
+                extracted = Path(temp_dir) / "hanrei-chm"
+                try:
+                    subprocess.run(
+                        [seven_zip, "x", "-y", f"-o{extracted}", str(chm_path)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=True,
+                    )
+                    candidates.extend(_copyright_from_html_roots([extracted]))
+                except (OSError, subprocess.CalledProcessError) as exc:
+                    diagnostics.append(
+                        ExportDiagnostic(
+                            "warning",
+                            "ssed_hanrei_chm_extract_failed",
+                            f"HANREI.chm extraction failed: {exc}",
+                            source=chm_path.name,
+                        )
+                    )
+
+    if not candidates:
+        return [], diagnostics
+    candidates.sort(key=lambda item: (item[0], item[1].as_posix().casefold()))
+    score, path, html = candidates[0]
+    label = path.name
+    plain_title = _html_to_plain(html)
+    if score == 0:
+        for line in plain_title.splitlines():
+            if "著作権" in line or "copyright" in line.casefold():
+                label = line.strip()[:80] or label
+                break
+    body = html_to_export_body(html, source_kind="ssed_hanrei_copyright_html")
+    _progress(options, f"export: extracted SSED copyright surface from {path.name}")
+    return [
+        ExportNavigation(
+            kind="copyright",
+            label=label,
+            target=f"ssed-info:{path.name}",
+            body=body,
+        )
+    ], diagnostics
+
+
 def _load_ssed_export_book(path: Path, options: ExportSourceOptions) -> ExportBook:
     _progress(options, f"export: discovering SSED package under {path}")
     sources = discover_dictionaries([path], jobs=1, include_gaiji=True, include_images=True)
@@ -396,9 +522,11 @@ def _load_ssed_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
         _progress(options, f"export: scanned navigation {element.filename}: +{len(navigation) - before_rows:,} row(s)")
 
     gaiji_rows = _gaiji_rows(source.idx)
+    copyright_rows, copyright_diagnostics = _ssed_copyright_surfaces(source.idx.parent, options)
+    diagnostics.extend(copyright_diagnostics)
     _progress(
         options,
-        f"export: built SSED export model entries={len(entries):,} indexes={len(indexes):,} navigation={len(navigation):,} gaiji={len(gaiji_rows):,}",
+        f"export: built SSED export model entries={len(entries):,} indexes={len(indexes):,} navigation={len(navigation):,} copyright={len(copyright_rows):,} gaiji={len(gaiji_rows):,}",
     )
 
     return ExportBook(
@@ -409,6 +537,7 @@ def _load_ssed_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
         entries=tuple(entries),
         indexes=tuple(indexes),
         navigation=tuple(navigation),
+        copyright=tuple(copyright_rows),
         gaiji=gaiji_rows,
         diagnostics=tuple(diagnostics),
     )
@@ -506,7 +635,15 @@ def _load_lved_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
                 for row in con.execute("select id, name, body from info order by id"):
                     name = _sqlite_text(row["name"])
                     if "copyright" in name.casefold() or "著作権" in name or "about" in name.casefold() or "について" in name:
-                        copyright_rows.append(ExportNavigation(kind="copyright", label=name or f"info {row['id']}", target=f"lved:info:{row['id']}"))
+                        body_html = _sqlite_text(row["body"])
+                        copyright_rows.append(
+                            ExportNavigation(
+                                kind="copyright",
+                                label=name or f"info {row['id']}",
+                                target=f"lved:info:{row['id']}",
+                                body=html_to_export_body(body_html, source_kind="lved_info_html"),
+                            )
+                        )
             diagnostics = []
             if not entries:
                 diagnostics.append(ExportDiagnostic("warning", "lved_no_content_entries", "No exportable content table rows were found."))

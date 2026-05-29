@@ -60,12 +60,17 @@ def test_epwing_v6_backend_writes_required_layout_and_gaiji_map(tmp_path: Path) 
     idx = _write_source_ssed(tmp_path / "source")
     book = load_export_book(idx, ExportSourceOptions(source_family=SourceFamily.SSED))
     out_dir = tmp_path / "epwing"
+    stale_subbook = out_dir / "EXPORT" / "DATA"
+    stale_subbook.mkdir(parents=True)
+    (out_dir / "LANGUAGE").write_text("stale", encoding="ascii")
+    (stale_subbook / "STALE").write_text("stale", encoding="ascii")
 
     report = EpwingV6Backend().write(book, out_dir)
 
     subbook = out_dir / report.subbook_dir
     assert (out_dir / "CATALOGS").is_file()
     assert not (out_dir / "LANGUAGE").exists()
+    assert not (subbook / "DATA" / "STALE").exists()
     assert (subbook / "DATA" / "HONMON2").is_file()
     assert (subbook / "DATA" / "HONMONG").is_file()
     assert (subbook / "DATA" / "HONMONS").is_file()
@@ -150,6 +155,22 @@ def test_ssed_export_uses_rendererdb_for_dense_honmon_sidecar() -> None:
     assert any(diagnostic.code == "rendererdb_dense_honmon_source" for diagnostic in book.diagnostics)
 
 
+def test_ssed_export_extracts_hanrei_copyright_html(tmp_path: Path) -> None:
+    idx = _write_source_ssed(tmp_path)
+    hanrei = tmp_path / "HANREI" / "contents"
+    hanrei.mkdir(parents=True)
+    (hanrei / "copyright.html").write_text(
+        "<html><head><title>著作権</title></head><body><p>著作権</p><p>Copyright fixture body</p></body></html>",
+        encoding="utf-8",
+    )
+
+    book = load_export_book(idx, ExportSourceOptions(source_family=SourceFamily.SSED))
+
+    assert book.copyright
+    assert book.copyright[0].body is not None
+    assert any(event.kind == "text" and "Copyright fixture body" in event.text for event in book.copyright[0].body.events)
+
+
 def test_lved_sqlite_source_flattens_content_html_and_copyright(tmp_path: Path) -> None:
     root = tmp_path / "_DCT_LVEDX"
     root.mkdir()
@@ -170,6 +191,8 @@ def test_lved_sqlite_source_flattens_content_html_and_copyright(tmp_path: Path) 
     assert book.entries[0].headword == "alpha"
     assert any(event.kind == "style_start" and event.value == "bold" for event in book.entries[0].body.events)
     assert book.copyright and book.copyright[0].label == "copyright.html"
+    assert book.copyright[0].body is not None
+    assert any(event.kind == "text" and event.text == "Copyright fixture" for event in book.copyright[0].body.events)
 
 
 def test_logovista_tools_export_epwing_v6_cli(tmp_path: Path) -> None:

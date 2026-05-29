@@ -39,6 +39,11 @@ so `--json` can still be redirected or piped safely. Use `--quiet` to suppress
 progress output, and `--progress-every` to control long entry/index row phase
 updates.
 
+When writing EPWING output, the backend replaces the generated subbook
+directory, `CATALOGS`, stale `LANGUAGE`, and the generated `.map` file in the
+output directory. This prevents old broken export artifacts from surviving a
+rerun. Other unrelated files in the output directory are left alone.
+
 ## Export IR
 
 The target-neutral IR is intentionally conservative:
@@ -74,6 +79,10 @@ CATALOGS
 
 It deliberately targets `HONMON2`, not plain `HONMON`.
 
+No `LANGUAGE` file is emitted. EB Library treats this file as optional language
+/ character-code metadata, and reference EPWING books commonly work without it.
+The exporter relies on the `CATALOGS` and `HONMON2` metadata instead.
+
 Current lowering behavior:
 
 - SSED plain `HONMON` text/control slices are lowered to conservative EPWING
@@ -84,7 +93,11 @@ Current lowering behavior:
 - Search keys are emitted into text, word, and endword index records.
 - Menu surfaces are emitted as EPWING candidate streams, so menu rows become
   clickable when their LogoVista target resolves to an exported entry.
-- Copyright surfaces are indexed where present.
+- SSED copyright/about surfaces are extracted from `HANREI` HTML directories
+  and from `HANREI.chm` when `7z`/`7zz`/`7za` is available. LVED_SQLITE3
+  copyright/about surfaces come from understood `info` rows.
+- Copyright surfaces are indexed where present and written as EPWING copyright
+  text, not normal dictionary entries.
 - Unicode-first gaiji behavior is represented through an EBWin-compatible
   `.map`, with generated GA16 bitmap fallback files.
 
@@ -104,8 +117,10 @@ The exporter tests cover:
 - LVED_SQLITE3 source IR construction from a SQLite fixture.
 - EPWING v6 output structure, `CATALOGS`, `HONMON2`, `HONMONG`, `HONMONS`,
   GA16 resources, and `.map`.
+- No stale `LANGUAGE` file is retained across reruns.
 - Text, menu, and copyright index record emission.
 - EPWING menu candidate control emission.
+- SSED HANREI copyright HTML extraction.
 - Dense HONMON sidecar-body export for `t_contents` fixtures.
 - CLI smoke export.
 - Default CLI progress output and `--quiet` suppression.
