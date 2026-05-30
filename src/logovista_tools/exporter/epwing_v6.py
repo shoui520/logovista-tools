@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections import Counter
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 import json
@@ -12,19 +13,35 @@ import shutil
 import subprocess
 from typing import Any
 
+from ..gaiji import is_bitmap_gaiji_resource_name
 from ..ssed import BLOCK_SIZE
 from ..writer import (
+    EmbeddedBitmapFontRenderer,
+    FontFallbackGlyphRenderer,
     GaijiAllocator,
     IndexPointer,
     IndexTarget,
     be16,
     be32,
+    blank_glyph,
     encode_body_text,
     encode_bcd_decimal,
     encode_ga16_resource,
     encode_simple_index_pages,
 )
 from .model import ExportBodyEvent, ExportBook, ExportDiagnostic, ExportEntry
+
+
+EPWING_WAVE_CONTROL_FLAGS = b"\x00\x01\x00\x12"
+EPWING_SOUND_INDEX_DATA = b"\x01\x00\x00\x00"
+
+BITMAP_FONT_PREFERENCES = (
+    "japanese/msgothic.ttc",
+    "japanese/msmincho.ttc",
+    "chinese/simsun.ttc",
+    "chinese/simsunb.ttf",
+    "chinese/SimsunExtG.ttf",
+)
 
 
 @dataclass(frozen=True)
@@ -43,8 +60,41 @@ class EpwingV6Options:
     include_media: bool = True
     drop_style_markers: bool = True
     gaiji_policy: str = "unicode-map,ga16"
+    gaiji_bitmap_fonts: tuple[Path, ...] = ()
+    gaiji_font_root: Path | None = None
     progress: Callable[[str], None] | None = None
     progress_every: int = 5000
+
+
+@dataclass
+class _BitmapOnlyGa16Renderer:
+    renderers: tuple[Any, ...]
+    fallback_misses: Counter[str] = field(default_factory=Counter)
+
+    def __call__(self, text: str, width: int, height: int, space: str) -> bytes:
+        for renderer in self.renderers:
+            try:
+                glyph = renderer(text, width, height, space)
+            except Exception:
+                continue
+            if glyph and any(glyph):
+                return glyph
+        self.fallback_misses[text] += 1
+        return blank_glyph(width, height)
+
+    @property
+    def sources(self) -> tuple[str, ...]:
+        values: list[str] = []
+        for renderer in self.renderers:
+            values.extend(str(source) for source in getattr(renderer, "sources", ()))
+        return tuple(values)
+
+
+@dataclass
+class _EpwingWriteStats:
+    image_controls: int = 0
+    audio_controls: int = 0
+    media_placeholders: int = 0
 
 
 @dataclass(frozen=True)
@@ -60,7 +110,17 @@ class EpwingV6ExportReport:
     copyright_pages: int
     graphic_resources: int
     sound_resources: int
+    honmon2_bytes: int
+    honmong_bytes: int
+    honmons_bytes: int
+    image_controls: int
+    audio_controls: int
+    media_placeholders: int
+    gaiji_half_entries: int
+    gaiji_full_entries: int
     gaiji_map_entries: int
+    gaiji_bitmap_sources: tuple[str, ...]
+    gaiji_bitmap_misses: int
     diagnostics: tuple[ExportDiagnostic, ...]
 
     def as_dict(self) -> dict[str, Any]:
@@ -76,7 +136,17 @@ class EpwingV6ExportReport:
             "copyright_pages": self.copyright_pages,
             "graphic_resources": self.graphic_resources,
             "sound_resources": self.sound_resources,
+            "honmon2_bytes": self.honmon2_bytes,
+            "honmong_bytes": self.honmong_bytes,
+            "honmons_bytes": self.honmons_bytes,
+            "image_controls": self.image_controls,
+            "audio_controls": self.audio_controls,
+            "media_placeholders": self.media_placeholders,
+            "gaiji_half_entries": self.gaiji_half_entries,
+            "gaiji_full_entries": self.gaiji_full_entries,
             "gaiji_map_entries": self.gaiji_map_entries,
+            "gaiji_bitmap_sources": list(self.gaiji_bitmap_sources),
+            "gaiji_bitmap_misses": self.gaiji_bitmap_misses,
             "diagnostics": [diagnostic.as_dict() for diagnostic in self.diagnostics],
         }
 
@@ -109,6 +179,71 @@ def _write_bytes(path: Path, data: bytes, options: EpwingV6Options) -> None:
 def _write_text(path: Path, text: str, options: EpwingV6Options) -> None:
     path.write_text(text, encoding="utf-8")
     _progress(options, f"export: wrote {path} ({len(text.encode('utf-8')):,} bytes)")
+
+
+def _preferred_fonts(root: Path, preferences: Iterable[str]) -> list[Path]:
+    return [root / rel for rel in preferences if (root / rel).is_file()]
+
+
+def _bitmap_font_paths(options: EpwingV6Options) -> list[Path]:
+    if options.gaiji_bitmap_fonts:
+        return [Path(path) for path in options.gaiji_bitmap_fonts]
+    if options.gaiji_font_root is not None:
+        return _preferred_fonts(Path(options.gaiji_font_root), BITMAP_FONT_PREFERENCES)
+    return []
+
+
+def _build_ga16_glyph_renderer(
+    options: EpwingV6Options,
+    diagnostics: list[ExportDiagnostic],
+) -> _BitmapOnlyGa16Renderer | None:
+    font_paths = _bitmap_font_paths(options)
+    if not font_paths:
+        return None
+
+    logo_bitmap_paths: list[Path] = []
+    embedded_bitmap_paths: list[Path] = []
+    for path in font_paths:
+        if path.is_dir() or path.suffix.lower() == ".uni" or is_bitmap_gaiji_resource_name(path):
+            logo_bitmap_paths.append(path)
+        else:
+            embedded_bitmap_paths.append(path)
+
+    renderers: list[Any] = []
+    if logo_bitmap_paths:
+        try:
+            renderers.append(FontFallbackGlyphRenderer.from_sources(bitmap_paths=logo_bitmap_paths, vector_paths=()))
+        except Exception as exc:
+            diagnostics.append(
+                ExportDiagnostic(
+                    "warning",
+                    "epwing_ga16_bitmap_font_unavailable",
+                    f"LogoVista bitmap gaiji font source could not be loaded: {exc}",
+                )
+            )
+    if embedded_bitmap_paths:
+        try:
+            renderers.append(EmbeddedBitmapFontRenderer.from_paths(embedded_bitmap_paths))
+        except Exception as exc:
+            diagnostics.append(
+                ExportDiagnostic(
+                    "warning",
+                    "epwing_ga16_embedded_bitmap_font_unavailable",
+                    f"Embedded bitmap font source could not be loaded: {exc}",
+                )
+            )
+    if not renderers:
+        diagnostics.append(
+            ExportDiagnostic(
+                "warning",
+                "epwing_ga16_no_usable_bitmap_font",
+                "No supplied GA16 bitmap font source could be used; generated GA16 fallback cells may be blank.",
+            )
+        )
+        return None
+    renderer = _BitmapOnlyGa16Renderer(tuple(renderers))
+    _progress(options, f"export: GA16 bitmap renderer sources={len(renderer.sources):,}")
+    return renderer
 
 
 def _store_pointer(byte_offset: int) -> tuple[int, int]:
@@ -390,8 +525,17 @@ def _build_media_stores(
             )
     graphic_count = sum(1 for value in locations.values() if value.kind == "image")
     sound_count = sum(1 for value in locations.values() if value.kind == "audio")
-    _progress(options, f"export: media stores prepared graphics={graphic_count:,} sounds={sound_count:,}")
-    return _pad_to_page(bytes(honmong) or bytes(BLOCK_SIZE)), _pad_to_page(bytes(honmons) or bytes(BLOCK_SIZE)), locations
+    padded_honmong = _pad_to_page(bytes(honmong) or bytes(BLOCK_SIZE))
+    padded_honmons = _pad_to_page(bytes(honmons) or bytes(BLOCK_SIZE))
+    _progress(
+        options,
+        (
+            "export: media stores prepared "
+            f"HONMONG graphics={graphic_count:,} bytes={len(padded_honmong):,}; "
+            f"HONMONS sounds={sound_count:,} bytes={len(padded_honmons):,}"
+        ),
+    )
+    return padded_honmong, padded_honmons, locations
 
 
 def _graphic_control(location: _EpwingMediaLocation) -> bytes:
@@ -408,7 +552,7 @@ def _graphic_control(location: _EpwingMediaLocation) -> bytes:
 
 def _audio_control(location: _EpwingMediaLocation, label: str, gaiji: GaijiAllocator) -> bytes:
     payload = (
-        bytes(4)
+        EPWING_WAVE_CONTROL_FLAGS
         + encode_bcd_decimal(location.page, 8)
         + encode_bcd_decimal(location.offset, 4)
         + encode_bcd_decimal(location.end_page, 8)
@@ -424,6 +568,7 @@ def _body_events_to_epwing(
     diagnostics: list[ExportDiagnostic],
     source: str,
     media_locations: dict[str, _EpwingMediaLocation] | None = None,
+    stats: _EpwingWriteStats | None = None,
 ) -> bytes:
     media_locations = media_locations or {}
     out = bytearray()
@@ -457,6 +602,8 @@ def _body_events_to_epwing(
             location = media_locations.get(event.value)
             if location is None:
                 out.extend(encode_body_text(f"［{event.text or 'media'}］", gaiji))
+                if stats is not None:
+                    stats.media_placeholders += 1
                 diagnostics.append(
                     ExportDiagnostic(
                         "warning",
@@ -467,8 +614,12 @@ def _body_events_to_epwing(
                 )
             elif location.kind == "image":
                 out.extend(_graphic_control(location))
+                if stats is not None:
+                    stats.image_controls += 1
             elif location.kind == "audio":
                 out.extend(_audio_control(location, event.text, gaiji))
+                if stats is not None:
+                    stats.audio_controls += 1
         elif event.kind in {"section", "link", "ruby"}:
             diagnostics.append(ExportDiagnostic("info", f"{event.kind}_not_lowered", f"{event.kind} event has no EPWING v6 lowering yet", source=source))
         elif event.kind == "unsupported":
@@ -494,6 +645,7 @@ def _entry_bytes(
     gaiji: GaijiAllocator,
     diagnostics: list[ExportDiagnostic],
     media_locations: dict[str, _EpwingMediaLocation],
+    stats: _EpwingWriteStats,
 ) -> bytes:
     out = bytearray()
     out.extend(b"\x1f\x09\x00\x01")
@@ -501,7 +653,7 @@ def _entry_bytes(
     out.extend(encode_body_text(entry.headword, gaiji))
     out.extend(b"\x1f\x61")
     out.extend(b"\x1f\x0a")
-    out.extend(_body_events_to_epwing(entry.body.events, gaiji, diagnostics, entry.target, media_locations))
+    out.extend(_body_events_to_epwing(entry.body.events, gaiji, diagnostics, entry.target, media_locations, stats))
     out.extend(b"\x1f\x0a")
     return bytes(out)
 
@@ -558,7 +710,9 @@ class EpwingV6Backend:
 
         diagnostics: list[ExportDiagnostic] = list(book.diagnostics)
         honmong, honmons, media_locations = _build_media_stores(book, self.options, diagnostics)
-        gaiji = GaijiAllocator()
+        gaiji_renderer = _build_ga16_glyph_renderer(self.options, diagnostics)
+        gaiji = GaijiAllocator(glyph_renderer=gaiji_renderer)
+        stats = _EpwingWriteStats()
         body = bytearray(bytes(BLOCK_SIZE))
         word_targets: list[IndexTarget] = []
         endword_targets: list[IndexTarget] = []
@@ -572,7 +726,7 @@ class EpwingV6Backend:
             offset = len(body)
             pointer = IndexPointer(block=(offset // BLOCK_SIZE) + 1, offset=offset % BLOCK_SIZE)
             target_positions[entry.target] = pointer
-            body.extend(_entry_bytes(entry, gaiji, diagnostics, media_locations))
+            body.extend(_entry_bytes(entry, gaiji, diagnostics, media_locations, stats))
             for key in entry.keys:
                 _append_index_target(word_targets, seen_word_targets, key, pointer)
                 _append_index_target(endword_targets, seen_endword_targets, key, pointer)
@@ -637,9 +791,28 @@ class EpwingV6Backend:
                 body.extend(encode_body_text(node.label, gaiji))
                 body.extend(b"\x1f\x0a")
                 if node.body is not None:
-                    body.extend(_body_events_to_epwing(node.body.events, gaiji, diagnostics, node.target or "copyright", media_locations))
+                    body.extend(
+                        _body_events_to_epwing(
+                            node.body.events,
+                            gaiji,
+                            diagnostics,
+                            node.target or "copyright",
+                            media_locations,
+                            stats,
+                        )
+                    )
                     body.extend(b"\x1f\x0a")
             copyright_pages = _page_count(bytes(body[(copyright_start - 1) * BLOCK_SIZE :]))
+
+        graphic_resources = sum(1 for value in media_locations.values() if value.kind == "image")
+        sound_resources = sum(1 for value in media_locations.values() if value.kind == "audio")
+        _progress(
+            self.options,
+            (
+                "export: media controls "
+                f"images={stats.image_controls:,} audio={stats.audio_controls:,} placeholders={stats.media_placeholders:,}"
+            ),
+        )
 
         body = bytearray(_pad_to_page(bytes(body)))
         index_records: list[bytes] = [_index_record(0x00, 2, entry_body_page_count, b"\x00\x00\x00\x00")]
@@ -659,10 +832,38 @@ class EpwingV6Backend:
             index_records.append(_index_record(0x01, menu_start, max(1, menu_pages), b"\x00\x00\x00\x00"))
         if copyright_start:
             index_records.append(_index_record(0x02, copyright_start, max(1, copyright_pages), b"\x00\x00\x00\x00"))
+        if sound_resources:
+            index_records.append(_index_record(0xD8, 1, _page_count(honmons), EPWING_SOUND_INDEX_DATA))
         body[0:BLOCK_SIZE] = _index_table(index_records)
         _progress(self.options, f"export: assembled HONMON2 with {len(index_records):,} index record(s)")
 
-        _write_bytes(data_dir / "HONMON2", _pad_to_page(bytes(body)), self.options)
+        honmon2 = _pad_to_page(bytes(body))
+        if gaiji.assignments and gaiji_renderer is None:
+            diagnostics.append(
+                ExportDiagnostic(
+                    "warning",
+                    "epwing_ga16_blank_fallback_no_renderer",
+                    "Generated GA16 fallback cells are blank because no bitmap gaiji font source was configured.",
+                )
+            )
+        if isinstance(gaiji_renderer, _BitmapOnlyGa16Renderer) and gaiji_renderer.fallback_misses:
+            diagnostics.append(
+                ExportDiagnostic(
+                    "warning",
+                    "epwing_ga16_bitmap_fallback_misses",
+                    f"{sum(gaiji_renderer.fallback_misses.values())} generated GA16 fallback glyph(s) were blank after bitmap font lookup misses.",
+                )
+            )
+        _progress(
+            self.options,
+            (
+                "export: GA16 assignments "
+                f"half={len(gaiji.half_assignments):,} full={len(gaiji.full_assignments):,} "
+                f"bitmap_misses={sum(gaiji_renderer.fallback_misses.values()) if isinstance(gaiji_renderer, _BitmapOnlyGa16Renderer) else 0:,}"
+            ),
+        )
+
+        _write_bytes(data_dir / "HONMON2", honmon2, self.options)
         _write_bytes(data_dir / "HONMONG", honmong, self.options)
         _write_bytes(data_dir / "HONMONS", honmons, self.options)
         _write_bytes(out_dir / "CATALOGS", _catalogs(book, subbook_dir), self.options)
@@ -671,9 +872,6 @@ class EpwingV6Backend:
         _write_bytes(gaiji_dir / "GA16FULL", encode_ga16_resource(gaiji.full_assignments, width=16, start_code=gaiji.full_start), self.options)
         map_text = _map_lines(gaiji, book)
         _write_text(out_dir / f"{subbook_dir}.map", map_text, self.options)
-
-        graphic_resources = sum(1 for value in media_locations.values() if value.kind == "image")
-        sound_resources = sum(1 for value in media_locations.values() if value.kind == "audio")
 
         report = EpwingV6ExportReport(
             title=book.title,
@@ -687,7 +885,17 @@ class EpwingV6Backend:
             copyright_pages=len(book.copyright),
             graphic_resources=graphic_resources,
             sound_resources=sound_resources,
+            honmon2_bytes=len(honmon2),
+            honmong_bytes=len(honmong),
+            honmons_bytes=len(honmons),
+            image_controls=stats.image_controls,
+            audio_controls=stats.audio_controls,
+            media_placeholders=stats.media_placeholders,
+            gaiji_half_entries=len(gaiji.half_assignments),
+            gaiji_full_entries=len(gaiji.full_assignments),
             gaiji_map_entries=sum(1 for line in map_text.splitlines() if line and not line.startswith("#")),
+            gaiji_bitmap_sources=gaiji_renderer.sources if isinstance(gaiji_renderer, _BitmapOnlyGa16Renderer) else (),
+            gaiji_bitmap_misses=sum(gaiji_renderer.fallback_misses.values()) if isinstance(gaiji_renderer, _BitmapOnlyGa16Renderer) else 0,
             diagnostics=tuple(diagnostics),
         )
         _write_text(out_dir / "logovista-export-report.json", json.dumps(report.as_dict(), ensure_ascii=False, indent=2), self.options)

@@ -19,6 +19,20 @@ def add_export_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("out_dir", type=Path, help="Output directory for the exported dictionary.")
     parser.add_argument("--source-family", choices=("auto", "ssed", "lved-sqlite3"), default="auto")
     parser.add_argument("--gaiji-policy", default="unicode-map,ga16")
+    parser.add_argument(
+        "--gaiji-bitmap-font",
+        type=Path,
+        action="append",
+        help=(
+            "Bitmap source for generated EPWING GA16 fallback cells. "
+            "Accepts LogoVista GA16/GAI16 resources/directories or fonts with embedded bitmap strikes; may be repeated."
+        ),
+    )
+    parser.add_argument(
+        "--font-root",
+        type=Path,
+        help="Root containing preferred bitmap fonts for GA16 fallback generation.",
+    )
     parser.add_argument("--include-media", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--drop-style-markers", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--diagnostics-json", type=Path)
@@ -61,6 +75,8 @@ def run_export(args: argparse.Namespace) -> dict:
             include_media=args.include_media,
             drop_style_markers=args.drop_style_markers,
             gaiji_policy=args.gaiji_policy,
+            gaiji_bitmap_fonts=tuple(args.gaiji_bitmap_font or ()),
+            gaiji_font_root=args.font_root,
             progress=progress,
             progress_every=args.progress_every,
         )

@@ -2345,12 +2345,21 @@ Image media is written to `HONMONG` where possible: SSED `COLSCR.DIC`,
 renderer/sidecar media BLOBs, LVED media BLOBs, and resolvable loose HTML image
 files. Audio media is written to `HONMONS` for SSED `PCMDATA.DIC` WAVE chunks;
 MP3 PCMDATA slices are converted to WAVE chunks with `ffmpeg` when available.
+The export report and default progress output include `HONMON2`, `HONMONG`,
+and `HONMONS` byte counts, image/audio control counts, media placeholder counts,
+and GA16 fallback generation counts.
+
+Sound output follows the same broad structure as sound-capable EPWING reference
+books: playable body WAVE controls point into `HONMONS`, and `HONMON2` includes
+the EPWING sound metadata index record when sound resources are present.
 
 Useful options:
 
 ```bash
 --source-family auto|ssed|lved-sqlite3
 --gaiji-policy unicode-map,ga16
+--gaiji-bitmap-font PATH
+--font-root PATH
 --include-media / --no-include-media
 --drop-style-markers / --no-drop-style-markers
 --diagnostics-json PATH
@@ -2359,6 +2368,13 @@ Useful options:
 --quiet
 --jobs N
 ```
+
+`--gaiji-bitmap-font` configures generated GA16 fallback glyphs. It accepts
+LogoVista-style GA16/GAI16 resources or fonts with embedded bitmap strikes and
+may be passed more than once. `--font-root` selects the built-in bitmap font
+preference list beneath a caller-supplied root. If no usable bitmap source is
+configured, the EBWin `.map` still provides Unicode-first display behavior, but
+generated GA16 fallback cells are intentionally reported as blank.
 
 `export` prints progress to stderr by default while keeping JSON/report data on
 stdout. This avoids the old opaque wait-until-complete behavior without

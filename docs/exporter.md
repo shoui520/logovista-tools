@@ -101,14 +101,20 @@ Current lowering behavior:
 - Audio resources are lowered into `HONMONS` when they can be represented as
   EPWING WAVE chunks. SSED `PCMDATA.DIC` WAVE chunk records are copied after
   pointer remapping. MP3 PCMDATA slices are converted to WAVE chunks through
-  `ffmpeg` when available.
+  `ffmpeg` when available. When sound resources are emitted, `HONMON2` also
+  gets the EPWING sound metadata index record observed in sound-capable
+  reference books, and body WAVE controls are closed explicitly so following
+  text does not remain inside the playable link.
 - SSED copyright/about surfaces are extracted from `HANREI` HTML directories
   and from `HANREI.chm` when `7z`/`7zz`/`7za` is available. LVED_SQLITE3
   copyright/about surfaces come from understood `info` rows.
 - Copyright surfaces are indexed where present and written as EPWING copyright
   text, not normal dictionary entries.
 - Unicode-first gaiji behavior is represented through an EBWin-compatible
-  `.map`, with generated GA16 bitmap fallback files.
+  `.map`, with generated GA16 bitmap fallback files. The fallback bitmaps are
+  only populated when bitmap gaiji sources or fonts with embedded bitmap
+  strikes are configured; otherwise the report warns that GA16 fallback cells
+  are blank.
 
 Deferred behavior:
 
@@ -131,6 +137,8 @@ The exporter tests cover:
 - Text, menu, and copyright index record emission.
 - EPWING menu candidate control emission.
 - `HONMONG` image control lowering and `HONMONS` audio control lowering.
+- Report/progress accounting for `HONMON2`, `HONMONG`, `HONMONS`, emitted
+  media controls, media placeholders, and GA16 fallback generation.
 - SQLite media-BLOB resolution for LVED/renderer sidecar HTML.
 - SSED HANREI copyright HTML extraction.
 - Dense HONMON sidecar-body export for `t_contents` fixtures.

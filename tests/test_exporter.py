@@ -78,6 +78,9 @@ def test_epwing_v6_backend_writes_required_layout_and_gaiji_map(tmp_path: Path) 
     assert (subbook / "DATA" / "HONMONS").is_file()
     assert (subbook / "GAIJI" / "GA16HALF").is_file()
     assert (subbook / "GAIJI" / "GA16FULL").is_file()
+    assert report.honmon2_bytes == (subbook / "DATA" / "HONMON2").stat().st_size
+    assert report.honmong_bytes == (subbook / "DATA" / "HONMONG").stat().st_size
+    assert report.honmons_bytes == (subbook / "DATA" / "HONMONS").stat().st_size
 
     catalogs = (out_dir / "CATALOGS").read_bytes()
     assert len(catalogs) == 2048
@@ -169,6 +172,8 @@ def test_epwing_v6_backend_lowers_image_resources_to_honmong(tmp_path: Path) -> 
     data_dir = tmp_path / "epwing" / report.subbook_dir / "DATA"
 
     assert report.graphic_resources == 1
+    assert report.image_controls == 1
+    assert report.audio_controls == 0
     assert (data_dir / "HONMONG").read_bytes().startswith(b"data")
     assert b"BM" in (data_dir / "HONMONG").read_bytes()[:64]
     honmon2 = (data_dir / "HONMON2").read_bytes()
@@ -208,10 +213,16 @@ def test_epwing_v6_backend_lowers_audio_resources_to_honmons(tmp_path: Path) -> 
     data_dir = tmp_path / "epwing" / report.subbook_dir / "DATA"
 
     assert report.sound_resources == 1
+    assert report.audio_controls == 1
+    assert report.image_controls == 0
     assert (data_dir / "HONMONS").read_bytes().startswith(b"fmt ")
     honmon2 = (data_dir / "HONMON2").read_bytes()
     assert b"\x1f\x4a" in honmon2
     assert b"\x1f\x6a" in honmon2
+    control_offset = honmon2.index(b"\x1f\x4a")
+    assert honmon2[control_offset + 2 : control_offset + 6] == b"\x00\x01\x00\x12"
+    index_ids = {honmon2[16 + offset] for offset in range(0, honmon2[1] * 16, 16)}
+    assert 0xD8 in index_ids
     assert all(diagnostic.code != "media_ref_placeholder" for diagnostic in report.diagnostics)
 
 
