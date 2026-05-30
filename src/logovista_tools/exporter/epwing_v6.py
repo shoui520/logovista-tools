@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 import json
 import re
 import shutil
+import subprocess
 from typing import Any
 
 from ..ssed import BLOCK_SIZE
@@ -23,6 +25,17 @@ from ..writer import (
     encode_simple_index_pages,
 )
 from .model import ExportBodyEvent, ExportBook, ExportDiagnostic, ExportEntry
+
+
+@dataclass(frozen=True)
+class _EpwingMediaLocation:
+    kind: str
+    page: int
+    offset: int
+    media_type: str
+    end_page: int = 0
+    end_offset: int = 0
+    inline: bool = True
 
 
 @dataclass(frozen=True)
@@ -45,6 +58,8 @@ class EpwingV6ExportReport:
     indexes: int
     navigation: int
     copyright_pages: int
+    graphic_resources: int
+    sound_resources: int
     gaiji_map_entries: int
     diagnostics: tuple[ExportDiagnostic, ...]
 
@@ -59,6 +74,8 @@ class EpwingV6ExportReport:
             "indexes": self.indexes,
             "navigation": self.navigation,
             "copyright_pages": self.copyright_pages,
+            "graphic_resources": self.graphic_resources,
+            "sound_resources": self.sound_resources,
             "gaiji_map_entries": self.gaiji_map_entries,
             "diagnostics": [diagnostic.as_dict() for diagnostic in self.diagnostics],
         }
@@ -92,6 +109,10 @@ def _write_bytes(path: Path, data: bytes, options: EpwingV6Options) -> None:
 def _write_text(path: Path, text: str, options: EpwingV6Options) -> None:
     path.write_text(text, encoding="utf-8")
     _progress(options, f"export: wrote {path} ({len(text.encode('utf-8')):,} bytes)")
+
+
+def _store_pointer(byte_offset: int) -> tuple[int, int]:
+    return byte_offset // BLOCK_SIZE + 1, byte_offset % BLOCK_SIZE
 
 
 def _safe_subbook_dir(source_id: str) -> str:
@@ -168,7 +189,243 @@ def _index_table(records: list[bytes]) -> bytes:
     return bytes(page)
 
 
-def _body_events_to_epwing(events: tuple[ExportBodyEvent, ...], gaiji: GaijiAllocator, diagnostics: list[ExportDiagnostic], source: str) -> bytes:
+def _convert_image_to_bmp_payload(data: bytes, source: str, diagnostics: list[ExportDiagnostic]) -> bytes | None:
+    try:
+        from PIL import Image
+    except Exception as exc:  # pragma: no cover - depends on optional local Pillow install
+        diagnostics.append(
+            ExportDiagnostic(
+                "warning",
+                "epwing_image_conversion_unavailable",
+                f"Image {source} requires BMP conversion, but Pillow could not be imported: {exc}",
+                source=source,
+            )
+        )
+        return None
+    try:
+        with Image.open(BytesIO(data)) as image:
+            converted = image.convert("RGB")
+            out = BytesIO()
+            converted.save(out, format="BMP")
+            return out.getvalue()
+    except Exception as exc:
+        diagnostics.append(
+            ExportDiagnostic(
+                "warning",
+                "epwing_image_conversion_failed",
+                f"Image {source} could not be converted to BMP: {exc}",
+                source=source,
+            )
+        )
+        return None
+
+
+def _epwing_graphic_payload(resource, diagnostics: list[ExportDiagnostic]) -> tuple[bytes, str] | None:
+    if resource.payload is None:
+        diagnostics.append(ExportDiagnostic("warning", "epwing_media_missing_payload", "Image resource has no payload.", source=resource.resource_id))
+        return None
+    data = bytes(resource.payload)
+    if data.startswith(b"data") and len(data) >= 8:
+        payload_size = int.from_bytes(data[4:8], "little")
+        image = data[8 : 8 + payload_size]
+        if len(image) != payload_size:
+            diagnostics.append(
+                ExportDiagnostic("warning", "epwing_image_wrapped_size_mismatch", "Wrapped image payload size is inconsistent.", source=resource.resource_id)
+            )
+            return None
+    else:
+        image = data
+
+    if image.startswith(b"BM"):
+        wrapped = data if data.startswith(b"data") else b"data" + len(image).to_bytes(4, "little") + image
+        return wrapped, "bmp"
+    if image.startswith(b"\xff\xd8\xff"):
+        wrapped = data if data.startswith(b"data") else b"data" + len(image).to_bytes(4, "little") + image
+        return wrapped, "jpeg"
+    if image.startswith((b"\x89PNG\r\n\x1a\n", b"GIF87a", b"GIF89a", b"RIFF")):
+        bmp = _convert_image_to_bmp_payload(image, resource.resource_id, diagnostics)
+        if bmp is None:
+            return None
+        diagnostics.append(
+            ExportDiagnostic(
+                "info",
+                "epwing_image_converted_to_bmp",
+                "Image resource converted to BMP for EPWING HONMONG.",
+                source=resource.resource_id,
+            )
+        )
+        return b"data" + len(bmp).to_bytes(4, "little") + bmp, "bmp"
+
+    diagnostics.append(
+        ExportDiagnostic(
+            "warning",
+            "epwing_image_payload_unsupported",
+            "Image resource is not BMP/JPEG and could not be converted for HONMONG.",
+            source=resource.resource_id,
+        )
+    )
+    return None
+
+
+def _riff_wave_chunks(data: bytes) -> bytes | None:
+    if data.startswith(b"RIFF") and len(data) >= 12 and data[8:12] == b"WAVE":
+        return data[12:]
+    return None
+
+
+def _convert_audio_to_wave_chunks(data: bytes, source: str, diagnostics: list[ExportDiagnostic]) -> bytes | None:
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        diagnostics.append(
+            ExportDiagnostic(
+                "warning",
+                "epwing_audio_conversion_unavailable",
+                "Audio resource requires WAVE conversion, but ffmpeg was not found.",
+                source=source,
+            )
+        )
+        return None
+    try:
+        result = subprocess.run(
+            [ffmpeg, "-v", "error", "-i", "pipe:0", "-f", "wav", "pipe:1"],
+            input=data,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        diagnostics.append(
+            ExportDiagnostic(
+                "warning",
+                "epwing_audio_conversion_failed",
+                f"Audio resource could not be converted to WAVE chunks: {exc}",
+                source=source,
+            )
+        )
+        return None
+    chunks = _riff_wave_chunks(result.stdout)
+    if chunks is None or not chunks.startswith(b"fmt "):
+        diagnostics.append(
+            ExportDiagnostic(
+                "warning",
+                "epwing_audio_conversion_invalid",
+                "ffmpeg conversion did not produce a RIFF/WAVE stream with fmt/data chunks.",
+                source=source,
+            )
+        )
+        return None
+    diagnostics.append(
+        ExportDiagnostic(
+            "info",
+            "epwing_audio_converted_to_wave",
+            "Audio resource converted to WAVE chunks for EPWING HONMONS.",
+            source=source,
+        )
+    )
+    return chunks
+
+
+def _epwing_sound_payload(resource, diagnostics: list[ExportDiagnostic]) -> bytes | None:
+    if resource.payload is None:
+        diagnostics.append(ExportDiagnostic("warning", "epwing_media_missing_payload", "Audio resource has no payload.", source=resource.resource_id))
+        return None
+    payload = bytes(resource.payload)
+    if payload.startswith(b"fmt "):
+        return payload
+    chunks = _riff_wave_chunks(payload)
+    if chunks is not None and chunks.startswith(b"fmt "):
+        return chunks
+    return _convert_audio_to_wave_chunks(payload, resource.resource_id, diagnostics)
+
+
+def _build_media_stores(
+    book: ExportBook,
+    options: EpwingV6Options,
+    diagnostics: list[ExportDiagnostic],
+) -> tuple[bytes, bytes, dict[str, _EpwingMediaLocation]]:
+    honmong = bytearray()
+    honmons = bytearray()
+    locations: dict[str, _EpwingMediaLocation] = {}
+    if not options.include_media:
+        return bytes(BLOCK_SIZE), bytes(BLOCK_SIZE), locations
+    if not book.resources:
+        return bytes(BLOCK_SIZE), bytes(BLOCK_SIZE), locations
+
+    _progress(options, f"export: lowering {len(book.resources):,} resource payload(s) to HONMONG/HONMONS")
+    for resource in book.resources:
+        if resource.resource_id in locations:
+            continue
+        if resource.kind == "image":
+            lowered = _epwing_graphic_payload(resource, diagnostics)
+            if lowered is None:
+                continue
+            payload, media_type = lowered
+            start = len(honmong)
+            honmong.extend(payload)
+            page, offset = _store_pointer(start)
+            inline = resource.role not in {"colscr", "figure", "monoscr"}
+            locations[resource.resource_id] = _EpwingMediaLocation(
+                kind="image",
+                page=page,
+                offset=offset,
+                media_type=media_type,
+                inline=inline,
+            )
+        elif resource.kind == "audio":
+            payload = _epwing_sound_payload(resource, diagnostics)
+            if payload is None:
+                continue
+            start = len(honmons)
+            honmons.extend(payload)
+            end = start + len(payload) - 1
+            page, offset = _store_pointer(start)
+            end_page, end_offset = _store_pointer(end)
+            locations[resource.resource_id] = _EpwingMediaLocation(
+                kind="audio",
+                page=page,
+                offset=offset,
+                end_page=end_page,
+                end_offset=end_offset,
+                media_type="wave",
+            )
+    graphic_count = sum(1 for value in locations.values() if value.kind == "image")
+    sound_count = sum(1 for value in locations.values() if value.kind == "audio")
+    _progress(options, f"export: media stores prepared graphics={graphic_count:,} sounds={sound_count:,}")
+    return _pad_to_page(bytes(honmong) or bytes(BLOCK_SIZE)), _pad_to_page(bytes(honmons) or bytes(BLOCK_SIZE)), locations
+
+
+def _graphic_control(location: _EpwingMediaLocation) -> bytes:
+    format_word = b"\x01\x00" if location.media_type == "jpeg" else b"\x00\x00"
+    payload = (
+        format_word
+        + bytes(10)
+        + encode_bcd_decimal(location.page, 8)
+        + encode_bcd_decimal(location.offset, 4)
+    )
+    start = b"\x1f\x3c" if location.inline else b"\x1f\x4d"
+    return start + payload + b"\x1f\x6d"
+
+
+def _audio_control(location: _EpwingMediaLocation, label: str, gaiji: GaijiAllocator) -> bytes:
+    payload = (
+        bytes(4)
+        + encode_bcd_decimal(location.page, 8)
+        + encode_bcd_decimal(location.offset, 4)
+        + encode_bcd_decimal(location.end_page, 8)
+        + encode_bcd_decimal(location.end_offset, 4)
+    )
+    text = encode_body_text(label or "sound", gaiji)
+    return b"\x1f\x4a" + payload + text + b"\x1f\x6a"
+
+
+def _body_events_to_epwing(
+    events: tuple[ExportBodyEvent, ...],
+    gaiji: GaijiAllocator,
+    diagnostics: list[ExportDiagnostic],
+    source: str,
+    media_locations: dict[str, _EpwingMediaLocation] | None = None,
+) -> bytes:
+    media_locations = media_locations or {}
     out = bytearray()
     for event in events:
         if event.kind == "text":
@@ -197,8 +454,21 @@ def _body_events_to_epwing(events: tuple[ExportBodyEvent, ...], gaiji: GaijiAllo
             out.extend(encode_body_text(f"[{event.value}]", gaiji))
             diagnostics.append(ExportDiagnostic("warning", "gaiji_ref_placeholder", f"gaiji ref {event.value} lowered as text placeholder", source=source))
         elif event.kind == "media_ref":
-            out.extend(encode_body_text(f"［{event.text or 'media'}］", gaiji))
-            diagnostics.append(ExportDiagnostic("warning", "media_ref_placeholder", "media reference lowered as text placeholder", source=source))
+            location = media_locations.get(event.value)
+            if location is None:
+                out.extend(encode_body_text(f"［{event.text or 'media'}］", gaiji))
+                diagnostics.append(
+                    ExportDiagnostic(
+                        "warning",
+                        "media_ref_placeholder",
+                        "media reference has no EPWING media payload and was lowered as a text placeholder.",
+                        source=source,
+                    )
+                )
+            elif location.kind == "image":
+                out.extend(_graphic_control(location))
+            elif location.kind == "audio":
+                out.extend(_audio_control(location, event.text, gaiji))
         elif event.kind in {"section", "link", "ruby"}:
             diagnostics.append(ExportDiagnostic("info", f"{event.kind}_not_lowered", f"{event.kind} event has no EPWING v6 lowering yet", source=source))
         elif event.kind == "unsupported":
@@ -219,14 +489,19 @@ def _candidate_bytes(label: str, pointer: IndexPointer, gaiji: GaijiAllocator) -
     return bytes(out)
 
 
-def _entry_bytes(entry: ExportEntry, gaiji: GaijiAllocator, diagnostics: list[ExportDiagnostic]) -> bytes:
+def _entry_bytes(
+    entry: ExportEntry,
+    gaiji: GaijiAllocator,
+    diagnostics: list[ExportDiagnostic],
+    media_locations: dict[str, _EpwingMediaLocation],
+) -> bytes:
     out = bytearray()
     out.extend(b"\x1f\x09\x00\x01")
     out.extend(b"\x1f\x41\x00\x00")
     out.extend(encode_body_text(entry.headword, gaiji))
     out.extend(b"\x1f\x61")
     out.extend(b"\x1f\x0a")
-    out.extend(_body_events_to_epwing(entry.body.events, gaiji, diagnostics, entry.target))
+    out.extend(_body_events_to_epwing(entry.body.events, gaiji, diagnostics, entry.target, media_locations))
     out.extend(b"\x1f\x0a")
     return bytes(out)
 
@@ -282,6 +557,7 @@ class EpwingV6Backend:
         _progress(self.options, f"export: EPWING subbook={subbook_dir} entries={len(book.entries):,}")
 
         diagnostics: list[ExportDiagnostic] = list(book.diagnostics)
+        honmong, honmons, media_locations = _build_media_stores(book, self.options, diagnostics)
         gaiji = GaijiAllocator()
         body = bytearray(bytes(BLOCK_SIZE))
         word_targets: list[IndexTarget] = []
@@ -296,7 +572,7 @@ class EpwingV6Backend:
             offset = len(body)
             pointer = IndexPointer(block=(offset // BLOCK_SIZE) + 1, offset=offset % BLOCK_SIZE)
             target_positions[entry.target] = pointer
-            body.extend(_entry_bytes(entry, gaiji, diagnostics))
+            body.extend(_entry_bytes(entry, gaiji, diagnostics, media_locations))
             for key in entry.keys:
                 _append_index_target(word_targets, seen_word_targets, key, pointer)
                 _append_index_target(endword_targets, seen_endword_targets, key, pointer)
@@ -361,7 +637,7 @@ class EpwingV6Backend:
                 body.extend(encode_body_text(node.label, gaiji))
                 body.extend(b"\x1f\x0a")
                 if node.body is not None:
-                    body.extend(_body_events_to_epwing(node.body.events, gaiji, diagnostics, node.target or "copyright"))
+                    body.extend(_body_events_to_epwing(node.body.events, gaiji, diagnostics, node.target or "copyright", media_locations))
                     body.extend(b"\x1f\x0a")
             copyright_pages = _page_count(bytes(body[(copyright_start - 1) * BLOCK_SIZE :]))
 
@@ -387,8 +663,8 @@ class EpwingV6Backend:
         _progress(self.options, f"export: assembled HONMON2 with {len(index_records):,} index record(s)")
 
         _write_bytes(data_dir / "HONMON2", _pad_to_page(bytes(body)), self.options)
-        _write_bytes(data_dir / "HONMONG", bytes(BLOCK_SIZE), self.options)
-        _write_bytes(data_dir / "HONMONS", bytes(BLOCK_SIZE), self.options)
+        _write_bytes(data_dir / "HONMONG", honmong, self.options)
+        _write_bytes(data_dir / "HONMONS", honmons, self.options)
         _write_bytes(out_dir / "CATALOGS", _catalogs(book, subbook_dir), self.options)
 
         _write_bytes(gaiji_dir / "GA16HALF", encode_ga16_resource(gaiji.half_assignments, width=8, start_code=gaiji.half_start), self.options)
@@ -396,14 +672,8 @@ class EpwingV6Backend:
         map_text = _map_lines(gaiji, book)
         _write_text(out_dir / f"{subbook_dir}.map", map_text, self.options)
 
-        if self.options.include_media and book.resources:
-            diagnostics.append(
-                ExportDiagnostic(
-                    "warning",
-                    "epwing_media_payload_lowering_deferred",
-                    "Resource payload cataloging is present in the export IR, but native HONMONG/HONMONS media controls are not implemented yet.",
-                )
-            )
+        graphic_resources = sum(1 for value in media_locations.values() if value.kind == "image")
+        sound_resources = sum(1 for value in media_locations.values() if value.kind == "audio")
 
         report = EpwingV6ExportReport(
             title=book.title,
@@ -415,6 +685,8 @@ class EpwingV6Backend:
             indexes=len(index_records),
             navigation=len(book.navigation),
             copyright_pages=len(book.copyright),
+            graphic_resources=graphic_resources,
+            sound_resources=sound_resources,
             gaiji_map_entries=sum(1 for line in map_text.splitlines() if line and not line.startswith("#")),
             diagnostics=tuple(diagnostics),
         )

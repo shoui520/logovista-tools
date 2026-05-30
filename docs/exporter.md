@@ -93,6 +93,15 @@ Current lowering behavior:
 - Search keys are emitted into text, word, and endword index records.
 - Menu surfaces are emitted as EPWING candidate streams, so menu rows become
   clickable when their LogoVista target resolves to an exported entry.
+- Image resources are lowered into `HONMONG` when they can be represented as
+  EPWING color graphics. This includes SSED `COLSCR.DIC` image records,
+  renderer/sidecar media BLOBs, LVED `media` BLOBs, and resolvable loose HTML
+  image files. BMP/JPEG payloads are copied directly; PNG/GIF/WebP payloads are
+  converted to BMP when Pillow is available.
+- Audio resources are lowered into `HONMONS` when they can be represented as
+  EPWING WAVE chunks. SSED `PCMDATA.DIC` WAVE chunk records are copied after
+  pointer remapping. MP3 PCMDATA slices are converted to WAVE chunks through
+  `ffmpeg` when available.
 - SSED copyright/about surfaces are extracted from `HANREI` HTML directories
   and from `HANREI.chm` when `7z`/`7zz`/`7za` is available. LVED_SQLITE3
   copyright/about surfaces come from understood `info` rows.
@@ -103,8 +112,9 @@ Current lowering behavior:
 
 Deferred behavior:
 
-- Native `HONMONG` / `HONMONS` media control authoring is scaffolded but not
-  implemented.
+- Media that has no EPWING-native representation, cannot be decoded, or lacks
+  required optional converters is emitted as a diagnostic and downgraded to a
+  text placeholder.
 - HC visual parity is intentionally not ported to EPWING.
 - LVLMultiView, Hourei, MDict/MDX, and Yomitan backends are planned through the
   same IR but are not implemented in this initial backend.
@@ -120,6 +130,8 @@ The exporter tests cover:
 - No stale `LANGUAGE` file is retained across reruns.
 - Text, menu, and copyright index record emission.
 - EPWING menu candidate control emission.
+- `HONMONG` image control lowering and `HONMONS` audio control lowering.
+- SQLite media-BLOB resolution for LVED/renderer sidecar HTML.
 - SSED HANREI copyright HTML extraction.
 - Dense HONMON sidecar-body export for `t_contents` fixtures.
 - CLI smoke export.

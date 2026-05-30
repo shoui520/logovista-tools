@@ -266,7 +266,7 @@ def decode_tokens(
                     tokens.append(Break())
                 i += 2
                 continue
-            if op in {0x3C, 0x4D}:
+            if op in {0x3C, 0x4D} or (op == 0x4A and preserve_media):
                 payload = data[i + 2 : i + 2 + arg_len]
                 stats["media"] += 1
                 if private_depth:

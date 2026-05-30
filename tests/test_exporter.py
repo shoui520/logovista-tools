@@ -10,9 +10,11 @@ from logovista_tools.exporter import (
     EpwingV6Backend,
     ExportBook,
     ExportBody,
+    ExportBodyEvent,
     ExportEntry,
     ExportIndex,
     ExportNavigation,
+    ExportResource,
     ExportSourceOptions,
     SourceFamily,
     load_export_book,
@@ -142,6 +144,77 @@ def test_epwing_v6_backend_uses_export_index_rows_when_targets_match(tmp_path: P
     assert all(diagnostic.code != "source_index_targets_unmatched" for diagnostic in report.diagnostics)
 
 
+def test_epwing_v6_backend_lowers_image_resources_to_honmong(tmp_path: Path) -> None:
+    bmp_1x1 = bytes.fromhex(
+        "424d3a0000000000000036000000280000000100000001000000010018000000000004000000130b0000130b00000000000000000000000000"
+    )
+    book = ExportBook(
+        title="Image Fixture",
+        source_family=SourceFamily.SSED,
+        source_id="IMGFIX",
+        entries=(
+            ExportEntry(
+                target="ssed:IMGFIX:2:0",
+                headword="image",
+                body=ExportBody(
+                    events=(ExportBodyEvent(kind="media_ref", text="figure", value="image:one"),),
+                    source_kind="synthetic",
+                ),
+            ),
+        ),
+        resources=(ExportResource(resource_id="image:one", kind="image", payload=bmp_1x1, mime_type="image/bmp"),),
+    )
+
+    report = EpwingV6Backend().write(book, tmp_path / "epwing")
+    data_dir = tmp_path / "epwing" / report.subbook_dir / "DATA"
+
+    assert report.graphic_resources == 1
+    assert (data_dir / "HONMONG").read_bytes().startswith(b"data")
+    assert b"BM" in (data_dir / "HONMONG").read_bytes()[:64]
+    honmon2 = (data_dir / "HONMON2").read_bytes()
+    assert b"\x1f\x3c" in honmon2
+    assert b"\x1f\x6d" in honmon2
+    assert all(diagnostic.code != "media_ref_placeholder" for diagnostic in report.diagnostics)
+
+
+def test_epwing_v6_backend_lowers_audio_resources_to_honmons(tmp_path: Path) -> None:
+    fmt_payload = (
+        (1).to_bytes(2, "little")
+        + (1).to_bytes(2, "little")
+        + (8000).to_bytes(4, "little")
+        + (16000).to_bytes(4, "little")
+        + (2).to_bytes(2, "little")
+        + (16).to_bytes(2, "little")
+    )
+    wave_chunks = b"fmt " + len(fmt_payload).to_bytes(4, "little") + fmt_payload + b"data" + (2).to_bytes(4, "little") + b"\x00\x00"
+    book = ExportBook(
+        title="Sound Fixture",
+        source_family=SourceFamily.SSED,
+        source_id="SNDFIX",
+        entries=(
+            ExportEntry(
+                target="ssed:SNDFIX:2:0",
+                headword="sound",
+                body=ExportBody(
+                    events=(ExportBodyEvent(kind="media_ref", text="play", value="audio:one"),),
+                    source_kind="synthetic",
+                ),
+            ),
+        ),
+        resources=(ExportResource(resource_id="audio:one", kind="audio", payload=wave_chunks, mime_type="audio/wav"),),
+    )
+
+    report = EpwingV6Backend().write(book, tmp_path / "epwing")
+    data_dir = tmp_path / "epwing" / report.subbook_dir / "DATA"
+
+    assert report.sound_resources == 1
+    assert (data_dir / "HONMONS").read_bytes().startswith(b"fmt ")
+    honmon2 = (data_dir / "HONMON2").read_bytes()
+    assert b"\x1f\x4a" in honmon2
+    assert b"\x1f\x6a" in honmon2
+    assert all(diagnostic.code != "media_ref_placeholder" for diagnostic in report.diagnostics)
+
+
 def test_ssed_export_uses_rendererdb_for_dense_honmon_sidecar() -> None:
     root = REPO_ROOT / "tests" / "fixtures" / "synthetic" / "dense_honmon_t_contents"
 
@@ -178,9 +251,11 @@ def test_lved_sqlite_source_flattens_content_html_and_copyright(tmp_path: Path) 
     con.execute("create table content(id integer primary key, body text)")
     con.execute("create table list(id integer primary key, content_id integer, title text, subtitle text, type integer, anchor text)")
     con.execute("create table info(id integer primary key, type integer, name text, body text, media text)")
-    con.execute("insert into content values(10, '<div><b>Alpha</b><br>definition</div>')")
+    con.execute('create table media(No integer primary key, f_name text, f_type integer, f_main blob)')
+    con.execute("insert into content values(10, '<div><b>Alpha</b><br>definition<img src=\"figure.gif\"></div>')")
     con.execute("insert into list values(1, 10, '<span>alpha</span>', '', 0, '')")
     con.execute("insert into info values(1, 2, 'copyright.html', '<p>Copyright fixture</p>', '')")
+    con.execute("insert into media values(1, 'figure', 1, ?)", (b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;",))
     con.commit()
     con.close()
 
@@ -190,6 +265,8 @@ def test_lved_sqlite_source_flattens_content_html_and_copyright(tmp_path: Path) 
     assert len(book.entries) == 1
     assert book.entries[0].headword == "alpha"
     assert any(event.kind == "style_start" and event.value == "bold" for event in book.entries[0].body.events)
+    assert book.resources and book.resources[0].resource_id == "rendererdb-media:figure"
+    assert any(event.kind == "media_ref" and event.value == "rendererdb-media:figure" for event in book.entries[0].body.events)
     assert book.copyright and book.copyright[0].label == "copyright.html"
     assert book.copyright[0].body is not None
     assert any(event.kind == "text" and event.text == "Copyright fixture" for event in book.copyright[0].body.events)

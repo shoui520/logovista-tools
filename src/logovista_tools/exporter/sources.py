@@ -5,12 +5,15 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+import mimetypes
+from urllib.parse import unquote, urlparse
 import shutil
 import sqlite3
 import subprocess
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from ..colscr import find_colscr_path, parse_media_pointer, read_colscr_record
 from ..entries import (
     Break,
     EndTag,
@@ -36,6 +39,15 @@ from ..lved import (
 )
 from ..lvcrypto import decrypt_logofont_cipher_file_to_path
 from ..menus import MENU_LIKE_NAMES, MENU_LIKE_TYPES, parse_menu_stream, resolve_menu_record_destinations
+from ..pcmdata import (
+    PCMDATA_DIRECTORY_BYTES,
+    detect_shared_wave_stream,
+    find_pcmdata_path,
+    parse_pcm_pointer,
+    parse_pcmdata_record,
+    pointer_relative_range,
+    wave_chunks_for_record,
+)
 from ..rendererdb import (
     iter_honmon_id_records,
     parse_decimal_int,
@@ -44,6 +56,7 @@ from ..rendererdb import (
     table_exists,
 )
 from ..ssed import BLOCK_SIZE, SsedRandomReader, find_case_insensitive, is_metadata_noise_path, parse_ssedinfo, resolve_case_insensitive_path
+from ..resources import candidate_package_roots, load_image_resource_profile, relative_image_source
 from ..windows import discover_renderer_sidecars, load_exinfo_for_idx
 from .html_flatten import html_to_export_body
 from .model import (
@@ -55,6 +68,7 @@ from .model import (
     ExportGaiji,
     ExportIndex,
     ExportNavigation,
+    ExportResource,
     SourceFamily,
 )
 
@@ -76,7 +90,268 @@ def _progress_interval(options: ExportSourceOptions) -> int:
     return max(1, int(options.progress_every or 1000))
 
 
-def _token_events(tokens: list[object]) -> tuple[ExportBodyEvent, ...]:
+_IMAGE_MIME_BY_SUFFIX = {
+    ".bmp": "image/bmp",
+    ".gif": "image/gif",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".webp": "image/webp",
+}
+
+
+def _mime_for_path(path: Path) -> str:
+    return _IMAGE_MIME_BY_SUFFIX.get(path.suffix.casefold()) or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+
+
+def _clean_resource_ref(value: str) -> str:
+    parsed = urlparse(value.replace("\\", "/"))
+    path = unquote(parsed.path or value).strip()
+    while path.startswith("./"):
+        path = path[2:]
+    return path
+
+
+@dataclass
+class _FileResourceResolver:
+    package_hint: Path
+    resources: dict[str, ExportResource] = field(default_factory=dict)
+    diagnostics: list[ExportDiagnostic] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self._image_profile = load_image_resource_profile(self.package_hint)
+        self._roots = candidate_package_roots(self.package_hint)
+
+    def _resolve_direct_path(self, ref: str) -> Path | None:
+        if not ref or ref.startswith(("data:", "http:", "https:", "javascript:")):
+            return None
+        clean = _clean_resource_ref(ref)
+        if not clean:
+            return None
+        raw = Path(clean)
+        if raw.is_absolute() and raw.is_file():
+            return raw
+        for root in self._roots:
+            direct = resolve_case_insensitive_path(root, clean)
+            if direct is not None and direct.is_file():
+                return direct
+        basename = Path(clean).name
+        for image_dir in self._image_profile.image_dirs:
+            candidate = find_case_insensitive(image_dir, basename)
+            if candidate is not None and candidate.is_file():
+                return candidate
+        key = Path(clean).stem.casefold()
+        resource = self._image_profile.resources.get(key)
+        if resource is not None:
+            selected = resource.normal or resource.default or resource.white
+            if selected is not None and selected.is_file():
+                return selected
+        return None
+
+    def add_image_file(self, ref: str, *, role: str = "html_image") -> str | None:
+        path = self._resolve_direct_path(ref)
+        if path is None:
+            return None
+        resource_id = f"file:{relative_image_source(path, self.package_hint)}"
+        if resource_id not in self.resources:
+            try:
+                payload = path.read_bytes()
+            except OSError as exc:
+                self.diagnostics.append(
+                    ExportDiagnostic("warning", "export_image_read_failed", f"Could not read image resource: {exc}", source=str(path))
+                )
+                return None
+            self.resources[resource_id] = ExportResource(
+                resource_id=resource_id,
+                kind="image",
+                source_path=str(path),
+                payload=payload,
+                mime_type=_mime_for_path(path),
+                role=role,
+            )
+        return resource_id
+
+    def rewrite_body_media(self, body: ExportBody, *, role: str = "html_image") -> ExportBody:
+        events: list[ExportBodyEvent] = []
+        changed = False
+        for event in body.events:
+            if event.kind == "media_ref" and event.value and not event.value.startswith(("ssed-", "file:")):
+                resource_id = self.add_image_file(event.value, role=role)
+                if resource_id is not None:
+                    attrs = dict(event.attrs)
+                    attrs.setdefault("epwing_media", "image")
+                    events.append(ExportBodyEvent(kind="media_ref", text=event.text, value=resource_id, attrs=attrs))
+                    changed = True
+                    continue
+            events.append(event)
+        if not changed:
+            return body
+        return ExportBody(events=tuple(events), source_kind=body.source_kind, diagnostics=body.diagnostics)
+
+
+class _SsedMediaResolver(_FileResourceResolver):
+    def __init__(self, source, options: ExportSourceOptions) -> None:
+        super().__init__(source.idx)
+        self.source = source
+        self.options = options
+        self._colscr_reader: SsedRandomReader | None | bool = False
+        self._pcm_reader: SsedRandomReader | None | bool = False
+        self._shared_wave = None
+
+    def _colscr(self) -> SsedRandomReader | None:
+        if self._colscr_reader is False:
+            path = find_colscr_path(self.source.idx)
+            self._colscr_reader = SsedRandomReader(path) if path is not None else None
+        return self._colscr_reader if isinstance(self._colscr_reader, SsedRandomReader) else None
+
+    def _pcm(self) -> SsedRandomReader | None:
+        if self._pcm_reader is False:
+            path = find_pcmdata_path(self.source.idx)
+            self._pcm_reader = SsedRandomReader(path) if path is not None else None
+            if self._pcm_reader is not None:
+                prefix = self._pcm_reader.read(0, min(self._pcm_reader.expanded_size, PCMDATA_DIRECTORY_BYTES))
+                self._shared_wave = detect_shared_wave_stream(prefix)
+        return self._pcm_reader if isinstance(self._pcm_reader, SsedRandomReader) else None
+
+    def resolve_control_payload(self, payload_hex: str) -> ExportBodyEvent | None:
+        try:
+            payload = bytes.fromhex(payload_hex)
+        except ValueError:
+            return None
+        if len(payload) == 18:
+            return self._resolve_colscr_payload(payload)
+        if len(payload) == 16:
+            return self._resolve_pcm_payload(payload)
+        return None
+
+    def _resolve_colscr_payload(self, payload: bytes) -> ExportBodyEvent | None:
+        pointer = parse_media_pointer(payload)
+        reader = self._colscr()
+        if pointer is None or reader is None:
+            return None
+        resource_id = f"ssed-colscr:{pointer.block:08d}:{pointer.offset:04d}"
+        if resource_id not in self.resources:
+            try:
+                parsed = read_colscr_record(reader, pointer)
+            except Exception as exc:
+                self.diagnostics.append(
+                    ExportDiagnostic("warning", "ssed_colscr_read_failed", f"Could not read COLSCR image: {exc}", source=resource_id)
+                )
+                return None
+            if parsed is None:
+                return None
+            record, image = parsed
+            wrapped = b"data" + len(image).to_bytes(4, "little") + image
+            self.resources[resource_id] = ExportResource(
+                resource_id=resource_id,
+                kind="image",
+                payload=wrapped,
+                mime_type=f"image/{'jpeg' if record.media_type == 'jpeg' else record.media_type}",
+                role="colscr",
+            )
+        return ExportBodyEvent(kind="media_ref", text="image", value=resource_id, attrs={"epwing_media": "image", "epwing_display": "block"})
+
+    def _resolve_pcm_payload(self, payload: bytes) -> ExportBodyEvent | None:
+        pointer = parse_pcm_pointer(payload)
+        reader = self._pcm()
+        if pointer is None or reader is None:
+            return None
+        resource_id = f"ssed-pcmdata:{pointer.start_block:08d}:{pointer.start_offset:04d}-{pointer.end_block:08d}:{pointer.end_offset:04d}"
+        if resource_id not in self.resources:
+            start, end, size = pointer_relative_range(pointer, reader)
+            if start < 0 or end >= reader.expanded_size or size <= 0:
+                return None
+            raw = reader.read(start, size)
+            parsed = parse_pcmdata_record(raw, start, shared_wave=self._shared_wave)
+            if parsed is None:
+                return None
+            record, _chunks = parsed
+            mime_type = "audio/wav"
+            if record.media_type == "wave_chunks":
+                chunks = raw[: record.content_size]
+            elif record.media_type == "mp3":
+                chunks = raw[: record.content_size]
+                mime_type = "audio/mpeg"
+            elif record.media_type == "mp3_data_slice":
+                chunks = raw[: record.content_size]
+                mime_type = "audio/mpeg"
+            else:
+                chunks = wave_chunks_for_record(record, raw[: record.content_size])
+            self.resources[resource_id] = ExportResource(
+                resource_id=resource_id,
+                kind="audio",
+                payload=chunks,
+                mime_type=mime_type,
+                role="pcmdata",
+            )
+        return ExportBodyEvent(kind="media_ref", text="sound", value=resource_id, attrs={"epwing_media": "audio"})
+
+
+def _media_blob_for_ref(con: sqlite3.Connection, ref: str) -> tuple[str, bytes, str] | None:
+    if not _sqlite_table_exists(con, "media"):
+        return None
+    columns = {column.casefold(): column for column in _sqlite_columns(con, "media")}
+    name_col = columns.get("f_name") or columns.get("name")
+    blob_col = columns.get("f_main") or columns.get("body") or columns.get("data") or columns.get("blob")
+    if name_col is None or blob_col is None:
+        return None
+    clean = _clean_resource_ref(ref)
+    candidates = [clean]
+    basename = Path(clean).name
+    if basename and basename not in candidates:
+        candidates.append(basename)
+    stem = Path(basename or clean).stem
+    if stem and stem not in candidates:
+        candidates.append(stem)
+    for candidate in candidates:
+        if not candidate:
+            continue
+        row = con.execute(
+            f"select {quote_identifier(name_col)} as name, {quote_identifier(blob_col)} as payload "
+            f"from {quote_identifier('media')} where lower({quote_identifier(name_col)}) = lower(?) limit 1",
+            (candidate,),
+        ).fetchone()
+        if row is None:
+            continue
+        payload = row["payload"]
+        if payload is None:
+            continue
+        row_name = str(row["name"] or candidate)
+        mime_path = Path(row_name if Path(row_name).suffix else (basename or clean or row_name))
+        return row_name, bytes(payload), _mime_for_path(mime_path)
+    return None
+
+
+def _rewrite_body_with_sqlite_media(body: ExportBody, con: sqlite3.Connection, resolver: _FileResourceResolver, *, role: str) -> ExportBody:
+    events: list[ExportBodyEvent] = []
+    changed = False
+    for event in body.events:
+        if event.kind == "media_ref" and event.value and not event.value.startswith(("ssed-", "file:", "rendererdb-media:")):
+            media = _media_blob_for_ref(con, event.value)
+            if media is not None:
+                name, payload, mime_type = media
+                resource_id = f"rendererdb-media:{name}"
+                if resource_id not in resolver.resources:
+                    resolver.resources[resource_id] = ExportResource(
+                        resource_id=resource_id,
+                        kind="image",
+                        payload=payload,
+                        mime_type=mime_type,
+                        role=role,
+                    )
+                attrs = dict(event.attrs)
+                attrs.setdefault("epwing_media", "image")
+                events.append(ExportBodyEvent(kind="media_ref", text=event.text, value=resource_id, attrs=attrs))
+                changed = True
+                continue
+        events.append(event)
+    if not changed:
+        return body
+    return ExportBody(events=tuple(events), source_kind=body.source_kind, diagnostics=body.diagnostics)
+
+
+def _token_events(tokens: list[object], media_resolver: _SsedMediaResolver | None = None) -> tuple[ExportBodyEvent, ...]:
     events: list[ExportBodyEvent] = []
     for token in tokens:
         if isinstance(token, Text):
@@ -92,7 +367,8 @@ def _token_events(tokens: list[object]) -> tuple[ExportBodyEvent, ...]:
         elif isinstance(token, Image):
             events.append(ExportBodyEvent(kind="gaiji_ref", value=token.key))
         elif isinstance(token, Media):
-            events.append(ExportBodyEvent(kind="media_ref", value=token.payload, text="media"))
+            resolved = media_resolver.resolve_control_payload(token.payload) if media_resolver is not None else None
+            events.append(resolved or ExportBodyEvent(kind="media_ref", value=token.payload, text="media"))
         elif isinstance(token, Section):
             events.append(ExportBodyEvent(kind="section", value=token.code))
     return tuple(events)
@@ -140,6 +416,7 @@ def _rendererdb_export_entries(
     source,
     reader: SsedRandomReader,
     options: ExportSourceOptions,
+    media_resolver: _SsedMediaResolver | None = None,
 ) -> tuple[list[ExportEntry], list[ExportDiagnostic]] | None:
     """Return renderer-sidecar entries for dense HONMON packages when available."""
 
@@ -221,6 +498,9 @@ def _rendererdb_export_entries(
                     title_plain = f"data {data_id}"
                 if html_value:
                     body = html_to_export_body(html_value, source_kind="rendererdb_t_contents_html")
+                    if media_resolver is not None:
+                        body = _rewrite_body_with_sqlite_media(body, con, media_resolver, role="rendererdb_media_blob")
+                        body = media_resolver.rewrite_body_media(body, role="rendererdb_html_image")
                 else:
                     body = ExportBody.text(plain_value, source_kind="rendererdb_t_contents_plain")
                 target = f"ssed:{source.idx.name}:{raw.marker_block}:{raw.marker_offset}"
@@ -403,7 +683,8 @@ def _load_ssed_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
         f"export: SSED source {source.dict_id}: title={title!r} honmon={source.honmon.name} expanded={reader.expanded_size:,} bytes",
     )
     diagnostics: list[ExportDiagnostic] = []
-    rendererdb_result = _rendererdb_export_entries(source, reader, options)
+    media_resolver = _SsedMediaResolver(source, options)
+    rendererdb_result = _rendererdb_export_entries(source, reader, options, media_resolver)
     if rendererdb_result is not None:
         entries, rendererdb_diagnostics = rendererdb_result
         diagnostics.extend(rendererdb_diagnostics)
@@ -438,7 +719,7 @@ def _load_ssed_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
                 ExportEntry(
                     target=target,
                     headword=heading,
-                    body=ExportBody(events=_token_events(tokens), source_kind="ssed_honmon_slice", diagnostics=tuple(entry_diags)),
+                    body=ExportBody(events=_token_events(tokens, media_resolver), source_kind="ssed_honmon_slice", diagnostics=tuple(entry_diags)),
                     search_keys=(heading,),
                     diagnostics=tuple(entry_diags),
                 )
@@ -523,7 +804,19 @@ def _load_ssed_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
 
     gaiji_rows = _gaiji_rows(source.idx)
     copyright_rows, copyright_diagnostics = _ssed_copyright_surfaces(source.idx.parent, options)
+    copyright_rows = [
+        ExportNavigation(
+            kind=row.kind,
+            label=row.label,
+            target=row.target,
+            children=row.children,
+            body=media_resolver.rewrite_body_media(row.body, role="hanrei_html_image") if row.body is not None else None,
+            diagnostics=row.diagnostics,
+        )
+        for row in copyright_rows
+    ]
     diagnostics.extend(copyright_diagnostics)
+    diagnostics.extend(media_resolver.diagnostics)
     _progress(
         options,
         f"export: built SSED export model entries={len(entries):,} indexes={len(indexes):,} navigation={len(navigation):,} copyright={len(copyright_rows):,} gaiji={len(gaiji_rows):,}",
@@ -537,6 +830,7 @@ def _load_ssed_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
         entries=tuple(entries),
         indexes=tuple(indexes),
         navigation=tuple(navigation),
+        resources=tuple(media_resolver.resources.values()),
         copyright=tuple(copyright_rows),
         gaiji=gaiji_rows,
         diagnostics=tuple(diagnostics),
@@ -593,6 +887,7 @@ def _load_lved_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
     def build(sqlite_path: Path, storage: str) -> ExportBook:
         title, title_source = lved_payload_title(payload, full_decode_sqlcipher=False)
         _progress(options, f"export: opening LVED_SQLITE3 database storage={storage} title_source={title_source}")
+        resource_resolver = _FileResourceResolver(payload.parent)
         con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
         con.row_factory = sqlite3.Row
         try:
@@ -612,6 +907,8 @@ def _load_lved_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
                         content_id = int(row["id"])
                         body_html = _sqlite_text(row["body"])
                         body = html_to_export_body(body_html, source_kind="lved_content_html")
+                        body = _rewrite_body_with_sqlite_media(body, con, resource_resolver, role="lved_media_blob")
+                        body = resource_resolver.rewrite_body_media(body, role="lved_html_image")
                         heading = _lved_title_for_content(con, content_id) or f"content {content_id}"
                         entries.append(
                             ExportEntry(
@@ -636,15 +933,18 @@ def _load_lved_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
                     name = _sqlite_text(row["name"])
                     if "copyright" in name.casefold() or "著作権" in name or "about" in name.casefold() or "について" in name:
                         body_html = _sqlite_text(row["body"])
+                        body = html_to_export_body(body_html, source_kind="lved_info_html")
+                        body = _rewrite_body_with_sqlite_media(body, con, resource_resolver, role="lved_info_media_blob")
+                        body = resource_resolver.rewrite_body_media(body, role="lved_info_image")
                         copyright_rows.append(
                             ExportNavigation(
                                 kind="copyright",
                                 label=name or f"info {row['id']}",
                                 target=f"lved:info:{row['id']}",
-                                body=html_to_export_body(body_html, source_kind="lved_info_html"),
+                                body=body,
                             )
                         )
-            diagnostics = []
+            diagnostics = list(resource_resolver.diagnostics)
             if not entries:
                 diagnostics.append(ExportDiagnostic("warning", "lved_no_content_entries", "No exportable content table rows were found."))
             _progress(
@@ -658,6 +958,7 @@ def _load_lved_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
                 metadata={"payload": str(payload), "storage": storage, "title_source": title_source},
                 entries=tuple(entries),
                 indexes=tuple(indexes),
+                resources=tuple(resource_resolver.resources.values()),
                 copyright=tuple(copyright_rows),
                 diagnostics=tuple(diagnostics),
             )

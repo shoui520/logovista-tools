@@ -2341,6 +2341,10 @@ entries; unresolved menu rows are emitted as non-clickable text with a
 diagnostic. SSED copyright/about surfaces are extracted from `HANREI`
 HTML directories or `HANREI.chm` when `7z`/`7zz`/`7za` is available, and are
 emitted through the EPWING copyright surface rather than as normal entries.
+Image media is written to `HONMONG` where possible: SSED `COLSCR.DIC`,
+renderer/sidecar media BLOBs, LVED media BLOBs, and resolvable loose HTML image
+files. Audio media is written to `HONMONS` for SSED `PCMDATA.DIC` WAVE chunks;
+MP3 PCMDATA slices are converted to WAVE chunks with `ffmpeg` when available.
 
 Useful options:
 
@@ -2364,8 +2368,8 @@ Current limitations:
 
 - HC visual parity is not ported to EPWING; unsupported visual/layout semantics
   are reported as diagnostics.
-- Native `HONMONG` / `HONMONS` media control lowering is scaffolded but not yet
-  implemented.
+- Media that cannot be represented as EPWING color graphics or WAVE chunks is
+  reported as a diagnostic and lowered as a text placeholder.
 - LVLMultiView, Hourei, MDict/MDX, and Yomitan outputs are planned through the
   same IR but are not implemented by this command yet.
 
