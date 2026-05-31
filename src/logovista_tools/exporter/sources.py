@@ -437,6 +437,14 @@ def _event_plain_label(events: list[ExportBodyEvent], fallback: str = "link") ->
     return label or fallback
 
 
+_HEADING_GAIJI_TAG_RE = re.compile(r"<(?:img:|[hz])[0-9A-Fa-f]{4}>")
+
+
+def _clean_export_heading(heading: str) -> str:
+    cleaned = _HEADING_GAIJI_TAG_RE.sub("", heading).strip()
+    return cleaned or heading
+
+
 def _token_events(
     tokens: list[object],
     media_resolver: _SsedMediaResolver | None = None,
@@ -864,6 +872,13 @@ def _load_ssed_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
     source = sources[0]
     title, elements = parse_ssedinfo(source.idx)
     reader = SsedRandomReader(source.honmon)
+    gaiji_rows = _gaiji_rows(source.idx)
+    source_image_gaiji_keys = set(source.image_gaiji_keys)
+    source_image_gaiji_keys.update(
+        row.code.lower()
+        for row in gaiji_rows
+        if row.bitmap_backed or row.template_resource
+    )
     _progress(
         options,
         f"export: SSED source {source.dict_id}: title={title!r} honmon={source.honmon.name} expanded={reader.expanded_size:,} bytes",
@@ -888,13 +903,13 @@ def _load_ssed_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
                 raw,
                 gaiji="placeholder",
                 gaiji_map=source.gaiji_map,
-                image_gaiji_keys=source.image_gaiji_keys,
+                image_gaiji_keys=source_image_gaiji_keys,
                 preserve_image_gaiji=True,
                 preserve_media=True,
                 preserve_sections=True,
             )
             body_text = tokens_to_text(tokens)
-            heading = extract_heading(tokens, body_text) or f"entry {entry_index}"
+            heading = _clean_export_heading(extract_heading(tokens, body_text)) or f"entry {entry_index}"
             block = source.honmon_start_block + start // BLOCK_SIZE
             offset = start % BLOCK_SIZE
             target = f"ssed:{source.idx.name}:{block}:{offset}"
@@ -992,7 +1007,6 @@ def _load_ssed_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
             navigation.append(ExportNavigation(kind="menu", label=label, target=target))
         _progress(options, f"export: scanned navigation {element.filename}: +{len(navigation) - before_rows:,} row(s)")
 
-    gaiji_rows = _gaiji_rows(source.idx)
     copyright_rows, copyright_diagnostics = _ssed_copyright_surfaces(source.idx.parent, options)
     copyright_rows = [
         ExportNavigation(

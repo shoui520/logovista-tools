@@ -20,8 +20,8 @@ from logovista_tools.exporter import (
     SourceFamily,
     load_export_book,
 )
-from logovista_tools.entries import LinkEnd, LinkStart, Text
-from logovista_tools.exporter.sources import _token_events
+from logovista_tools.entries import LinkEnd, LinkStart, Text, decode_tokens
+from logovista_tools.exporter.sources import _clean_export_heading, _token_events
 from logovista_tools.writer import WriterEntry, build_plain_honmon_package, write_plain_package
 
 
@@ -225,6 +225,27 @@ def test_ssed_body_link_payload_uses_bcd_block_offset() -> None:
     assert events[0].kind == "link"
     assert events[0].text == "識別ボード「が」"
     assert events[0].value == "ssed:ARCHSIC3.IDX:962:1076"
+
+
+def test_exporter_preserves_source_bitmap_gaiji_codes_as_refs() -> None:
+    tokens, stats = decode_tokens(
+        b"\xA3\x22",
+        gaiji="placeholder",
+        image_gaiji_keys={"a322"},
+        preserve_image_gaiji=True,
+    )
+
+    events = _token_events(tokens, idx_name="ARCHSIC3.IDX")
+
+    assert stats["image_gaiji"] == 1
+    assert len(events) == 1
+    assert events[0].kind == "gaiji_ref"
+    assert events[0].value == "a322"
+
+
+def test_exporter_strips_gaiji_refs_from_wrapper_headings() -> None:
+    assert _clean_export_heading("<img:b025>かれ【彼】") == "かれ【彼】"
+    assert _clean_export_heading("<hA322>けれ") == "けれ"
 
 
 def test_epwing_v6_backend_menu_can_target_address_inside_exported_entry(tmp_path: Path) -> None:
