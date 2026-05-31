@@ -93,6 +93,12 @@ Current lowering behavior:
 - Search keys are emitted into text, word, and endword index records.
 - Menu surfaces are emitted as EPWING candidate streams, so menu rows become
   clickable when their LogoVista target resolves to an exported entry.
+- Entry-to-entry links are preserved where the source target can be resolved:
+  SSED body link controls and supported LVED/HTML entry links become EPWING
+  reference controls, while unresolved targets are downgraded to visible text
+  with diagnostics. SSED menu targets may resolve to an entry containing the
+  target address, which matches LogoVista menu rows that jump inside a body
+  slice rather than exactly to the exported entry start.
 - Image resources are lowered into `HONMONG` when they can be represented as
   EPWING color graphics. This includes SSED `COLSCR.DIC` image records,
   renderer/sidecar media BLOBs, LVED `media` BLOBs, and resolvable loose HTML
@@ -136,6 +142,9 @@ The exporter tests cover:
 - No stale `LANGUAGE` file is retained across reruns.
 - Text, menu, and copyright index record emission.
 - EPWING menu candidate control emission.
+- EPWING entry reference control emission for resolved body links.
+- Containing-entry resolution for SSED menu targets that point inside an
+  exported body slice.
 - `HONMONG` image control lowering and `HONMONS` audio control lowering.
 - Report/progress accounting for `HONMON2`, `HONMONG`, `HONMONS`, emitted
   media controls, media placeholders, and GA16 fallback generation.

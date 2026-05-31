@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from bisect import bisect_right
 from io import BytesIO
 from pathlib import Path
 import json
@@ -95,6 +96,9 @@ class _EpwingWriteStats:
     image_controls: int = 0
     audio_controls: int = 0
     media_placeholders: int = 0
+    entry_links: int = 0
+    unresolved_links: int = 0
+    containing_target_links: int = 0
 
 
 @dataclass(frozen=True)
@@ -116,6 +120,9 @@ class EpwingV6ExportReport:
     image_controls: int
     audio_controls: int
     media_placeholders: int
+    entry_link_controls: int
+    unresolved_link_placeholders: int
+    containing_target_links: int
     gaiji_half_entries: int
     gaiji_full_entries: int
     gaiji_map_entries: int
@@ -142,6 +149,9 @@ class EpwingV6ExportReport:
             "image_controls": self.image_controls,
             "audio_controls": self.audio_controls,
             "media_placeholders": self.media_placeholders,
+            "entry_link_controls": self.entry_link_controls,
+            "unresolved_link_placeholders": self.unresolved_link_placeholders,
+            "containing_target_links": self.containing_target_links,
             "gaiji_half_entries": self.gaiji_half_entries,
             "gaiji_full_entries": self.gaiji_full_entries,
             "gaiji_map_entries": self.gaiji_map_entries,
@@ -248,6 +258,61 @@ def _build_ga16_glyph_renderer(
 
 def _store_pointer(byte_offset: int) -> tuple[int, int]:
     return byte_offset // BLOCK_SIZE + 1, byte_offset % BLOCK_SIZE
+
+
+def _ssed_target_address(target: str) -> tuple[str, int, int] | None:
+    parts = str(target).split(":")
+    if len(parts) != 4 or parts[0] != "ssed":
+        return None
+    try:
+        return parts[1], int(parts[2]), int(parts[3])
+    except ValueError:
+        return None
+
+
+@dataclass
+class _TargetPointerResolver:
+    exact: dict[str, IndexPointer]
+    ssed_addresses: list[tuple[str, int, IndexPointer]]
+    ssed_keys: list[tuple[str, int]]
+
+    @classmethod
+    def build(cls, exact: dict[str, IndexPointer]) -> "_TargetPointerResolver":
+        rows: list[tuple[str, int, IndexPointer]] = []
+        for target, pointer in exact.items():
+            parsed = _ssed_target_address(target)
+            if parsed is None:
+                continue
+            idx_name, block, offset = parsed
+            rows.append((idx_name, block * BLOCK_SIZE + offset, pointer))
+        rows.sort(key=lambda row: (row[0], row[1]))
+        keys = [(idx_name, address) for idx_name, address, _pointer in rows]
+        return cls(exact=exact, ssed_addresses=rows, ssed_keys=keys)
+
+    def resolve(self, target: str | None) -> tuple[IndexPointer | None, str]:
+        if not target:
+            return None, "missing"
+        pointer = self.exact.get(target)
+        if pointer is not None:
+            return pointer, "exact"
+        parsed = _ssed_target_address(target)
+        if parsed is None:
+            return None, "unresolved"
+        idx_name, block, offset = parsed
+        address = block * BLOCK_SIZE + offset
+        pos = bisect_right(self.ssed_keys, (idx_name, address)) - 1
+        if pos < 0:
+            return None, "unresolved"
+        row_idx, row_address, row_pointer = self.ssed_addresses[pos]
+        if row_idx != idx_name or row_address > address:
+            return None, "unresolved"
+        next_pos = pos + 1
+        if next_pos >= len(self.ssed_addresses):
+            return None, "unresolved"
+        next_idx, next_address, _next_pointer = self.ssed_addresses[next_pos]
+        if next_idx != idx_name or address >= next_address:
+            return None, "unresolved"
+        return row_pointer, "containing"
 
 
 def _safe_subbook_dir(source_id: str) -> str:
@@ -569,6 +634,7 @@ def _body_events_to_epwing(
     source: str,
     media_locations: dict[str, _EpwingMediaLocation] | None = None,
     stats: _EpwingWriteStats | None = None,
+    target_resolver: _TargetPointerResolver | None = None,
 ) -> bytes:
     media_locations = media_locations or {}
     out = bytearray()
@@ -620,7 +686,30 @@ def _body_events_to_epwing(
                 out.extend(_audio_control(location, event.text, gaiji))
                 if stats is not None:
                     stats.audio_controls += 1
-        elif event.kind in {"section", "link", "ruby"}:
+        elif event.kind == "link":
+            pointer = None
+            status = "unresolved"
+            if target_resolver is not None:
+                pointer, status = target_resolver.resolve(event.value)
+            if pointer is not None:
+                out.extend(_reference_control(event.text, pointer, gaiji))
+                if stats is not None:
+                    stats.entry_links += 1
+                    if status == "containing":
+                        stats.containing_target_links += 1
+            else:
+                out.extend(encode_body_text(event.text or event.attrs.get("href") or "link", gaiji))
+                if stats is not None:
+                    stats.unresolved_links += 1
+                diagnostics.append(
+                    ExportDiagnostic(
+                        "warning",
+                        "epwing_link_target_unresolved",
+                        "Entry/body link target could not be resolved to an exported EPWING text position.",
+                        source=source,
+                    )
+                )
+        elif event.kind in {"section", "ruby"}:
             diagnostics.append(ExportDiagnostic("info", f"{event.kind}_not_lowered", f"{event.kind} event has no EPWING v6 lowering yet", source=source))
         elif event.kind == "unsupported":
             diagnostics.append(ExportDiagnostic("warning", "unsupported_body_event", event.text or event.value, source=source))
@@ -640,12 +729,25 @@ def _candidate_bytes(label: str, pointer: IndexPointer, gaiji: GaijiAllocator) -
     return bytes(out)
 
 
+def _reference_control(label: str, pointer: IndexPointer, gaiji: GaijiAllocator) -> bytes:
+    """Encode an inline EPWING body reference pointing to another text position."""
+
+    out = bytearray()
+    out.extend(b"\x1f\x42\x00\x00")
+    out.extend(encode_body_text(label or "link", gaiji))
+    out.extend(b"\x1f\x62")
+    out.extend(encode_bcd_decimal(pointer.block, 8))
+    out.extend(encode_bcd_decimal(pointer.offset, 4))
+    return bytes(out)
+
+
 def _entry_bytes(
     entry: ExportEntry,
     gaiji: GaijiAllocator,
     diagnostics: list[ExportDiagnostic],
     media_locations: dict[str, _EpwingMediaLocation],
     stats: _EpwingWriteStats,
+    target_resolver: _TargetPointerResolver,
 ) -> bytes:
     out = bytearray()
     out.extend(b"\x1f\x09\x00\x01")
@@ -653,7 +755,7 @@ def _entry_bytes(
     out.extend(encode_body_text(entry.headword, gaiji))
     out.extend(b"\x1f\x61")
     out.extend(b"\x1f\x0a")
-    out.extend(_body_events_to_epwing(entry.body.events, gaiji, diagnostics, entry.target, media_locations, stats))
+    out.extend(_body_events_to_epwing(entry.body.events, gaiji, diagnostics, entry.target, media_locations, stats, target_resolver))
     out.extend(b"\x1f\x0a")
     return bytes(out)
 
@@ -721,12 +823,21 @@ class EpwingV6Backend:
         target_positions: dict[str, IndexPointer] = {}
 
         interval = _progress_interval(self.options)
+        all_entry_targets = {entry.target for entry in book.entries}
+        sizing_resolver = _TargetPointerResolver.build({target: IndexPointer(block=0, offset=0) for target in all_entry_targets})
+        cursor = len(body)
+        sizing_stats = _EpwingWriteStats()
+        sizing_diagnostics: list[ExportDiagnostic] = []
+        for entry in book.entries:
+            pointer = IndexPointer(block=(cursor // BLOCK_SIZE) + 1, offset=cursor % BLOCK_SIZE)
+            target_positions[entry.target] = pointer
+            cursor += len(_entry_bytes(entry, gaiji, sizing_diagnostics, media_locations, sizing_stats, sizing_resolver))
+        target_resolver = _TargetPointerResolver.build(target_positions)
+
         _progress(self.options, "export: encoding entries into HONMON2 body stream")
         for entry_index, entry in enumerate(book.entries, start=1):
-            offset = len(body)
-            pointer = IndexPointer(block=(offset // BLOCK_SIZE) + 1, offset=offset % BLOCK_SIZE)
-            target_positions[entry.target] = pointer
-            body.extend(_entry_bytes(entry, gaiji, diagnostics, media_locations, stats))
+            pointer = target_positions[entry.target]
+            body.extend(_entry_bytes(entry, gaiji, diagnostics, media_locations, stats, target_resolver))
             for key in entry.keys:
                 _append_index_target(word_targets, seen_word_targets, key, pointer)
                 _append_index_target(endword_targets, seen_endword_targets, key, pointer)
@@ -765,9 +876,11 @@ class EpwingV6Backend:
             body = bytearray(_pad_to_page(bytes(body)))
             menu_start = len(body) // BLOCK_SIZE + 1
             for node in book.navigation:
-                pointer = target_positions.get(node.target or "")
+                pointer, status = target_resolver.resolve(node.target)
                 if pointer is not None:
                     body.extend(_candidate_bytes(node.label, pointer, gaiji))
+                    if status == "containing":
+                        stats.containing_target_links += 1
                 else:
                     body.extend(encode_body_text(node.label, gaiji))
                     body.extend(b"\x1f\x0a")
@@ -799,6 +912,7 @@ class EpwingV6Backend:
                             node.target or "copyright",
                             media_locations,
                             stats,
+                            target_resolver,
                         )
                     )
                     body.extend(b"\x1f\x0a")
@@ -810,7 +924,8 @@ class EpwingV6Backend:
             self.options,
             (
                 "export: media controls "
-                f"images={stats.image_controls:,} audio={stats.audio_controls:,} placeholders={stats.media_placeholders:,}"
+                f"images={stats.image_controls:,} audio={stats.audio_controls:,} placeholders={stats.media_placeholders:,}; "
+                f"entry_links={stats.entry_links:,} unresolved_links={stats.unresolved_links:,} containing_links={stats.containing_target_links:,}"
             ),
         )
 
@@ -891,6 +1006,9 @@ class EpwingV6Backend:
             image_controls=stats.image_controls,
             audio_controls=stats.audio_controls,
             media_placeholders=stats.media_placeholders,
+            entry_link_controls=stats.entry_links,
+            unresolved_link_placeholders=stats.unresolved_links,
+            containing_target_links=stats.containing_target_links,
             gaiji_half_entries=len(gaiji.half_assignments),
             gaiji_full_entries=len(gaiji.full_assignments),
             gaiji_map_entries=sum(1 for line in map_text.splitlines() if line and not line.startswith("#")),

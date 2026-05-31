@@ -76,7 +76,19 @@ class Section:
     code: str
 
 
-Token = Text | StartTag | EndTag | Break | Image | Media | Section
+@dataclass(frozen=True)
+class LinkStart:
+    op: int
+    payload: str = ""
+
+
+@dataclass(frozen=True)
+class LinkEnd:
+    op: int
+    payload: str = ""
+
+
+Token = Text | StartTag | EndTag | Break | Image | Media | Section | LinkStart | LinkEnd
 
 
 @dataclass(frozen=True)
@@ -285,7 +297,10 @@ def decode_tokens(
                 if start_tag == "private":
                     private_depth += 1
                 if not private_depth or op == 0xE2:
-                    if start_tag != "private":
+                    if start_tag == "link":
+                        payload = data[i + 2 : i + 2 + arg_len]
+                        tokens.append(LinkStart(op=op, payload=payload.hex()))
+                    elif start_tag != "private":
                         tokens.append(StartTag(start_tag))
                 if start_tag in {"link", "url"}:
                     stats["links"] += 1
@@ -296,7 +311,11 @@ def decode_tokens(
                     if private_depth:
                         private_depth -= 1
                 elif not private_depth:
-                    tokens.append(EndTag(end_tag))
+                    if end_tag == "link":
+                        payload = data[i + 2 : i + 2 + arg_len]
+                        tokens.append(LinkEnd(op=op, payload=payload.hex()))
+                    else:
+                        tokens.append(EndTag(end_tag))
             elif op not in (0x04, 0x05) and op not in KNOWN_NONPRINTING_CONTROLS:
                 stats["unknown_controls"] += 1
             i += 2 + arg_len
@@ -343,6 +362,8 @@ def tokens_to_text(tokens: list[Token]) -> str:
             lines[-1] += f"<media:{token.payload}>"
         elif isinstance(token, Section):
             lines[-1] += f"<section:{token.code}>"
+        elif isinstance(token, LinkStart | LinkEnd):
+            continue
         elif isinstance(token, Break):
             if lines[-1] or (lines and lines[-1] != ""):
                 lines.append("")

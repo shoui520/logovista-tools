@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 import mimetypes
+import re
 from urllib.parse import unquote, urlparse
 import shutil
 import sqlite3
@@ -18,6 +19,8 @@ from ..entries import (
     Break,
     EndTag,
     Image,
+    LinkEnd,
+    LinkStart,
     Media,
     Section,
     StartTag,
@@ -100,6 +103,10 @@ _IMAGE_MIME_BY_SUFFIX = {
     ".webp": "image/webp",
 }
 
+_ENTRY_HTML_RE = re.compile(r"(?:^|/)entry_(?P<id>\d+)\.html(?:$|[#?])", re.IGNORECASE)
+_LVED_DATAID_RE = re.compile(r"^lved\.dataid(?:\.result)?:(?P<id>\d+)", re.IGNORECASE)
+_LVADDR_RE = re.compile(r"^lvaddr://(?P<block>[0-9A-Fa-f]+)/(?P<offset>[0-9A-Fa-f]+)$", re.IGNORECASE)
+
 
 def _mime_for_path(path: Path) -> str:
     return _IMAGE_MIME_BY_SUFFIX.get(path.suffix.casefold()) or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
@@ -111,6 +118,45 @@ def _clean_resource_ref(value: str) -> str:
     while path.startswith("./"):
         path = path[2:]
     return path
+
+
+def _parse_int_auto(value: str) -> int | None:
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return int(text, 16 if any(ch in "abcdefABCDEF" for ch in text) else 10)
+    except ValueError:
+        return None
+
+
+def _ssed_html_link_target(href: str, idx_name: str) -> str | None:
+    clean = unquote(str(href or "")).strip()
+    match = _LVADDR_RE.match(clean)
+    if match is None:
+        return None
+    block = _parse_int_auto(match.group("block"))
+    offset = _parse_int_auto(match.group("offset"))
+    if block is None or offset is None:
+        return None
+    return f"ssed:{idx_name}:{block}:{offset}"
+
+
+def _lved_html_link_target(href: str) -> str | None:
+    clean = unquote(str(href or "")).strip()
+    if not clean:
+        return None
+    parsed = urlparse(clean)
+    path = parsed.path or clean
+    if path.isdigit():
+        return f"lved:content:{int(path)}"
+    match = _ENTRY_HTML_RE.search(path)
+    if match is not None:
+        return f"lved:content:{int(match.group('id'))}"
+    match = _LVED_DATAID_RE.match(clean)
+    if match is not None:
+        return f"lved:content:{int(match.group('id'))}"
+    return None
 
 
 @dataclass
@@ -351,26 +397,86 @@ def _rewrite_body_with_sqlite_media(body: ExportBody, con: sqlite3.Connection, r
     return ExportBody(events=tuple(events), source_kind=body.source_kind, diagnostics=body.diagnostics)
 
 
-def _token_events(tokens: list[object], media_resolver: _SsedMediaResolver | None = None) -> tuple[ExportBodyEvent, ...]:
+def _pointer_target_from_payload(payload_hex: str, idx_name: str) -> str | None:
+    try:
+        payload = bytes.fromhex(payload_hex)
+    except ValueError:
+        return None
+    if len(payload) < 6:
+        return None
+    payload = payload[-6:]
+    block = int.from_bytes(payload[:4], "big")
+    offset = int.from_bytes(payload[4:6], "big")
+    if block <= 0:
+        return None
+    return f"ssed:{idx_name}:{block}:{offset}"
+
+
+def _event_plain_label(events: list[ExportBodyEvent], fallback: str = "link") -> str:
+    parts: list[str] = []
+    for event in events:
+        if event.kind == "text":
+            parts.append(event.text)
+        elif event.kind == "line_break":
+            parts.append(" ")
+        elif event.kind in {"gaiji_ref", "media_ref"}:
+            parts.append(event.text or event.value)
+    label = " ".join("".join(parts).split()).strip()
+    return label or fallback
+
+
+def _token_events(
+    tokens: list[object],
+    media_resolver: _SsedMediaResolver | None = None,
+    *,
+    idx_name: str = "",
+) -> tuple[ExportBodyEvent, ...]:
     events: list[ExportBodyEvent] = []
+    link_stack: list[dict[str, Any]] = []
+
+    def append_event(event: ExportBodyEvent) -> None:
+        if link_stack:
+            link_stack[-1]["events"].append(event)
+        else:
+            events.append(event)
+
     for token in tokens:
         if isinstance(token, Text):
-            events.append(ExportBodyEvent.text_event(token.value))
+            append_event(ExportBodyEvent.text_event(token.value))
         elif isinstance(token, Break):
-            events.append(ExportBodyEvent.line_break())
+            append_event(ExportBodyEvent.line_break())
         elif isinstance(token, StartTag):
             if token.tag in {"bold", "italic", "sub", "sup", "em"}:
-                events.append(ExportBodyEvent(kind="style_start", value=token.tag))
+                append_event(ExportBodyEvent(kind="style_start", value=token.tag))
         elif isinstance(token, EndTag):
             if token.tag in {"bold", "italic", "sub", "sup", "em"}:
-                events.append(ExportBodyEvent(kind="style_end", value=token.tag))
+                append_event(ExportBodyEvent(kind="style_end", value=token.tag))
+        elif isinstance(token, LinkStart):
+            link_stack.append({"op": token.op, "payload": token.payload, "events": []})
+        elif isinstance(token, LinkEnd):
+            if not link_stack:
+                continue
+            ctx = link_stack.pop()
+            target_payload = token.payload or str(ctx.get("payload") or "")[-12:]
+            target = _pointer_target_from_payload(target_payload, idx_name) if idx_name else None
+            append_event(
+                ExportBodyEvent(
+                    kind="link",
+                    text=_event_plain_label(ctx["events"]),
+                    value=target or "",
+                    attrs={"start_op": f"{int(ctx.get('op') or 0):02x}", "end_op": f"{token.op:02x}"},
+                )
+            )
         elif isinstance(token, Image):
-            events.append(ExportBodyEvent(kind="gaiji_ref", value=token.key))
+            append_event(ExportBodyEvent(kind="gaiji_ref", value=token.key))
         elif isinstance(token, Media):
             resolved = media_resolver.resolve_control_payload(token.payload) if media_resolver is not None else None
-            events.append(resolved or ExportBodyEvent(kind="media_ref", value=token.payload, text="media"))
+            append_event(resolved or ExportBodyEvent(kind="media_ref", value=token.payload, text="media"))
         elif isinstance(token, Section):
-            events.append(ExportBodyEvent(kind="section", value=token.code))
+            append_event(ExportBodyEvent(kind="section", value=token.code))
+    while link_stack:
+        ctx = link_stack.pop(0)
+        events.extend(ctx["events"])
     return tuple(events)
 
 
@@ -497,7 +603,11 @@ def _rendererdb_export_entries(
                 if not title_plain:
                     title_plain = f"data {data_id}"
                 if html_value:
-                    body = html_to_export_body(html_value, source_kind="rendererdb_t_contents_html")
+                    body = html_to_export_body(
+                        html_value,
+                        source_kind="rendererdb_t_contents_html",
+                        link_resolver=lambda href, idx_name=source.idx.name: _ssed_html_link_target(href, idx_name),
+                    )
                     if media_resolver is not None:
                         body = _rewrite_body_with_sqlite_media(body, con, media_resolver, role="rendererdb_media_blob")
                         body = media_resolver.rewrite_body_media(body, role="rendererdb_html_image")
@@ -719,7 +829,11 @@ def _load_ssed_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
                 ExportEntry(
                     target=target,
                     headword=heading,
-                    body=ExportBody(events=_token_events(tokens, media_resolver), source_kind="ssed_honmon_slice", diagnostics=tuple(entry_diags)),
+                    body=ExportBody(
+                        events=_token_events(tokens, media_resolver, idx_name=source.idx.name),
+                        source_kind="ssed_honmon_slice",
+                        diagnostics=tuple(entry_diags),
+                    ),
                     search_keys=(heading,),
                     diagnostics=tuple(entry_diags),
                 )
@@ -906,7 +1020,7 @@ def _load_lved_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
                     for row_index, row in enumerate(con.execute(f"select id, body from content order by id{limit_sql}"), start=1):
                         content_id = int(row["id"])
                         body_html = _sqlite_text(row["body"])
-                        body = html_to_export_body(body_html, source_kind="lved_content_html")
+                        body = html_to_export_body(body_html, source_kind="lved_content_html", link_resolver=_lved_html_link_target)
                         body = _rewrite_body_with_sqlite_media(body, con, resource_resolver, role="lved_media_blob")
                         body = resource_resolver.rewrite_body_media(body, role="lved_html_image")
                         heading = _lved_title_for_content(con, content_id) or f"content {content_id}"
@@ -933,7 +1047,7 @@ def _load_lved_export_book(path: Path, options: ExportSourceOptions) -> ExportBo
                     name = _sqlite_text(row["name"])
                     if "copyright" in name.casefold() or "著作権" in name or "about" in name.casefold() or "について" in name:
                         body_html = _sqlite_text(row["body"])
-                        body = html_to_export_body(body_html, source_kind="lved_info_html")
+                        body = html_to_export_body(body_html, source_kind="lved_info_html", link_resolver=_lved_html_link_target)
                         body = _rewrite_body_with_sqlite_media(body, con, resource_resolver, role="lved_info_media_blob")
                         body = resource_resolver.rewrite_body_media(body, role="lved_info_image")
                         copyright_rows.append(

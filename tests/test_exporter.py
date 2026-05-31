@@ -124,6 +124,75 @@ def test_epwing_v6_backend_indexes_menu_and_copyright_surfaces(tmp_path: Path) -
     assert report.copyright_pages == 1
 
 
+def test_epwing_v6_backend_lowers_entry_links_to_references(tmp_path: Path) -> None:
+    book = ExportBook(
+        title="Link Fixture",
+        source_family=SourceFamily.SSED,
+        source_id="LINKFIX",
+        entries=(
+            ExportEntry(
+                target="entry:alpha",
+                headword="alpha",
+                body=ExportBody(
+                    events=(
+                        ExportBodyEvent.text_event("see "),
+                        ExportBodyEvent(kind="link", text="beta", value="entry:beta"),
+                    ),
+                    source_kind="synthetic",
+                ),
+                search_keys=("alpha",),
+            ),
+            ExportEntry(
+                target="entry:beta",
+                headword="beta",
+                body=ExportBody.text("target body"),
+                search_keys=("beta",),
+            ),
+        ),
+    )
+
+    report = EpwingV6Backend().write(book, tmp_path / "epwing")
+    honmon2 = (tmp_path / "epwing" / report.subbook_dir / "DATA" / "HONMON2").read_bytes()
+
+    assert report.entry_link_controls == 1
+    assert report.unresolved_link_placeholders == 0
+    assert b"\x1f\x42\x00\x00" in honmon2
+    assert b"\x1f\x62" in honmon2
+    assert all(diagnostic.code != "epwing_link_target_unresolved" for diagnostic in report.diagnostics)
+
+
+def test_epwing_v6_backend_menu_can_target_address_inside_exported_entry(tmp_path: Path) -> None:
+    book = ExportBook(
+        title="Containing Target Fixture",
+        source_family=SourceFamily.SSED,
+        source_id="MENULINK",
+        entries=(
+            ExportEntry(
+                target="ssed:MENULINK.IDX:2:0",
+                headword="alpha",
+                body=ExportBody.text("body"),
+                search_keys=("alpha",),
+            ),
+            ExportEntry(
+                target="ssed:MENULINK.IDX:2:200",
+                headword="beta",
+                body=ExportBody.text("next body"),
+                search_keys=("beta",),
+            ),
+        ),
+        navigation=(ExportNavigation(kind="menu", label="inside alpha", target="ssed:MENULINK.IDX:2:8"),),
+    )
+
+    report = EpwingV6Backend().write(book, tmp_path / "epwing")
+    honmon2 = (tmp_path / "epwing" / report.subbook_dir / "DATA" / "HONMON2").read_bytes()
+
+    assert report.navigation == 1
+    assert report.containing_target_links == 1
+    assert b"\x1f\x43" in honmon2
+    assert b"\x1f\x63" in honmon2
+    assert all(diagnostic.code != "epwing_menu_target_unmatched" for diagnostic in report.diagnostics)
+
+
 def test_epwing_v6_backend_uses_export_index_rows_when_targets_match(tmp_path: Path) -> None:
     book = ExportBook(
         title="Index Fixture",
@@ -263,7 +332,7 @@ def test_lved_sqlite_source_flattens_content_html_and_copyright(tmp_path: Path) 
     con.execute("create table list(id integer primary key, content_id integer, title text, subtitle text, type integer, anchor text)")
     con.execute("create table info(id integer primary key, type integer, name text, body text, media text)")
     con.execute('create table media(No integer primary key, f_name text, f_type integer, f_main blob)')
-    con.execute("insert into content values(10, '<div><b>Alpha</b><br>definition<img src=\"figure.gif\"></div>')")
+    con.execute("insert into content values(10, '<div><b>Alpha</b><br>definition<a href=\"lved.dataid:10\">self link</a><img src=\"figure.gif\"></div>')")
     con.execute("insert into list values(1, 10, '<span>alpha</span>', '', 0, '')")
     con.execute("insert into info values(1, 2, 'copyright.html', '<p>Copyright fixture</p>', '')")
     con.execute("insert into media values(1, 'figure', 1, ?)", (b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;",))
@@ -276,6 +345,7 @@ def test_lved_sqlite_source_flattens_content_html_and_copyright(tmp_path: Path) 
     assert len(book.entries) == 1
     assert book.entries[0].headword == "alpha"
     assert any(event.kind == "style_start" and event.value == "bold" for event in book.entries[0].body.events)
+    assert any(event.kind == "link" and event.value == "lved:content:10" for event in book.entries[0].body.events)
     assert book.resources and book.resources[0].resource_id == "rendererdb-media:figure"
     assert any(event.kind == "media_ref" and event.value == "rendererdb-media:figure" for event in book.entries[0].body.events)
     assert book.copyright and book.copyright[0].label == "copyright.html"
