@@ -19,6 +19,8 @@ from logovista_tools.exporter import (
     SourceFamily,
     load_export_book,
 )
+from logovista_tools.entries import LinkEnd, LinkStart, Text
+from logovista_tools.exporter.sources import _token_events
 from logovista_tools.writer import WriterEntry, build_plain_honmon_package, write_plain_package
 
 
@@ -159,6 +161,22 @@ def test_epwing_v6_backend_lowers_entry_links_to_references(tmp_path: Path) -> N
     assert b"\x1f\x42\x00\x00" in honmon2
     assert b"\x1f\x62" in honmon2
     assert all(diagnostic.code != "epwing_link_target_unresolved" for diagnostic in report.diagnostics)
+
+
+def test_ssed_body_link_payload_uses_bcd_block_offset() -> None:
+    events = _token_events(
+        [
+            LinkStart(op=0x42),
+            Text("識別ボード「が」"),
+            LinkEnd(op=0x62, payload="000009621076"),
+        ],
+        idx_name="ARCHSIC3.IDX",
+    )
+
+    assert len(events) == 1
+    assert events[0].kind == "link"
+    assert events[0].text == "識別ボード「が」"
+    assert events[0].value == "ssed:ARCHSIC3.IDX:962:1076"
 
 
 def test_epwing_v6_backend_menu_can_target_address_inside_exported_entry(tmp_path: Path) -> None:

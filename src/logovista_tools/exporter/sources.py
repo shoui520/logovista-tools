@@ -14,7 +14,7 @@ import subprocess
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from ..colscr import find_colscr_path, parse_media_pointer, read_colscr_record
+from ..colscr import decode_bcd_decimal, find_colscr_path, parse_media_pointer, read_colscr_record
 from ..entries import (
     Break,
     EndTag,
@@ -405,8 +405,11 @@ def _pointer_target_from_payload(payload_hex: str, idx_name: str) -> str | None:
     if len(payload) < 6:
         return None
     payload = payload[-6:]
-    block = int.from_bytes(payload[:4], "big")
-    offset = int.from_bytes(payload[4:6], "big")
+    block = decode_bcd_decimal(payload[:4])
+    offset = decode_bcd_decimal(payload[4:6])
+    if block is None or offset is None:
+        block = int.from_bytes(payload[:4], "big")
+        offset = int.from_bytes(payload[4:6], "big")
     if block <= 0:
         return None
     return f"ssed:{idx_name}:{block}:{offset}"

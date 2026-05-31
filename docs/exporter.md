@@ -98,7 +98,9 @@ Current lowering behavior:
   reference controls, while unresolved targets are downgraded to visible text
   with diagnostics. SSED menu targets may resolve to an entry containing the
   target address, which matches LogoVista menu rows that jump inside a body
-  slice rather than exactly to the exported entry start.
+  slice rather than exactly to the exported entry start. SSED body link
+  destinations use the observed packed-BCD block/offset payload form, with a
+  binary fallback for non-BCD payloads.
 - Image resources are lowered into `HONMONG` when they can be represented as
   EPWING color graphics. This includes SSED `COLSCR.DIC` image records,
   renderer/sidecar media BLOBs, LVED `media` BLOBs, and resolvable loose HTML
