@@ -12,6 +12,7 @@ from logovista_tools.exporter import (
     ExportBody,
     ExportBodyEvent,
     ExportEntry,
+    ExportGaiji,
     ExportIndex,
     ExportNavigation,
     ExportResource,
@@ -161,6 +162,53 @@ def test_epwing_v6_backend_lowers_entry_links_to_references(tmp_path: Path) -> N
     assert b"\x1f\x42\x00\x00" in honmon2
     assert b"\x1f\x62" in honmon2
     assert all(diagnostic.code != "epwing_link_target_unresolved" for diagnostic in report.diagnostics)
+
+
+def test_epwing_v6_backend_preserves_source_ga16_bitmap_rows(tmp_path: Path) -> None:
+    glyph = b"\xff\x00" * 16
+    book = ExportBook(
+        title="Gaiji Fixture",
+        source_family=SourceFamily.SSED,
+        source_id="GAIJIFIX",
+        entries=(
+            ExportEntry(
+                target="entry:alpha",
+                headword="alpha",
+                body=ExportBody(events=(ExportBodyEvent(kind="gaiji_ref", value="a121"),), source_kind="synthetic"),
+                search_keys=("alpha",),
+            ),
+        ),
+        gaiji=(
+            ExportGaiji(
+                code="A121",
+                space="full",
+                unicode="〓",
+                bitmap=glyph,
+                bitmap_width=16,
+                bitmap_height=16,
+                bitmap_source="GAI16F00",
+                bitmap_backed=True,
+            ),
+        ),
+    )
+
+    report = EpwingV6Backend().write(book, tmp_path / "epwing")
+    subbook = tmp_path / "epwing" / report.subbook_dir
+    honmon2 = (subbook / "DATA" / "HONMON2").read_bytes()
+    ga16full = (subbook / "GAIJI" / "GA16FULL").read_bytes()
+    map_text = (tmp_path / "epwing" / f"{report.subbook_dir}.map").read_text(encoding="utf-8")
+
+    assert b"\xa1\x21" in honmon2
+    assert b"[a121]" not in honmon2
+    assert len(ga16full) == 4096
+    assert ga16full[8] == 16
+    assert ga16full[9] == 16
+    assert int.from_bytes(ga16full[10:12], "big") == 0xA121
+    assert int.from_bytes(ga16full[12:14], "big") == 1
+    assert ga16full[2048:2080] == glyph
+    assert "zA121" in map_text
+    assert report.gaiji_full_entries == 1
+    assert all(diagnostic.code != "gaiji_ref_placeholder" for diagnostic in report.diagnostics)
 
 
 def test_ssed_body_link_payload_uses_bcd_block_offset() -> None:

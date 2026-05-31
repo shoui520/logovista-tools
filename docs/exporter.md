@@ -120,9 +120,13 @@ Current lowering behavior:
   text, not normal dictionary entries.
 - Unicode-first gaiji behavior is represented through an EBWin-compatible
   `.map`, with generated GA16 bitmap fallback files. The fallback bitmaps are
-  only populated when bitmap gaiji sources or fonts with embedded bitmap
-  strikes are configured; otherwise the report warns that GA16 fallback cells
-  are blank.
+  populated from source LogoVista `GA16*` / `GAI16*` bitmap resources where
+  present, then from generated bitmap-font fallbacks for exporter-allocated
+  gaiji. Source bitmap resources are not discarded just because a `.map`
+  Unicode mapping exists. GA16 files are padded to EPWING block boundaries.
+  Some LogoVista packages use compact `.uni` record-order glyph packing; those
+  rows are expanded into EPWING's grid-addressable GA16 layout, so output size
+  may be larger than the source while preserving code-to-glyph behavior.
 
 Deferred behavior:
 

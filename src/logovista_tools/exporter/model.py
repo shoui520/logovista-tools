@@ -167,11 +167,18 @@ class ExportGaiji:
     space: str
     unicode: str | None = None
     template_resource: str | None = None
+    bitmap: bytes | None = None
+    bitmap_width: int | None = None
+    bitmap_height: int | None = None
+    bitmap_source: str | None = None
     bitmap_backed: bool = False
     nonliteral_marker: bool = False
 
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        bitmap = data.pop("bitmap", None)
+        data["bitmap_bytes"] = len(bitmap) if bitmap is not None else None
+        return data
 
 
 @dataclass(frozen=True)

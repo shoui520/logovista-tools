@@ -31,7 +31,16 @@ from ..entries import (
     iter_entry_slices_reader,
     tokens_to_text,
 )
-from ..gaiji import load_gaiji_profile
+from ..gaiji import (
+    candidate_gaiji_paths,
+    file_identity,
+    ga16_preferred_code_for_index,
+    ga16_section_for_path,
+    is_bitmap_gaiji_resource_name,
+    load_gaiji_profile,
+    parse_ga16_resource,
+    parse_uni_resource,
+)
 from ..indexes import INDEX_TYPES, scan_index_component_reader
 from ..lved import (
     classify_lved_payload,
@@ -499,17 +508,81 @@ def _mode_for_index_type(component_type: int) -> str:
 
 def _gaiji_rows(idx: Path) -> tuple[ExportGaiji, ...]:
     profile = load_gaiji_profile(idx)
-    rows: list[ExportGaiji] = []
+    rows_by_key: dict[tuple[str, str], ExportGaiji] = {}
+    uni_candidates, _plist_candidates = candidate_gaiji_paths(idx)
+    uni_resources = []
+    seen_uni: set[Any] = set()
+    for path in uni_candidates:
+        if not path.exists():
+            continue
+        identity = file_identity(path)
+        if identity in seen_uni:
+            continue
+        seen_uni.add(identity)
+        resource = parse_uni_resource(path)
+        if resource is not None:
+            uni_resources.append(resource)
+            for record in resource.records:
+                if record.display:
+                    rows_by_key[(record.section, record.code.upper())] = ExportGaiji(
+                        code=record.code.upper(),
+                        space=record.section,
+                        unicode=record.display,
+                    )
     for code, value in sorted(profile.map.items()):
         first = int(code[:2], 16)
-        rows.append(
+        inferred_space = "half" if first < 0xB0 else "full"
+        rows_by_key.setdefault(
+            (inferred_space, code.upper()),
             ExportGaiji(
                 code=code.upper(),
-                space="half" if first < 0xB0 else "full",
+                space=inferred_space,
                 unicode=value,
             )
         )
-    return tuple(rows)
+
+    bitmap_paths: list[Path] = []
+    seen_bitmap: set[Any] = set()
+    for root in (idx.parent, idx.parent.parent):
+        try:
+            children = list(root.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            if not child.is_file() or not is_bitmap_gaiji_resource_name(child):
+                continue
+            identity = file_identity(child)
+            if identity in seen_bitmap:
+                continue
+            seen_bitmap.add(identity)
+            bitmap_paths.append(child)
+
+    for bitmap_path in sorted(bitmap_paths, key=lambda item: item.name.casefold()):
+        resource = parse_ga16_resource(bitmap_path)
+        section = ga16_section_for_path(bitmap_path)
+        if resource is None or section is None:
+            continue
+        data = bitmap_path.read_bytes()
+        preferred_uni = next((uni for uni in uni_resources if any(record.section == section for record in uni.records)), None)
+        for index in range(resource.count):
+            code, _source = ga16_preferred_code_for_index(resource, index, preferred_uni)
+            glyph = resource.glyph_for_index(data, index)
+            key = (section, code.upper())
+            previous = rows_by_key.get(key)
+            rows_by_key[key] = ExportGaiji(
+                code=code.upper(),
+                space=section,
+                unicode=previous.unicode if previous is not None else None,
+                template_resource=previous.template_resource if previous is not None else None,
+                bitmap=glyph,
+                bitmap_width=resource.width,
+                bitmap_height=resource.height,
+                bitmap_source=bitmap_path.name,
+                bitmap_backed=True,
+                nonliteral_marker=previous.nonliteral_marker if previous is not None else False,
+            )
+
+    return tuple(sorted(rows_by_key.values(), key=lambda row: (row.space, int(row.code, 16))))
 
 
 def _renderer_sidecar_sqlite_path(sidecar_path: Path, storage: str, callback) -> Any:
